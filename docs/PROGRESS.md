@@ -102,3 +102,5 @@ schema was written. Three forks were put up and all three recommendations taken.
 - **No placement code.** `snapshot.test.ts` writes the snapshot the way C-006's route will, in a local helper. Order-number assignment, the idempotency retry, and the mismatch log are C-006.
 - **No seed script and no `RestaurantSettings` row outside tests.** `db:seed:*` lands with C-017.
 - **Store hours, pause, throttle and prep times are not in `RestaurantSettings`.** C-011 and C-013 add their own columns; adding them now would be four settings nothing reads.
+
+C-003 committed and pushed at 85f384e
