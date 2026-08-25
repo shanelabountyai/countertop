@@ -44,6 +44,11 @@ _(Filled in as phases land.)_
 | Snapshot rows reference the menu by plain string, no foreign key | FK `onDelete: Restrict`, or `SetNull` | Restrict forbids ever deleting a menu row someone ordered; SetNull *edits a placed order*. The ids are for analytics and are never resolved for display |
 | Two timestamp columns + the append-only event log | a denormalized column per status | Seven columns can disagree with the log, and a logged revert has to invent a rule about un-setting one |
 | No cart tables — client-side cart, server prices every mutation | `Cart` / `CartLine` tables | They would mirror `OrderLine` field for field and need session keying and an expiry job that nothing in P0 reads |
+| Every status list is a filter over one nine-field table | status strings written at each reader | Queue filters, the throttle count, the polling stop set and the alert set all have to mean the same thing. A new state is a compile error until all nine questions are answered — the readers cannot be forgotten |
+| `ready` is on the kitchen queue but does **not** count as open | one "active" set for both | The food is made: it should keep aging in front of the cooks, but it must not hold the too-busy checkout gate closed |
+| `picked_up` and `abandoned` are terminal *and* revertable; `cancelled` is not | no undo past the last state, or undo everywhere | The five-second undo exists for the last tap, which is the one a fat finger gets wrong. Un-cancelling would have to re-charge a refund |
+| An advance may carry the state it expects to reach | advance = "whatever comes next" | Two cooks tapping the same card half a second apart otherwise skips a state. The stale tap names a state already behind, and is refused |
+| The mock refund is an append-only event | a payment interface with one implementation | The event is the record either way, and an interface with one implementation carries no information. The real adapter is P2 |
 
 ## Scaling Caveats and Deliberate Simplifications
 
@@ -55,6 +60,8 @@ Recorded as they are made, with the ceiling each one has.
 - **Throttling counts open orders, not prep weight** (P0-6; P1-7 is the upgrade). Ten bags of chips and ten catering bowls count the same. The estimate is honest about being rough — it is shown as a range, never a point.
 - **`light` intensity costs the same as `regular`** (C-002). Restaurants do not discount light sauce, and inventing a discount rule nobody asked for is a pricing policy smuggled in as a default. If a menu ever needs per-intensity pricing beyond the "extra" surcharge, it is an additive field on the option.
 - **No default-included options** (C-002). "NO onions" is expressed as selecting Onions at `none`, not as deselecting something the item ships with. Default-inclusion changes what the composer screen renders and is not in P0-1; adding it later is additive to the group type.
+- **The five-second undo window is UI, not engine** (C-004). `applyTransition` allows a revert whenever the transition table does; the button is what expires. Correctness never depends on a client-side timer — same reasoning as the idempotency constraint versus the disabled submit button.
+- **Staff can cancel through `preparing`, not only `placed|accepted`** (C-004). The PRD's state line reads `placed|accepted → cancelled`; the wider reading was taken deliberately, because "out of item" — the first reason on the preset list — is usually discovered with the pan already hot. Cancelling food that is already `ready` is still refused: a no-show is `abandoned`, which is a different business signal.
 - **`deepmerge-ts` high-severity advisory accepted, not fixed** (C-001). It arrives only through the Prisma **CLI** (`prisma` → `@prisma/config` → `deepmerge-ts`); the vulnerability is stack exhaustion when merging recursive object graphs, and the only graph merged here is our own committed config. No runtime path, and `npm audit fix` cannot resolve it without an upstream release. Revisit on the next Prisma bump.
 
 ## Defects Found

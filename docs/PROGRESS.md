@@ -104,3 +104,88 @@ schema was written. Three forks were put up and all three recommendations taken.
 - **Store hours, pause, throttle and prep times are not in `RestaurantSettings`.** C-011 and C-013 add their own columns; adding them now would be four settings nothing reads.
 
 C-003 committed and pushed at 85f384e
+
+---
+
+## C-004 — The order state machine
+
+The lifecycle as ONE module, and every reader-facing status list derived from
+one table inside it rather than spelled out at each call site.
+
+**Built:**
+- `packages/core/orders/state-machine.ts` — `STATUS_FACTS`, a
+  `Record<OrderStatus, …>` holding nine facts per status (`next`, `previous`,
+  `open`, `terminal`, `alerts`, `inQueue`, `cancellableByStaff`,
+  `cancellableByCustomer`, `abandonable`). Adding a state is a compile error
+  until every one of those questions is answered — which is the CLAUDE.md
+  invariant ("the compiler finds the readers, not grep") made structural rather
+  than aspirational.
+- **The reader lists are filters over that table, not literals.**
+  `OPEN_STATUSES` (the P0-6 throttle count), `TERMINAL_STATUSES` (where P0-5
+  polling stops), `ALERT_STATUSES` (P0-12), `QUEUE_STATUSES` (the kitchen
+  groupings, in flow order), plus `isOpen` / `isTerminal` /
+  `needsAcknowledgment` / `nextStatus` / `previousStatus`.
+- `applyTransition(order, action, now)` — pure; it decides, it does not
+  persist. Four actions (`advance`, `revert`, `cancel`, `abandon`), returning
+  either the new status plus the `OrderEvent` rows to append, or a refusal
+  carrying a **reason** and a staff-facing message.
+- `acknowledge(order, now)` is `advance` with the target named — the ack IS
+  `placed → accepted` (P0-12), not a second code path that could disagree.
+- `placementEvent(now)` — the `placed` row's own event, a transition from
+  nothing, so C-006 does not hand-roll the event vocabulary.
+- The **status vocabulary** (`ORDER_STATUSES`, `CANCEL_REASONS`,
+  `EVENT_ACTORS`, `ORDER_EVENT_KINDS`, `PAYMENT_STATES`) now lives in the
+  engine, and `packages/db/snapshot.test.ts` asserts all five against
+  `pg_enum` — the parity test C-003 explicitly left for this session, extended
+  from one enum to a table over six.
+- `packages/core/orders/state-machine.test.ts` — 58 tests. The centre of it is
+  the **full 7×5 transition table written out longhand** (every status against
+  every action), so a change to the machine has to be re-justified row by row
+  instead of agreeing with itself. That yields 20 refusals across 8 distinct
+  reasons — well past the PRD's "≥8 invalid transitions" — every one asserted
+  **by reason**, plus tests that the table covers and reaches every status.
+
+**Decided:**
+- **Staff may cancel through `preparing`, not just `placed|accepted`.** The
+  PRD's state line says `placed|accepted → cancelled`; START-HERE says "staff
+  anytime pre-ready". Took the wider reading: "out of item" is usually
+  discovered with the pan already hot, and the narrower rule would leave staff
+  with no button for the case the preset reason list names first.
+- **`ready` is on the queue but is NOT open.** The food is made, so it must not
+  hold the P0-6 auto-pause threshold closed — but it still ages on the queue
+  until someone collects it. Two facts, deliberately not one.
+- **`picked_up` and `abandoned` are terminal AND revertable; `cancelled` is
+  not.** The 5-second undo has to work on the last forward tap too, and a
+  no-show closed out by mistake is the same fat-finger. A cancel may have
+  written a refund, and un-cancelling would have to re-charge — so it refuses,
+  by its own reason (`revert_not_allowed`), with a message that says to place a
+  new order.
+- **`advance` and `revert` accept an OPTIONAL target, and refuse a stale one**
+  (`unexpected_target`). Two cooks tapping the same card is not a hypothetical
+  at arm's length with gloves on; the second tap names a state that is already
+  behind and is refused rather than skipping one.
+- **The mock refund is an `OrderEvent`, not a payment interface.** Cancelling a
+  `paid` order emits a second event (`kind: 'refund'`, actor `system`, detail
+  `{amountCents, provider: 'mock'}`). An interface with one implementation is
+  an interface with no information in it; the real adapter is P2, and the event
+  is the record either way.
+- **`other` requires text.** A cancel reason nobody can act on later is the
+  reason the preset list exists to avoid. Cancel notes are capped at 140 to
+  match the column.
+- **Eligibility is checked before payload.** "This order cannot be cancelled at
+  all" is more useful to a caller than "your note is too long" on an order that
+  was never cancellable.
+
+**Left behind:**
+- **No aging flags.** The 15-minute queue flag and the 10/20/30-minute `ready`
+  no-show flags are pure functions of `statusChangedAt` and `now`, and they
+  belong with the queue that renders them — C-008. They go in this module, not
+  in a component.
+- **Nothing persists yet.** `applyTransition` returns the events; writing them
+  and the new status **in one transaction** is C-006's and C-008's job. A
+  status that moved without an event is a hole in the history the P1-1 report
+  reads, and there is no test yet that could catch one — the transaction is the
+  thing to review in C-008.
+- **No undo *window*.** The 5 seconds in P0-4 is UI: the engine allows a revert
+  whenever the table does, and the button is what expires. Correctness does not
+  depend on a client-side timer.

@@ -1,4 +1,14 @@
-import { INTENSITIES, priceLine, priceOrder, SAMPLE_MENU } from '@countertop/core';
+import {
+  CANCEL_REASONS,
+  EVENT_ACTORS,
+  INTENSITIES,
+  ORDER_EVENT_KINDS,
+  ORDER_STATUSES,
+  PAYMENT_STATES,
+  priceLine,
+  priceOrder,
+  SAMPLE_MENU,
+} from '@countertop/core';
 import type { Composition } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index.js';
@@ -190,13 +200,27 @@ describe('the snapshot rule', () => {
 });
 
 describe('the persisted vocabulary matches the engine', () => {
-  it('stores exactly the intensities packages/core defines', async () => {
-    const rows = await prisma.$queryRaw<{ value: string }[]>`
-      SELECT e.enumlabel AS value
-      FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
-      WHERE t.typname = 'Intensity'
-      ORDER BY e.enumsortorder
-    `;
-    expect(rows.map((r) => r.value)).toEqual([...INTENSITIES]);
-  });
+  // The database enum and the engine's list are two spellings of one
+  // vocabulary. Nothing but a test stops them drifting — and a drifted
+  // OrderStatus is a queue filter that silently omits a state.
+  const ENUMS: [string, readonly string[]][] = [
+    ['Intensity', INTENSITIES],
+    ['OrderStatus', ORDER_STATUSES],
+    ['CancelReason', CANCEL_REASONS],
+    ['EventActor', EVENT_ACTORS],
+    ['OrderEventKind', ORDER_EVENT_KINDS],
+    ['PaymentState', PAYMENT_STATES],
+  ];
+
+  for (const [typeName, engineValues] of ENUMS) {
+    it(`stores exactly the ${typeName} values packages/core defines`, async () => {
+      const rows = await prisma.$queryRaw<{ value: string }[]>`
+        SELECT e.enumlabel AS value
+        FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+        WHERE t.typname = ${typeName}
+        ORDER BY e.enumsortorder
+      `;
+      expect(rows.map((r) => r.value)).toEqual([...engineValues]);
+    });
+  }
 });

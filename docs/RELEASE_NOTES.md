@@ -128,3 +128,59 @@ both. When a cook fat-fingers "ready" and undoes it, the undo is written as a
 new event that says a revert happened — the mistake stays in the record. It also
 means an order that has any history cannot be deleted at all, which the tests
 confirm, and which is the correct answer for a record of money changing hands.
+
+---
+
+## C-004 — One table that every screen has to agree with
+
+An order moves `placed → accepted → preparing → ready → picked_up`, with a
+cancellation, a no-show, and an undo hanging off it. That is a small enough
+lifecycle that the tempting thing is to write the rules where they are needed:
+the kitchen queue filters on a couple of status strings, the checkout throttle
+counts a couple more, the customer's page stops polling on a third set. Three
+lists, written on three different days, that all have to mean the same thing.
+
+They never do. In the previous project of this series the same shape shipped a
+real defect: one reader knew about a state the others didn't, and orders in it
+quietly stopped appearing.
+
+So this build has one table. Each status answers nine questions in one place —
+what comes next, what an undo puts it back to, whether it counts as work the
+kitchen still owes, whether it's finished, whether it should be chiming for
+attention, whether it belongs on the queue, and who (if anyone) can still
+cancel it. Every list any screen uses is a *filter over that table*, computed
+at import: the throttle's open-order set, the queue's groupings, the polling
+stop condition, the alert set. Adding a state to this system doesn't require
+remembering the readers — the type system refuses the new state until all nine
+questions are answered, and the lists update themselves.
+
+Two of those answers are worth their own sentence. **A `ready` order is on the
+queue but doesn't count as open**, because the food is already made: it should
+keep aging in front of the cooks, but it must not hold the "we're too busy"
+checkout gate closed. And **an order that's already been picked up can still be
+reverted** — the whole point of a five-second undo is that it covers the *last*
+tap, which is exactly the one a fat finger gets wrong. A cancelled order can't
+be, because cancelling may have issued a refund and un-cancelling would have to
+re-charge; it refuses with a message that says to place a new order instead.
+
+**Acknowledging a new order is not a separate step.** The kitchen tablet chimes
+and flashes until someone taps the card, and that tap *is* the
+`placed → accepted` transition — one function call, not an "acknowledge" flag
+that a later "accept" button has to stay in sync with. The alert itself is
+derived from the order's state rather than from a "new order arrived" event, so
+reloading the page mid-rush doesn't silence anything.
+
+**Every refusal says why.** `applyTransition` doesn't return false — it returns
+a reason (`customer_cancel_too_late`, `abandon_not_allowed`,
+`revert_not_allowed`, …) plus the sentence a staff member should read. That
+matters for the tests as much as the UI: a test that only asserts "rejected"
+passes against a machine that rejects everything. The test file writes out the
+full 7-statuses × 5-actions grid longhand — 35 cases, every one naming either
+the state it lands in or the reason it's refused — so changing a rule means
+changing this table and defending it, rather than watching the assertions bend
+to whatever the code now does.
+
+The last piece is small and stops a specific kind of Friday: an advance can
+carry the state it *expects* to move to. Two cooks tapping the same card half a
+second apart used to mean the order skipped a state. Now the second tap names a
+state that's already behind, and is refused.
