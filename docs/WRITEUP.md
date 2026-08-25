@@ -5,7 +5,7 @@
 > happen**, not reconstructed at the end. A write-up assembled afterwards is a
 > write-up with no failure story in it.
 
-**Repo:** _(added with the first push)_
+**Repo:** https://github.com/shanelabountyai/countertop (private)
 **Live demo:** _(Vercel, later)_
 **Built with:** Claude Code + Next.js (App Router) · TypeScript · Postgres/Prisma · Tailwind · Vitest/Playwright + axe
 **Status:** In progress · Started 2026-08-25
