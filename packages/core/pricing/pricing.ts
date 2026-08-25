@@ -64,13 +64,21 @@ export function taxOn(subtotalCents: number, ratePpm: TaxRatePpm): number {
 /**
  * What one selected option adds to the unit price.
  *
+ * Exported because the order snapshot stores this number per option, and the
+ * options on a line must sum to exactly `unitPriceCents - basePriceCents`. A
+ * second implementation for the snapshot would be a second answer to drift.
+ *
  * A negation costs nothing — you are not getting it — even when the option
  * carries a delta. "Extra" costs the option's own delta PLUS its extra
  * surcharge. "Light" costs the same as "regular": a restaurant does not
  * discount light sauce, and pretending otherwise would be a pricing rule
  * nobody asked for.
  */
-function optionCost(group: ModifierGroup, option: ModifierOption, intensity: Intensity | undefined): number {
+export function appliedDeltaCents(
+  group: ModifierGroup,
+  option: ModifierOption,
+  intensity: Intensity | undefined,
+): number {
   if (!group.intensityEnabled) return option.priceDeltaCents;
   if (intensity === 'none') return 0;
   if (intensity === 'extra') return option.priceDeltaCents + (option.extraPriceDeltaCents ?? 0);
@@ -98,7 +106,7 @@ export function priceLine(menu: Menu, composition: Composition): PricedLine {
     if (!group) throw new Error(`Unknown modifier group: ${selection.groupId}`);
     const option = group.options.find((o) => o.id === selection.optionId);
     if (!option) throw new Error(`Unknown option: ${selection.optionId}`);
-    unitPriceCents += optionCost(group, option, selection.intensity);
+    unitPriceCents += appliedDeltaCents(group, option, selection.intensity);
   }
 
   return {

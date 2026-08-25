@@ -223,3 +223,45 @@ test that says so.
 The quantity cap (20) and the 140-character note cap are enforced in the same
 place as everything else — the one orderability function the menu screen, the
 cart, and placement all call. Three call sites, one answer.
+
+## C-006 — Placing the order
+
+An order is the moment a cart stops being a wish and becomes a promise, and
+this is the session that made the promise binding.
+
+**A placed order is a copy, not a link.** Every name and every price is written
+into the order's own rows at placement: the item name, the category, the base
+price, each option's name, and exactly what that option added to the price. The
+receipt renders with zero joins to any menu table. Rename the burrito, reprice
+it, 86 it, delete an option outright — the order is byte-identical afterwards,
+and there is a test that mutates every referenced menu row and asserts precisely
+that. The order numbers on it are the server's arithmetic, not the browser's.
+
+**The order number is taken, not chosen.** Every order gets the next number for
+the restaurant's own calendar day — #001, #002 — resetting at the restaurant's
+midnight, not UTC's. That distinction is not pedantry: a Los Angeles kitchen
+would otherwise roll its numbers over at 5pm, mid-dinner service. Twelve
+checkouts landing in the same instant get twelve different numbers, because the
+number is claimed with a database constraint and the loser of each race simply
+takes the next one. No "check if 47 is free, then write 47" — that has a window,
+and windows get hit at exactly the moment they cost the most.
+
+**A double-tap is one order, and the same answer twice.** Each checkout attempt
+carries a key. The second submission — a fat-fingered tap, a retried request, an
+impatient reload — returns the *first* order's confirmation, not a new order and
+not an error. Idempotency here means "the same answer", not merely "no
+duplicate": a second tap that returned a different order number would send the
+customer to the counter asking for food nobody is making. And the replay is
+answered before the menu is even consulted, so a customer whose retry lands
+after the guacamole runs out is not told their order failed when it is already
+on the grill.
+
+**A tampered total is logged, not honoured.** A request claiming the burrito
+costs nothing gets an order at the real price and a `total_mismatch` event in
+the append-only log saying what was claimed and what was charged. The client's
+number is evidence. It is never an input.
+
+The customer's confirmation comes back with the order number, their name, their
+status link and the full priced receipt — and no internal id anywhere in it.
+The number and the name are what a human calls across a counter; the UUID is
+the server's business and stays there.

@@ -77,3 +77,23 @@ export async function seedSampleMenu(): Promise<void> {
     ),
   });
 }
+
+/**
+ * The singleton settings row. Placement reads the timezone (the business day
+ * the order number resets on) and the tax rate from here, so every test that
+ * places an order needs one — `loadSettings` throws rather than defaulting,
+ * which is the behaviour that keeps a missing row from becoming a silent 0%.
+ */
+export async function seedSettings(
+  overrides: { timezone?: string; taxRatePpm?: number } = {},
+): Promise<void> {
+  await prisma.restaurantSettings.upsert({
+    where: { id: 'singleton' },
+    update: overrides,
+    create: {
+      id: 'singleton',
+      timezone: overrides.timezone ?? 'America/Los_Angeles',
+      taxRatePpm: overrides.taxRatePpm ?? 82_500,
+    },
+  });
+}

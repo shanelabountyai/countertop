@@ -5,101 +5,57 @@ import {
   ORDER_EVENT_KINDS,
   ORDER_STATUSES,
   PAYMENT_STATES,
-  priceLine,
-  priceOrder,
-  SAMPLE_MENU,
 } from '@countertop/core';
-import type { Composition } from '@countertop/core';
+import type { Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index.js';
-import { resetDatabase, seedSampleMenu } from './testing/index.js';
+import { placeOrder } from './placement.js';
+import { resetDatabase, seedSampleMenu, seedSettings } from './testing/index.js';
 
 // THE regression test this project exists to keep passing (CLAUDE.md, the
 // snapshot rule). A placed order is an immutable COPY. Menu edits made after
 // placement must be PROVABLY invisible to it — not "we're careful", provably.
+//
+// It places through the REAL placement path (C-006). A hand-built row would
+// prove only that the fixture copies its names; this proves the code that
+// takes customers' money does.
 
 const AT = new Date(Date.UTC(2026, 6, 4, 18, 30, 0)); // a frozen instant; nothing here reads a clock
 
 /** A burrito with everything the snapshot has to carry: a priced add-on, a
  *  priced `extra` intensity, and a NEGATION. */
-const COMPOSITION: Composition = {
-  itemId: 'burrito',
-  quantity: 2,
-  selections: [
-    { groupId: 'protein', optionId: 'carnitas' },
-    { groupId: 'addons', optionId: 'guacamole' },
-    { groupId: 'toppings', optionId: 'cheese', intensity: 'extra' },
-    { groupId: 'toppings', optionId: 'onions', intensity: 'none' },
-  ],
-  note: 'no rush',
-};
-
-/**
- * Writes the snapshot the way C-006's placement route will: names and prices
- * COPIED as columns, computed by packages/core, with the menu ids carried only
- * for analytics.
- */
-async function placeSnapshotOrder(): Promise<string> {
-  const item = SAMPLE_MENU.items.burrito;
-  if (!item) throw new Error('fixture drift: no burrito');
-  const category = SAMPLE_MENU.categories.find((c) => c.id === item.categoryId);
-  if (!category) throw new Error('fixture drift: no category');
-
-  const line = priceLine(SAMPLE_MENU, COMPOSITION);
-  const totals = priceOrder([line], 82_500);
-
-  const options = COMPOSITION.selections.map((selection, index) => {
-    const group = SAMPLE_MENU.groups[selection.groupId];
-    const option = group?.options.find((o) => o.id === selection.optionId);
-    if (!group || !option) throw new Error('fixture drift: no such option');
-    const before = priceLine(SAMPLE_MENU, { ...COMPOSITION, selections: [] }).unitPriceCents;
-    const withThis = priceLine(SAMPLE_MENU, { ...COMPOSITION, selections: [selection] }).unitPriceCents;
-    return {
-      sortOrder: index,
-      modifierGroupId: group.id,
-      modifierOptionId: option.id,
-      groupName: group.name,
-      optionName: option.name,
-      intensity: selection.intensity ?? null,
-      appliedDeltaCents: withThis - before,
-    };
-  });
-
-  const order = await prisma.order.create({
-    data: {
-      businessDay: '2026-07-04',
-      seq: 47,
-      customerName: 'Dana',
-      customerPhone: '555-0100',
-      orderNote: 'blue Honda out front',
-      status: 'placed',
-      placedAt: AT,
-      statusChangedAt: AT,
-      subtotalCents: totals.subtotalCents,
-      taxCents: totals.taxCents,
-      taxRatePpm: 82_500,
-      totalCents: totals.totalCents,
-      statusToken: 'token-'.padEnd(40, 'a'),
-      idempotencyKey: 'idem-1',
-      lines: {
-        create: [
-          {
-            lineNumber: 1,
-            menuItemId: item.id,
-            itemName: item.name,
-            categoryName: category.name,
-            basePriceCents: item.basePriceCents,
-            quantity: COMPOSITION.quantity,
-            unitPriceCents: line.unitPriceCents,
-            lineTotalCents: line.lineTotalCents,
-            note: COMPOSITION.note ?? null,
-            options: { create: options },
-          },
+const CART: Cart = {
+  lines: [
+    {
+      id: 'line-1',
+      unitPriceAtAddCents: 1620,
+      composition: {
+        itemId: 'burrito',
+        quantity: 2,
+        selections: [
+          { groupId: 'protein', optionId: 'carnitas' },
+          { groupId: 'addons', optionId: 'guacamole' },
+          { groupId: 'toppings', optionId: 'cheese', intensity: 'extra' },
+          { groupId: 'toppings', optionId: 'onions', intensity: 'none' },
         ],
+        note: 'no rush',
       },
     },
+  ],
+};
+
+let keyCounter = 0;
+async function placeSnapshotOrder(): Promise<string> {
+  const result = await placeOrder({
+    cart: CART,
+    customerName: 'Dana',
+    customerPhone: '555-0100',
+    orderNote: 'blue Honda out front',
+    idempotencyKey: `snapshot-${(keyCounter += 1)}`,
+    now: AT,
   });
-  return order.id;
+  if (!result.ok) throw new Error(`placement refused: ${JSON.stringify(result.errors)}`);
+  return result.order.id;
 }
 
 /** Everything a receipt or a kitchen ticket renders — and NOTHING from a menu table. */
@@ -119,6 +75,7 @@ describe('the snapshot rule', () => {
   beforeEach(async () => {
     await resetDatabase();
     await seedSampleMenu();
+    await seedSettings();
   });
 
   it('renders a receipt with zero joins to any menu table', async () => {

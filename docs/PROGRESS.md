@@ -266,3 +266,89 @@ re-check that catches the two things that can change while food sits in it: an
   number of lines is bounded only by the cookie ceiling above.
 
 C-005 committed and pushed at 0c9f4ca
+
+---
+
+## C-006 — The placement flow
+
+The cart becomes rows: re-priced by the server, copied instead of referenced,
+numbered without racing, and answerable to the same key twice.
+
+**Built:**
+- `packages/core/orders/business-day.ts` — `businessDayOf(now, timezone)`, the
+  restaurant-timezone calendar day as `"YYYY-MM-DD"`. `Intl.DateTimeFormat`
+  with `formatToParts`, which is the only timezone database in the platform and
+  the reason this needs no dependency. Six tests: a UTC-vs-local day split, the
+  rollover to the minute, a DST jump, a zone ahead of UTC, the `Char(10)`
+  padding, and an unknown zone throwing rather than falling back to UTC.
+- `packages/core/orders/placement.ts` — `buildOrderSnapshot(menu, cart, ratePpm)`
+  (the pure copy: item and category names, base price, applied delta per option,
+  computed unit/line totals, tax once on the subtotal), `normalizeIdentity`
+  (P0-8's name/phone/note, trimmed and length-checked against the column
+  widths), and `formatOrderNumber(seq)` → `#047`.
+- `packages/core/pricing/pricing.ts` — `optionCost` exported as
+  `appliedDeltaCents`. The snapshot stores what each option added; a second
+  implementation of that arithmetic would be a second answer to drift, and a
+  test asserts the options sum to exactly `unitPriceCents - basePriceCents`.
+- `packages/db/placement.ts` — `placeOrder(input)`: replay check, re-price and
+  re-validate against the live menu, then ONE `prisma.order.create` writing the
+  order, its lines, its options and its `placed` event together. Exports
+  `ORDER_RECEIPT`, the include shape every reader of a placed order shares.
+- `apps/web/app/checkout/actions.ts` — `placeCartOrder(raw)`. Shape-checks the
+  request, reads the cart from the httpOnly cookie (never from an argument),
+  calls placement, clears the cart, and returns a confirmation with **no UUID
+  in it**.
+- 14 core placement tests + 6 business-day tests + 17 placement integration
+  tests. `snapshot.test.ts` now places through the real `placeOrder` instead of
+  hand-building a row — the regression test proves the code that takes money,
+  not a fixture that agrees with itself. 199 unit tests, identical under
+  `TZ=UTC` and `TZ=Pacific/Kiritimati`.
+
+**Decided:**
+- **The idempotency key is checked first, before the menu is even read.** A
+  retry answers out of the orders table. A customer whose second tap arrived
+  after the guacamole ran out must not be told their food is sold out when it
+  is already being made — there is a test for exactly that.
+- **The order number is `max(seq) + 1` retried on the constraint**, not a
+  check-then-write and not a Postgres sequence (which cannot reset per business
+  day). Twelve simultaneous checkouts get 1–12 in a test; the loser of each
+  race re-reads the maximum, because a cached one would collide again.
+- **`statusToken` is 24 random bytes, base64url** — 192 bits, comfortably past
+  P1-5's ≥128. A token collision is handled by the same retry as a `seq`
+  collision rather than by a separate path.
+- **A tampered client total places the order at the server's price and writes a
+  `total_mismatch` event.** The mismatch is evidence, never an input: the order
+  is correct and the tampering is visible, which is what P0-2 asks for.
+- **Placement refuses with the whole `CartReview` attached**, so checkout can
+  point at the line that is 86'd rather than at the order. Same reasoning as
+  `reviewCart` reporting every problem at once.
+- **The confirmation returned to the client carries no order UUID** — order
+  number, name, status token, totals and lines. An id that never leaves the
+  server cannot leak into a URL someone shares (P0-8).
+- **The re-check and the write are NOT one transaction** (recorded in WRITEUP as
+  a deliberate ceiling). An 86 landing in the milliseconds between them is
+  snapshotted anyway — and that order is indistinguishable from one placed a
+  second before the 86, which no isolation level prevents either. The
+  operational answer already exists: staff cancel with reason `out_of_item`.
+  This deviates from C-005's note that placement would re-check "inside the
+  transaction"; locking the menu rows on every checkout buys a millisecond of a
+  window that stays open for minutes regardless.
+- **`seedSettings` joins the test helpers.** `loadSettings` throws rather than
+  defaulting, so every placement test seeds the singleton row — which is the
+  behaviour that keeps a missing row from becoming a silent 0% tax.
+
+**Left behind:**
+- **No checkout screen.** `placeCartOrder` has no caller until C-007 builds the
+  menu and the cart UI; the client-side disabled submit button (P0-10's second
+  criterion) belongs to that session. The server guarantee holds without it,
+  which is the point.
+- **No confirmation or status page.** `statusToken` is issued and returned;
+  C-014 renders the page behind it.
+- **The checkout gate (P0-6) is not consulted.** Placement answers "is this cart
+  orderable?", not "is the restaurant taking orders?" — one code path with three
+  triggers, in C-011.
+- **`paymentState` is always `unpaid`.** Payment is out of scope for P0; the
+  column and the `refund` event kind are there for P1-8.
+- **The rush script (C-017)** is what proves the number allocation and the
+  double-submit under a real 20-minute load. The unit-level version here is
+  twelve concurrent placements and two simultaneous double-taps.
