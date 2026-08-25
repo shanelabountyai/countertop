@@ -1,0 +1,55 @@
+{
+  "name": "countertop",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Pickup-only online ordering for a restaurant \u2014 Claude Code learning build #5. Start with START-HERE.md.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "preflight": "if [ -x \"$HOME/.claude/bin/swapcheck\" ]; then \"$HOME/.claude/bin/swapcheck\" --quiet; fi",
+    "predev": "npm run preflight",
+    "pretest:e2e": "npm run preflight",
+    "dev": "npm run dev:test",
+    "dev:test": "dotenv -e .env.test -e .env.local -- npm run dev -w apps/web",
+    "build": "npm run build -w apps/web",
+    "build:test": "dotenv -e .env.test -e .env.local -- npm run build -w apps/web",
+    "start:test": "dotenv -e .env.test -e .env.local -- npm run start -w apps/web",
+    "e2e:server": "npm run build:test && npm run start:test",
+    "test": "dotenv -e .env.test -e .env.local -- vitest run",
+    "test:watch": "dotenv -e .env.test -e .env.local -- vitest",
+    "test:e2e": "dotenv -e .env.test -e .env.local -- npm run test:e2e -w apps/web",
+    "lint": "eslint . && npm run lint -w apps/web",
+    "typecheck": "tsc --noEmit && npm run typecheck -w apps/web",
+    "db:migrate:dev": "dotenv -e .env.local -- npm run migrate:deploy -w packages/db",
+    "db:migrate:test": "dotenv -e .env.test -- npm run migrate:deploy -w packages/db",
+    "db:migrate:all": "npm run db:migrate:test && npm run db:migrate:dev",
+    "db:status:dev": "dotenv -e .env.local -- npm run migrate:status -w packages/db",
+    "db:status:test": "dotenv -e .env.test -- npm run migrate:status -w packages/db",
+    "db:status": "npm run db:status:test && npm run db:status:dev",
+    "db:reset:test": "dropdb --if-exists countertop_test && createdb countertop_test && npm run db:migrate:test",
+    "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
+    "postinstall": "npm run db:generate"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.21.0",
+    "dotenv-cli": "^11.0.0",
+    "eslint": "^9",
+    "pg": "^8.23.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^3.2.4"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "prisma@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "unrs-resolver@1.12.2": true,
+    "fsevents@2.3.3": true,
+    "fsevents@2.3.2": true,
+    "sharp@0.34.5": true
+  }
+}

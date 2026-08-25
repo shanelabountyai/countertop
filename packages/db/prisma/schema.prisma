@@ -1,0 +1,35 @@
+// Countertop — data model. C-001 wires the generator and datasource only;
+// the entities land in C-003, after the snapshot-column review the START-HERE
+// loop pauses for.
+//
+// RULES THIS FILE WILL OBEY (CLAUDE.md, "Database rules"):
+//
+//  * Money is integer cents. Never a float, never a Decimal that becomes one.
+//  * Order/OrderLine/OrderLineOption carry COPIED names and prices as columns.
+//    A receipt renders with zero joins to menu tables. FKs back to the menu,
+//    if kept for analytics, are onDelete: Restrict and never read for display
+//    or pricing. If an order row joins a menu table to render, that's the bug.
+//  * The daily order number is (businessDay, seq) with a unique constraint —
+//    concurrent placements contend on the constraint, not on check-then-write.
+//  * The idempotency key has a unique constraint. The disabled submit button
+//    is UX; the constraint is the mechanism.
+//  * Instants are @db.Timestamptz(3). The business day is a restaurant-timezone
+//    string, never a Postgres `date` coerced through the process timezone.
+//
+// WHAT PRISMA CANNOT EXPRESS, AND SO LIVES IN A HAND-WRITTEN MIGRATION:
+//   1. The append-only trigger on the order event log (undo writes a logged
+//      revert event; it never deletes).
+//
+// NEVER `prisma db push`. Never edit an applied migration.
+// (`prisma migrate dev --create-only`, then edit.)
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
