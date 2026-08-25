@@ -428,3 +428,5 @@ C-006 committed and pushed at 34d966b
   correctly from the database; the manager-facing switch is C-012.
 - **Nothing polls.** A menu open in a tab while the kitchen 86s an item shows
   the old state until reload. C-009's cursor is the general fix.
+
+C-007 committed and pushed at 7e39b40
