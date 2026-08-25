@@ -500,3 +500,5 @@ C-007 committed and pushed at 7e39b40
   does not exist.
 - **No cancel reason on the customer's side.** The reason and note are stored
   and logged; the distinct cancelled view is C-014's.
+
+C-008 committed and pushed at 41fbc35
