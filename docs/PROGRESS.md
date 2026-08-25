@@ -566,3 +566,61 @@ C-008 committed and pushed at 41fbc35
   recorded in the write-up with a sequence column as the upgrade.
 
 C-009 committed and pushed at a7caee3
+
+## C-010 — New-order alert and acknowledge
+
+**Built:**
+- `apps/web/app/kitchen/new-order-alert.tsx` — `<NewOrderAlert count />`. Takes
+  a count of un-acknowledged orders, chimes on arrival and every 6 seconds
+  after, and renders an `aria-live="assertive"` banner naming the tap that
+  clears it. A blocked autoplay policy surfaces as a "this screen is muted"
+  button rather than as silence.
+- `apps/web/app/globals.css` — `alert-pulse`: a 1.2-second box-shadow ring,
+  well under the three-flashes-a-second seizure threshold, switched off under
+  `prefers-reduced-motion`.
+- `apps/web/app/kitchen/page.tsx` — the count, derived from
+  `needsAcknowledgment` over the **unfiltered** queue; the card's own styling
+  and a "NEW — not yet accepted" badge.
+- `apps/web/e2e/kitchen.spec.ts` — five specs: it chimes and keeps chiming, it
+  goes silent on Accept, it survives a reload, a name lookup cannot silence it,
+  and the alerting screen still passes axe. The AudioContext is stubbed in the
+  page and its oscillators counted — nothing test-only ships in the component.
+
+**Decided:**
+- **Nothing new in `packages/core`.** `ALERT_STATUSES`, `needsAcknowledgment`
+  and `acknowledge` were written in C-004 against this requirement, and the
+  Accept button has been `placed → accepted` since C-008. The alert had exactly
+  one thing left to do — be heard — so that is all this item added.
+- **The count comes off the unfiltered queue.** A cook who has typed a name
+  into the P0-11 lookup box is still the person who has to hear the next order
+  land. An alert a search can silence is one that gets silenced during exactly
+  the rush it exists for. There is a spec for it.
+- **There is no mute and no dismiss.** The only thing that stops the chime is
+  the transition. A dismiss button is how an order gets silenced without anyone
+  cooking it, which is the failure this requirement is named after.
+- **A blocked chime is shown, not swallowed.** Browsers start an AudioContext
+  suspended until a user gesture, so a wall-mounted screen nobody has touched
+  would otherwise deliver the exact silence P0-12 exists to prevent. The
+  component checks `ctx.state` after resuming and renders a button when it is
+  still not running.
+- **The badge carries the meaning; the pulse is the second signal.** Motion as
+  the sole carrier disappears for anyone who turned motion off, which is why
+  the reduced-motion rule can stop the animation dead without losing anything.
+- **Un-acknowledged outranks "running late" on a card.** Both are urgent; only
+  one of them names the tap that fixes it.
+- **The effect is keyed on the count.** A second order arriving while the first
+  is still un-acked restarts the cycle and rings immediately, rather than
+  waiting out an interval that is already half spent. The 60-second idle
+  re-render does not re-ring, because the count did not change.
+
+**Left behind:**
+- **One banner and one chime, however many orders are waiting.** The count is
+  read aloud; the orders are not distinguished. Per-order sounds in a kitchen
+  are noise, not information.
+- **The chime is synthesised, so there is no volume control and no
+  per-restaurant sound.** Both are settings-screen work, and there is no
+  settings screen until C-011.
+- **A kitchen with no screen open hears nothing.** The alert is per-screen and
+  client-side; there is no server-side page or SMS. That is P1-3's outbox.
+- **The rush demo still has to prove it.** P0-12's third criterion is that
+  alerts fire and are acknowledged during the seeded rush, which is C-016.

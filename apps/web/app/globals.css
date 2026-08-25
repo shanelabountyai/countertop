@@ -1,1 +1,30 @@
 @import "tailwindcss";
+
+/* The un-acknowledged-order flash (P0-12).
+ *
+ * 1.2s per cycle — well under the three-flashes-a-second seizure threshold
+ * (WCAG 2.3.1), and slow enough to read as "waiting" rather than "broken".
+ *
+ * It is the SECOND signal, never the only one: the card and the banner also
+ * carry a colour and a badge that say "new". Motion that is the sole carrier
+ * of meaning disappears for anyone who turned motion off — which is why the
+ * reduced-motion rule below can safely stop it dead. */
+@keyframes alert-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(2 132 199 / 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgb(2 132 199 / 0);
+  }
+}
+
+.alert-pulse {
+  animation: alert-pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alert-pulse {
+    animation: none;
+  }
+}

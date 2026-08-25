@@ -133,8 +133,8 @@ Each queue card shows everything the line cook needs without tapping through: or
 - [ ] The queue screen supports lookup by name or order number for the "I'm here, where's my food" walk-up moment
 
 **P0-12: New-order alert & acknowledge** *(new in v2 — OPS: "a silent queue screen is a dead queue screen")*
-- [ ] A new order triggers a repeating audible chime and a visually flashing card until a staff tap acknowledges it; acknowledgment is the `placed → accepted` transition (P0-4)
-- [ ] Unacknowledged orders are visually distinct from every other state, and the alert survives a page reload (derived from state, not from a client-side event)
+- [x] A new order triggers a repeating audible chime and a visually flashing card until a staff tap acknowledges it; acknowledgment is the `placed → accepted` transition (P0-4)
+- [x] Unacknowledged orders are visually distinct from every other state, and the alert survives a page reload (derived from state, not from a client-side event)
 - [ ] The seeded rush demo shows alerts firing and being acknowledged — an order arriving silently is a test failure
 
 **P0-13: Safe menu editing** *(new in v2 — OPS: edited on a phone, one-handed, in 90 seconds)*

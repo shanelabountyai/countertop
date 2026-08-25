@@ -210,3 +210,122 @@ test.describe('the queue keeps itself fresh', () => {
     await hidden.close();
   });
 });
+
+// C-010: the new-order alert (P0-12).
+//
+// "An order arriving silently is a test failure" is an acceptance criterion,
+// so the chime is asserted, not assumed. Counting real sound is not something
+// a browser will tell us, so the AudioContext is stubbed in the page and the
+// oscillators it would have played are counted. Nothing test-only ships in the
+// component — it builds a normal AudioContext and this replaces the class.
+const countChimes = `
+  window.__chimes = 0;
+  class CountingAudioContext {
+    state = 'running';
+    currentTime = 0;
+    destination = {};
+    resume() { return Promise.resolve(); }
+    createGain() {
+      return {
+        gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} },
+        connect: (node) => node,
+      };
+    }
+    createOscillator() {
+      window.__chimes += 1;
+      return {
+        type: '',
+        frequency: { setValueAtTime() {} },
+        connect: (node) => node,
+        start() {}, stop() {},
+      };
+    }
+  }
+  window.AudioContext = CountingAudioContext;
+`;
+
+const chimes = (page: Page): Promise<number> =>
+  page.evaluate(() => (window as Window & { __chimes?: number }).__chimes ?? 0);
+
+test.describe('a new order announces itself', () => {
+  test.beforeEach(() => {
+    execSync('npm run db:seed:test', { cwd: '../..', stdio: 'ignore' });
+  });
+
+  test('chimes, and keeps chiming, until someone accepts', async ({ page }) => {
+    await page.addInitScript(countChimes);
+    await page.goto('/kitchen');
+
+    // The seeded #001 is `placed`: the screen should be shouting on arrival,
+    // with no gesture and nothing having "happened" while the page was open.
+    await expect(page.getByText('1 new order — tap Accept to acknowledge')).toBeVisible();
+    await expect.poll(() => chimes(page)).toBeGreaterThanOrEqual(1);
+
+    // Repeating, not a single ding somebody can be washing a pan through.
+    await expect.poll(() => chimes(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(2);
+
+    await card(page, 'Dana Reyes').getByRole('button', { name: 'Accept' }).click();
+    await expect(page.getByText(/new order/)).toHaveCount(0);
+
+    // Acknowledged means silent. Wait out more than one interval and prove it.
+    const afterAck = await chimes(page);
+    await page.waitForTimeout(8_000);
+    expect(await chimes(page)).toBe(afterAck);
+  });
+
+  test('the alert survives a reload, because it is derived from state', async ({ page }) => {
+    await page.addInitScript(countChimes);
+    await page.goto('/kitchen');
+    await expect(page.getByText('1 new order — tap Accept to acknowledge')).toBeVisible();
+
+    // A client-side "an order arrived" event dies here. A count derived from
+    // `needsAcknowledgment` does not — that is the whole requirement.
+    await page.reload();
+    await expect(page.getByText('1 new order — tap Accept to acknowledge')).toBeVisible();
+    await expect.poll(() => chimes(page)).toBeGreaterThanOrEqual(1);
+  });
+
+  test('an un-acknowledged card is distinct from every other card', async ({ page }) => {
+    await page.goto('/kitchen');
+    const unacked = card(page, 'Dana Reyes');
+    await expect(unacked.getByText('New — not yet accepted')).toBeVisible();
+
+    const style = (locator: Locator) =>
+      locator.evaluate((element) => {
+        const computed = getComputedStyle(element);
+        return { border: computed.borderColor, background: computed.backgroundColor };
+      });
+
+    const isNew = await style(unacked);
+    // Against a plain card AND against a late one: "distinct from every other
+    // state" means the red aging flag is not close enough either.
+    for (const name of ['Sam Okafor', 'Morgan Ellis']) {
+      const other = await style(card(page, name));
+      expect(isNew.border).not.toBe(other.border);
+      expect(isNew.background).not.toBe(other.background);
+    }
+  });
+
+  test('a lookup filtering the card off screen does not silence the alert', async ({ page }) => {
+    await page.addInitScript(countChimes);
+    await page.goto('/kitchen');
+
+    // Searching for somebody else hides #001 — and would hide the fact that
+    // nobody has accepted it, if the count were taken off the filtered list.
+    await page.getByRole('searchbox').fill('Priya');
+    await page.getByRole('button', { name: 'Find' }).click();
+    await expect(page.getByText('Dana Reyes')).toHaveCount(0);
+
+    await expect(page.getByText('1 new order — tap Accept to acknowledge')).toBeVisible();
+    await expect.poll(() => chimes(page)).toBeGreaterThanOrEqual(1);
+  });
+
+  test('the alerting queue has no detectable accessibility violations', async ({ page }) => {
+    await page.goto('/kitchen');
+    await expect(page.getByText('1 new order — tap Accept to acknowledge')).toBeVisible();
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(results.violations).toEqual([]);
+  });
+});

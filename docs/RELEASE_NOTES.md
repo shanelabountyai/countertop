@@ -376,3 +376,27 @@ changed, not *what*, and re-draws itself from the server. That is one place a
 ticket is rendered instead of two, and it is the same message a push connection
 would deliver — so moving off polling later changes how the message arrives and
 nothing about what happens when it does.
+
+## New orders announce themselves
+
+A queue screen that shows a new order but does not say anything is a queue
+screen someone discovers eight minutes later. An arriving order now rings a
+chime, flags its card, and keeps ringing until a cook taps Accept.
+
+**Accepting the order is the acknowledgment.** There is no "dismiss", and no
+separate accept chore afterwards — the tap that stops the noise is the same tap
+that tells the customer the kitchen has the order. The two cannot drift apart,
+because they are one action.
+
+**It survives a reload, a crashed tab, and a screen plugged in late.** The alert
+is not a notification fired when the order arrived; it is a fact about an order
+nobody has accepted. Reload the screen mid-rush and it starts ringing again.
+Open a second screen and it is already ringing there.
+
+**Searching for one order cannot silence the others.** The lookup box filters
+what is on screen; it does not filter what the kitchen is being told about.
+
+**And a muted screen says so.** Browsers refuse to play sound on a page nobody
+has touched — which, on a wall-mounted screen, is every page. Rather than
+failing quietly into exactly the silence this feature exists to prevent, the
+screen shows a "this screen is muted" button until someone taps it once.

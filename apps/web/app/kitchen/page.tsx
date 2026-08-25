@@ -11,6 +11,7 @@ import {
   formatOrderNumber,
   groupQueue,
   matchesLookup,
+  needsAcknowledgment,
   queueAging,
   undoRemainingMs,
   type OrderStatus,
@@ -18,6 +19,7 @@ import {
 import { loadQueue, queueCursor, type QueueOrder } from '@countertop/db/queue';
 import { LiveUpdates } from '@/lib/live-updates';
 import { describeSelection } from '@/lib/menu-labels';
+import { NewOrderAlert } from './new-order-alert';
 import { QueueControls } from './queue-controls';
 
 export const metadata = { title: 'Kitchen — Firebird Kitchen' };
@@ -66,10 +68,16 @@ export default async function KitchenPage({
   const cursor = await queueCursor();
   const orders = await loadQueue();
   const groups = groupQueue(orders.filter((order) => matchesLookup(order, query)));
+  // Counted off the UNFILTERED list, deliberately. A cook who has typed a name
+  // into the lookup box is still the person who has to hear the next order
+  // arrive — an alert that a search can silence is an alert that will be
+  // silenced during exactly the rush it exists for (P0-12).
+  const unacknowledged = orders.filter((order) => needsAcknowledgment(order.status)).length;
 
   return (
     <main className="mx-auto max-w-5xl p-6">
       <LiveUpdates cursor={cursor} />
+      <NewOrderAlert count={unacknowledged} />
       <div className="flex flex-wrap items-baseline justify-between gap-4">
         <h1 className="text-3xl font-semibold">Kitchen queue</h1>
         <Link href="/menu" className="text-sm underline underline-offset-4">
@@ -125,11 +133,24 @@ export default async function KitchenPage({
                   <li
                     key={order.id}
                     className={`rounded-xl border-2 p-4 ${
-                      aging.noShowLevel >= 2 || aging.overdue
-                        ? 'border-red-500 bg-red-50'
-                        : 'border-neutral-300'
+                      // Un-acknowledged outranks "running late". Both are
+                      // urgent; only one of them names the tap that fixes it,
+                      // and a placed order cannot be late in a way that
+                      // accepting it does not also address.
+                      needsAcknowledgment(order.status)
+                        ? 'alert-pulse border-sky-700 bg-sky-50'
+                        : aging.noShowLevel >= 2 || aging.overdue
+                          ? 'border-red-500 bg-red-50'
+                          : 'border-neutral-300'
                     }`}
                   >
+                    {/* The badge, not the animation, is what carries this to
+                        a cook who has motion turned off. */}
+                    {needsAcknowledgment(order.status) && (
+                      <p className="mb-2 w-fit rounded bg-sky-700 px-2 py-1 text-lg font-bold uppercase text-white">
+                        New — not yet accepted
+                      </p>
+                    )}
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <h3 className="text-3xl font-bold tabular-nums">
                         {formatOrderNumber(order.seq)}
