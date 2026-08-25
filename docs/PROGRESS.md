@@ -30,4 +30,10 @@ portfolio-facing version of the same history.
 - **No seed script.** `db:reset:test` recreates and migrates but does not seed; the `db:seed:*` scripts land with C-003's fixtures. CLAUDE.md's warning stands for later sessions: migrations applied with zero rows is a green `db:status` and a red sweep.
 - **`e2e:server` rebuilds on every sweep** (~10s here, and it is what stops a stale `.next` testing yesterday's code). If the build cost becomes annoying once there are real screens, that is a trade to revisit, not a default to change.
 
+**Found and fixed within C-001:**
+- **The drift check could not have passed.** `prisma migrate diff --from-migrations` needs `packages/db/prisma/migrations/migration_lock.toml` to know the connector, and with no migrations written that directory did not exist. Fixed by committing the lock file (`provider = "postgresql"`) up front — the file Prisma writes with the first migration anyway. Written up in `docs/WRITEUP.md`.
+- **The first push to a new branch skips CI.** GitHub evaluates `paths-ignore` against the head commit alone on a new branch, and the head commit of every backlog item is the docs-only "record the SHA" one. Added `workflow_dispatch` so it is recoverable without an empty commit; later pushes evaluate the whole `before..after` range and trigger normally.
+
+**Blocked, not resolved:** GitHub Actions refuses to start the job — *"The job was not started because recent account payments have failed or your spending limit needs to be increased."* The workflow file is registered and syntactically valid, but **CI has never actually run green on this repo.** The four gate steps were executed locally instead, including CI's own migrate-from-scratch and drift-check commands against a throwaway local database. That is not the same as a green CI badge and is not claimed to be.
+
 C-001 committed and pushed at 5e9979b

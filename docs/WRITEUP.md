@@ -51,7 +51,27 @@ Recorded as they are made, with the ceiling each one has.
 
 ## Defects Found
 
-_(Each one gets: how it manifested, how it was found, what fixed it.)_
+**C-001 — the drift check could never have passed.** CI's schema-drift step runs
+`prisma migrate diff --from-migrations packages/db/prisma/migrations …`. With no
+migrations written yet, that directory did not exist, and Prisma fails with
+"Could not determine the connector from the migrations directory (missing
+`migration_lock.toml`)" — not a clean no-op. Every other gate step was green, so
+nothing local pointed at it.
+
+*How it was found:* GitHub Actions refused to run the job (an account billing
+block), so the CI steps got executed by hand locally instead of being trusted.
+The drift command failed on the first try. Had CI been available, this would
+have shipped as a red first run; had CI been available *and* the step been
+written to tolerate the error, it would have shipped as a check that silently
+verified nothing until C-003.
+
+*Fix:* commit `packages/db/prisma/migrations/migration_lock.toml` with
+`provider = "postgresql"` — the file Prisma would have written with the first
+migration anyway — so the history has a declared connector from zero migrations
+onward.
+
+*What I'd instrument next time:* a CI step that can only pass vacuously is worth
+running against an empty repo state before there's anything for it to check.
 
 ## Skills Learned / Functions Unlocked
 
