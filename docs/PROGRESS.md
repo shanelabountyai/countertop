@@ -63,3 +63,5 @@ C-001 committed and pushed at 5e9979b
 - **The menu itself is not validated** — nothing checks that `max >= min`, or that every `modifierGroupIds` entry resolves. A malformed group is a seed/menu-editor bug, and C-015 is where the editor gets to refuse one.
 - **`sample-menu.ts` ships inside the module rather than a test-only folder.** It is four items; C-017's seed grows it to the PRD's ~25 without changing the shape.
 - **No display formatting.** Cents → "$10.95" is a UI concern and lands with the first screen that needs it (C-007).
+
+C-002 committed and pushed at 78c7ef4
