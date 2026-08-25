@@ -264,3 +264,5 @@ re-check that catches the two things that can change while food sits in it: an
   orders?" That is ONE code path with three triggers, and it lands in C-012.
 - **No cart-level cap.** Quantity and note caps are enforced per line; the
   number of lines is bounded only by the cookie ceiling above.
+
+C-005 committed and pushed at 0c9f4ca
