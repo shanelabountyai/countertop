@@ -12,6 +12,12 @@ on:
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
+  # Manual trigger. Needed the first time this repo pushed: on a NEW branch
+  # GitHub evaluates paths-ignore against the head commit alone, and the head
+  # commit of every backlog item is the docs-only "record the SHA" one — so the
+  # very first push skipped the gate entirely. Later pushes evaluate the whole
+  # before..after range and trigger normally.
+  workflow_dispatch:
 
 # Pushing twice in quick succession should not pay for the superseded run.
 concurrency:
