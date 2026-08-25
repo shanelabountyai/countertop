@@ -21,8 +21,8 @@ import {
   type IdentityViolation,
   type OrderEventDraft,
 } from '@countertop/core';
-import { Prisma, prisma } from './index.js';
-import { loadMenu, loadSettings } from './menu.js';
+import { Prisma, prisma } from './index';
+import { loadMenu, loadSettings } from './menu';
 
 /**
  * Everything a receipt, a confirmation and a kitchen ticket render — and

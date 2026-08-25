@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { businessDayOf } from './business-day.js';
+import { businessDayOf } from './business-day';
 
 // Every instant here is built with Date.UTC — the one form that provably
 // cannot read the process timezone. CI runs this file under TZ=UTC and

@@ -1,3 +1,3 @@
-export * from './state-machine.js';
-export * from './business-day.js';
-export * from './placement.js';
+export * from './state-machine';
+export * from './business-day';
+export * from './placement';

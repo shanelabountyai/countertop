@@ -1,1 +1,1 @@
-export * from './pricing.js';
+export * from './pricing';

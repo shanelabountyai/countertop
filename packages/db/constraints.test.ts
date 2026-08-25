@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { prisma } from './index.js';
-import { resetDatabase } from './testing/index.js';
+import { prisma } from './index';
+import { resetDatabase } from './testing/index';
 
 // These assert the DATABASE refuses, not that the application remembers to
 // check. Correctness never depends on the client behaving, and it does not

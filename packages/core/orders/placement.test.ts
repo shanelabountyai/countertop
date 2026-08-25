@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { Cart } from '../cart/cart.js';
-import { SAMPLE_MENU, menuWith } from '../menu/sample-menu.js';
-import { priceOrder } from '../pricing/pricing.js';
+import type { Cart } from '../cart/cart';
+import { SAMPLE_MENU, menuWith } from '../menu/sample-menu';
+import { priceOrder } from '../pricing/pricing';
 import {
   buildOrderSnapshot,
   MAX_CUSTOMER_NAME_LENGTH,
   normalizeIdentity,
-} from './placement.js';
+} from './placement';
 
 const RATE_PPM = 82_500; // 8.25%
 

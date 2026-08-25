@@ -4,6 +4,7 @@
 // packages/core, and every argument here is untrusted input that goes through
 // `parseComposition` before anything else looks at it.
 import { randomUUID } from 'node:crypto';
+import { revalidatePath } from 'next/cache';
 import {
   addLine,
   removeLine,
@@ -65,4 +66,17 @@ export async function confirmCartPrices(): Promise<ActionResult> {
 export async function getCartReview(): Promise<CartReview> {
   const [menu, settings, cart] = await Promise.all([loadMenu(), loadSettings(), readCart()]);
   return reviewCart(menu, cart, settings.taxRatePpm);
+}
+
+// Form-shaped wrappers, for the cart screen's `<form action={...}>` buttons.
+// A plain form posts without JavaScript, so the cart stays editable while the
+// page is still hydrating — and there is no client component to write.
+export async function removeCartLineForm(lineId: string): Promise<void> {
+  await removeCartLine(lineId);
+  revalidatePath('/cart');
+}
+
+export async function confirmCartPricesForm(): Promise<void> {
+  await confirmCartPrices();
+  revalidatePath('/cart');
 }

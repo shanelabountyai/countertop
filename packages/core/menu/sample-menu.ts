@@ -6,7 +6,7 @@
 // (`protein`, `salsa`) REUSED across two items with no duplication.
 //
 // C-017's seed grows this to the PRD's ~25 items; the shape does not change.
-import type { Menu } from './types.js';
+import type { Menu } from './types';
 
 export const SAMPLE_MENU: Menu = {
   categories: [

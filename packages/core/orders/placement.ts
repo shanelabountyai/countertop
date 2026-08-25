@@ -9,9 +9,9 @@
 // out of the menu at this instant. After this function returns, the order owes
 // the menu nothing — renaming an item, repricing it, 86'ing it or deleting it
 // outright must be invisible to what was already placed.
-import type { Cart } from '../cart/cart.js';
-import type { Intensity, Menu } from '../menu/types.js';
-import { appliedDeltaCents, priceLine, priceOrder, type TaxRatePpm } from '../pricing/pricing.js';
+import type { Cart } from '../cart/cart';
+import type { Intensity, Menu } from '../menu/types';
+import { appliedDeltaCents, priceLine, priceOrder, type TaxRatePpm } from '../pricing/pricing';
 
 /** The `customerName` column width (P0-8: a name is required, 1–40 chars). */
 export const MAX_CUSTOMER_NAME_LENGTH = 40;

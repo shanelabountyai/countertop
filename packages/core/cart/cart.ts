@@ -13,15 +13,15 @@ import {
   validateComposition,
   type CompositionLimits,
   type CompositionViolation,
-} from '../menu/composition.js';
-import type { Composition, Menu } from '../menu/types.js';
+} from '../menu/composition';
+import type { Composition, Menu } from '../menu/types';
 import {
   priceLine,
   priceOrder,
   type OrderTotals,
   type PricedLine,
   type TaxRatePpm,
-} from '../pricing/pricing.js';
+} from '../pricing/pricing';
 
 export type CartLine = {
   /** Stable across edits. Caller-generated — this module never invents ids. */

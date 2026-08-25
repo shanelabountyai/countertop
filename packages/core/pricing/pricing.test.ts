@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { SAMPLE_MENU } from '../menu/sample-menu.js';
-import type { Composition } from '../menu/types.js';
+import { SAMPLE_MENU } from '../menu/sample-menu';
+import type { Composition } from '../menu/types';
 import {
   checkClientTotal,
   priceLine,
   priceOrder,
   taxOn,
   taxRatePpmFromPercent,
-} from './pricing.js';
+} from './pricing';
 
 // EVERY number below is hand-calculated from packages/core/menu/sample-menu.ts
 // and written out longhand. A fixture whose expected value came from running

@@ -10,7 +10,7 @@
   "scripts": {
     "preflight": "if [ -x \"$HOME/.claude/bin/swapcheck\" ]; then \"$HOME/.claude/bin/swapcheck\" --quiet; fi",
     "predev": "npm run preflight",
-    "pretest:e2e": "npm run preflight",
+    "pretest:e2e": "npm run preflight && npm run db:seed:test",
     "dev": "npm run dev:test",
     "dev:test": "dotenv -e .env.test -e .env.local -- npm run dev -w apps/web",
     "build": "npm run build -w apps/web",
@@ -28,6 +28,7 @@
     "db:status:dev": "dotenv -e .env.local -- npm run migrate:status -w packages/db",
     "db:status:test": "dotenv -e .env.test -- npm run migrate:status -w packages/db",
     "db:status": "npm run db:status:test && npm run db:status:dev",
+    "db:seed:test": "dotenv -e .env.test -- tsx packages/db/seed.ts",
     "db:reset:test": "dropdb --if-exists countertop_test && createdb countertop_test && npm run db:migrate:test",
     "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
     "postinstall": "npm run db:generate"

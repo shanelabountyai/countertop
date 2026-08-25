@@ -265,3 +265,44 @@ The customer's confirmation comes back with the order number, their name, their
 status link and the full priced receipt — and no internal id anywhere in it.
 The number and the name are what a human calls across a counter; the UUID is
 the server's business and stays there.
+
+## C-007 — The screen a customer actually orders on
+
+Until now this project was an engine with no windows. It could price a burrito
+five different ways and refuse the wrong ones, and there was no burrito on a
+screen anywhere. C-007 is the menu and the item composer.
+
+**"NO onions" is a thing you pick, not a thing you fail to pick.** Every option
+in an intensity group offers five choices — Skip, No onions, Light, Regular,
+Extra — and the negation is one of them. That is the whole reason this product
+exists. A phone order transcribed as "onions" when the customer said "no
+onions" is a remade burrito and an angry Friday; a negation that is a real
+selection travels all the way to the kitchen card as one. It is drawn in red
+and struck through, it costs nothing, and — the part that would actually ship
+food wrong — it does not satisfy a required group. "No chicken" is not your
+protein choice.
+
+**The price updates as you compose, and it is not the price you pay.** Add
+guacamole and the button reads $13.45. Choose cheese at "extra" and it reads
+$14.70, because "extra" costs the option's own price plus its extra surcharge.
+Every one of those numbers is computed by the same functions the server uses at
+cart-add and again at placement — not a second implementation that agrees today
+and drifts next quarter. What the browser shows is a preview. What the database
+stores is the server's own arithmetic.
+
+**A blocked order says what is missing.** Skip the protein and the Add button
+does not go grey and silent — it answers, "Choose your protein." A disabled
+button explains nothing, cannot be focused by a keyboard or a screen reader,
+and is why people phone the restaurant instead. And the requirements are shown
+as hints from the start rather than as errors before anyone has touched
+anything: a form that scolds you on arrival teaches you to ignore it.
+
+**Sold out is shown, not hidden.** A burrito the kitchen has run out of is on
+the menu, greyed, labelled. Removing it makes the site look broken to the
+person who came for it. And "no onions" stays orderable when the kitchen is out
+of onions — asking for none of a thing there is none of is trivially
+satisfiable, and refusing it would be absurd.
+
+The cart totals the composed lines, flags anything that changed under it, and
+says plainly that checkout arrives in a later session. A button that leads
+nowhere would be worse.

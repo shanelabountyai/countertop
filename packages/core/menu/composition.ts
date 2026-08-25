@@ -4,7 +4,7 @@
 // here. The menu view, cart validation, and placement all call this — three
 // call sites, one answer. Grow a second one and they will disagree, quietly,
 // in the direction of taking money for food that cannot be made.
-import type { Composition, GroupId, Menu, OptionId } from './types.js';
+import type { Composition, GroupId, Menu, OptionId } from './types';
 
 /** Server-enforced caps (P0-3). Configurable; these are the defaults. */
 export type CompositionLimits = {

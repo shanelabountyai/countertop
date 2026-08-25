@@ -1,6 +1,6 @@
 // Test-only helpers. Not imported by apps/web.
 import { SAMPLE_MENU } from '@countertop/core';
-import { prisma } from '../index.js';
+import { prisma } from '../index';
 
 /**
  * Wipes every table. TRUNCATE, not DELETE: the OrderEvent append-only trigger

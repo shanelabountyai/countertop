@@ -70,6 +70,9 @@ Recorded as they are made, with the ceiling each one has.
 - **Placement trusts that the cart cookie is this customer's cart** (C-006). There is no session identity beyond the httpOnly cookie itself, because a pickup order needs no account. The cart is never accepted as an argument — it is read from the cookie server-side — so the attack it forecloses is "post me a cart with a $0 burrito". What it does not foreclose is someone pasting their own cookie into another browser, which places their own order twice. That is a customer being odd, not a threat.
 - **`deepmerge-ts` high-severity advisory accepted, not fixed** (C-001). It arrives only through the Prisma **CLI** (`prisma` → `@prisma/config` → `deepmerge-ts`); the vulnerability is stack exhaustion when merging recursive object graphs, and the only graph merged here is our own committed config. No runtime path, and `npm audit fix` cannot resolve it without an upstream release. Revisit on the next Prisma bump.
 
+- **The composer is not the price authority, and says so twice** (C-007). It renders a live total and disables nothing on the strength of it: every add re-validates and re-prices on the server. The ceiling is that a customer on a stale tab can compose something that was orderable a minute ago — which the server refuses, and the cart flags. The general fix is C-009's polling cursor.
+- **The cart offers Remove, not Edit** (C-007). `replaceLine` is built and tested; re-opening the composer with a line's selections pre-filled is not wired up, so an edit is remove-and-re-add. P0-3's "editable and removable" is satisfied by that today; the pre-filled composer is the obvious next increment.
+
 ## Defects Found
 
 **C-001 — the drift check could never have passed.** CI's schema-drift step runs
@@ -113,6 +116,53 @@ actually means.
 `eslint-disable` at the top of every test file from here to the end of the
 project. A rule that is routinely disabled is not a rule, and the disable
 comment would have quietly covered the real violations too.
+
+**C-007 — the production build could not resolve the domain engine.** Every
+relative import inside `packages/core` and `packages/db` was written with an
+explicit `.js` extension — `export * from './pricing/index.js'` — the shape
+Node's ESM resolver requires and TypeScript's `moduleResolution: "Bundler"`
+maps back onto the `.ts` file beside it. `next build` (Turbopack) does not
+perform that mapping for a `transpilePackages` workspace. The build failed with
+25 × "Module not found: Can't resolve './cart/index.js'".
+
+*How it was found:* the first e2e sweep after the first page that actually
+imports `packages/core`. Nothing before C-007 had caught it, because a server
+action nothing renders is never bundled — `app/cart/actions.ts` had existed
+since C-005 and had never once been compiled. Unit tests, `tsc` and lint were
+all green throughout, and stayed green: none of them is a bundler.
+
+*Fix:* drop the extension from every relative specifier that points at a `.ts`
+file (real `.js` files, like the generated Prisma client, keep theirs). vitest,
+tsx and tsc all resolve extensionless TypeScript, so the extension was buying
+nothing that anything in this repo actually used — and it cost the production
+build. `next.config.ts` records why, next to the `transpilePackages` line that
+makes it matter. Setting Turbopack's `root` to the workspace root was tried
+first and changes nothing.
+
+*What I'd instrument next time:* a build is a distinct kind of check from a
+type-check, and this repo's gate ran the build only inside the e2e leg — where
+a resolution failure surfaces as "webServer was not able to start" three
+minutes in. The cheaper signal is a real page importing the engine from the
+first session that has an engine, so the bundler has an opinion early.
+
+**C-007 — a control a keyboard could not see.** The intensity pills are
+`sr-only` radio inputs inside styled labels. Screen readers were fine — the
+markup is a real radio group — but a `:focus` state on an invisible input is an
+invisible focus state, so tabbing through the group moved nothing on screen.
+Axe reports zero violations for it, because the input is genuinely focusable
+and genuinely labelled.
+
+*How it was found:* Playwright timed out clicking one, with "label intercepts
+pointer events" — the hidden input cannot be clicked directly, which is exactly
+what a sighted mouse user experiences too. That test failure was the visible
+end of an invisible problem.
+
+*Fix:* the label carries the ring (`has-[:focus-visible]:ring-2`), and the spec
+clicks the label the way a customer does.
+
+*What I'd instrument next time:* an automated a11y pass proves the absence of
+some failures, never the presence of usability. A keyboard walk of any screen
+with custom-styled inputs belongs in the same session that styles them.
 
 ## Skills Learned / Functions Unlocked
 

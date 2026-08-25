@@ -13,7 +13,7 @@ import {
   type OrderState,
   type OrderStatus,
   type RefusalReason,
-} from './state-machine.js';
+} from './state-machine';
 
 // The engine takes `now` as a parameter and nothing here reads a clock.
 const NOW = new Date(Date.UTC(2026, 6, 4, 18, 30, 0));

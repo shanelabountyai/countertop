@@ -1,8 +1,8 @@
 import type { Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { prisma } from './index.js';
-import { placeOrder, type PlacementInput, type PlacementResult } from './placement.js';
-import { resetDatabase, seedSampleMenu, seedSettings } from './testing/index.js';
+import { prisma } from './index';
+import { placeOrder, type PlacementInput, type PlacementResult } from './placement';
+import { resetDatabase, seedSampleMenu, seedSettings } from './testing/index';
 
 // 8pm on the 4th of July in Los Angeles. Deliberately an instant that is
 // ALREADY the 5th in UTC: the business day these orders are numbered on is the

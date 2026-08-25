@@ -24,7 +24,7 @@ npm run lint && npm run typecheck && npm test && PORT=3400 npm run test:e2e
 
 ## Phase 3 — the two live surfaces
 
-- [ ] **C-007** — Customer menu + item composer *(P0-1, P0-2 display side)* — categories, required/optional groups, min/max, intensity, live price that is display-only.
+- [x] **C-007** — Customer menu + item composer *(P0-1, P0-2 display side)* — categories, required/optional groups, min/max, intensity, live price that is display-only.
 - [ ] **C-008** — Kitchen queue view *(P0-4, P0-11)* — grouped by state, elapsed time with aging flags, ≥48px taps, negations visually distinct, name/number lookup. Playwright + axe assert the sizes.
 - [ ] **C-009** — Polling with a server-issued cursor *(P0-5)* — changes-since endpoint, background-tab pause, stop on terminal states.
 - [ ] **C-010** — New-order alert & acknowledge *(P0-12)* — chime + flash derived from order state so it survives a reload; the ack **is** `placed → accepted`.

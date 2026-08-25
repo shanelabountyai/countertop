@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_LIMITS, validateComposition } from './composition.js';
-import type { CompositionViolation } from './composition.js';
-import { SAMPLE_MENU, menuWith } from './sample-menu.js';
-import type { Composition, Menu, ModifierOption } from './types.js';
+import { DEFAULT_LIMITS, validateComposition } from './composition';
+import type { CompositionViolation } from './composition';
+import { SAMPLE_MENU, menuWith } from './sample-menu';
+import type { Composition, Menu, ModifierOption } from './types';
 
 // Violations are asserted BY REASON, never by "it failed" — a function that
 // refused everything would pass a boolean-only suite.

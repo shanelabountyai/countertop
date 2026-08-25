@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SAMPLE_MENU } from '@countertop/core';
-import { loadMenu, loadSettings } from './menu.js';
-import { prisma } from './index.js';
-import { resetDatabase, seedSampleMenu } from './testing/index.js';
+import { loadMenu, loadSettings } from './menu';
+import { prisma } from './index';
+import { resetDatabase, seedSampleMenu } from './testing/index';
 
 // The mapping test that keeps the database and the engine speaking the same
 // language: seed the core menu, read it back, expect the same object. A column

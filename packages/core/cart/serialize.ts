@@ -9,8 +9,8 @@
 // judged against the live menu by `validateComposition`, which is the one
 // place allowed to answer that. Duplicating a cap here would be a second
 // answer to drift from the first.
-import { INTENSITIES, type Composition, type Intensity, type OptionSelection } from '../menu/types.js';
-import { EMPTY_CART, type Cart, type CartLine } from './cart.js';
+import { INTENSITIES, type Composition, type Intensity, type OptionSelection } from '../menu/types';
+import { EMPTY_CART, type Cart, type CartLine } from './cart';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

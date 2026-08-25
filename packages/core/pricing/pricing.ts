@@ -5,7 +5,7 @@
 // Every value here is integer cents. There is exactly ONE rounding operation
 // in the whole engine — inside `taxOn` — and it works on integers, so there is
 // no floating-point rate to land a boundary cent on the wrong side.
-import type { Composition, Intensity, Menu, ModifierGroup, ModifierOption } from '../menu/types.js';
+import type { Composition, Intensity, Menu, ModifierGroup, ModifierOption } from '../menu/types';
 
 /**
  * A tax rate in parts per million. 8.25% = 82_500.

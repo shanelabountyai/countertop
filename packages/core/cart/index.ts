@@ -1,2 +1,2 @@
-export * from './cart.js';
-export * from './serialize.js';
+export * from './cart';
+export * from './serialize';

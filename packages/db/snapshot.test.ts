@@ -8,9 +8,9 @@ import {
 } from '@countertop/core';
 import type { Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { prisma } from './index.js';
-import { placeOrder } from './placement.js';
-import { resetDatabase, seedSampleMenu, seedSettings } from './testing/index.js';
+import { prisma } from './index';
+import { placeOrder } from './placement';
+import { resetDatabase, seedSampleMenu, seedSettings } from './testing/index';
 
 // THE regression test this project exists to keep passing (CLAUDE.md, the
 // snapshot rule). A placed order is an immutable COPY. Menu edits made after

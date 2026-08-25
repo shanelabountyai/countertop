@@ -6,7 +6,7 @@
 // `menu.test.ts` asserts this round-trips SAMPLE_MENU exactly — a column added
 // to the schema and forgotten here fails there rather than in a receipt.
 import type { Menu, ModifierGroup, MenuItem } from '@countertop/core';
-import { prisma } from './index.js';
+import { prisma } from './index';
 
 export async function loadMenu(): Promise<Menu> {
   const [categories, items, groups] = await Promise.all([

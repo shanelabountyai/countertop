@@ -354,3 +354,77 @@ numbered without racing, and answerable to the same key twice.
   twelve concurrent placements and two simultaneous double-taps.
 
 C-006 committed and pushed at 34d966b
+
+---
+
+## C-007 — Customer menu and item composer
+
+**Built:**
+- `apps/web/app/menu/page.tsx` — categories in menu order, items with base
+  prices. `force-dynamic`: an 86 has to reach the menu the moment a manager
+  taps it, and a route prerendered at build time goes stale the first time the
+  kitchen runs out of anything. A sold-out item is rendered greyed and
+  unclickable, never hidden (P0-6).
+- `apps/web/app/menu/[itemId]/composer.tsx` — the composer. Non-intensity
+  groups render radios (`max === 1`) or checkboxes; intensity-enabled groups
+  render a five-way pill per option: **Skip / No X / Light / Regular / Extra**.
+  The negation is one of the five, not a separate mechanism, and a negated
+  option is struck through on a red row.
+- `apps/web/lib/money.ts` — `formatCents`, `formatDeltaCents`. The one place
+  money becomes a string. A free option shows no delta at all rather than
+  "+$0.00".
+- `apps/web/lib/menu-labels.ts` — `describeSelection` returns `{ text, negated }`.
+  The words are shared with C-008's kitchen card; the emphasis is not, because
+  a card read at arm's length needs more than the cart line does.
+- `apps/web/app/cart/page.tsx` — the cart screen: composed lines, per-line
+  problems, old → new price confirmation, server-computed subtotal/tax/total,
+  remove. Plain `<form action={…}>` server actions, so it works before
+  hydration and needs no client component.
+- `packages/db/seed.ts` + `db:seed:test`, wired into `pretest:e2e`. The e2e
+  specs assert real prices, so they need the same SAMPLE_MENU the unit
+  fixtures are hand-calculated against — and `npm test` truncates that
+  database on its way through.
+- 9 e2e specs (4 behavioural, 3 axe, 2 pre-existing smoke). The composed
+  fixture is hand-calculated in the spec header: burrito 1095 + chicken 0 +
+  guacamole 250 + cheese-at-extra (50 + 75) = 1470, NO onions free, tax 121,
+  total 1591.
+
+**Decided:**
+- **The composer calls `validateComposition` and `priceLine` — the same
+  functions the cart and placement call.** Not a client-side reimplementation:
+  a second answer here is a screen that composes something checkout refuses, or
+  quotes a price the server disagrees with. The page hands the client a menu
+  scoped to one item and its groups, which is everything those two functions
+  read.
+- **Add to cart is never disabled for an invalid composition.** It validates on
+  click and names what is missing ("Choose your protein."). A greyed-out button
+  explains nothing, cannot be focused, and is the reason people email support.
+  The server re-validates regardless — the button is UX, the action is the
+  gate.
+- **Requirement hints show from the start; red messages only after a first
+  attempt.** Nagging before the first tap is how a form teaches people to stop
+  reading it.
+- **The price beside an option is the MENU's delta until it is selected, the
+  APPLIED one after.** A negated cheese shows nothing, not "+$0.50" — a price
+  the receipt would disagree with.
+- **No shadcn, still.** Radios, checkboxes and buttons are native elements
+  Tailwind styles. A component library installed for its `<Button>` is
+  inventory.
+- **The relative imports in `packages/**` lost their `.js` extensions**
+  (defect, see WRITEUP). Turbopack does not map `./x.js` onto the `x.ts` beside
+  it, and the production build failed the moment a page actually pulled
+  `packages/core` in.
+
+**Left behind:**
+- **No checkout screen.** The cart totals and says so. Name, phone, the
+  idempotency key and the submit belong with the pause/hours gate they have to
+  pass through (C-011); placement itself has been built and tested since C-006.
+- **No edit-in-place from the cart.** `replaceLine` exists and is tested;
+  the cart offers Remove only. Re-opening the composer with a line's selections
+  pre-filled is a composer feature, and it is not in P0-3's wording ("editable
+  and removable" is satisfied by remove-and-re-add today) — worth revisiting
+  when the composer next gets touched.
+- **86 toggling has no UI.** The menu and the composer render availability
+  correctly from the database; the manager-facing switch is C-012.
+- **Nothing polls.** A menu open in a tab while the kitchen 86s an item shows
+  the old state until reload. C-009's cursor is the general fix.

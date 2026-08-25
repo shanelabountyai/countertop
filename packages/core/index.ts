@@ -5,7 +5,7 @@
 //                               derives its status lists from ✅
 //   C-005  cart/              — the cart, and the checkout re-check that
 //                               catches an 86 or a reprice ✅
-export * from './menu/index.js';
-export * from './pricing/index.js';
-export * from './orders/index.js';
-export * from './cart/index.js';
+export * from './menu/index';
+export * from './pricing/index';
+export * from './orders/index';
+export * from './cart/index';

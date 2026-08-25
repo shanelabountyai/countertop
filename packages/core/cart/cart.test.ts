@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { SAMPLE_MENU, menuWith } from '../menu/sample-menu.js';
-import type { Composition, Menu } from '../menu/types.js';
+import { SAMPLE_MENU, menuWith } from '../menu/sample-menu';
+import type { Composition, Menu } from '../menu/types';
 import {
   EMPTY_CART,
   addLine,
@@ -10,8 +10,8 @@ import {
   reviewCart,
   type Cart,
   type CartError,
-} from './cart.js';
-import { parseCart, parseComposition, serializeCart } from './serialize.js';
+} from './cart';
+import { parseCart, parseComposition, serializeCart } from './serialize';
 
 // Every number here is hand-calculated from packages/core/menu/sample-menu.ts.
 //
