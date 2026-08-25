@@ -10,7 +10,7 @@ import type { Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { placeOrder } from './placement';
-import { resetDatabase, seedSampleMenu, seedSettings } from './testing/index';
+import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
 // THE regression test this project exists to keep passing (CLAUDE.md, the
 // snapshot rule). A placed order is an immutable COPY. Menu edits made after
@@ -76,6 +76,7 @@ describe('the snapshot rule', () => {
     await resetDatabase();
     await seedSampleMenu();
     await seedSettings();
+    await seedStoreHours();
   });
 
   it('renders a receipt with zero joins to any menu table', async () => {

@@ -96,9 +96,9 @@ States: `placed → accepted → preparing → ready → picked_up`; `placed|acc
 **P0-6: Availability, pause, and hours** *(one checkout gate, three triggers)*
 - [ ] Manager or kitchen can toggle **item** availability instantly; unavailable items render as "sold out," not hidden
 - [ ] Manager or kitchen can toggle **modifier option** availability independently (out of avocado ≠ out of burritos); composing an item with an unavailable option is blocked, and in-cart lines holding one are flagged per P0-3
-- [ ] A "pause new orders" switch stops checkout with a clear customer-facing message; in-flight orders continue
-- [ ] When open orders (`placed|accepted|preparing`) reach a configurable max (default 25), checkout auto-pauses with the same message; it auto-resumes below the threshold, and the manual switch always overrides *(prep-weight upgrade: P1-7)*
-- [ ] Configurable weekly store hours plus a "closed today" override gate checkout through the same code path as pause, with a clear "we open at 11:00" message; new orders cut off a configurable N minutes before close (default 15)
+- [x] A "pause new orders" switch stops checkout with a clear customer-facing message; in-flight orders continue
+- [x] When open orders (`placed|accepted|preparing`) reach a configurable max (default 25), checkout auto-pauses with the same message; it auto-resumes below the threshold, and the manual switch always overrides *(prep-weight upgrade: P1-7)*
+- [x] Configurable weekly store hours plus a "closed today" override gate checkout through the same code path as pause, with a clear "we open at 11:00" message; new orders cut off a configurable N minutes before close (default 15)
 
 **P0-7: Estimated ready time**
 Simple v1: configurable base prep time + per-open-order increment.
@@ -109,9 +109,9 @@ Simple v1: configurable base prep time + per-open-order increment.
 **P0-8: Order identity — number, name, contact** *(new in v2 — PO + OPS)*
 Every order gets a short human-callable identity at placement: a daily-resetting sequential order number (e.g., #047, reset per restaurant-timezone day) plus a required customer name and optional phone.
 - [ ] Placing an order assigns the next sequential number for the current restaurant-timezone day; two concurrent placements never share a number (unique constraint tested under the seeded rush)
-- [ ] Checkout requires a name (1–40 chars); phone is optional and feeds the P1-3 notification stub
+- [x] Checkout requires a name (1–40 chars); phone is optional and feeds the P1-3 notification stub
 - [ ] Order number + name appear on the kitchen queue card, customer status page, and order confirmation; the internal UUID never appears in any UI
-- [ ] An optional order-level note (e.g., "blue Honda out front," ≤140 chars) is captured at checkout and shown on the kitchen card
+- [x] An optional order-level note (e.g., "blue Honda out front," ≤140 chars) is captured at checkout and shown on the kitchen card
 
 **P0-9: Tax line (explicit decision)** *(new in v2 — PO)*
 Order totals carry an explicit tax field computed server-side from a single configurable flat rate (default 8.25%); subtotal, tax, and total are distinct persisted fields on the order snapshot.

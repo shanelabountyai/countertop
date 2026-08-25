@@ -292,13 +292,38 @@ model OrderEvent {
 // Config
 // ---------------------------------------------------------------------------
 
-/// Exactly one row, enforced by a CHECK in the migration. C-011 adds pause /
-/// hours / throttle; C-013 adds prep times. These two are what placement needs.
+/// Exactly one row, enforced by a CHECK in the migration. C-013 adds prep
+/// times; the rest is here.
 model RestaurantSettings {
-  id         String @id @default("singleton")
-  /// IANA zone. The daily order-number reset and every report bucket derive
-  /// from this — never UTC, never the server process's timezone.
-  timezone   String
+  id            String  @id @default("singleton")
+  /// IANA zone. The daily order-number reset, the store-hours gate and every
+  /// report bucket derive from this — never UTC, never the process's zone.
+  timezone      String
   /// Parts per million. 8.25% = 82_500 (see packages/core/pricing).
-  taxRatePpm Int
+  taxRatePpm    Int
+  /// The manual pause switch (P0-6). Always overrides the other two triggers.
+  ordersPaused  Boolean @default(false)
+  /// Shown to customers instead of the default while paused.
+  pauseMessage  String? @db.VarChar(200)
+  /// Auto-pause threshold, counted over OPEN_STATUSES. Resumes below it.
+  maxOpenOrders Int     @default(25)
+  /// A "YYYY-MM-DD" in the restaurant's timezone declared closed, or null.
+  /// A string, never a Postgres `date` — same reason as `Order.businessDay`.
+  closedOnDay   String? @db.Char(10)
+  /// New orders stop this many minutes before close (P0-6, default 15).
+  cutoffMinutes Int     @default(15)
+}
+
+/// One row per day the restaurant is OPEN (P0-6). A missing day is a closed
+/// day: a week is configured by listing what opens, so a deleted row can never
+/// leave a door open. `dayOfWeek` is the primary key, so a day cannot have two
+/// conflicting windows — split lunch/dinner service is a recorded ceiling, not
+/// an accident waiting to happen.
+model StoreHours {
+  /// 0 = Sunday, matching `restaurantClock`.
+  dayOfWeek   Int @id
+  /// Local wall-clock minutes since midnight, 0–1439.
+  openMinute  Int
+  /// Local wall-clock minutes since midnight. Must be after `openMinute`.
+  closeMinute Int
 }

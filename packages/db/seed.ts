@@ -15,7 +15,7 @@ import { prisma } from './index';
 import { loadMenu } from './menu';
 import { placeOrder } from './placement';
 import { applyOrderAction } from './transitions';
-import { resetDatabase, seedSampleMenu, seedSettings } from './testing/index';
+import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
 // Relative instants as UTC FIELD arithmetic, which normalises. `new Date(<a
 // number>)` is banned repo-wide and the ban is worth more than the
@@ -173,6 +173,7 @@ async function main(): Promise<void> {
   await resetDatabase();
   await seedSampleMenu();
   await seedSettings();
+  await seedStoreHours();
   await seedOrders();
 }
 

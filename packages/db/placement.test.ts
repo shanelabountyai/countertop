@@ -2,7 +2,7 @@ import type { Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { placeOrder, type PlacementInput, type PlacementResult } from './placement';
-import { resetDatabase, seedSampleMenu, seedSettings } from './testing/index';
+import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
 // 8pm on the 4th of July in Los Angeles. Deliberately an instant that is
 // ALREADY the 5th in UTC: the business day these orders are numbered on is the
@@ -53,6 +53,7 @@ beforeEach(async () => {
   await resetDatabase();
   await seedSampleMenu();
   await seedSettings();
+  await seedStoreHours();
 });
 
 describe('placing an order (P0-3, P0-8, P0-9)', () => {

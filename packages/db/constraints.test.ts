@@ -180,3 +180,104 @@ describe('restaurant settings', () => {
     ).rejects.toThrow(/restaurant_settings_singleton/i);
   });
 });
+
+// C-011: the checkout gate's numbers (P0-6). Every branch of `checkoutGate`
+// assumes a window that makes sense; a settings screen is one fat finger away
+// from a restaurant open 21:00–11:00, which the gate would read as "closed all
+// day, forever" with no error anywhere. These make that a write-time failure.
+describe('store hours', () => {
+  beforeEach(resetDatabase);
+
+  const hours = (overrides: Record<string, unknown> = {}) => ({
+    dayOfWeek: 2,
+    openMinute: 11 * 60,
+    closeMinute: 21 * 60,
+    ...overrides,
+  });
+
+  it('accepts a sane weekday window', async () => {
+    await expect(prisma.storeHours.create({ data: hours() })).resolves.toMatchObject({
+      dayOfWeek: 2,
+    });
+  });
+
+  it('refuses a day outside 0–6', async () => {
+    await expect(prisma.storeHours.create({ data: hours({ dayOfWeek: 7 }) })).rejects.toThrow(
+      /store_hours_day_of_week_range/i,
+    );
+  });
+
+  it('refuses minutes outside the day', async () => {
+    await expect(prisma.storeHours.create({ data: hours({ openMinute: -1 }) })).rejects.toThrow(
+      /store_hours_minutes_in_range/i,
+    );
+    await expect(prisma.storeHours.create({ data: hours({ closeMinute: 1441 }) })).rejects.toThrow(
+      /store_hours_minutes_in_range/i,
+    );
+  });
+
+  it('accepts midnight as a closing time', async () => {
+    // 1440 is the one value above 1439 that means anything: a kitchen that
+    // shuts at midnight rather than at 23:59.
+    await expect(
+      prisma.storeHours.create({ data: hours({ closeMinute: 1440 }) }),
+    ).resolves.toMatchObject({ closeMinute: 1440 });
+  });
+
+  it('refuses a window that closes before it opens', async () => {
+    // This is what forecloses overnight service (17:00–02:00). Refusing it
+    // loudly beats a gate that silently reads every minute of such a day as
+    // closed — recorded as a ceiling in docs/WRITEUP.md.
+    await expect(
+      prisma.storeHours.create({ data: hours({ openMinute: 17 * 60, closeMinute: 2 * 60 }) }),
+    ).rejects.toThrow(/store_hours_closes_after_opening/i);
+  });
+
+  it('refuses a second window for the same day', async () => {
+    // `dayOfWeek` is the primary key: split lunch/dinner service is not what
+    // this schema models, and two conflicting rows would make the gate's
+    // answer depend on row order.
+    await prisma.storeHours.create({ data: hours() });
+    await expect(
+      prisma.storeHours.create({ data: hours({ openMinute: 17 * 60 }) }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+  });
+});
+
+describe('the gate settings', () => {
+  beforeEach(resetDatabase);
+
+  const settings = (overrides: Record<string, unknown> = {}) => ({
+    id: 'singleton',
+    timezone: 'America/Los_Angeles',
+    taxRatePpm: 82_500,
+    ...overrides,
+  });
+
+  it('refuses a throttle threshold of zero', async () => {
+    // Zero would pause ordering permanently through a code path nobody would
+    // think to look at. The manual switch is how you stop taking orders.
+    await expect(
+      prisma.restaurantSettings.create({ data: settings({ maxOpenOrders: 0 }) }),
+    ).rejects.toThrow(/max_open_orders_positive/i);
+  });
+
+  it('refuses a negative cutoff, which would extend ordering past close', async () => {
+    await expect(
+      prisma.restaurantSettings.create({ data: settings({ cutoffMinutes: -5 }) }),
+    ).rejects.toThrow(/cutoff_in_range/i);
+  });
+
+  it('refuses a closed-today value that could never match a business day', async () => {
+    // Compared as a string against `restaurantClock().day`. Any other shape
+    // silently reads as "not closed today" — a restaurant that announced it
+    // was shut and took orders anyway.
+    await expect(
+      prisma.restaurantSettings.create({ data: settings({ closedOnDay: '7/4/2026' }) }),
+    ).rejects.toThrow(/closed_on_day_shape/i);
+
+    await expect(
+      prisma.restaurantSettings.create({ data: settings({ closedOnDay: '2026-07-04' }) }),
+    ).resolves.toMatchObject({ closedOnDay: '2026-07-04' });
+  });
+});

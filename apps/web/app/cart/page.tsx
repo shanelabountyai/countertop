@@ -5,12 +5,17 @@ import Link from 'next/link';
 import { loadMenu } from '@countertop/db/menu';
 import { formatCents } from '@/lib/money';
 import { describeSelection } from '@/lib/menu-labels';
+import { currentGate } from '@/lib/checkout-gate';
+import { GateNotice } from '../checkout/gate-notice';
 import { getCartReview, removeCartLineForm, confirmCartPricesForm } from './actions';
 
 export const metadata = { title: 'Your cart — Firebird Kitchen' };
 
+// Never prerendered: the gate's answer changes through the day.
+export const dynamic = 'force-dynamic';
+
 export default async function CartPage() {
-  const [menu, review] = await Promise.all([loadMenu(), getCartReview()]);
+  const [menu, review, gate] = await Promise.all([loadMenu(), getCartReview(), currentGate()]);
 
   return (
     <main className="mx-auto max-w-2xl p-6">
@@ -122,12 +127,19 @@ export default async function CartPage() {
             </p>
           )}
 
-          {/* Checkout itself — name, phone, and the pause/hours gate — is
-              C-011's. Placement is already built and tested; it has no button
-              yet, and saying so beats a button that 404s. */}
-          <p className="mt-4 text-sm text-neutral-600">
-            Checkout arrives in a later session.
-          </p>
+          {/* The gate, asked here so a customer is told the restaurant is
+              closed BEFORE they tap into checkout. Checkout asks it again, and
+              so does `placeOrder` — one function, three askers (P0-6). */}
+          {gate.open ? (
+            <Link
+              href="/checkout"
+              className="mt-4 flex min-h-14 w-full items-center justify-center rounded-lg bg-neutral-900 px-6 text-lg font-semibold text-white"
+            >
+              Checkout
+            </Link>
+          ) : (
+            <GateNotice gate={gate} className="mt-4" />
+          )}
         </section>
       )}
     </main>

@@ -10,16 +10,20 @@ import {
   DEFAULT_AGING,
   formatOrderNumber,
   groupQueue,
+  checkoutGate,
   matchesLookup,
   needsAcknowledgment,
+  restaurantClock,
   queueAging,
   undoRemainingMs,
   type OrderStatus,
 } from '@countertop/core';
+import { loadGateState } from '@countertop/db/gate';
 import { loadQueue, queueCursor, type QueueOrder } from '@countertop/db/queue';
 import { LiveUpdates } from '@/lib/live-updates';
 import { describeSelection } from '@/lib/menu-labels';
 import { NewOrderAlert } from './new-order-alert';
+import { PauseSwitch } from './pause-switch';
 import { QueueControls } from './queue-controls';
 
 export const metadata = { title: 'Kitchen — Firebird Kitchen' };
@@ -67,6 +71,11 @@ export default async function KitchenPage({
   // would go unseen until the next one.
   const cursor = await queueCursor();
   const orders = await loadQueue();
+  // The SAME gate the customer's checkout asks. Staff see the live answer —
+  // including an auto-pause nobody switched on — rather than the switch's
+  // own position (P0-6).
+  const gateState = await loadGateState();
+  const gate = checkoutGate(gateState, restaurantClock(now, gateState.timezone));
   const groups = groupQueue(orders.filter((order) => matchesLookup(order, query)));
   // Counted off the UNFILTERED list, deliberately. A cook who has typed a name
   // into the lookup box is still the person who has to hear the next order
@@ -84,6 +93,8 @@ export default async function KitchenPage({
           Customer menu
         </Link>
       </div>
+
+      <PauseSwitch gate={gate} paused={gateState.paused} />
 
       {/* A plain GET form: the walk-up lookup works before hydration, and the
           result is a URL a second screen can be opened on (P0-11). */}

@@ -626,3 +626,74 @@ C-009 committed and pushed at a7caee3
   alerts fire and are acknowledged during the seeded rush, which is C-016.
 
 C-010 committed and pushed at 354d1a8
+
+## C-011 — The checkout gate
+
+**Built:**
+- `packages/core/orders/checkout-gate.ts` — `checkoutGate(state, clock)`. ONE
+  function, five refusal reasons, three triggers feeding it. Returns the
+  customer-facing sentence, so no screen composes its own.
+- `packages/core/orders/business-day.ts` — `restaurantClock(now, tz)` returning
+  `{ day, weekday, minuteOfDay }`. One `Intl` call, and now the only place an
+  instant becomes a local wall-clock reading; `businessDayOf` derives from it.
+- `packages/db/prisma/migrations/…_checkout_gate/` — five gate columns on
+  `RestaurantSettings`, a `StoreHours` table keyed by `dayOfWeek`, and six
+  hand-written CHECK constraints.
+- `packages/db/gate.ts` — `loadGateState()`. Settings, hours and the open-order
+  count in one round trip; the count comes from `OPEN_STATUSES`.
+- `packages/db/placement.ts` — `placeOrder` asks the gate and refuses with
+  `ordering_closed`, carrying the trigger.
+- `apps/web/lib/checkout-gate.ts` — `currentGate()`, the web layer's single
+  call, and the only place the request path reads a clock for the gate.
+- `apps/web/app/checkout/` — the checkout page, the form (name, phone, order
+  note, idempotency key, receipt), and `GateNotice`.
+- `apps/web/app/kitchen/pause-switch.tsx` + `setOrderingPaused` — the manual
+  trigger's surface, showing the GATE's answer rather than the switch's own
+  position.
+- Tests: 24 gate unit tests, 11 clock tests, 11 db tests, 10 constraint tests,
+  and 7 e2e specs.
+
+**Decided:**
+- **Precedence is manual → calendar → throttle, and it is tested.** P0-6 says
+  the manual switch "always overrides", so it is asked first: a cook who paused
+  because the fryer died must not be told the reason is that the store is busy,
+  nor have their pause lifted when the queue drains. The throttle is asked last
+  because it is the only trigger that clears itself, and because "we are
+  slammed" is the wrong sentence for someone who arrived after closing.
+- **The gate composes the MESSAGE, not just the verdict.** "We open at 11:00
+  today", "we stop taking online orders at 20:45" — a screen that only received
+  a boolean would have to reconstruct the reason, and the second screen to do
+  it would say it differently.
+- **A missing `StoreHours` row is a closed day.** A week is configured by
+  listing what opens, so a deleted row can never leave a door open.
+- **The threshold is `>=`.** A max of 25 means twenty-five open orders is the
+  cap; a gate that waits for 26 is a threshold nobody can verify by counting
+  cards.
+- **The gate is asked AFTER the idempotency replay.** A retry of an order
+  already on the grill returns that order — being told the restaurant has since
+  closed would be wrong, and the gate is asked about NEW orders only. There is
+  a test.
+- **Six CHECK constraints, because the gate trusts these numbers.** A settings
+  screen is one fat finger from a restaurant open 21:00–11:00, which every
+  branch would read as "closed all day, forever" with no error anywhere. The
+  constraint makes it a write-time failure instead.
+- **The seeded restaurant is open round the clock with a zero-minute cutoff.**
+  The schema default cutoff is 15 minutes, which would close the seeded
+  restaurant between 23:45 and midnight — a suite that passes all day and fails
+  for fifteen minutes before local midnight is a suite nobody trusts again. The
+  hours trigger is driven directly in the pure tests, where the clock is a
+  parameter.
+
+**Left behind:**
+- **One window per day.** `dayOfWeek` is the primary key, so split lunch/dinner
+  service is not modelled, and the `closeMinute > openMinute` CHECK forecloses
+  overnight service. Both refuse loudly rather than misbehaving quietly.
+- **No settings screen for hours, threshold or cutoff.** They are columns with
+  sane defaults and constraints; only the pause switch has a UI, because only
+  the pause switch is a mid-service action. C-015 is the menu-editing screen
+  and the natural home for the rest.
+- **The auto-pause threshold has no e2e.** It needs 25 open orders to fire;
+  it is unit-tested at the database level, and C-017's rush is where it earns
+  a browser test.
+- **The confirmation is rendered inline, not at a URL.** The status token is
+  printed but the page behind it is C-014's.

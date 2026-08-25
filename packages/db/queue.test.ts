@@ -2,7 +2,7 @@ import type { Cart } from '@countertop/core';
 import { beforeEach, expect, it } from 'vitest';
 import { placeOrder } from './placement';
 import { queueCursor } from './queue';
-import { resetDatabase, seedSampleMenu, seedSettings } from './testing/index';
+import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 import { applyOrderAction } from './transitions';
 
 // The cursor is the one thing the whole polling feature rests on: if it fails
@@ -43,6 +43,7 @@ beforeEach(async () => {
   await resetDatabase();
   await seedSampleMenu();
   await seedSettings();
+  await seedStoreHours();
 });
 
 it('is stable while nothing happens', async () => {

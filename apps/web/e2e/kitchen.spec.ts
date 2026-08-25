@@ -265,7 +265,7 @@ test.describe('a new order announces itself', () => {
     await expect.poll(() => chimes(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(2);
 
     await card(page, 'Dana Reyes').getByRole('button', { name: 'Accept' }).click();
-    await expect(page.getByText(/new order/)).toHaveCount(0);
+    await expect(page.getByTestId('new-order-alert')).toHaveCount(0);
 
     // Acknowledged means silent. Wait out more than one interval and prove it.
     const afterAck = await chimes(page);

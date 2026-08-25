@@ -17,12 +17,16 @@ import {
   reviewCart,
   type Cart,
   type CartError,
+  checkoutGate,
+  restaurantClock,
   type CartReview,
+  type GateReason,
   type IdentityViolation,
   type OrderEventDraft,
 } from '@countertop/core';
 import { Prisma, prisma } from './index';
-import { loadMenu, loadSettings } from './menu';
+import { loadGateState } from './gate';
+import { loadMenu } from './menu';
 
 /**
  * Everything a receipt, a confirmation and a kitchen ticket render — and
@@ -46,7 +50,11 @@ export type PlacementError =
   | CartError
   | { kind: 'empty_cart'; message: string }
   | { kind: 'idempotency_key_required'; message: string }
-  | { kind: 'price_changed'; message: string };
+  | { kind: 'price_changed'; message: string }
+  // The checkout gate refusing the order (P0-6). Carries the trigger, so the
+  // screen can say "we open at 11:00" rather than a generic failure — and so
+  // the seeded rush can assert WHICH gate bounced an order.
+  | { kind: 'ordering_closed'; reason: GateReason; message: string };
 
 export type PlacementInput = {
   cart: Cart;
@@ -133,10 +141,22 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
     if (existing) return { ok: true, order: existing, replayed: true };
   }
 
-  const [menu, settings] = await Promise.all([loadMenu(), loadSettings()]);
+  const [menu, settings] = await Promise.all([loadMenu(), loadGateState()]);
   const review = reviewCart(menu, cart, settings.taxRatePpm);
   const identity = normalizeIdentity(input);
   const errors: PlacementError[] = identity.ok ? [] : [...identity.violations];
+
+  // The gate, asked HERE and not only by the screen (P0-6). A pause that stops
+  // the button but not the POST is not a pause — and this is the same function
+  // the cart page calls, so the two can never disagree about why.
+  //
+  // Deliberately AFTER the idempotency replay above: a retry of an order that
+  // is already on the grill must return that order, not be told the restaurant
+  // has since closed. The gate is asked about NEW orders only.
+  const gate = checkoutGate(settings, restaurantClock(now, settings.timezone));
+  if (!gate.open) {
+    errors.push({ kind: 'ordering_closed', reason: gate.reason, message: gate.message });
+  }
 
   if (idempotencyKey === '') {
     errors.push({

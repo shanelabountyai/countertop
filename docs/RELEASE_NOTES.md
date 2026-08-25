@@ -400,3 +400,34 @@ what is on screen; it does not filter what the kitchen is being told about.
 has touched — which, on a wall-mounted screen, is every page. Rather than
 failing quietly into exactly the silence this feature exists to prevent, the
 screen shows a "this screen is muted" button until someone taps it once.
+
+## The restaurant can close the door
+
+Online ordering now stops when it should — and it stops in one place, so what
+the customer is told, what the button does, and what the server accepts can
+never disagree.
+
+**Three reasons the door closes, one mechanism.** Staff hit "pause new orders"
+from the kitchen screen. The kitchen hits its own order limit and pauses
+itself, resuming when the queue drains. Or it is simply outside the hours the
+restaurant keeps. All three produce the same gate, asked by the cart, by
+checkout, and again by the server when the order is actually submitted.
+
+**A customer who is told no is told why, and when.** Not "ordering
+unavailable" — "we open at 11:00 today", "we stop taking online orders at
+20:45, fifteen minutes before we close, come by the counter", or whatever the
+cook typed into the pause box. A closed sign with no time on it is a customer
+who does not come back.
+
+**Staff see the real answer, not the switch.** The kitchen screen shows whether
+ordering is actually open, so a restaurant that auto-paused at its order limit
+says so in the same place the pause button lives — rather than leaving a cook
+to wonder why the tickets stopped.
+
+**Pausing never touches an order already placed.** The gate is asked about new
+orders and nothing else, and a customer retrying a submission for food already
+on the grill still gets their order back rather than a closed sign.
+
+**And checkout itself is here**: name, optional phone, an order note for "blue
+Honda out front", and an order number on a receipt. Placing twice by accident
+still produces one order.

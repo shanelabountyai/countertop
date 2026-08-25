@@ -86,7 +86,10 @@ export function NewOrderAlert({ count }: { count: number }) {
   if (count === 0) return null;
 
   return (
-    <div className="alert-pulse mb-4 rounded-xl border-2 border-sky-700 bg-sky-50 p-4">
+    <div
+      data-testid="new-order-alert"
+      className="alert-pulse mb-4 rounded-xl border-2 border-sky-700 bg-sky-50 p-4"
+    >
       {/* `assertive`: the screen-reader half of the chime. An order announced
           to a sighted cook and not to anyone else is still a silent queue. */}
       <p aria-live="assertive" className="text-2xl font-bold text-sky-900">

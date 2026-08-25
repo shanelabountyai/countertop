@@ -12,22 +12,54 @@
 // exist to force through a module like this one.
 
 /**
- * The restaurant-timezone calendar day of an instant, as "YYYY-MM-DD".
+ * The restaurant's wall clock at an instant: what day it is there, which day
+ * of the week, and how far into the day.
  *
- * Matches the `businessDay` column exactly (`Char(10)`, a string — never a
- * Postgres `date`, which round-trips through JS as an instant and shifts a
- * day west).
+ * ONE `Intl` call, and the only place in the codebase that converts an instant
+ * to a local wall-clock reading. Everything downstream — the daily order-number
+ * reset (P0-8), the store-hours gate (P0-6), every report bucket (P1-1) — asks
+ * this, which is what the CLAUDE.md bans on `getHours` and `getTimezoneOffset`
+ * exist to force.
+ *
+ * The direction matters: instant → local, never local → instant. A DST jump
+ * makes the reverse ambiguous (2:30am happens twice in the autumn and not at
+ * all in the spring); this direction is always a single answer.
  *
  * Throws on an unknown timezone rather than falling back to UTC: a typo in the
  * settings row must fail loudly at the first placement, not silently reset the
- * order numbers at the wrong hour for a week.
+ * order numbers — or unlock the doors — at the wrong hour for a week.
  */
-export function businessDayOf(now: Date, timezone: string): string {
+export type RestaurantClock = {
+  /** "YYYY-MM-DD" in the restaurant's calendar. */
+  day: string;
+  /** 0 = Sunday, matching `StoreHours.dayOfWeek` and `Date.prototype.getDay`. */
+  weekday: number;
+  /** Minutes since local midnight, 0–1439. What store hours are compared in. */
+  minuteOfDay: number;
+};
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
+export function restaurantClock(now: Date, timezone: string): RestaurantClock {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    // Without this, en-US renders midnight as "24" and the arithmetic below
+    // silently produces 1440 for the one minute of the day it matters most.
+    hourCycle: 'h23',
   }).formatToParts(now);
 
   const part = (type: Intl.DateTimeFormatPartTypes): string => {
@@ -36,6 +68,31 @@ export function businessDayOf(now: Date, timezone: string): string {
     return found.value;
   };
 
-  // Year padded, not assumed four digits: en-US renders year 999 as "999".
-  return `${part('year').padStart(4, '0')}-${part('month')}-${part('day')}`;
+  const weekday = WEEKDAY_INDEX[part('weekday')];
+  if (weekday === undefined) throw new Error(`Could not read weekday in timezone ${timezone}`);
+
+  return {
+    // Year padded, not assumed four digits: en-US renders year 999 as "999".
+    day: `${part('year').padStart(4, '0')}-${part('month')}-${part('day')}`,
+    weekday,
+    minuteOfDay: Number(part('hour')) * 60 + Number(part('minute')),
+  };
+}
+
+/**
+ * The restaurant-timezone calendar day of an instant, as "YYYY-MM-DD".
+ *
+ * Matches the `businessDay` column exactly (`Char(10)`, a string — never a
+ * Postgres `date`, which round-trips through JS as an instant and shifts a
+ * day west).
+ */
+export function businessDayOf(now: Date, timezone: string): string {
+  return restaurantClock(now, timezone).day;
+}
+
+/** "13:05" from 785. The customer-facing half of "we open at 11:00" (P0-6). */
+export function formatMinuteOfDay(minuteOfDay: number): string {
+  const hours = Math.floor(minuteOfDay / 60);
+  const minutes = minuteOfDay % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }

@@ -7,6 +7,7 @@
 // anyone who knows the path. That is a deliberate scope line, not an
 // oversight, and it is recorded in the write-up.
 import { CANCEL_REASONS, type CancelReason, type OrderAction } from '@countertop/core';
+import { prisma } from '@countertop/db';
 import { applyOrderAction } from '@countertop/db/transitions';
 import { revalidatePath } from 'next/cache';
 
@@ -55,4 +56,30 @@ export async function cancelOrder(
  *  a number the owner acts on (P0-4, P1-1). */
 export async function abandonOrder(orderId: string): Promise<KitchenResult> {
   return run(orderId, { kind: 'abandon', actor: 'staff' });
+}
+
+/**
+ * The manual half of the checkout gate (P0-6): "pause new orders".
+ *
+ * In-flight orders are untouched — this only answers the question the gate
+ * asks about NEW ones. The switch always overrides the other two triggers, so
+ * a cook who pauses because the fryer died does not have it lifted by the
+ * queue draining below the auto-threshold.
+ */
+export async function setOrderingPaused(paused: unknown, message?: unknown): Promise<KitchenResult> {
+  if (typeof paused !== 'boolean') {
+    return { ok: false, message: 'That switch could not be read. Reload the queue.' };
+  }
+  const note = typeof message === 'string' ? message.trim().slice(0, 200) : '';
+
+  await prisma.restaurantSettings.update({
+    where: { id: 'singleton' },
+    data: { ordersPaused: paused, pauseMessage: paused && note !== '' ? note : null },
+  });
+  revalidatePath('/kitchen');
+  // The customer surfaces read the gate on every render, and both are
+  // `force-dynamic`, so they pick this up on their next poll or navigation.
+  revalidatePath('/checkout');
+  revalidatePath('/cart');
+  return { ok: true };
 }
