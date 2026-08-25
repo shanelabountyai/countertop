@@ -1,24 +1,40 @@
-// Countertop — data model. C-001 wires the generator and datasource only;
-// the entities land in C-003, after the snapshot-column review the START-HERE
-// loop pauses for.
+// Countertop — the data model (C-003).
 //
-// RULES THIS FILE WILL OBEY (CLAUDE.md, "Database rules"):
+// NORMATIVE: PRD P0-3, P0-4, P0-8, P0-9, P0-10 and CLAUDE.md "Database rules".
 //
-//  * Money is integer cents. Never a float, never a Decimal that becomes one.
-//  * Order/OrderLine/OrderLineOption carry COPIED names and prices as columns.
-//    A receipt renders with zero joins to menu tables. FKs back to the menu,
-//    if kept for analytics, are onDelete: Restrict and never read for display
-//    or pricing. If an order row joins a menu table to render, that's the bug.
-//  * The daily order number is (businessDay, seq) with a unique constraint —
-//    concurrent placements contend on the constraint, not on check-then-write.
-//  * The idempotency key has a unique constraint. The disabled submit button
-//    is UX; the constraint is the mechanism.
-//  * Instants are @db.Timestamptz(3). The business day is a restaurant-timezone
-//    string, never a Postgres `date` coerced through the process timezone.
+// THE RULE THIS FILE EXISTS TO ENFORCE:
 //
-// WHAT PRISMA CANNOT EXPRESS, AND SO LIVES IN A HAND-WRITTEN MIGRATION:
-//   1. The append-only trigger on the order event log (undo writes a logged
-//      revert event; it never deletes).
+//   A placed order is an immutable COPY of everything it was composed from.
+//   Order/OrderLine/OrderLineOption carry copied names and computed prices as
+//   COLUMNS. A receipt renders with ZERO joins to Category, MenuItem,
+//   ModifierGroup or ModifierOption. If an order row ever joins a menu table
+//   to render or to do money math, that is the defect.
+//
+//   The `menuItemId` / `modifierGroupId` / `modifierOptionId` columns on the
+//   snapshot tables are PLAIN STRINGS with no foreign key (decided C-003).
+//   They exist for analytics correlation only and are never read for display
+//   or pricing. No FK, deliberately: a manager must be able to delete a
+//   discontinued item, and `onDelete: Restrict` would forbid that forever
+//   while `SetNull` would MUTATE a placed order — which is the one thing this
+//   whole model refuses to allow.
+//
+// OTHER RULES:
+//   * Money is integer cents. Never a float, never a Decimal that becomes one.
+//     `taxRatePpm` is snapshotted alongside the money, or a later rate change
+//     makes an old receipt arithmetically unexplainable.
+//   * `@db.Date` is BANNED. `businessDay` is `String @db.Char(10)` holding a
+//     restaurant-timezone calendar day. Postgres `date` -> JS `Date` is the
+//     exact path that produced a sibling build's silent day-west shift with
+//     every test green.
+//   * Instants are `@db.Timestamptz(3)`.
+//   * There is no cart table (decided C-003): the cart is client-side and the
+//     server validates and prices it on every mutation. Cart tables would
+//     mirror OrderLine field for field and need their own expiry job.
+//
+// WHAT PRISMA CANNOT EXPRESS, AND SO LIVES IN THE HAND-WRITTEN MIGRATION:
+//   1. The `order_event_append_only` BEFORE UPDATE OR DELETE trigger on
+//      OrderEvent. Undo writes a logged revert event; it never deletes.
+//   2. The `restaurant_settings_singleton` CHECK — one settings row, ever.
 //
 // NEVER `prisma db push`. Never edit an applied migration.
 // (`prisma migrate dev --create-only`, then edit.)
@@ -32,4 +48,257 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+/// C-004 owns the transitions. This enum is the persisted vocabulary; the ONE
+/// status module in packages/core is the authority on what may follow what,
+/// and C-004 adds the test asserting the two lists agree.
+enum OrderStatus {
+  placed
+  accepted
+  preparing
+  ready
+  picked_up
+  cancelled
+  abandoned
+}
+
+/// `none` is the NEGATION — "NO onions" — and it is why this column exists at
+/// all: the kitchen card must render a removal differently from an addition.
+enum Intensity {
+  none
+  light
+  regular
+  extra
+}
+
+enum PaymentState {
+  unpaid
+  paid
+  refunded
+}
+
+enum CancelReason {
+  out_of_item
+  too_busy
+  other
+}
+
+enum EventActor {
+  customer
+  staff
+  system
+}
+
+enum OrderEventKind {
+  /// A forward move. `placed` itself is a transition from nothing.
+  transition
+  /// A backward move, always deliberate and always logged. Never a delete.
+  revert
+  /// P0-2: what the client claimed vs. what the server computed.
+  total_mismatch
+  /// P0-4: the mock provider's refund record for a cancelled paid order.
+  refund
+}
+
+// ---------------------------------------------------------------------------
+// Menu — live, editable, and never read by a placed order
+// ---------------------------------------------------------------------------
+
+model Category {
+  id        String     @id @default(uuid())
+  name      String
+  sortOrder Int
+  items     MenuItem[]
+
+  @@index([sortOrder])
+}
+
+model MenuItem {
+  id             String              @id @default(uuid())
+  categoryId     String
+  category       Category            @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  name           String
+  description    String?
+  basePriceCents Int
+  /// The item grain of 86'ing (P0-6). Unavailable items render "sold out",
+  /// they are not hidden.
+  available      Boolean             @default(true)
+  sortOrder      Int
+  modifierGroups ItemModifierGroup[]
+
+  @@index([categoryId, sortOrder])
+}
+
+model ModifierGroup {
+  id               String              @id @default(uuid())
+  name             String
+  /// `min > 0` IS what "required" means. There is deliberately no separate
+  /// flag to contradict it (decided C-002).
+  min              Int
+  max              Int
+  intensityEnabled Boolean             @default(false)
+  options          ModifierOption[]
+  items            ItemModifierGroup[]
+}
+
+model ModifierOption {
+  id                   String        @id @default(uuid())
+  groupId              String
+  group                ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  name                 String
+  /// May be negative or zero.
+  priceDeltaCents      Int
+  /// Surcharge on top of the delta when taken at `extra`. Null means free.
+  extraPriceDeltaCents Int?
+  /// The option grain of 86'ing: out of avocado is not out of burritos.
+  available            Boolean       @default(true)
+  sortOrder            Int
+
+  @@index([groupId, sortOrder])
+}
+
+/// The join that makes group REUSE real: one "salsa" group serves the burrito
+/// and the bowl, with nothing duplicated to drift apart (P0-1).
+model ItemModifierGroup {
+  itemId    String
+  groupId   String
+  sortOrder Int
+  item      MenuItem      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// Restrict, not Cascade: deleting a group used by other items is exactly
+  /// the destructive edit P0-13 makes a manager confirm first.
+  group     ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@id([itemId, groupId])
+  @@index([itemId, sortOrder])
+}
+
+// ---------------------------------------------------------------------------
+// Order — the snapshot. Every column below is a copy or a computed value.
+// ---------------------------------------------------------------------------
+
+model Order {
+  /// Internal only. The UUID never appears in any UI (P0-8) — customers and
+  /// staff use `seq` + `customerName`.
+  id              String        @id @default(uuid())
+  /// Restaurant-timezone calendar day, "YYYY-MM-DD". Never a Postgres `date`.
+  businessDay     String        @db.Char(10)
+  /// The human-callable number: #047. Resets daily, per business day.
+  seq             Int
+  customerName    String        @db.VarChar(40)
+  customerPhone   String?       @db.VarChar(32)
+  orderNote       String?       @db.VarChar(140)
+  status          OrderStatus
+  /// Orders the kitchen queue.
+  placedAt        DateTime      @db.Timestamptz(3)
+  /// Drives both aging flags (the 15-minute queue flag and the 10/20/30-minute
+  /// `ready` no-show flag). Every OTHER transition time is derived from the
+  /// append-only event log, which is the single source — a denormalized column
+  /// per status can disagree with it, and a logged revert would have to decide
+  /// whether to un-set one (decided C-003).
+  statusChangedAt DateTime      @db.Timestamptz(3)
+  subtotalCents   Int
+  taxCents        Int
+  /// Snapshotted with the money. A later rate change must not make this
+  /// receipt's arithmetic unexplainable.
+  taxRatePpm      Int
+  totalCents      Int
+  paymentState    PaymentState  @default(unpaid)
+  cancelReason    CancelReason?
+  cancelNote      String?       @db.VarChar(140)
+  /// The customer's status link (>=128 bits of randomness). Unguessable, so
+  /// enumerating order numbers cannot reach someone else's order.
+  statusToken     String        @unique
+  /// P0-10. The CONSTRAINT is the mechanism; the disabled submit button is UX.
+  idempotencyKey  String        @unique
+  lines           OrderLine[]
+  events          OrderEvent[]
+
+  /// Two concurrent placements contend HERE, on the constraint — never on a
+  /// check-then-write. The loser catches the violation and retries at seq+1.
+  @@unique([businessDay, seq])
+  /// The kitchen queue read: group by state, order by placement time.
+  @@index([status, placedAt])
+}
+
+model OrderLine {
+  id             String            @id @default(uuid())
+  orderId        String
+  order          Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  lineNumber     Int
+  /// Analytics correlation only. No FK, never read for display or pricing.
+  menuItemId     String?
+  /// --- copied at placement ---
+  itemName       String
+  categoryName   String
+  basePriceCents Int
+  quantity       Int
+  /// --- computed at placement: (base + sum of applied deltas) ---
+  unitPriceCents Int
+  /// --- computed at placement: unitPriceCents * quantity ---
+  lineTotalCents Int
+  note           String?           @db.VarChar(140)
+  options        OrderLineOption[]
+
+  /// A card that renders its lines in a different order on each poll is a card
+  /// a cook misreads.
+  @@unique([orderId, lineNumber])
+}
+
+model OrderLineOption {
+  id                String     @id @default(uuid())
+  orderLineId       String
+  line              OrderLine  @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+  sortOrder         Int
+  /// Analytics correlation only. No FK, never read for display or pricing.
+  modifierGroupId   String?
+  modifierOptionId  String?
+  /// --- copied at placement ---
+  groupName         String
+  optionName        String
+  /// Null in a group without intensity. `none` is the negation the kitchen
+  /// card must render distinctly.
+  intensity         Intensity?
+  /// What this option actually added to the unit price: 0 for a negation,
+  /// delta + extra surcharge at `extra`. The options sum exactly to
+  /// OrderLine.unitPriceCents minus basePriceCents.
+  appliedDeltaCents Int
+
+  @@unique([orderLineId, sortOrder])
+}
+
+/// Append-only, enforced by a trigger in the migration. An undo writes a
+/// `revert` row; nothing is ever deleted or updated.
+model OrderEvent {
+  id         String         @id @default(uuid())
+  orderId    String
+  order      Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  at         DateTime       @db.Timestamptz(3)
+  kind       OrderEventKind
+  fromStatus OrderStatus?
+  toStatus   OrderStatus?
+  actor      EventActor
+  reason     String?
+  detail     Json?
+
+  @@index([orderId, at])
+}
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+/// Exactly one row, enforced by a CHECK in the migration. C-011 adds pause /
+/// hours / throttle; C-013 adds prep times. These two are what placement needs.
+model RestaurantSettings {
+  id         String @id @default("singleton")
+  /// IANA zone. The daily order-number reset and every report bucket derive
+  /// from this — never UTC, never the server process's timezone.
+  timezone   String
+  /// Parts per million. 8.25% = 82_500 (see packages/core/pricing).
+  taxRatePpm Int
 }

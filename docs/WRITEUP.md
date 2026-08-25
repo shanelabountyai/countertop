@@ -41,6 +41,9 @@ _(Filled in as phases land.)_
 | Tax rate as an integer in parts per million | a float percentage, or basis points | A float rate rounds the boundary cent by luck. Basis points cannot express 8.875% (New York) — ppm can |
 | Intensity `none` is a selection that does **not** count toward min/max | counting every selection alike | Otherwise "chicken → none" satisfies a required protein group and the burrito ships with no protein in it |
 | `min > 0` is what "required" means — no separate flag | a `required` boolean alongside `min`/`max` | Two ways to say one thing is two ways to disagree; `required: true, min: 0` has no meaning and someone writes it eventually |
+| Snapshot rows reference the menu by plain string, no foreign key | FK `onDelete: Restrict`, or `SetNull` | Restrict forbids ever deleting a menu row someone ordered; SetNull *edits a placed order*. The ids are for analytics and are never resolved for display |
+| Two timestamp columns + the append-only event log | a denormalized column per status | Seven columns can disagree with the log, and a logged revert has to invent a rule about un-setting one |
+| No cart tables — client-side cart, server prices every mutation | `Cart` / `CartLine` tables | They would mirror `OrderLine` field for field and need session keying and an expiry job that nothing in P0 reads |
 
 ## Scaling Caveats and Deliberate Simplifications
 
@@ -77,6 +80,26 @@ onward.
 
 *What I'd instrument next time:* a CI step that can only pass vacuously is worth
 running against an empty repo state before there's anything for it to check.
+
+**C-003 — a lint ban too broad to obey.** The time-axis rules ban `new Date(...)`
+with arguments, because `new Date('2026-07-04')` parses through whatever
+timezone the server booted in. But the selector also caught
+`new Date(Date.UTC(...))` — the one argument form that provably *cannot* read
+the process timezone, and the exact way every test builds the frozen instant the
+engine takes as a parameter.
+
+*How it was found:* the first database tests failed lint, not assertions.
+
+*Fix:* narrow the selector to exempt that one shape, verified against a probe
+file where a string, a bare epoch number, and `Date.UTC(...) + 1000` are all
+still rejected. The `packages/core` clock ban was narrowed the same way, to
+zero-argument `new Date()` and `Date.now()` — which is what "reads the clock"
+actually means.
+
+*Why it mattered more than it looks:* left alone, the workaround was an
+`eslint-disable` at the top of every test file from here to the end of the
+project. A rule that is routinely disabled is not a rule, and the disable
+comment would have quietly covered the real violations too.
 
 ## Skills Learned / Functions Unlocked
 

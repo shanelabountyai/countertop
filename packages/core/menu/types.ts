@@ -16,7 +16,8 @@ export type OptionId = string;
  * to kill. It is a real selection, carried through to the kitchen ticket, not
  * the absence of one.
  */
-export type Intensity = 'none' | 'light' | 'regular' | 'extra';
+export const INTENSITIES = ['none', 'light', 'regular', 'extra'] as const;
+export type Intensity = (typeof INTENSITIES)[number];
 
 export type ModifierOption = {
   id: OptionId;

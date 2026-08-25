@@ -7,8 +7,16 @@ export const noTimeAxisRules = {
   'no-restricted-syntax': [
     'error',
     {
-      selector: "NewExpression[callee.name='Date'][arguments.length>0]",
-      message: 'new Date(string) parses through the process timezone. Convert in the restaurant-timezone module, not here.',
+      // `new Date(Date.UTC(...))` is exempt, and only that shape. Date.UTC is
+      // defined to be UTC, so it is the one argument form that provably cannot
+      // read the process timezone — and it is how every test in this repo
+      // builds the frozen `now` the engine takes as a parameter. Without the
+      // exemption, every future test file needs its own eslint-disable, which
+      // is a ban nobody reads. Anything else — a string, a bare number, an
+      // expression around Date.UTC — stays banned.
+      selector:
+        "NewExpression[callee.name='Date'][arguments.length>0]:not(:has(> CallExpression[callee.object.name='Date'][callee.property.name='UTC']))",
+      message: 'new Date(string) parses through the process timezone. Use new Date(Date.UTC(...)) for a fixed instant, or convert in the restaurant-timezone module.',
     },
     {
       selector: "CallExpression[callee.object.name='Date'][callee.property.name='parse']",
@@ -41,7 +49,11 @@ export const noClockReadRules = {
       message: 'packages/core never reads the system clock — take `now` as a parameter.',
     },
     {
-      selector: "NewExpression[callee.name='Date']",
+      // Zero-argument `new Date()` only. That is the clock read; `new
+      // Date(Date.UTC(...))` is a fixed instant and every engine test needs
+      // one, because the engine takes `now` as a parameter. Argument forms
+      // that DO cross the axis stay banned by the rule above.
+      selector: "NewExpression[callee.name='Date'][arguments.length=0]",
       message: 'packages/core never reads the system clock — take `now` as a parameter.',
     },
   ],

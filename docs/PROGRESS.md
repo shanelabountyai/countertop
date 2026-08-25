@@ -65,3 +65,40 @@ C-001 committed and pushed at 5e9979b
 - **No display formatting.** Cents → "$10.95" is a UI concern and lands with the first screen that needs it (C-007).
 
 C-002 committed and pushed at 78c7ef4
+
+---
+
+## C-003 — The data model, and the snapshot rule made provable
+
+Opened with the review pause START-HERE calls for: entity list, the exact
+snapshot columns, and the unique constraints, all confirmed before a line of
+schema was written. Three forks were put up and all three recommendations taken.
+
+**Built:**
+- `packages/db/prisma/schema.prisma` — ten models. Menu side: `Category`, `MenuItem`, `ModifierGroup`, `ModifierOption`, and `ItemModifierGroup`, the join that makes group reuse real. Order side: `Order`, `OrderLine`, `OrderLineOption`, and the append-only `OrderEvent`. Plus a `RestaurantSettings` singleton holding the two things placement needs — `timezone` and `taxRatePpm`.
+- **The snapshot columns.** `OrderLine` copies `itemName`, `categoryName`, `basePriceCents` and computes `unitPriceCents`/`lineTotalCents`; `OrderLineOption` copies `groupName`, `optionName`, `intensity` and stores `appliedDeltaCents` — what that option actually added, so the options sum exactly to `unitPriceCents − basePriceCents`. `Order` snapshots `taxRatePpm` alongside the money.
+- **The hand-written migration** (`prisma migrate dev --create-only`, then edited): the `order_event_append_only` BEFORE UPDATE OR DELETE trigger, and the `restaurant_settings_singleton` CHECK.
+- `packages/db/testing/` — `resetDatabase()` (TRUNCATE, because the append-only trigger refuses DELETE by design) and `seedSampleMenu()`, which writes `packages/core`'s `SAMPLE_MENU` into the database keeping its readable ids. One menu definition in the repo, not a fixture and a seed drifting apart.
+- `packages/db/snapshot.test.ts` — places an order, then renames the category, renames/reprices/86s the item, renames a group and changes its rules, renames/reprices/86s an ordered option, **deletes an ordered option outright**, and detaches a group from the item — then asserts the receipt JSON is byte-identical. Plus a test that the deleted option's analytics id is left dangling rather than the order being mutated, and an enum-parity test asserting the database's `Intensity` values equal `packages/core`'s `INTENSITIES`.
+- `packages/db/constraints.test.ts` — 8 concurrent placements racing for order #47 produce exactly one winner; duplicate idempotency key, duplicate status token, and duplicate line number all refused; the append-only trigger refuses UPDATE, DELETE, **and a cascading delete of the parent order**; a second settings row refused.
+- CI gained an "assert the hand-written invariants exist" step, checking the trigger, the CHECK, and both unique indexes against a database built from nothing.
+
+**Decided (the three review forks, all confirmed):**
+- **Menu references on snapshots are plain strings with no foreign key.** `onDelete: Restrict` would forbid deleting any menu row ever ordered — forever — and `SetNull` would MUTATE a placed order, which is the one thing this model refuses. The columns exist for analytics correlation and are never resolved for display or pricing. This is a deliberate, recorded deviation from CLAUDE.md's "if kept, Restrict" wording, and it is what lets the regression test delete an option the order actually contains.
+- **No cart tables.** The cart is client-side; every mutation posts to a server endpoint that validates against the live menu and returns the priced line, and checkout revalidates everything. Cart tables would mirror `OrderLine` field for field and need their own session keying and expiry job.
+- **Two timestamp columns, not seven.** `placedAt` orders the queue and `statusChangedAt` drives both aging flags; every other transition time derives from the event log. A column per status can disagree with the log, and a logged revert would have to invent a rule about whether to un-set one.
+
+**Also decided:**
+- **`taxRatePpm` is snapshotted on the order.** Without it a later rate change makes an old receipt arithmetically unexplainable — you can see 8.25% did not produce that number, and nothing tells you what did.
+- **TRUNCATE is deliberately not blocked by the append-only trigger.** It fires TRUNCATE triggers, not row triggers, and it is how the suite resets between files. Nothing in the application issues one.
+- **The P0-2 total mismatch is an `OrderEvent`, not a column.** It is an event that happened, not a property of the order.
+- **CI checks `pg_class` for the unique indexes, not `pg_constraint`.** Prisma emits `CREATE UNIQUE INDEX`, not `ALTER TABLE ADD CONSTRAINT`, so they are not in `pg_constraint` at all — verified against the live database while writing the step. Checking the wrong catalog is a green assertion that verifies nothing, which is worse than no assertion.
+
+**Found and fixed within C-003:**
+- **The time-axis lint ban was too broad to obey.** It rejected `new Date(Date.UTC(...))`, which is the one argument form that provably cannot read the process timezone, and is how every test builds the frozen `now` the engine takes as a parameter. Left as-is it would have put an `eslint-disable` in every future test file — a ban nobody reads. Narrowed to exempt exactly that shape (verified against a probe file: string, bare number, and `Date.UTC(...) + 1000` all still rejected). The `packages/core` clock ban was likewise narrowed to **zero-argument** `new Date()` and `Date.now()`, which is what "reads the clock" actually means.
+
+**Left behind:**
+- **`OrderStatus` has no parity test yet.** The database enum exists; the ONE status module in `packages/core` is C-004's. The `Intensity` parity test in `snapshot.test.ts` is the template — **C-004 must add the matching one**, or the two vocabularies can drift.
+- **No placement code.** `snapshot.test.ts` writes the snapshot the way C-006's route will, in a local helper. Order-number assignment, the idempotency retry, and the mismatch log are C-006.
+- **No seed script and no `RestaurantSettings` row outside tests.** `db:seed:*` lands with C-017.
+- **Store hours, pause, throttle and prep times are not in `RestaurantSettings`.** C-011 and C-013 add their own columns; adding them now would be four settings nothing reads.

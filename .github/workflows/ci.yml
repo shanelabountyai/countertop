@@ -76,6 +76,33 @@ jobs:
       - name: Assert generated artifacts exist
         run: test -d packages/db/generated/client || (echo "Prisma client missing - postinstall did not run" && exit 1)
 
+      # The objects Prisma cannot express (C-003). Without this, a future
+      # migration could drop the append-only trigger and every constraint test
+      # would still pass against a stale local database — CI is the only place
+      # that builds the schema from nothing.
+      - name: Assert the hand-written invariants exist
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d countertop_ci -v ON_ERROR_STOP=1 <<'EOSQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='order_event_append_only') THEN
+              RAISE EXCEPTION 'the OrderEvent append-only trigger is missing';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='restaurant_settings_singleton') THEN
+              RAISE EXCEPTION 'the RestaurantSettings singleton CHECK is missing';
+            END IF;
+            -- Prisma emits these as unique INDEXES, not table constraints, so
+            -- they live in pg_class rather than pg_constraint. Checking the
+            -- wrong catalog is a green assertion that verifies nothing.
+            IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname='Order_businessDay_seq_key') THEN
+              RAISE EXCEPTION 'the (businessDay, seq) unique index is missing';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname='Order_idempotencyKey_key') THEN
+              RAISE EXCEPTION 'the idempotency key unique index is missing';
+            END IF;
+          END $$;
+          EOSQL
+
       # schema.prisma must match what the committed migration history produces.
       # Without this, a hand-edited migration and the schema drift apart and
       # every local test passes against a database CI can never rebuild.

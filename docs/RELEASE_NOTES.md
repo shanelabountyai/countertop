@@ -85,3 +85,46 @@ obvious choice and were rejected for a boring reason: New York's 8.875% is
 the browser claimed against what the server computed can only return "here is
 the mismatch, log it." There is no code path where it returns the client's
 number, because there is nowhere for that number to go.
+
+---
+
+## C-003 — Making "menu edits can't touch a placed order" a thing you can prove
+
+The rule is easy to state and easy to violate: once an order is placed, it is a
+**copy** of what the customer composed, not a set of pointers back into a menu
+that keeps changing underneath it. Every field a receipt or a kitchen ticket
+shows — item name, category, the name of each modifier group, each option, what
+that option cost, the tax rate that was in force — is a column on the order
+itself. Rendering a receipt touches no menu table at all.
+
+The test is the interesting part. It places an order, then goes through every
+menu row that order was built from and wrecks it: renames the category, renames
+and reprices the item and marks it sold out, renames a modifier group and
+changes its rules, renames and reprices an ordered option, **deletes an ordered
+option outright**, and unhooks a group from the item. Then it asserts the
+receipt is byte-for-byte what it was. If anyone ever adds a join back to the
+menu to render a ticket, that test stops passing.
+
+That "deletes an ordered option outright" step forced a real decision. The
+conventional move is a foreign key from the order back to the menu row, set to
+refuse deletion. It gives you clean analytics — and it also means any menu item
+a single customer ever ordered can never be deleted, ever, and a manager
+cleaning up last summer's specials just gets an error. The other conventional
+option, blanking the reference on delete, is worse: it *edits a placed order*,
+which is the one thing this whole design exists to prevent. So the reference is
+a plain string with no foreign key. Deleting the option leaves a dangling id
+that nothing reads, and the receipt doesn't notice.
+
+**The order number is decided by the database, not by the code.** Two customers
+checking out in the same second both want #47. There is no "check whether 47 is
+taken, then take it" — that has a window between the check and the write, and a
+Friday rush is a machine for finding windows. The pair (business day, number) is
+unique in the database; both writes go, one loses, and the loser retries at 48.
+A test fires eight simultaneous placements at the same number and asserts
+exactly one survives.
+
+**The order history cannot be edited or deleted.** A database trigger refuses
+both. When a cook fat-fingers "ready" and undoes it, the undo is written as a
+new event that says a revert happened — the mistake stays in the record. It also
+means an order that has any history cannot be deleted at all, which the tests
+confirm, and which is the correct answer for a record of money changing hands.
