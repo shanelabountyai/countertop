@@ -564,3 +564,5 @@ C-008 committed and pushed at 41fbc35
   which now has the re-render it needs to fire on.
 - **Full-table `count()` per poll.** Free at one restaurant's event volume;
   recorded in the write-up with a sequence column as the upgrade.
+
+C-009 committed and pushed at a7caee3
