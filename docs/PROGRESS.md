@@ -191,3 +191,76 @@ one table inside it rather than spelled out at each call site.
   depend on a client-side timer.
 
 C-004 committed and pushed at 88740a1
+
+---
+
+## C-005 — The cart
+
+The cart as compositions the server re-prices on every read, and a checkout
+re-check that catches the two things that can change while food sits in it: an
+86 and a reprice.
+
+**Built:**
+- `packages/core/cart/cart.ts` — `addLine`, `replaceLine`, `removeLine`,
+  `reviewCart`, `confirmPrices`. Pure: the caller persists the cart and supplies
+  the line id, so nothing here reads a clock, a cookie, or a database.
+- **A cart line holds a `Composition` and one display-only number** —
+  `unitPriceAtAddCents`, the price the line was added at. It exists for exactly
+  one job: detecting that the menu was repriced underneath it. It is never
+  summed, never stored, never compared against a client-supplied total.
+- `reviewCart(menu, cart, ratePpm)` — the checkout gate for cart *contents*.
+  Per line: the live `PricedLine`, every `CompositionViolation` (86'd item, 86'd
+  option, over-cap quantity or note, a group that changed shape), and the
+  `old → new` price change if there is one. Cart-wide: server totals,
+  `needsFix`, `needsPriceConfirmation`, `placeable`.
+- `packages/core/cart/serialize.ts` — `parseCart` / `parseComposition`, the
+  trust boundary. Shape only: types, integers, known intensities. Menu truth is
+  `validateComposition`'s to answer, and duplicating a cap here would be a
+  second answer to drift from the first.
+- `packages/db/menu.ts` — `loadMenu()` (rows → the core `Menu`) and
+  `loadSettings()`. `menu.test.ts` asserts `loadMenu()` round-trips
+  `SAMPLE_MENU` exactly, ordering included.
+- `apps/web/lib/cart-session.ts` + `apps/web/app/cart/actions.ts` — one httpOnly
+  session cookie, and five thin server actions over it.
+- 26 cart tests + 3 loader tests. Hand-calculated: 1345×2 + 350 = 3040,
+  tax 250.8 → **251**, total 3291.
+
+**Decided:**
+- **No cart table.** A cart holds nothing the customer's own browser cannot
+  hold, because it holds no authority — every price is recomputed from the live
+  menu on every read. Rows appear when a cart becomes an order (C-006). A
+  tampered cookie cannot make food cheaper; the worst it can do is suppress the
+  customer's own confirmation dialog and charge them the real menu price.
+- **Confirming a price change IS the re-baseline.** `confirmPrices` rewrites
+  each line's `unitPriceAtAddCents` to the live price, and `needsPriceConfirmation`
+  falls to false as a consequence. A separate "confirmed" flag is a second fact
+  that can get out of step with the prices it was supposed to describe.
+- **Editing a line re-baselines it too.** An edit goes back through the
+  composer, where the customer sees today's price — carrying the old baseline
+  forward would ask them to confirm a change they just made themselves.
+- **`reviewCart` reports every problem on every line at once.** A checkout that
+  surfaces one 86'd line per attempt is the phone call this product exists to
+  replace.
+- **A line the menu no longer has (`unknown_option`) is not priced, not
+  guessed.** `priced` is null, it contributes nothing to the total, `needsFix`
+  blocks placement, and `confirmPrices` leaves its stale baseline alone.
+  Inventing a price for a deleted option is the silent repricing this path
+  exists to prevent.
+- **Cookie writes can fail, and the action says so.** Over ~4KB a browser drops
+  the cookie silently — which would read as a lost cart. `writeCart` returns
+  false and the action returns `cart_full` rather than reporting a save that
+  did not happen.
+- **Session cookie, no `maxAge`.** P0-3 asks for per-session persistence, and a
+  week-old cart full of 86'd food is worse than an empty one.
+
+**Left behind:**
+- **No UI.** The composer and the cart screen are C-007's; this is the engine
+  and the server surface they call. `getCartReview` is what checkout renders.
+- **No placement.** `reviewCart(...).placeable` is the gate C-006 checks before
+  snapshotting — and placement must re-check it inside the transaction, because
+  a review is a read and an 86 can land between the two.
+- **The checkout gate proper (pause / auto-pause / hours, P0-6) is not here.**
+  `placeable` answers "is this cart orderable?", not "is the restaurant taking
+  orders?" That is ONE code path with three triggers, and it lands in C-012.
+- **No cart-level cap.** Quantity and note caps are enforced per line; the
+  number of lines is bounded only by the cookie ceiling above.

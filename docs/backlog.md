@@ -19,7 +19,7 @@ npm run lint && npm run typecheck && npm test && PORT=3400 npm run test:e2e
 
 - [x] **C-003** — Data model + hand-written migrations *(P0-3 snapshot, P0-8, P0-10)* — snapshot columns proving a receipt renders with zero menu joins; `(businessDay, seq)` and idempotency-key unique constraints; append-only event-log trigger. **Pause for schema review before writing it.**
 - [x] **C-004** — Order state machine *(P0-4)* — one module in `packages/core`, full transition table, every reader-facing status list exported from it, `now` as a parameter.
-- [ ] **C-005** — Cart *(P0-3)* — session-persisted, composed lines editable/removable, 140-char note cap and quantity cap enforced server-side.
+- [x] **C-005** — Cart *(P0-3)* — session-persisted, composed lines editable/removable, 140-char note cap and quantity cap enforced server-side.
 - [ ] **C-006** — Placement flow *(P0-3, P0-8, P0-9, P0-10)* — server recomputes every line and the tax at placement, snapshots it, assigns `(businessDay, seq)`, honours the idempotency key, records name/phone/order note.
 
 ## Phase 3 — the two live surfaces

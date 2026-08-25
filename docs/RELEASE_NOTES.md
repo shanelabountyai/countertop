@@ -184,3 +184,42 @@ The last piece is small and stops a specific kind of Friday: an advance can
 carry the state it *expects* to move to. Two cooks tapping the same card half a
 second apart used to mean the order skipped a state. Now the second tap names a
 state that's already behind, and is refused.
+
+---
+
+## C-005 — A cart that cannot lie about the price
+
+A cart is a place where food waits. While it waits, the menu moves: the kitchen
+runs out of avocado, someone bumps the price of guacamole. Most online ordering
+handles this by not handling it — the cart remembers what it was told at
+add-time, and either charges a stale price or silently charges a new one.
+
+So this cart stores almost nothing. Each line holds *what the customer
+composed* — the item, the options, the intensities, the note — and the server
+re-prices all of it from the live menu on every single read. The one price the
+cart does remember is display-only, and it exists for exactly one purpose:
+noticing that today's price is different from the one the customer saw.
+
+That makes the two ugly cases fall out of the same function. **An option that
+was 86'd while a burrito sat in the cart** comes back from the re-check as a
+problem on that line, by name — "Guacamole is sold out" — with checkout blocked
+until it's removed or fixed. **A price that moved** comes back as `old → new` on
+that line, with checkout blocked until the customer says yes. Neither is a
+special case bolted onto checkout; both are what "re-check the cart against the
+menu as it is right now" returns.
+
+Confirming a price change doesn't set a flag. It **re-baselines the line** — the
+cart now remembers the new price, so there is no longer a change to confirm.
+One fact instead of two facts that can disagree.
+
+The cart lives in a single session cookie, with no database table behind it,
+and that is safe for a specific reason rather than a lazy one: the cookie
+carries no authority. Every number that reaches an order is computed on the
+server from the live menu. A customer who edits their own cookie to claim a
+burrito cost one cent doesn't get a cheap burrito — they get a confirmation
+dialog reading "$0.01 → $13.45", and then they get charged $13.45. There's a
+test that says so.
+
+The quantity cap (20) and the 140-character note cap are enforced in the same
+place as everything else — the one orderability function the menu screen, the
+cart, and placement all call. Three call sites, one answer.
