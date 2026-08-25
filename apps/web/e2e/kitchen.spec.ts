@@ -156,3 +156,57 @@ test.describe('taking action on a card', () => {
     await expect(page.getByRole('heading', { name: 'Ready for pickup (0)' })).toBeVisible();
   });
 });
+
+// C-009: polling with a server-issued cursor (P0-5).
+test.describe('the queue keeps itself fresh', () => {
+  test.beforeEach(() => {
+    execSync('npm run db:seed:test', { cwd: '../..', stdio: 'ignore' });
+  });
+
+  test('a change made on another screen arrives without anyone reloading', async ({
+    page,
+    context,
+  }) => {
+    await page.goto('/kitchen');
+    await expect(page.getByRole('heading', { name: 'New (1)' })).toBeVisible();
+    // Survives a re-render; does not survive a page load. What tells the two
+    // apart at the end of the test.
+    await page.evaluate(() => {
+      (window as Window & { __neverReloaded?: boolean }).__neverReloaded = true;
+    });
+
+    // The second screen in the kitchen — the expo's, not this cook's.
+    const other = await context.newPage();
+    await other.goto('/kitchen');
+    await card(other, 'Dana Reyes').getByRole('button', { name: 'Accept' }).click();
+    await expect(other.getByRole('heading', { name: 'Accepted (2)' })).toBeVisible();
+    await other.close();
+
+    // Nobody touched this page. One poll interval plus room for the render.
+    await expect(page.getByRole('heading', { name: 'New (0)' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Accepted (2)' })).toBeVisible();
+    expect(
+      await page.evaluate(() => (window as Window & { __neverReloaded?: boolean }).__neverReloaded),
+    ).toBe(true);
+  });
+
+  test('a backgrounded tab asks nothing at all', async ({ context }) => {
+    const hidden = await context.newPage();
+    await hidden.addInitScript(() => {
+      Object.defineProperty(document, 'hidden', { get: () => true });
+    });
+
+    let polls = 0;
+    await hidden.route('**/api/updates**', async (route) => {
+      polls += 1;
+      await route.continue();
+    });
+
+    await hidden.goto('/kitchen');
+    await expect(hidden.getByRole('heading', { name: 'Kitchen queue' })).toBeVisible();
+    // Longer than one interval: a tab that polls would have polled by now.
+    await hidden.waitForTimeout(8_000);
+    expect(polls).toBe(0);
+    await hidden.close();
+  });
+});

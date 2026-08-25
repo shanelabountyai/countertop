@@ -37,3 +37,28 @@ export function loadQueue(): Promise<QueueOrder[]> {
     ...QUEUE_ORDER,
   });
 }
+
+/**
+ * The server-issued polling cursor (P0-5).
+ *
+ * It is the TIP of the append-only event log — `<events>.<newest instant>` —
+ * and NOT a position to read forward from. A poll asks "is the tip still the
+ * string you gave me", so an event that commits out of timestamp order still
+ * moved the tip and is still noticed on the very next poll. A `WHERE at >
+ * cursor` range query has a lost-update window; comparing the tip has none.
+ *
+ * The count is what makes two events in the same millisecond two changes. The
+ * log is append-only (the trigger refuses DELETE), so it can only grow.
+ *
+ * Opaque to the client, which does nothing but echo it back. That is the whole
+ * contract, and it is what lets a WebSocket push the same string later (P2) —
+ * the transport swaps, the logic does not.
+ *
+ * Ceiling: a full-table count on every poll. Fine at one restaurant's event
+ * volume with a 5s interval; a second location or a shorter interval wants a
+ * sequence column instead of an aggregate.
+ */
+export async function queueCursor(): Promise<string> {
+  const tip = await prisma.orderEvent.aggregate({ _count: true, _max: { at: true } });
+  return `${tip._count}.${tip._max.at?.getTime() ?? 0}`;
+}

@@ -15,15 +15,17 @@ import {
   undoRemainingMs,
   type OrderStatus,
 } from '@countertop/core';
-import { loadQueue, type QueueOrder } from '@countertop/db/queue';
+import { loadQueue, queueCursor, type QueueOrder } from '@countertop/db/queue';
+import { LiveUpdates } from '@/lib/live-updates';
 import { describeSelection } from '@/lib/menu-labels';
 import { QueueControls } from './queue-controls';
 
 export const metadata = { title: 'Kitchen — Firebird Kitchen' };
 
 // Never prerendered: a queue baked at build time is a screen showing
-// yesterday's orders. C-009 adds the polling that keeps it fresh without a
-// reload; today the cook's own taps re-render it.
+// yesterday's orders. `LiveUpdates` re-renders it every time the server's
+// cursor moves, so a cook who never touches the screen still sees new tickets
+// and elapsed minutes that tick (P0-5).
 export const dynamic = 'force-dynamic';
 
 /** A `Record<OrderStatus, …>`: a new state cannot ship without a heading. */
@@ -57,11 +59,17 @@ export default async function KitchenPage({
   // input (CLAUDE.md time rules).
   const now = new Date();
   const query = (await searchParams).q ?? '';
+  // Cursor BEFORE the queue, deliberately. An event landing between the two
+  // reads then makes the cursor OLDER than what was rendered, which costs one
+  // spurious refresh; the other order would make it newer, and the change
+  // would go unseen until the next one.
+  const cursor = await queueCursor();
   const orders = await loadQueue();
   const groups = groupQueue(orders.filter((order) => matchesLookup(order, query)));
 
   return (
     <main className="mx-auto max-w-5xl p-6">
+      <LiveUpdates cursor={cursor} />
       <div className="flex flex-wrap items-baseline justify-between gap-4">
         <h1 className="text-3xl font-semibold">Kitchen queue</h1>
         <Link href="/menu" className="text-sm underline underline-offset-4">

@@ -348,3 +348,31 @@ another row in a log that only ever grows.
 
 And the walk-up moment — "I'm here, where's my food" — is one box that takes
 either a name or an order number, in the same shape the screen prints it.
+
+## C-009 — The screen watches itself
+
+Nobody in a kitchen reloads a page. The queue now keeps itself current: a new
+order appears on every screen within a few seconds of a customer placing it,
+and a card advanced on the expo's screen moves on the line cook's without
+either of them touching anything.
+
+**Every screen agrees, because the server decides what "current" means.** The
+browser never compares clocks or timestamps. It holds a token the server gave
+it, hands it back a few seconds later, and is told one thing: still current, or
+not. A screen whose clock is ten minutes fast is a screen that behaves
+identically to every other one.
+
+**The tab you are not looking at costs nothing.** Move the queue behind the POS
+window and it stops asking entirely; bring it back and it catches up
+immediately rather than waiting out a timer.
+
+**And the minutes on a card actually tick.** "12 min since ordered" was true
+when the page last rendered; now it stays true, which is the difference between
+an aging flag that means something and a number that turned red at some point
+this morning.
+
+The mechanism is deliberately small: the screen is told *that* something
+changed, not *what*, and re-draws itself from the server. That is one place a
+ticket is rendered instead of two, and it is the same message a push connection
+would deliver — so moving off polling later changes how the message arrives and
+nothing about what happens when it does.

@@ -502,3 +502,65 @@ C-007 committed and pushed at 7e39b40
   and logged; the distinct cancelled view is C-014's.
 
 C-008 committed and pushed at 41fbc35
+
+## C-009 — Polling with a server-issued cursor
+
+**Built:**
+- `packages/db/queue.ts` — `queueCursor()`. One aggregate over the append-only
+  event log returning `<count>.<newest instant>`. Opaque to the client, which
+  does nothing but echo it back.
+- `apps/web/app/api/updates/route.ts` — the changes-since endpoint. Takes the
+  echoed cursor, returns `{ cursor, changed }` and nothing else. No order data,
+  no client clock, `Cache-Control: no-store`.
+- `apps/web/lib/live-updates.tsx` — `<LiveUpdates cursor active />`. Renders
+  nothing; polls every 5s, calls `router.refresh()` when the cursor moved, and
+  does not fetch at all while `document.hidden`. Returning to the tab polls
+  immediately rather than waiting out the interval.
+- `apps/web/app/kitchen/page.tsx` — reads the cursor, then the queue, then
+  mounts `<LiveUpdates />`. Four lines; the screen was already built to
+  re-render from state alone (C-008), which is what made this the whole change.
+- `packages/db/queue.test.ts` — four cursor tests: stable while idle, moves on
+  a placement, moves on an advance, and moves for a second event written at the
+  *same instant* as the first. Two e2e specs: a change made on a second screen
+  arriving without a reload (proved by a `window` marker surviving), and a
+  backgrounded tab issuing zero requests over more than one interval.
+
+**Decided:**
+- **The cursor is the log's TIP, not a position to read forward from.** A
+  `WHERE at > cursor` range query has a lost-update window — a row whose `at`
+  is older than the issued cursor but which commits after it is never seen.
+  Comparing the tip string has no such window, because that row still moved the
+  tip. What it gives up is the ability to say *what* changed, which nothing on
+  this screen needs.
+- **It carries a count as well as an instant.** Two cooks tapping two cards in
+  the same millisecond is a rush, not a fiction; without the count the second
+  tap is invisible. There is a test that writes both events at one instant.
+- **The endpoint answers a question; it does not ship the queue.** `changed:
+  true` makes the client re-run the server component. That keeps ONE renderer
+  for a queue card instead of a second copy of it in a client bundle — and it
+  is exactly the payload a WebSocket would push, which is what the PRD means by
+  "the transport swaps, not the logic".
+- **Cursor read BEFORE the queue.** An event landing between the two reads then
+  makes the cursor older than what was rendered, costing one spurious refresh.
+  The other order makes it newer, and the change goes unseen until the next
+  one. One wasted render beats one missed order.
+- **The idle refresh is counted in ticks, not milliseconds.** Elapsed minutes
+  are server-computed, so a screen that only refreshed on change would print a
+  frozen "12 min". Twelve ticks at 5s is a minute — the resolution the number
+  is printed at — and no client clock is read to get there.
+- **The background pause is on the kitchen screen too.** P0-5 scopes it to the
+  customer page; it is the same rule and it was free, so a queue behind a POS
+  window asks nobody anything.
+
+**Left behind:**
+- **`active` has no consumer yet.** The prop exists so C-014's status page can
+  pass `!isTerminal(status)` and stop polling a terminal order, per P0-5. The
+  kitchen queue never stops, so that branch ships untested until the page it
+  was built for exists.
+- **The customer half of P0-5 is C-014's.** There is no status page to poll,
+  and the endpoint is queue-scoped: an order-scoped variant (`?token=`) is
+  three lines and was left out rather than shipped untested.
+- **New orders are rendered, not announced.** The chime and flash are C-010,
+  which now has the re-render it needs to fire on.
+- **Full-table `count()` per poll.** Free at one restaurant's event volume;
+  recorded in the write-up with a sequence column as the upgrade.
