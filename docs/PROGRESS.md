@@ -697,3 +697,5 @@ C-010 committed and pushed at 354d1a8
   a browser test.
 - **The confirmation is rendered inline, not at a URL.** The status token is
   printed but the page behind it is C-014's.
+
+C-011 committed and pushed at 347af21
