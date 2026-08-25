@@ -352,3 +352,5 @@ numbered without racing, and answerable to the same key twice.
 - **The rush script (C-017)** is what proves the number allocation and the
   double-submit under a real 20-minute load. The unit-level version here is
   twelve concurrent placements and two simultaneous double-taps.
+
+C-006 committed and pushed at 34d966b
