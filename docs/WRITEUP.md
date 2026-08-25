@@ -38,6 +38,9 @@ _(Filled in as phases land.)_
 | The server recomputes every line and the tax at placement | trusting the client's total | Client prices are display-only; a client-supplied total is input to a mismatch log, never to the database |
 | A unique constraint on the idempotency key | a disabled submit button | The disabled button is UX. Correctness never depends on the client behaving |
 | One status module every reader derives from | status strings inlined at each call site | Adding a state should make the compiler find every reader, not require grep |
+| Tax rate as an integer in parts per million | a float percentage, or basis points | A float rate rounds the boundary cent by luck. Basis points cannot express 8.875% (New York) — ppm can |
+| Intensity `none` is a selection that does **not** count toward min/max | counting every selection alike | Otherwise "chicken → none" satisfies a required protein group and the burrito ships with no protein in it |
+| `min > 0` is what "required" means — no separate flag | a `required` boolean alongside `min`/`max` | Two ways to say one thing is two ways to disagree; `required: true, min: 0` has no meaning and someone writes it eventually |
 
 ## Scaling Caveats and Deliberate Simplifications
 
@@ -47,6 +50,8 @@ Recorded as they are made, with the ceiling each one has.
 - **The daily order number resets at midnight restaurant-time**, not at a configurable business-day boundary. A late-night kitchen serving past midnight will see the number reset mid-service. Recorded in the PRD's Open Questions as the accepted v1 simplification.
 - **The tax rate is a single flat configurable rate.** Real jurisdictions have category-dependent rates (prepared food vs. packaged). One rate, one rounding function, snapshotted per order.
 - **Throttling counts open orders, not prep weight** (P0-6; P1-7 is the upgrade). Ten bags of chips and ten catering bowls count the same. The estimate is honest about being rough — it is shown as a range, never a point.
+- **`light` intensity costs the same as `regular`** (C-002). Restaurants do not discount light sauce, and inventing a discount rule nobody asked for is a pricing policy smuggled in as a default. If a menu ever needs per-intensity pricing beyond the "extra" surcharge, it is an additive field on the option.
+- **No default-included options** (C-002). "NO onions" is expressed as selecting Onions at `none`, not as deselecting something the item ships with. Default-inclusion changes what the composer screen renders and is not in P0-1; adding it later is additive to the group type.
 - **`deepmerge-ts` high-severity advisory accepted, not fixed** (C-001). It arrives only through the Prisma **CLI** (`prisma` → `@prisma/config` → `deepmerge-ts`); the vulnerability is stack exhaustion when merging recursive object graphs, and the only graph merged here is our own committed config. No runtime path, and `npm audit fix` cannot resolve it without an upstream release. Revisit on the next Prisma bump.
 
 ## Defects Found

@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./menu": "./menu/index.ts",
+    "./pricing": "./pricing/index.ts"
   }
 }

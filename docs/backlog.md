@@ -13,7 +13,7 @@ npm run lint && npm run typecheck && npm test && PORT=3400 npm run test:e2e
 ## Phase 1 — pure logic, tested before any UI exists
 
 - [x] **C-001** — Monorepo scaffold, Postgres wiring, Playwright + axe, CI (TZ×2, migrate-from-scratch, drift check), the four docs
-- [ ] **C-002** — Menu model + price engine + tax *(P0-1, P0-2, P0-9)* — `packages/core/menu` and `packages/core/pricing`, pure, TDD from the hand-calculated fixture matrix. Includes the one composition-validity function ("is this orderable?") and the one rounding function.
+- [x] **C-002** — Menu model + price engine + tax *(P0-1, P0-2, P0-9)* — `packages/core/menu` and `packages/core/pricing`, pure, TDD from the hand-calculated fixture matrix. Includes the one composition-validity function ("is this orderable?") and the one rounding function.
 
 ## Phase 2 — the order as a persisted object
 

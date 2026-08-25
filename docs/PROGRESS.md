@@ -37,3 +37,29 @@ portfolio-facing version of the same history.
 **Blocked, not resolved:** GitHub Actions refuses to start the job — *"The job was not started because recent account payments have failed or your spending limit needs to be increased."* The workflow file is registered and syntactically valid, but **CI has never actually run green on this repo.** The four gate steps were executed locally instead, including CI's own migrate-from-scratch and drift-check commands against a throwaway local database. That is not the same as a green CI badge and is not claimed to be.
 
 C-001 committed and pushed at 5e9979b
+
+---
+
+## C-002 — Menu model, price engine, and the one orderability function
+
+**Built:**
+- `packages/core/menu/types.ts` — categories → items → modifier groups → options, pure data. Options carry `priceDeltaCents` (negative and zero allowed) and an optional `extraPriceDeltaCents`; groups carry `min`/`max`/`intensityEnabled`. Items reference groups **by id**, so one `salsa` group genuinely serves both the burrito and the bowl with nothing to drift apart.
+- `packages/core/menu/composition.ts` — `validateComposition`, THE orderability function. Reports every reason at once as a discriminated union (`group_required`, `below_min`, `above_max`, `option_unavailable`, `item_unavailable`, `duplicate_option`, `unknown_group`/`unknown_option`/`unknown_item`, `intensity_not_supported`, `quantity_out_of_range`, `note_too_long`), each with a customer-readable message. Server-side caps live here: quantity 1–20 and notes ≤140, both configurable.
+- `packages/core/pricing/pricing.ts` — `priceLine` ((base + Σ deltas) × quantity), `priceOrder` (Σ lines + tax), `taxOn` (the single rounding operation in the engine), `taxRatePpmFromPercent`, and `checkClientTotal`, which returns a mismatch record and structurally *cannot* return "use the client's number".
+- `packages/core/menu/sample-menu.ts` — the hand-built menu every fixture is calculated against: a required single-select size group, negative deltas, an optional 0–3 group, two intensity-enabled groups (one with a priced "extra"), a min-2 group, an item with no modifiers, and two groups reused across two items.
+- 53 tests across the two modules, **written and confirmed red before any implementation existed** (52 failing on `not implemented`; the 53rd is the one-level-deep nesting test, which `tsc` enforces via `@ts-expect-error` rather than a function, so it cannot be red by construction).
+
+**Decided:**
+- **There is no `required` flag — `min > 0` IS required.** Two ways to say the same thing is two ways to disagree; a group with `required: true, min: 0` has no defined meaning and someone would eventually write one. Same reasoning that makes S/M/L a modifier group instead of a second "variant" mechanism.
+- **Intensity `none` is a first-class selection — the negation — and it does not count toward `min`/`max`.** This is the correctness-critical call of the session. If `none` counted as a pick, a customer could satisfy the required protein group by selecting "chicken → none" and walk out with a burrito containing no protein, with the kitchen never told a choice was skipped. It also means "no onions plus three toppings" is three picks, not four. Both directions are tested.
+- **A `none` selection of an 86'd option is allowed.** Asking for NO onions when the kitchen is out of onions is trivially satisfiable; refusing it is exactly what a naive `option.available` check does. This also means a cart line holding "onions → none" is correctly *not* flagged when onions get 86'd mid-flight (P0-3).
+- **The tax rate is an integer in parts per million, not a float percentage and not basis points.** A float rate lands the boundary cent on the wrong side by luck; `taxOn` is `floor((subtotal × ppm + 500_000) / 1_000_000)` — half-up, entirely in integers. Basis points were the obvious first choice and were rejected on a real number: 8.875% (New York) is 887.5 bp, which basis points cannot express, and 88_750 ppm, which this can.
+- **Tax is computed once on the subtotal, never per line and summed.** Per-line rounding drifts a cent per line against a receipt a customer can check with a calculator. The fixture asserts the rule rather than the arithmetic, because on this particular pair of lines both approaches happen to agree.
+- **`light` costs the same as `regular`.** Restaurants do not discount light sauce; inventing a discount rule nobody asked for is a pricing policy smuggled in as a default.
+- **`priceLine` throws on an unknown id rather than pricing it at zero.** A silent zero is how a tampered request becomes free food. It assumes a composition `validateComposition` has already accepted, and says so.
+
+**Left behind:**
+- **No default-included options.** "NO onions" is expressed as selecting Onions at `none`, not as deselecting something the item ships with. Default-inclusion is a real modeling feature (it changes what the composer screen renders) and it is not in P0-1 — if C-007 wants it, it is an additive change to the group type.
+- **The menu itself is not validated** — nothing checks that `max >= min`, or that every `modifierGroupIds` entry resolves. A malformed group is a seed/menu-editor bug, and C-015 is where the editor gets to refuse one.
+- **`sample-menu.ts` ships inside the module rather than a test-only folder.** It is four items; C-017's seed grows it to the PRD's ~25 without changing the shape.
+- **No display formatting.** Cents → "$10.95" is a UI concern and lands with the first screen that needs it (C-007).
