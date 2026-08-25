@@ -624,3 +624,5 @@ C-009 committed and pushed at a7caee3
   client-side; there is no server-side page or SMS. That is P1-3's outbox.
 - **The rush demo still has to prove it.** P0-12's third criterion is that
   alerts fire and are acknowledged during the seeded rush, which is C-016.
+
+C-010 committed and pushed at 354d1a8
