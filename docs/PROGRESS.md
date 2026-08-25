@@ -189,3 +189,5 @@ one table inside it rather than spelled out at each call site.
 - **No undo *window*.** The 5 seconds in P0-4 is UI: the engine allows a revert
   whenever the table does, and the button is what expires. Correctness does not
   depend on a client-side timer.
+
+C-004 committed and pushed at 88740a1
