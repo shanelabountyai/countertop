@@ -42,7 +42,7 @@ export default async function CartPage() {
                   const group = menu.groups[selection.groupId];
                   const option = group?.options.find((o) => o.id === selection.optionId);
                   if (!option) return null;
-                  const { text, negated } = describeSelection(option, selection.intensity);
+                  const { text, negated } = describeSelection(option.name, selection.intensity);
                   return (
                     <li
                       key={`${selection.groupId}:${selection.optionId}`}

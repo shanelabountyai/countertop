@@ -20,6 +20,8 @@
     ".": "./index.ts",
     "./testing": "./testing/index.ts",
     "./menu": "./menu.ts",
-    "./placement": "./placement.ts"
+    "./placement": "./placement.ts",
+    "./queue": "./queue.ts",
+    "./transitions": "./transitions.ts"
   }
 }

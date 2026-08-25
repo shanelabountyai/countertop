@@ -430,3 +430,73 @@ C-006 committed and pushed at 34d966b
   the old state until reload. C-009's cursor is the general fix.
 
 C-007 committed and pushed at 7e39b40
+
+---
+
+## C-008 — Kitchen queue view
+
+**Built:**
+- `packages/core/orders/queue.ts` — the pure half of the screen: `queueAging`
+  (two clocks, see below), `groupQueue` (one group per `QUEUE_STATUSES`, empty
+  ones kept), `matchesLookup` (name or order number, one box), and
+  `undoRemainingMs`. Nothing reads a clock; `now` is a parameter. 20 tests.
+- `packages/db/queue.ts` — `loadQueue()`, one query, statuses taken from
+  `QUEUE_STATUSES`. `QUEUE_ORDER` is `ORDER_RECEIPT` plus the single most
+  recent event, which is the only extra fact the screen needs.
+- `packages/db/transitions.ts` — `applyOrderAction`. The engine decides; this
+  writes the status and its events in one transaction, guarded by
+  `updateMany({ where: { id, status: <the status that was read> } })`. A count
+  of zero IS the concurrency check — two cooks tapping one card is the normal
+  case, not the edge case.
+- `apps/web/app/kitchen/` — the queue screen, its four server actions, and the
+  card controls. Advance is `min-h-16` and full width; every other control is
+  `min-h-12`. Sections carry counts, so an empty one still says so.
+- `packages/db/seed.ts` grew four orders, PLACED through the real `placeOrder`
+  and moved with the real `applyOrderAction` — a hand-written fixture row would
+  agree with itself and prove nothing. They cover the P0-11 card (quantity 2, a
+  negation, a note), the 15-minute flag, the second no-show mark, and a
+  five-line order.
+- 10 kitchen e2e specs including axe, the ≥48px sweep over every visible
+  control (the cancel disclosure is opened first — a control nobody can see has
+  no tap target to measure), and a font-size assertion on the item line.
+
+**Decided:**
+- **Two aging clocks, not one.** The card's elapsed time runs from
+  `placedAt` — how long the customer has actually been waiting — and it does
+  not reset when a cook taps "start cooking". The `ready` no-show flag runs
+  from `statusChangedAt`, because cooked food going cold on a shelf is a
+  different problem from a slow ticket. C-003's column comment said
+  `statusChangedAt` drove both; it drives the second one only.
+- **Flags fire AT the threshold, not a minute past it.** `>= 15`, so a manager
+  can verify the rule against the clock on the wall.
+- **The undo is derived from the event log, not from a client flag.** Same
+  discipline as the new-order alert (P0-12): the card moves to another section
+  the instant it advances, so a React state flag would be lost with the
+  unmounted component. The server computes the milliseconds remaining and the
+  client counts that duration down — a duration, never a clock reading.
+- **Undo is offered only after a forward advance.** After a revert it would
+  walk the order further back, which is not what the word means. The always-on
+  "Move back" control is the explicit, logged way to do that.
+- **`ADVANCE_LABEL` and `SECTION_LABEL` are `Record<OrderStatus, …>`.** A new
+  state does not compile until someone decides what its button and its heading
+  say — the same mechanism `STATUS_FACTS` uses, extended to the UI.
+- **The walk-up lookup is a plain GET form.** It works before hydration, and
+  the result is a URL a second screen can be opened on.
+
+**Left behind:**
+- **No staff authentication.** `/kitchen` is reachable by anyone who knows the
+  path, and the four server actions take an order id from the client. That is a
+  scope line, not an oversight — recorded in the write-up, and the first thing
+  a real deployment would need.
+- **Nothing polls.** The queue is only as fresh as the last tap or reload; the
+  aging minutes freeze between renders. C-009's server-issued cursor is the fix
+  and the reason this screen was built to re-render from state alone.
+- **No chime, no flash.** A `placed` card is styled like the others beyond its
+  section heading. C-010 adds the alert — the state it derives from
+  (`STATUS_FACTS.placed.alerts`) is already there.
+- **`paymentState` is never moved to `refunded`.** The engine writes a refund
+  event when a cancelled order was `paid`; nothing sets `paid` yet (P1-8), so
+  advancing the column would be an untested branch on behalf of a feature that
+  does not exist.
+- **No cancel reason on the customer's side.** The reason and note are stored
+  and logged; the distinct cancelled view is C-014's.

@@ -306,3 +306,45 @@ satisfiable, and refusing it would be absurd.
 The cart totals the composed lines, flags anything that changed under it, and
 says plainly that checkout arrives in a later session. A button that leads
 nowhere would be worse.
+
+## C-008 — The screen the kitchen actually works from
+
+A queue screen is read from four feet away, by someone holding a hot pan, with
+a glove on. That constraint decides almost every choice on this one.
+
+**The order number is the biggest thing on the card, and the advance button is
+the biggest thing you can touch.** Tap targets are at least 48 pixels; the
+advance is bigger still, because it is the tap that happens two hundred times a
+shift. The item lines are large enough to read standing up. There is nothing
+behind a hover, nothing behind a "show more" — the largest seeded order has
+five lines and the card shows five lines.
+
+**"NO onions" is not a word on a list.** It is inverted, white on red, in
+capitals, sitting next to "Guacamole" rendered as ordinary text. A removal that
+looks like an addition is the phone-order defect this product was built to
+kill, and a queue card is the last place it can still happen.
+
+**Two clocks, because a slow ticket and a cold pickup are different problems.**
+Every card shows how long the *customer* has been waiting — from the moment
+they ordered, not from the last time a cook touched it, so tapping "start
+cooking" cannot make a late order look fresh. Past fifteen minutes the card
+turns red. An order that is *ready* gets a second clock, from the moment the
+food hit the shelf, escalating at ten, twenty and thirty minutes: that one is a
+no-show taking shape, and it is why the "no-show" close-out is its own button
+and its own recorded outcome, distinct from a cancellation.
+
+**Every forward tap can be taken back for five seconds.** The undo is not a
+flag in the browser — it is read from the order's own history, so it survives
+the card jumping to another column, a reload, or a second screen. And it only
+appears after a forward move: "undo" after a step backwards would walk the
+order further back, which is not what anyone means by the word. Moving back
+deliberately is a separate, always-available, always-logged control.
+
+**Two cooks tapping the same card is the normal case.** The second tap is
+refused by the database, not by hope: the write only lands if the order is
+still in the state it was read in. Nobody skips a step, nothing is silently
+overwritten, and every move — forward, backward, cancelled, closed out — is
+another row in a log that only ever grows.
+
+And the walk-up moment — "I'm here, where's my food" — is one box that takes
+either a name or an order number, in the same shape the screen prints it.

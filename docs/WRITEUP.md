@@ -73,6 +73,10 @@ Recorded as they are made, with the ceiling each one has.
 - **The composer is not the price authority, and says so twice** (C-007). It renders a live total and disables nothing on the strength of it: every add re-validates and re-prices on the server. The ceiling is that a customer on a stale tab can compose something that was orderable a minute ago — which the server refuses, and the cart flags. The general fix is C-009's polling cursor.
 - **The cart offers Remove, not Edit** (C-007). `replaceLine` is built and tested; re-opening the composer with a line's selections pre-filled is not wired up, so an edit is remove-and-re-add. P0-3's "editable and removable" is satisfied by that today; the pre-filled composer is the obvious next increment.
 
+- **The kitchen queue has no authentication** (C-008). `/kitchen` is reachable by anyone who knows the path, and its four server actions take an order id from the client. P0 has no staff-accounts requirement and adding one would be a project of its own; it is the first thing a real deployment needs, and it is a single middleware away because every write already goes through one module.
+- **The queue is only as fresh as the last tap** (C-008). Elapsed minutes are computed on the server at render time, so they freeze between renders and an order placed while the screen sits idle does not appear. This is exactly what C-009's server-issued polling cursor fixes, and the screen was built to re-render from state alone so that polling changes nothing but the trigger.
+- **`paymentState` never reaches `refunded`** (C-008). Cancelling a paid order writes the refund event the engine emits; nothing sets `paid` yet (P1-8), so moving the column would be an untested branch on behalf of a feature that does not exist.
+
 ## Defects Found
 
 **C-001 — the drift check could never have passed.** CI's schema-drift step runs

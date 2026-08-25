@@ -91,7 +91,10 @@ function uniqueViolationTarget(error: unknown): string | null {
   return JSON.stringify(error.meta?.target ?? '');
 }
 
-const eventRow = (draft: OrderEventDraft) => ({
+/** One `OrderEvent` row from an engine draft. Exported because every writer of
+ *  the append-only log — placement here, the queue's transitions in
+ *  `transitions.ts` — must spell a row the same way. */
+export const eventRow = (draft: OrderEventDraft) => ({
   at: draft.at,
   kind: draft.kind,
   fromStatus: draft.fromStatus,
