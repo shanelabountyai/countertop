@@ -141,3 +141,50 @@ test('the report is readable on a phone and has no accessibility violations', as
     .analyze();
   expect(results.violations).toEqual([]);
 });
+
+// C-020: the time-in-state tally on the report screen.
+//
+// The seeded queue is one order in each state, which is exactly the shape that
+// makes the "orders" column mean something: every order entered `placed`, only
+// the one that got that far entered `ready`.
+const timeInState = (page: Page) => page.getByRole('region', { name: 'Time in each state' });
+
+test('time in each state counts the orders that ENTERED each state', async ({ page }) => {
+  await page.goto('/kitchen/report');
+
+  // Nothing has sold, and this section is still the useful one.
+  await expect(page.getByText('No orders were picked up in this window.')).toBeVisible();
+
+  // All four were placed; three got as far as accepted; two to preparing; one
+  // is on the shelf.
+  await expect(timeInState(page).getByRole('row').filter({ hasText: 'New' })).toContainText('4');
+  await expect(timeInState(page).getByRole('row').filter({ hasText: 'Accepted' })).toContainText('3');
+  await expect(timeInState(page).getByRole('row').filter({ hasText: 'Preparing' })).toContainText('2');
+  await expect(
+    timeInState(page).getByRole('row').filter({ hasText: 'Ready for pickup' }),
+  ).toContainText('1');
+
+  // Terminal states are not rows. An order picked up an hour ago has not been
+  // "picked up" for an hour — it is done, and a "0.0 min" row reads like a
+  // measurement instead of like arithmetic that cannot come out otherwise.
+  await expect(timeInState(page).getByRole('row').filter({ hasText: 'Picked up' })).toHaveCount(0);
+});
+
+test('a ticket sent back counts both visits to preparing', async ({ page }) => {
+  await page.goto('/kitchen');
+  // Morgan Ellis is preparing. Mark ready by mistake, then undo it.
+  await card(page, 'Morgan Ellis').getByRole('button', { name: 'Food is ready', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Ready for pickup (2)' })).toBeVisible();
+  await card(page, 'Morgan Ellis').getByRole('button', { name: /Undo/ }).click();
+  await expect(page.getByRole('heading', { name: 'Preparing (1)' })).toBeVisible();
+
+  await page.goto('/kitchen/report');
+  // Still two orders in `preparing` — the revert did not remove Morgan's first
+  // visit, it appended a correction on top of it.
+  await expect(timeInState(page).getByRole('row').filter({ hasText: 'Preparing' })).toContainText('2');
+  // And she reached `ready` once, which is the mistake still being on the
+  // record rather than erased from it.
+  await expect(
+    timeInState(page).getByRole('row').filter({ hasText: 'Ready for pickup' }),
+  ).toContainText('2');
+});

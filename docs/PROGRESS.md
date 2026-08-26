@@ -1219,3 +1219,52 @@ C-018 committed and pushed at d183641
   written.
 
 C-019 committed and pushed at 5a70972
+
+## C-020 — Time in each state, on the report screen
+
+**Built:**
+- `packages/db/report.ts` — `loadStatusTimelines(since)`, one timeline per
+  order in the window, selecting only `at` and `toStatus`.
+- `apps/web/app/kitchen/report/page.tsx` — a "Time in each state" section:
+  state, orders, average, total, using the same `Table` the rest of the report
+  uses.
+- `apps/web/lib/status-labels.ts` — `STATUS_LABEL`, lifted out of the kitchen
+  queue so both screens call a state the same thing.
+- 3 database tests, 2 e2e.
+
+**Decided:**
+- **Terminal states are not rows.** `picked_up`, `cancelled` and `abandoned`
+  total zero by construction — the tally stops accruing at a terminal event —
+  so printing "0.0 min" for them reads like a measurement rather than like
+  arithmetic that cannot come out any other way. The filter is
+  `!isTerminal(status)`, derived from the status module, not a written-out list.
+- **The section renders even when nothing sold.** Every other block on the page
+  lives inside the "no orders were picked up" branch; this one does not,
+  because a report run mid-service has no sales and a queue full of orders, and
+  how long they have been sitting is exactly the number worth reading then.
+- **Unfinished orders count up to `now`, and the screen says so.** A busy lunch
+  genuinely reads longer than a finished one. Hiding open orders would make the
+  number stable and wrong; the honest answer needs one sentence of explanation
+  and gets it.
+- **The average's denominator is orders that ENTERED the state.** Four seeded
+  orders were placed, three reached accepted, two preparing, one is on the
+  shelf — so the "orders" column is a funnel, and the e2e asserts exactly those
+  four numbers.
+- **`STATUS_LABEL` moved rather than being copied.** The kitchen queue already
+  had a `Record<OrderStatus, string>`; a second copy on the report is the same
+  "two ways to say one thing" failure the status module exists to prevent, one
+  layer up. A cook reading "Ready for pickup" on the queue and "ready" on the
+  report has to work out they are the same row.
+- **Durations switch to hours past 90 minutes.** A 90-day window's total in
+  `preparing` is five figures of minutes, which is a number nobody reads.
+
+**Left behind:**
+- **No per-item or per-hour breakdown of time in state.** One row per state
+  over the whole window. "Tuesdays are slow between 12 and 1" is the question
+  a manager actually has, and it is a bucketing pass away.
+- **The tally re-reads every event in the window on every page load.** Same
+  ceiling as the rest of the report: fine at one restaurant, wrong at a chain,
+  and the fix is a rollup rather than an index.
+- **A long-open order dominates its column.** The seeded no-show sitting ready
+  for 33 minutes moves the `ready` average more than the other 27 orders
+  combined. A median would be more honest and is not what "average" means.

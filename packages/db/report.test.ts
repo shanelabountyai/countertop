@@ -1,8 +1,8 @@
-import { salesReport, type Cart } from '@countertop/core';
+import { instantMinutesAfter, salesReport, timeInState, type Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { placeOrder } from './placement';
-import { loadReportOrders } from './report';
+import { loadReportOrders, loadStatusTimelines } from './report';
 import { applyOrderAction } from './transitions';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
@@ -163,5 +163,60 @@ describe('the sales report, against the database', () => {
       LA,
     );
     expect(report.days.map((day) => day.day)).toEqual(['2026-07-14']);
+  });
+});
+
+// C-020: the time-in-state loader. The tally's arithmetic is proved in
+// packages/core/orders/time-in-state.test.ts; what is proved here is that the
+// events a real order actually writes satisfy it — including the revert, which
+// is the case `statusChangedAt` cannot represent at all.
+describe('loadStatusTimelines', () => {
+  const min = (m: number) => instantMinutesAfter(AT, m);
+
+  beforeEach(async () => {
+    await resetDatabase();
+    await seedSampleMenu();
+    await seedSettings({ timezone: LA });
+    await seedStoreHours();
+  });
+
+  it('returns one timeline per order, in the shape the tally takes', async () => {
+    await place(1);
+    await place(1);
+
+    const timelines = await loadStatusTimelines(EPOCH);
+    expect(timelines).toHaveLength(2);
+    // Just placed: one event each, and it is the placement.
+    expect(timelines.map((events) => events.length)).toEqual([1, 1]);
+    expect(timelines[0]![0]).toMatchObject({ toStatus: 'placed', at: AT });
+  });
+
+  it('carries both visits when a wrong advance was undone', async () => {
+    const id = await place(1);
+    for (const [minute] of [[1], [3], [11]] as const) {
+      const moved = await applyOrderAction(id, { kind: 'advance', actor: 'staff' }, min(minute));
+      if (!moved.ok) throw new Error(moved.failure.message);
+    }
+    const undone = await applyOrderAction(
+      id,
+      { kind: 'revert', actor: 'staff', reason: 'wrong card' },
+      min(12),
+    );
+    if (!undone.ok) throw new Error(undone.failure.message);
+
+    const [events] = await loadStatusTimelines(EPOCH);
+    const tally = timeInState(events!, min(20));
+
+    // preparing: 3 → 11, then 12 → 20 (still there). Two visits, 8 + 8.
+    expect(tally.preparing).toBe(16 * 60_000);
+    expect(tally.ready).toBe(1 * 60_000);
+  });
+
+  it('excludes orders placed before the window, like the sales loader', async () => {
+    await place(1, new Date(Date.UTC(2026, 6, 1, 19, 30, 0)));
+    await place(1, AT);
+
+    const timelines = await loadStatusTimelines(new Date(Date.UTC(2026, 6, 10, 0, 0, 0)));
+    expect(timelines).toHaveLength(1);
   });
 });

@@ -22,6 +22,7 @@ import { loadGateState } from '@countertop/db/gate';
 import { loadQueue, queueCursor, type QueueOrder } from '@countertop/db/queue';
 import { LiveUpdates } from '@/lib/live-updates';
 import { describeSelection } from '@/lib/menu-labels';
+import { STATUS_LABEL } from '@/lib/status-labels';
 import { NewOrderAlert } from './new-order-alert';
 import { PauseSwitch } from './pause-switch';
 import { QueueControls } from './queue-controls';
@@ -33,17 +34,6 @@ export const metadata = { title: 'Kitchen — Firebird Kitchen' };
 // cursor moves, so a cook who never touches the screen still sees new tickets
 // and elapsed minutes that tick (P0-5).
 export const dynamic = 'force-dynamic';
-
-/** A `Record<OrderStatus, …>`: a new state cannot ship without a heading. */
-const SECTION_LABEL: Record<OrderStatus, string> = {
-  placed: 'New',
-  accepted: 'Accepted',
-  preparing: 'Preparing',
-  ready: 'Ready for pickup',
-  picked_up: 'Picked up',
-  cancelled: 'Cancelled',
-  abandoned: 'No-show',
-};
 
 /** Options in the order they were composed, gathered under their group name —
  *  "Salsa: chipotle, NO onions" is how a cook reads a ticket. */
@@ -139,7 +129,7 @@ export default async function KitchenPage({
       {groups.map(({ status, orders: inGroup }) => (
         <section key={status} className="mt-8">
           <h2 className="text-xl font-semibold">
-            {SECTION_LABEL[status]}{' '}
+            {STATUS_LABEL[status]}{' '}
             <span className="font-normal text-neutral-600">({inGroup.length})</span>
           </h2>
 

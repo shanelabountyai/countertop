@@ -9,10 +9,11 @@
 // reported under last month's menu, and an item deleted this morning still
 // appears in the history it earned.
 import Link from 'next/link';
-import { instantDaysBefore, salesReport } from '@countertop/core';
+import { instantDaysBefore, isTerminal, salesReport, timeInStateReport } from '@countertop/core';
 import { loadSettings } from '@countertop/db/menu';
-import { loadReportOrders } from '@countertop/db/report';
+import { loadReportOrders, loadStatusTimelines } from '@countertop/db/report';
 import { formatCents } from '@/lib/money';
+import { STATUS_LABEL } from '@/lib/status-labels';
 
 export const metadata = { title: 'Sales — Firebird Kitchen' };
 
@@ -23,6 +24,15 @@ const WINDOWS = [1, 7, 30, 90] as const;
 const DEFAULT_DAYS = 7;
 
 const percent = (fraction: number) => `${(fraction * 100).toFixed(1)}%`;
+
+/** Minutes up to an hour and a half, then hours and minutes. A 90-day window's
+ *  total in `preparing` is five figures of minutes, which is a number nobody
+ *  reads. */
+function formatDuration(ms: number): string {
+  const minutes = ms / 60_000;
+  if (minutes < 90) return `${minutes.toFixed(1)} min`;
+  return `${Math.floor(minutes / 60)} h ${Math.round(minutes % 60)} min`;
+}
 
 export default async function ReportPage({
   searchParams,
@@ -37,6 +47,15 @@ export default async function ReportPage({
   const { timezone } = await loadSettings();
   const since = instantDaysBefore(now, days);
   const report = salesReport(await loadReportOrders(since), timezone);
+  // Same window, same `now`, and derived from the append-only event log rather
+  // than from `statusChangedAt` — which holds one instant and cannot know that
+  // a reverted ticket was on the grill twice.
+  const timeInState = timeInStateReport(await loadStatusTimelines(since), now);
+
+  // Only the states an order can still be sitting in. The terminal three
+  // always total zero by construction, and a row of "0.0 min" reads like a
+  // measurement rather than like arithmetic that cannot come out any other way.
+  const timeInStateRows = timeInState.filter((row) => row.orders > 0 && !isTerminal(row.status));
 
   const busiest = Math.max(1, ...report.hours.map((hour) => hour.orders));
   const revenueCents = report.days.reduce((sum, day) => sum + day.totalCents, 0);
@@ -174,6 +193,32 @@ export default async function ReportPage({
           </Section>
         </>
       )}
+
+      {/* Outside the "nothing sold" branch on purpose: a report run mid-service
+          has no sales and a queue full of orders, and how long they have been
+          sitting is exactly the number worth reading then. */}
+      <Section title="Time in each state">
+        <p className="text-lg text-neutral-700">
+          Measured from the order log, so a ticket advanced by mistake and sent back counts both
+          visits. Orders still open have their current state counted up to now, which is why a
+          busy lunch reads longer than a finished one. Finished states are not listed: an order
+          picked up an hour ago has not been &ldquo;picked up&rdquo; for an hour, it is done.
+        </p>
+        {timeInStateRows.length === 0 ? (
+          <p className="mt-3 text-lg">No orders in this window.</p>
+        ) : (
+          <Table
+            headers={['State', 'Orders', 'Average', 'Total']}
+            label="Time in each state"
+            rows={timeInStateRows.map((row) => [
+              STATUS_LABEL[row.status],
+              String(row.orders),
+              row.averageMs === null ? '—' : formatDuration(row.averageMs),
+              formatDuration(row.totalMs),
+            ])}
+          />
+        )}
+      </Section>
     </main>
   );
 }

@@ -622,3 +622,21 @@ Nothing about it is a special mode. It is the same rush, stopped early — the
 orders that had not arrived yet simply have not arrived, the pause has not
 happened, and the report says twenty-two orders are still in flight rather than
 claiming a day with no sales in it.
+
+## How long orders actually take
+
+The sales report now answers the question a kitchen asks itself every evening:
+where does the time go? One row per state an order can still be sitting in —
+how many orders reached it, how long they averaged there, how long in total.
+
+It is read off the order log rather than off the order, which matters more than
+it sounds. A ticket marked ready by mistake and sent back was on the grill
+twice, and the log is the only thing that still knows that; a column holding
+"when did this last change" could only ever report the second visit. The
+mistake stays on the record, because a correction is appended rather than
+erasing anything.
+
+Orders still open count up to now, so a busy lunch reads longer than a finished
+one — the screen says so rather than quietly excluding them. And states an
+order has finished with are not listed at all: an order picked up an hour ago
+has not been "picked up" for an hour. It is done.

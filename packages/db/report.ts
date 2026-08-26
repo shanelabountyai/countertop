@@ -9,7 +9,7 @@
 //
 // Customer names, phones and notes are not selected. A sales report has no
 // business holding them.
-import type { ReportableOrder } from '@countertop/core';
+import type { ReportableOrder, StatusEvent } from '@countertop/core';
 import { prisma } from './index';
 
 /**
@@ -48,4 +48,26 @@ export function loadReportOrders(since: Date): Promise<ReportableOrder[]> {
       },
     },
   });
+}
+
+/**
+ * One timeline per order in the window, for the time-in-state tally (C-020).
+ *
+ * The EVENTS, not `statusChangedAt`. That column holds a single instant — the
+ * current status's — so it can answer "how long has this been ready?" and
+ * nothing else. An order that was advanced by mistake and sent back visited a
+ * status twice, and only the append-only log still knows that.
+ *
+ * `toStatus` and `at` are the only columns selected: a tally has no business
+ * reading the actor, the reason or the detail payload.
+ */
+export async function loadStatusTimelines(since: Date): Promise<StatusEvent[][]> {
+  const orders = await prisma.order.findMany({
+    where: { placedAt: { gte: since } },
+    orderBy: { placedAt: 'asc' },
+    select: {
+      events: { orderBy: { at: 'asc' }, select: { at: true, toStatus: true } },
+    },
+  });
+  return orders.map((order) => order.events);
 }
