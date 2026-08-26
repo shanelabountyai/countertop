@@ -7,7 +7,7 @@ and the PROGRESS/RELEASE_NOTES entries are written.
 The gate, unchanged for every item:
 
 ```
-npm run lint && npm run typecheck && npm test && PORT=3400 npm run test:e2e
+npm run gate    # lint, typecheck, build, e2e, unit — in that order
 ```
 
 ## Phase 1 — pure logic, tested before any UI exists

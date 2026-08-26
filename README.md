@@ -40,7 +40,7 @@ neighbouring project's server.
 Nothing is done until all four pass:
 
 ```bash
-npm run lint && npm run typecheck && npm test && PORT=3400 npm run test:e2e
+npm run gate    # lint, typecheck, build, e2e, unit — in that order
 ```
 
 e2e runs against a production build; `E2E_DEV=1 npm run test:e2e` restores the

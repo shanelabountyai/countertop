@@ -1457,3 +1457,47 @@ C-022 committed and pushed at 65b9216
   consequential as repricing a burrito.
 
 C-023 committed and pushed at 488927f
+
+## C-024 — The build is a gate step
+
+**Built:**
+- `npm run gate` — `lint && typecheck && test && build:test && test:e2e`, in
+  that order: cheapest check first, and the build named separately before
+  Playwright can bury it.
+- A `Production build` step in CI, ahead of the Playwright install.
+- The gate line updated in the three places it is written down: `README.md`,
+  `docs/backlog.md` and `CLAUDE.md`.
+
+**Decided:**
+- **The build earns its own step because it has failed twice on its own.**
+  C-007's `.js` import specifiers (which `moduleResolution: "Bundler"` maps and
+  Turbopack does not) and C-023's non-function export from a `'use server'`
+  file. Neither is a type error, neither is a lint error, and both were green
+  under the entire unit suite. A gate that builds only inside the e2e leg
+  reports them as `webServer was not able to start` three minutes in — a
+  message that names a port.
+- **Order is cheapest-first, except the build.** Lint, typecheck and the unit
+  suite take about ten seconds between them and should fail first; the build
+  goes ahead of e2e because e2e cannot run without it and its failures are
+  clearer on their own.
+- **One `gate` script rather than a longer documented command line.** The
+  four-part command was written out in three files and had already drifted
+  from what CI ran. A script is one place to change it, and CI still runs the
+  steps individually so a failure names which one.
+- **It costs one cached rebuild.** `test:e2e` builds anyway; Next reuses the
+  work, so the extra step is seconds.
+
+**Left behind:**
+- **Reseeding a live database under a running server has a visible window.**
+  The e2e server intermittently logs `An operation failed because it depends on
+  one or more records that were required but not found` — a `findUniqueOrThrow`
+  for the settings row landing between a `beforeEach` reseed's TRUNCATE and its
+  re-insert. It appeared in two of the last four sweeps, fails no test, and is
+  the same root cause as C-021's seed-lock finding: the app is being served
+  while its database is rebuilt underneath it. It has no production analogue —
+  nobody truncates a live restaurant. The fix, if it ever fails a test, is to
+  wrap the reset and the seed in one transaction (TRUNCATE is transactional in
+  Postgres), which means threading a `tx` client through the seed helpers.
+- **CI still cannot run.** Every run in this repo's history has died in about
+  two seconds on an account billing block, so this step — like the drift check
+  and the two TZ legs — has only ever been executed by hand.

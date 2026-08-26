@@ -49,12 +49,13 @@ Pickup-only online ordering for a fast-casual restaurant (sample: "Firebird Kitc
 
 ## The gate
 
-Nothing is done until all four pass:
+Nothing is done until all five pass:
 
 ```
-npm run lint && npm run typecheck && npm test && PORT=3400 npm run test:e2e
+npm run gate    # = lint && typecheck && test && build:test && test:e2e
 ```
 
+- **The build is its own step** (added C-024). Twice a change has been green under `tsc`, ESLint and the whole unit suite and failed only in the bundler — C-007's `.js` import specifiers, C-023's non-function export from a `'use server'` file. Neither is a type error; both are build errors, and a gate that only builds inside the e2e leg reports them as "webServer was not able to start" three minutes in.
 - e2e runs against a production build; `E2E_DEV=1` restores the dev server for stack traces.
 - Read the e2e summary, not the tail: `passed + skipped + flaky` must reconcile against `--list`'s total.
 - CI applies all migrations to a throwaway Postgres from scratch with a drift check, and runs the unit suite under `TZ=Pacific/Kiritimati` and `TZ=UTC` expecting identical results (the report-bucketing and order-number-reset tests are exactly what a UTC-only CI would hide).

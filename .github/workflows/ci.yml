@@ -126,6 +126,21 @@ jobs:
         env:
           TZ: Pacific/Kiritimati
 
+      # The BUILD, on its own, before Playwright can bury it (C-024).
+      #
+      # Twice now a change has been green under tsc, ESLint and the whole unit
+      # suite and failed only in the bundler: C-007's `.js` import specifiers,
+      # which `moduleResolution: "Bundler"` maps and Turbopack does not, and
+      # C-023's non-function export from a `'use server'` file. Neither is a
+      # type error and neither is a lint error — they are build errors, and the
+      # gate had no build step.
+      #
+      # `test:e2e` builds anyway, so this costs one cached rebuild and turns a
+      # three-minute "webServer was not able to start" into a named failure in
+      # its own step.
+      - name: Production build
+        run: npm run build:test
+
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         id: playwright-cache
