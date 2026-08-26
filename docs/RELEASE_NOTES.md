@@ -710,3 +710,18 @@ you have looked at it.
 The same goes for a modifier group's rules. Two people editing "Salsa" from two
 phones on the same prep table is a normal Tuesday, and the one who tapped
 second should find out rather than quietly win.
+
+## Pricing "extra"
+
+Options that come in light / regular / extra can charge for the extra — extra
+cheese is fifty cents for the cheese and seventy-five more for the extra. That
+second number was set when the menu was built and could not be changed
+afterwards. It can now.
+
+It gets the same confirm step as every other price, shows what it is added on
+top of so the number means something, and refuses to go negative: asking for
+more of something must never make the food cheaper.
+
+Leaving it blank means extra is free, which is what most options are — and the
+screen says "free" rather than "$0.00", because those are two different
+statements about a menu.

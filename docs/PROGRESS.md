@@ -1613,3 +1613,47 @@ C-025 committed and pushed at cee5fde
   direction.
 
 C-026 committed and pushed at c83d2d5
+
+## C-027 — The intensity surcharge is editable
+
+**Built:**
+- A second price row on every option inside an intensity-enabled group:
+  `Extra surcharge for <option>`, with its own confirm panel.
+- `saveExtraSurcharge(optionId, priceText, seenFromCents)` — non-negative,
+  staleness-checked like every other price (C-026), refused outright on a group
+  that has no `extra` to choose.
+- 4 e2e tests, including the composer proving the new surcharge reaches a
+  customer's price.
+
+**Decided:**
+- **Blank is a value, and it means free.** `extraPriceDeltaCents` is nullable
+  and null is the common case — most options cost nothing extra. The panel says
+  "Was $0.75, will be free", never "$0.00", because those are different facts
+  and one of them is the column's null. This was the last price in the system a
+  manager could not change.
+- **The panel says what the surcharge is added TO.** "added ON TOP of +$0.50"
+  — a surcharge shown alone is a number with no meaning, and a manager
+  comparing $0.75 against the wrong base sets the wrong price.
+- **A surcharge on a non-intensity group is refused, not stored.** There is no
+  `extra` to pick in such a group, so the value could never apply. The row does
+  not render either, but the action refuses independently: the missing row is
+  UX, the refusal is the mechanism.
+- **Non-negative, mirroring the CHECK constraint from C-022.** Asking for extra
+  cheese must not make the burrito cheaper. Unlike an option's own delta, which
+  is deliberately allowed to be negative.
+- **`PriceForm` grew a `what` prop rather than being copied.** An option now
+  has two prices, and every accessible name on both rows is built from `what`
+  — so "Price for Cheese" and "Extra surcharge for Cheese" are unambiguous to a
+  screen reader and to a locator, which is the same reason C-015 used
+  `exact: true` throughout.
+
+**Left behind:**
+- **Only `extra` is priced.** `light` still costs the same as `regular`, which
+  is a C-002 decision (restaurants do not discount light sauce) and is not
+  reopened by this.
+- **Turning intensity OFF on a group leaves its surcharges in the column.**
+  They stop applying — the composer offers no `extra` — and start applying
+  again if it is turned back on, which is probably what someone wants and is
+  certainly not decided anywhere.
+- **No add, no delete, no reorder for options** — the standing C-015 line. This
+  edits the prices of what is there.

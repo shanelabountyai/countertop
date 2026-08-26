@@ -24,7 +24,13 @@ import Link from 'next/link';
 import { parsePriceInput, type Menu } from '@countertop/core';
 import { loadMenu } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
-import { deleteGroup, saveGroup, saveItemPrice, saveOptionPrice } from './actions';
+import {
+  deleteGroup,
+  saveExtraSurcharge,
+  saveGroup,
+  saveItemPrice,
+  saveOptionPrice,
+} from './actions';
 
 export const metadata = { title: 'Edit menu — Firebird Kitchen' };
 
@@ -71,6 +77,42 @@ export default async function MenuEditorPage({
   const id = colon === -1 ? '' : edit.slice(colon + 1);
 
   // ---- the confirm step -------------------------------------------------
+
+  // The "extra" surcharge has its own panel: it is the only price on this
+  // screen that can be BLANK, and blank means something ("extra is free")
+  // rather than being a value nobody typed (C-027).
+  if (kind === 'extra') {
+    const option = groups.flatMap((group) => group.options).find((o) => o.id === id);
+    if (!option) return <Rejected message="That option no longer exists." />;
+
+    const raw = (params.price ?? '').trim();
+    const toCents = raw === '' ? null : parsePriceInput(raw);
+    if (raw !== '' && (toCents === null || toCents < 0)) {
+      return (
+        <Rejected message="An extra surcharge is never negative. Type it like 0.75, or leave it blank to make extra free." />
+      );
+    }
+    const fromCents = option.extraPriceDeltaCents ?? null;
+    const surcharge = (cents: number | null) => (cents === null ? 'free' : formatCents(cents));
+
+    return (
+      <Confirm
+        title={`Change what "extra ${option.name.toLowerCase()}" costs?`}
+        action={saveExtraSurcharge.bind(null, option.id, raw, fromCents)}
+        submitLabel={`Save extra surcharge for ${option.name}`}
+      >
+        <p className="mt-6 flex flex-wrap items-baseline gap-3 text-3xl font-bold tabular-nums">
+          <span className="text-neutral-500 line-through">{surcharge(fromCents)}</span>
+          <span aria-hidden>→</span>
+          <span>{surcharge(toCents)}</span>
+        </p>
+        <p className="mt-2 text-lg text-neutral-700">
+          Was {surcharge(fromCents)}, will be {surcharge(toCents)}. This is added ON TOP of{' '}
+          {formatDeltaCents(option.priceDeltaCents) || '$0.00'} when a customer picks extra.
+        </p>
+      </Confirm>
+    );
+  }
 
   if (kind === 'item' || kind === 'option') {
     const target =
@@ -320,12 +362,29 @@ export default async function MenuEditorPage({
 
             <ul className="mt-4 flex flex-col gap-3 border-t-2 border-neutral-200 pt-3">
               {group.options.map((option) => (
-                <li key={option.id}>
+                <li key={option.id} className="flex flex-col gap-2">
                   <PriceForm
                     editValue={`option:${option.id}`}
                     name={option.name}
                     defaultPrice={dollars(option.priceDeltaCents)}
                   />
+                  {/* Only inside an intensity group: an "extra" surcharge on a
+                      group with no `extra` to choose is a price nothing can
+                      ever apply (C-027). Blank means extra is free, which is
+                      what most options are. */}
+                  {group.intensityEnabled && (
+                    <PriceForm
+                      editValue={`extra:${option.id}`}
+                      name={option.name}
+                      what="Extra surcharge"
+                      visible="+extra $"
+                      defaultPrice={
+                        option.extraPriceDeltaCents === undefined
+                          ? ''
+                          : dollars(option.extraPriceDeltaCents)
+                      }
+                    />
+                  )}
                 </li>
               ))}
             </ul>
@@ -339,21 +398,32 @@ export default async function MenuEditorPage({
 // ---- pieces -------------------------------------------------------------
 
 /** A price row: the current value, editable, and the button that opens the
- *  confirm panel. GET, because opening a confirm panel is a navigation. */
+ *  confirm panel. GET, because opening a confirm panel is a navigation.
+ *
+ *  `what` names which price this row is — an option has two, its delta and its
+ *  "extra" surcharge (C-027) — and every accessible name on the row is built
+ *  from it, so the two rows for one option are never ambiguous to a screen
+ *  reader or to a test. */
 function PriceForm({
   editValue,
   name,
   defaultPrice,
+  what = 'Price',
+  visible = '$',
 }: {
   editValue: string;
   name: string;
   defaultPrice: string;
+  what?: string;
+  visible?: string;
 }) {
   return (
     <form method="get" action="/kitchen/menu" className="flex flex-wrap items-end gap-3">
       <input type="hidden" name="edit" value={editValue} />
-      <span className="w-full text-lg font-semibold sm:w-auto sm:flex-1">{name}</span>
-      <Field label={`Price for ${name}`} visible="$">
+      <span className="w-full text-lg font-semibold sm:w-auto sm:flex-1">
+        {what === 'Price' ? name : `${name} — extra`}
+      </span>
+      <Field label={`${what} for ${name}`} visible={visible}>
         <input
           name="price"
           inputMode="decimal"
@@ -365,7 +435,7 @@ function PriceForm({
         type="submit"
         className="min-h-12 rounded-lg bg-neutral-900 px-5 text-lg font-bold text-white"
       >
-        Review price for {name}
+        Review {what.toLowerCase()} for {name}
       </button>
     </form>
   );

@@ -246,3 +246,63 @@ test('an unchanged value still saves — the check is staleness, not paranoia', 
   await page.getByRole('button', { name: 'Save new price for Burrito', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Burrito is now priced at $12.50');
 });
+
+// C-027: the intensity surcharge — the last price in the system a manager
+// could not change. "Extra cheese" costs the option's delta PLUS this.
+test('the extra surcharge can be repriced, and the composer follows', async ({ page }) => {
+  await page.goto('/kitchen/menu');
+  await page.getByRole('textbox', { name: 'Extra surcharge for Cheese', exact: true }).fill('1.25');
+  await page.getByRole('button', { name: 'Review extra surcharge for Cheese', exact: true }).click();
+
+  await expect(page.getByText('Was $0.75, will be $1.25.')).toBeVisible();
+  // The panel says what it is added to, because a surcharge alone is not a price.
+  await expect(page.getByText('added ON TOP of +$0.50')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Save extra surcharge for Cheese', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Extra cheese is now $1.25');
+
+  // Burrito 1095 + chicken 0 + cheese at extra (50 + 125) = 1270.
+  await page.goto('/menu/burrito');
+  await page.getByRole('radio', { name: /Chicken/ }).check();
+  await page.getByRole('radiogroup', { name: 'Cheese' }).getByText(/^Extra/).click();
+  await expect(page.getByTestId('line-total')).toHaveText('$12.70');
+});
+
+test('a blank surcharge makes extra free, and says so rather than showing $0.00', async ({
+  page,
+}) => {
+  await page.goto('/kitchen/menu');
+  await page.getByRole('textbox', { name: 'Extra surcharge for Cheese', exact: true }).fill('');
+  await page.getByRole('button', { name: 'Review extra surcharge for Cheese', exact: true }).click();
+
+  // "free" is a different fact from "$0.00" — and it is the column's null.
+  await expect(page.getByText('Was $0.75, will be free.')).toBeVisible();
+  await page.getByRole('button', { name: 'Save extra surcharge for Cheese', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Extra cheese is now free');
+
+  // Burrito 1095 + chicken 0 + cheese at extra (50 + 0) = 1145.
+  await page.goto('/menu/burrito');
+  await page.getByRole('radio', { name: /Chicken/ }).check();
+  await page.getByRole('radiogroup', { name: 'Cheese' }).getByText(/^Extra/).click();
+  await expect(page.getByTestId('line-total')).toHaveText('$11.45');
+});
+
+test('a negative surcharge is refused: extra must never make food cheaper', async ({ page }) => {
+  await page.goto('/kitchen/menu');
+  await page.getByRole('textbox', { name: 'Extra surcharge for Cheese', exact: true }).fill('-1.00');
+  await page.getByRole('button', { name: 'Review extra surcharge for Cheese', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: 'Nothing was changed' })).toBeVisible();
+  await expect(page.getByText(/never negative/)).toBeVisible();
+});
+
+test('a group without intensity has no surcharge row at all', async ({ page }) => {
+  await page.goto('/kitchen/menu');
+  // Salsa and Toppings are intensity-enabled; Add-ons is not.
+  await expect(
+    page.getByRole('textbox', { name: 'Extra surcharge for Guacamole', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('textbox', { name: 'Extra surcharge for Chipotle', exact: true }),
+  ).toBeVisible();
+});

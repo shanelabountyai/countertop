@@ -47,6 +47,7 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 - [x] **C-024** — The build is a gate step — `npm run gate`, plus a Production build step in CI. The bundler has rejected code the whole rest of the gate passed, twice.
 - [x] **C-025** — Shared e2e fixtures — `reseed`, `card`, `addBurritoToCart`, `placeOrderFor` in one file, with the write-then-navigate guard in it. Four defects have come from specs reinventing these without it.
 - [x] **C-026** — The confirm is checked against the number it showed — a price or group whose value moved between the confirm panel's render and the tap is refused, naming both values. Exposed and fixed a latent ordering dependency in `menu.spec.ts`.
+- [x] **C-027** — The intensity surcharge is editable — a second confirm-guarded price row on every option in an intensity group. Blank means free, which is the column's null and a different fact from $0.00.
 
 ## Deferred by decision (not backlog)
 

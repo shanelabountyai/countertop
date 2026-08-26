@@ -105,6 +105,53 @@ export async function saveOptionPrice(
 }
 
 /**
+ * What "extra" costs, on top of the option's own delta (C-027).
+ *
+ * The only price on this screen that can be BLANK, and blank is a value:
+ * `null` means extra is free, which is what most options are. Non-negative —
+ * asking for extra cheese must not make the burrito cheaper — and the database
+ * carries the same rule as a CHECK constraint (C-022).
+ */
+export async function saveExtraSurcharge(
+  optionId: unknown,
+  priceText: unknown,
+  seenFromCents?: unknown,
+): Promise<void> {
+  if (typeof optionId !== 'string' || typeof priceText !== 'string') rejected();
+  const raw = priceText.trim();
+  const cents = raw === '' ? null : parsePriceInput(raw);
+  if (raw !== '' && (cents === null || cents < 0)) rejected();
+
+  const option = await prisma.modifierOption.findUnique({
+    where: { id: optionId },
+    include: { group: true },
+  });
+  if (!option) rejected();
+  // A surcharge on a group with no `extra` to choose is a price nothing can
+  // ever apply. Refused rather than stored as dead data.
+  if (!option.group.intensityEnabled) {
+    rejected(`${option.group.name} does not offer light/regular/extra, so there is no extra to price.`);
+  }
+
+  const format = (c: number | null) => (c === null ? 'free' : formatCents(c));
+  const seen = seenFromCents === undefined ? undefined : seenFromCents;
+  if (
+    (typeof seen === 'number' || seen === null) &&
+    seen !== (option.extraPriceDeltaCents ?? null)
+  ) {
+    rejected(
+      `Extra ${option.name.toLowerCase()} is ${format(option.extraPriceDeltaCents ?? null)} now, not the ${format(seen)} you were shown. Someone else changed it — check the new value before saving.`,
+    );
+  }
+
+  await prisma.modifierOption.update({
+    where: { id: optionId },
+    data: { extraPriceDeltaCents: cents },
+  });
+  done(`Extra ${option.name.toLowerCase()} is now ${format(cents)}`);
+}
+
+/**
  * A group's name and its min/max. `min > 0` is what "required" means, so
  * raising a min from 0 to 1 makes the group required on EVERY item that shares
  * it — which is the change the affected-items list in the confirm panel exists
