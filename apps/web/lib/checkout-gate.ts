@@ -11,10 +11,32 @@
 //
 // Server-only by construction rather than by the `server-only` package: it
 // imports Prisma, which does not survive a client bundle.
-import { checkoutGate, restaurantClock, type GateResult } from '@countertop/core';
+import {
+  checkoutGate,
+  readyEstimate,
+  restaurantClock,
+  type GateResult,
+  type ReadyEstimate,
+} from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
 
-export async function currentGate(): Promise<GateResult> {
+/** The gate and the P0-7 estimate, off ONE read of the queue.
+ *
+ *  They are asked together because they are the same question answered two
+ *  ways — "are we taking orders?" and "how long if we are?" — and both count
+ *  the same open orders. Two separate loads could quote a wait off a count the
+ *  throttle had already moved past. */
+export async function currentCheckout(): Promise<{
+  gate: GateResult;
+  estimate: ReadyEstimate;
+}> {
   const state = await loadGateState();
-  return checkoutGate(state, restaurantClock(new Date(), state.timezone));
+  return {
+    gate: checkoutGate(state, restaurantClock(new Date(), state.timezone)),
+    estimate: readyEstimate(state),
+  };
+}
+
+export async function currentGate(): Promise<GateResult> {
+  return (await currentCheckout()).gate;
 }

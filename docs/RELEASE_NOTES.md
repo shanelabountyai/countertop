@@ -458,3 +458,18 @@ it — the same answer the server gives if they try anyway.
 **And an order already placed does not change at all.** It was copied when it
 was placed. The ticket on the kitchen line still says guacamole, whatever the
 menu says thirty seconds later.
+
+## Ready when it says it will be — honestly
+
+**"About 15–25 min," never "20 min."** Countertop quotes a range, because a
+single number is wrong the moment it passes and a customer who was promised
+20 minutes is annoyed at 21. A range that holds is worth more than a precision
+that does not.
+
+**The quote moves with the queue.** It is the restaurant's own prep time plus
+what is already on the line — recalculated every time the checkout page loads,
+off the same count that decides whether the kitchen is at capacity.
+
+**While ordering is paused, there is no time promise at all.** The pause
+message takes its place. A restaurant that is not taking orders does not tell
+you when your food will be ready.

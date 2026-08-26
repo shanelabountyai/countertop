@@ -146,3 +146,28 @@ test('checkout has no detectable accessibility violations, open or closed', asyn
     .analyze();
   expect(closed.violations).toEqual([]);
 });
+
+test.describe('the ready-time estimate (P0-7)', () => {
+  test('quotes a range at checkout, never a single number', async ({ page }) => {
+    await addBurritoToCart(page);
+    await page.goto('/checkout');
+    // A point estimate is wrong the minute it passes; a range is not.
+    await expect(page.getByTestId('ready-estimate')).toHaveText(/\d+–\d+ min/);
+  });
+
+  test('is replaced by the pause message, never left standing as a stale promise', async ({
+    page,
+    browser,
+  }) => {
+    await addBurritoToCart(page);
+    await page.goto('/checkout');
+    await expect(page.getByTestId('ready-estimate')).toBeVisible();
+
+    const kitchen = await (await browser.newContext()).newPage();
+    await pauseFrom(kitchen, 'Fryer is down until 2.');
+
+    await page.reload();
+    await expect(page.getByTestId('gate-notice')).toContainText('Fryer is down until 2.');
+    await expect(page.getByTestId('ready-estimate')).toHaveCount(0);
+  });
+});

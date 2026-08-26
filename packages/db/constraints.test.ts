@@ -268,6 +268,17 @@ describe('the gate settings', () => {
     ).rejects.toThrow(/cutoff_in_range/i);
   });
 
+  it('refuses prep minutes that would shorten the estimate as the queue grows', async () => {
+    // A negative increment quotes a FASTER pickup the busier the kitchen gets
+    // — wrong in the direction that has customers arrive early and wait.
+    await expect(
+      prisma.restaurantSettings.create({ data: settings({ prepPerOrderMinutes: -1 }) }),
+    ).rejects.toThrow(/prep_per_order_in_range/i);
+    await expect(
+      prisma.restaurantSettings.create({ data: settings({ prepBaseMinutes: -5 }) }),
+    ).rejects.toThrow(/prep_base_in_range/i);
+  });
+
   it('refuses a closed-today value that could never match a business day', async () => {
     // Compared as a string against `restaurantClock().day`. Any other shape
     // silently reads as "not closed today" — a restaurant that announced it

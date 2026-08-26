@@ -30,7 +30,7 @@ npm run lint && npm run typecheck && npm test && PORT=3400 npm run test:e2e
 - [x] **C-010** — New-order alert & acknowledge *(P0-12)* — chime + flash derived from order state so it survives a reload; the ack **is** `placed → accepted`.
 - [x] **C-011** — The checkout gate *(P0-6)* — one code path, three triggers: manual pause, auto-pause at the open-order threshold, store hours + closed-today + pre-close cutoff.
 - [x] **C-012** — Availability at two grains *(P0-6, P0-3)* — item and modifier-option 86, rendered "sold out" not hidden, in-cart lines flagged at checkout.
-- [ ] **C-013** — Estimated ready time *(P0-7)* — base + per-open-order increment, shown as a range, replaced by the pause message while paused.
+- [x] **C-013** — Estimated ready time *(P0-7)* — base + per-open-order increment, shown as a range, replaced by the pause message while paused.
 - [ ] **C-014** — Customer status page *(P0-5, P0-7, P0-8)* — tokenized link, order number + name, live status, distinct cancelled view with reason.
 - [ ] **C-015** — Safe menu editing *(P0-13)* — price confirm-on-save showing old → new, shared-modifier-group warning listing affected items, phone viewport.
 

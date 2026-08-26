@@ -62,6 +62,9 @@ describe('loadGateState (P0-6)', () => {
       openOrderCount: 0,
       closedOnDay: null,
       cutoffMinutes: 0,
+      // The P0-7 numbers ride along on the same read, off the same count.
+      prepBaseMinutes: 12,
+      prepPerOrderMinutes: 1,
     });
     expect(state.hours).toHaveLength(7);
   });

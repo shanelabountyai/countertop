@@ -755,3 +755,54 @@ C-011 committed and pushed at 347af21
   the cart, never a bad order.
 
 C-012 committed and pushed at a2c1ec3
+
+## C-013 — Estimated ready time
+
+**Built:**
+- `packages/core/orders/estimate.ts` — `readyEstimate(state)`, the whole of
+  P0-7's arithmetic: `prepBaseMinutes + prepPerOrderMinutes × openOrderCount`,
+  rounded down to a five-minute step and widened by ten into a range, with a
+  one-step floor. Pure, no clock, no database.
+- Two settings columns (`prepBaseMinutes` 12, `prepPerOrderMinutes` 1) and a
+  hand-written migration adding the CHECK constraints that keep them sane.
+- `loadGateState` now returns them, so the gate and the estimate come off ONE
+  read; `currentCheckout()` in `apps/web/lib/checkout-gate.ts` returns both,
+  and `currentGate()` is a thin call through it for the three screens that only
+  want the gate.
+- The estimate line on the checkout page, rendered only while the gate is open.
+- Tests: 6 unit specs on the range arithmetic, 2 e2e (a range is shown; the
+  pause message replaces it), 2 db constraint specs, and the `loadGateState`
+  assertion that the prep numbers ride along on the same read.
+
+**Decided:**
+- **The estimate reads the same count as the throttle, from the same query.**
+  Both answer "how busy are we?" over `OPEN_STATUSES`. Two loads would let the
+  checkout quote a ten-minute wait off a count the auto-pause had already moved
+  past — the same screen saying "we are at capacity" and "ready in 10 min".
+- **A range, and the low end rounds DOWN.** `Math.floor` to the five-minute
+  step, then `+10`. The low number is the one a customer hears as the promise,
+  so the arithmetic must never round it later than it really is. 19 minutes is
+  sold as "15–25", never "20–30".
+- **The "no estimate while paused" rule lives at the call site, not in the
+  function.** It is the same decision as "show the pause message": the checkout
+  renders `<GateNotice>` *instead of* the estimate. Baking a gate check into
+  `readyEstimate` would have been wrong for C-014 — an order already cooking
+  still has a ready time after the restaurant stops taking new orders.
+- **The range width and the rounding step are constants, not settings.** P0-7
+  makes two numbers configurable — how long food takes. How vague we are about
+  it is a product decision, and a settings screen offering "range width" is an
+  invitation to set it to zero and start promising exact minutes.
+- **A one-step floor, so the estimate can never say "now".** A misconfigured
+  zero base reads as "5–15 min", not "0–10".
+
+**Left behind:**
+- **The estimate is not polled at checkout.** P0-7 says "recalculated on each
+  poll"; the checkout page recalculates on every render (`force-dynamic`) and
+  has no poller. C-014's status page has one and is where that half lands.
+- **Count-based, not weight-based.** Ten bags of chips read exactly like ten
+  catering bowls (P1-7, already deferred by decision).
+- **No settings UI.** Same line as the gate's hours and thresholds — columns
+  with defaults and constraints, changed by a migration. C-015 is the screen.
+- **The confirmation does not repeat the estimate.** After placement the cart
+  is empty and the line is gone; the customer's ready time lives on the status
+  page C-014 builds behind the token already printed on the receipt.

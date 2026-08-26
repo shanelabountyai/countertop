@@ -8,15 +8,18 @@
 // The open-order count comes from `OPEN_STATUSES`, which is derived from THE
 // status module. A status list spelled out here is exactly the defect the
 // "one status module" rule exists to prevent (CLAUDE.md).
-import { OPEN_STATUSES, type GateState } from '@countertop/core';
+import { OPEN_STATUSES, type EstimateState, type GateState } from '@countertop/core';
 import { prisma } from './index';
 
 /** Settings, hours and the open-order count in one round trip.
  *
  *  Carries the tax rate and timezone too, so placement reads config ONCE
- *  rather than asking two queries the same question. */
+ *  rather than asking two queries the same question — and the P0-7 estimate's
+ *  two numbers, because the estimate is computed from the SAME open-order
+ *  count the throttle reads. Two queries would let the checkout say "we are at
+ *  capacity" and quote a ten-minute wait off a count taken a moment apart. */
 export async function loadGateState(): Promise<
-  GateState & { timezone: string; taxRatePpm: number }
+  GateState & EstimateState & { timezone: string; taxRatePpm: number }
 > {
   const [settings, hours, openOrderCount] = await Promise.all([
     // Throws rather than defaulting, like `loadSettings`: a missing settings
@@ -40,5 +43,7 @@ export async function loadGateState(): Promise<
       closeMinute: day.closeMinute,
     })),
     cutoffMinutes: settings.cutoffMinutes,
+    prepBaseMinutes: settings.prepBaseMinutes,
+    prepPerOrderMinutes: settings.prepPerOrderMinutes,
   };
 }

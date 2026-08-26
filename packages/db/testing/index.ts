@@ -86,6 +86,8 @@ type SettingsOverrides = {
   maxOpenOrders?: number;
   closedOnDay?: string | null;
   cutoffMinutes?: number;
+  prepBaseMinutes?: number;
+  prepPerOrderMinutes?: number;
 };
 
 /**
@@ -115,6 +117,8 @@ export async function seedSettings(overrides: SettingsOverrides = {}): Promise<v
       maxOpenOrders: overrides.maxOpenOrders ?? 25,
       closedOnDay: overrides.closedOnDay ?? null,
       cutoffMinutes: overrides.cutoffMinutes ?? 0,
+      prepBaseMinutes: overrides.prepBaseMinutes ?? 12,
+      prepPerOrderMinutes: overrides.prepPerOrderMinutes ?? 1,
     },
   });
 }

@@ -312,6 +312,12 @@ model RestaurantSettings {
   closedOnDay   String? @db.Char(10)
   /// New orders stop this many minutes before close (P0-6, default 15).
   cutoffMinutes Int     @default(15)
+  /// P0-7. Minutes a ticket takes with an empty queue in front of it.
+  prepBaseMinutes Int @default(12)
+  /// P0-7. Added per order already open — the same OPEN_STATUSES count the
+  /// auto-pause threshold reads, so "busy" means one thing. Count-based;
+  /// P1-7 replaces the count with prep weight.
+  prepPerOrderMinutes Int @default(1)
 }
 
 /// One row per day the restaurant is OPEN (P0-6). A missing day is a closed

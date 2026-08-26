@@ -7,7 +7,7 @@
 // through closing time.
 import Link from 'next/link';
 import { loadMenu } from '@countertop/db/menu';
-import { currentGate } from '@/lib/checkout-gate';
+import { currentCheckout } from '@/lib/checkout-gate';
 import { formatCents } from '@/lib/money';
 import { getCartReview } from '../cart/actions';
 import { CheckoutForm } from './checkout-form';
@@ -20,7 +20,11 @@ export const metadata = { title: 'Checkout — Firebird Kitchen' };
 export const dynamic = 'force-dynamic';
 
 export default async function CheckoutPage() {
-  const [menu, review, gate] = await Promise.all([loadMenu(), getCartReview(), currentGate()]);
+  const [menu, review, { gate, estimate }] = await Promise.all([
+    loadMenu(),
+    getCartReview(),
+    currentCheckout(),
+  ]);
 
   return (
     <main className="mx-auto max-w-2xl p-6">
@@ -67,6 +71,17 @@ export default async function CheckoutPage() {
             </div>
           </dl>
         </section>
+      )}
+
+      {/* The estimate (P0-7), and ONLY while the gate is open — a closed
+          restaurant shows the gate notice in its place, because a time promise
+          for an order nobody will take is the precise lie this requirement
+          exists to forbid. A range, never a point: recalculated on every
+          render of this page, which is `force-dynamic`. */}
+      {gate.open && review.lines.length > 0 && (
+        <p data-testid="ready-estimate" className="mt-6 text-lg">
+          Usually ready for pickup <strong>{estimate.label}</strong> after you order.
+        </p>
       )}
 
       {/* The total is passed as EVIDENCE, not as input: the server recomputes
