@@ -1026,3 +1026,5 @@ C-015 committed and pushed at 70f7f83
   rollup, not an index.
 - **Revenue is placed-price revenue, not money collected.** `paymentState` is
   P1-8 and unread here; an unpaid picked-up order counts in full.
+
+C-016 committed and pushed at 667158e
