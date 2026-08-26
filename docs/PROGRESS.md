@@ -1874,3 +1874,5 @@ C-031 committed and pushed at 604c2c9
 - **Screenshots are light-mode UI on a dark page in dark theme.** The
   application has no dark mode; the steel frame around each figure is what
   keeps that from reading as a mistake.
+
+C-032 committed and pushed at 33639f8
