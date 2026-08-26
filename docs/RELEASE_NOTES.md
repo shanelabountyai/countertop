@@ -531,3 +531,37 @@ menu editor is where it gets tested hardest.
 nothing runs off the side of a 390-pixel screen, and cancel is a link rather
 than a second button — so walking away from a change you did not mean to make
 is never one mis-tap from saving it.
+
+---
+
+## What actually sold, in the restaurant's own hours
+
+The report answers the questions an owner asks on a Sunday night: what sold,
+when the rush really is, what people add to it, and how often food gets made
+and never collected.
+
+**The hours are the restaurant's hours.** A report bucketed in UTC would tell a
+California kitchen its dinner rush happens at midnight — and every test would
+still pass on a developer's laptop. The day and hour buckets come from the
+restaurant's configured timezone, and the test suite runs twice under two
+deliberately hostile timezones to keep it that way.
+
+**Only food someone took counts as a sale.** An order still on the pass is
+shown as still open rather than quietly booked, a cancelled order counts toward
+nothing, and food made for a customer who never came is its own number — the
+no-show rate — over the orders the kitchen actually finished. When nothing has
+finished yet the rate reads "—", not "0%", because those are different facts.
+
+**Attach rates, counted per plate.** "62% of burritos add guacamole" is
+measured against every burrito sold, not every order — and a bowl's guacamole
+is the bowl's own number. Three burritos on one line with guacamole is three
+attached, not one.
+
+**"NO onions" is never counted as onions.** A removal is a choice about an
+option, not an order of one. Counting them together would produce a report
+claiming half the burritos add onions off a column of people taking them off —
+the same confusion, in a spreadsheet instead of on a phone call.
+
+**Last month's sales stay under last month's menu.** Rename an item, reprice
+it, take it off the menu entirely: the history it already earned does not move
+a cent, because the report reads the orders, never the menu.

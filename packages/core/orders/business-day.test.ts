@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { businessDayOf, formatMinuteOfDay, restaurantClock } from './business-day';
+import {
+  businessDayOf,
+  formatMinuteOfDay,
+  instantDaysBefore,
+  restaurantClock,
+} from './business-day';
 
 // Every instant here is built with Date.UTC — the one form that provably
 // cannot read the process timezone. CI runs this file under TZ=UTC and
@@ -82,5 +87,25 @@ describe('formatting a minute of the day', () => {
     expect(formatMinuteOfDay(9 * 60 + 5)).toBe('09:05');
     expect(formatMinuteOfDay(21 * 60)).toBe('21:00');
     expect(formatMinuteOfDay(23 * 60 + 59)).toBe('23:59');
+  });
+});
+
+describe('instantDaysBefore', () => {
+  const AT = new Date(Date.UTC(2026, 6, 14, 19, 30, 0));
+
+  it('subtracts whole 24-hour days from an instant', () => {
+    expect(instantDaysBefore(AT, 7)).toEqual(new Date(Date.UTC(2026, 6, 7, 19, 30, 0)));
+  });
+
+  it('subtracts 24 hours across a DST change, not a calendar day', () => {
+    // 2026-03-09 12:00 UTC back one day is 2026-03-08 12:00 UTC, whatever the
+    // local clock did in between. The window is a lower bound for a query; the
+    // buckets are computed from the restaurant's calendar afterwards.
+    const after = new Date(Date.UTC(2026, 2, 9, 12, 0, 0));
+    expect(instantDaysBefore(after, 1)).toEqual(new Date(Date.UTC(2026, 2, 8, 12, 0, 0)));
+  });
+
+  it('returns the same instant for zero days', () => {
+    expect(instantDaysBefore(AT, 0)).toEqual(AT);
   });
 });

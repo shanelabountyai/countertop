@@ -53,6 +53,23 @@ type StatusFacts = {
   cancellableByCustomer: boolean;
   /** Staff closing out a no-show (P0-4). */
   abandonable: boolean;
+  /**
+   * Which side of the sales report this order lands on (P1-1).
+   *
+   * A field rather than a list, and exhaustive rather than a boolean, so a new
+   * state cannot ship without deciding whether it sold food, lost food, or is
+   * still in flight — the compiler asks, instead of a report quietly counting
+   * it as nothing.
+   *
+   *   sold      the customer took the food. Items, revenue and attach rates
+   *             are all counted over exactly these.
+   *   no_show   the food was made and nobody came for it. Not revenue; it is
+   *             the numerator of the no-show rate.
+   *   cancelled never handed over, and counted in neither.
+   *   in_flight the kitchen is not finished with it. A report run at 2pm must
+   *             not book lunch that is still on the pass.
+   */
+  salesRole: 'sold' | 'no_show' | 'cancelled' | 'in_flight';
 };
 
 /**
@@ -78,6 +95,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     cancellableByStaff: true,
     cancellableByCustomer: true,
     abandonable: false,
+    salesRole: 'in_flight',
   },
   accepted: {
     next: 'preparing',
@@ -91,6 +109,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     // phone call, not a button (P0-4).
     cancellableByCustomer: false,
     abandonable: false,
+    salesRole: 'in_flight',
   },
   preparing: {
     next: 'ready',
@@ -103,6 +122,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     cancellableByStaff: true,
     cancellableByCustomer: false,
     abandonable: false,
+    salesRole: 'in_flight',
   },
   ready: {
     next: 'picked_up',
@@ -118,6 +138,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     cancellableByStaff: false,
     cancellableByCustomer: false,
     abandonable: true,
+    salesRole: 'in_flight',
   },
   picked_up: {
     next: null,
@@ -131,6 +152,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     cancellableByStaff: false,
     cancellableByCustomer: false,
     abandonable: false,
+    salesRole: 'sold',
   },
   cancelled: {
     next: null,
@@ -144,6 +166,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     cancellableByStaff: false,
     cancellableByCustomer: false,
     abandonable: false,
+    salesRole: 'cancelled',
   },
   abandoned: {
     next: null,
@@ -155,11 +178,15 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     cancellableByStaff: false,
     cancellableByCustomer: false,
     abandonable: false,
+    salesRole: 'no_show',
   },
 };
 
 const statusesWhere = (fact: keyof StatusFacts): readonly OrderStatus[] =>
   ORDER_STATUSES.filter((s) => STATUS_FACTS[s][fact] === true);
+
+const statusesInSalesRole = (role: StatusFacts['salesRole']): readonly OrderStatus[] =>
+  ORDER_STATUSES.filter((s) => STATUS_FACTS[s].salesRole === role);
 
 /** P0-6's throttle counts these, and only these. */
 export const OPEN_STATUSES = statusesWhere('open');
@@ -169,10 +196,16 @@ export const TERMINAL_STATUSES = statusesWhere('terminal');
 export const ALERT_STATUSES = statusesWhere('alerts');
 /** P0-4: the kitchen queue's groupings, in display order. */
 export const QUEUE_STATUSES = statusesWhere('inQueue');
+/** P1-1: the statuses a sales report counts as revenue. */
+export const SOLD_STATUSES = statusesInSalesRole('sold');
+/** P1-1: food made and never collected — the no-show rate's numerator. */
+export const NO_SHOW_STATUSES = statusesInSalesRole('no_show');
 
 export const isOpen = (status: OrderStatus): boolean => STATUS_FACTS[status].open;
 export const isTerminal = (status: OrderStatus): boolean => STATUS_FACTS[status].terminal;
 export const needsAcknowledgment = (status: OrderStatus): boolean => STATUS_FACTS[status].alerts;
+export const salesRoleOf = (status: OrderStatus): StatusFacts['salesRole'] =>
+  STATUS_FACTS[status].salesRole;
 export const nextStatus = (status: OrderStatus): OrderStatus | null => STATUS_FACTS[status].next;
 export const previousStatus = (status: OrderStatus): OrderStatus | null =>
   STATUS_FACTS[status].previous;

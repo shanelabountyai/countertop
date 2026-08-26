@@ -4,3 +4,4 @@ export * from './placement';
 export * from './queue';
 export * from './checkout-gate';
 export * from './estimate';
+export * from './report';

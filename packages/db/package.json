@@ -22,6 +22,7 @@
     "./menu": "./menu.ts",
     "./placement": "./placement.ts",
     "./queue": "./queue.ts",
+    "./report": "./report.ts",
     "./gate": "./gate.ts",
     "./transitions": "./transitions.ts"
   }

@@ -144,7 +144,7 @@ Each queue card shows everything the line cook needs without tapping through: or
 
 ### Nice-to-Have (P1)
 
-- **P1-1: Sales report** — items sold by day/hour, top sellers, modifier attach rates (e.g., % of burritos adding guac — a genuinely fun query to write), plus no-show (`abandoned`) rate. All day/hour bucketing uses the restaurant's configured timezone, not UTC; the seeded rush report is the regression fixture.
+- **P1-1: Sales report** ✅ *(C-016)* — items sold by day/hour, top sellers, modifier attach rates (e.g., % of burritos adding guac — a genuinely fun query to write), plus no-show (`abandoned`) rate. All day/hour bucketing uses the restaurant's configured timezone, not UTC; the seeded rush report is the regression fixture.
 - **P1-2: Order-ahead scheduling** — "pickup at 12:30" slots with per-slot capacity; reuses slot-thinking from Bookable
 - **P1-3: SMS-style status notifications** — outbox log on `ready`, same stub convention as prior projects; uses the phone captured in P0-8
 - **P1-4: Estimated-time tuning** — compare estimates vs. actual `ready` timestamps from P0-4 data and adjust the increment

@@ -96,3 +96,26 @@ export function formatMinuteOfDay(minuteOfDay: number): string {
   const minutes = minuteOfDay % 60;
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
+
+/**
+ * `now` minus a whole number of 24-hour days, as an instant (P1-1).
+ *
+ * INSTANT arithmetic, not calendar arithmetic, and deliberately so: "30 days
+ * ago" here means 30 × 24 hours. That is exactly what a report window wants —
+ * a generous lower bound for one indexed query, with the exact day bucketing
+ * done afterwards by `restaurantClock` against the restaurant's own calendar.
+ * Calendar arithmetic would have to answer what "a day" means across a DST
+ * change, in the local → instant direction this module refuses to go.
+ *
+ * The cost, and the screen says so: the oldest local day in a window is
+ * usually partial.
+ */
+export function instantDaysBefore(now: Date, days: number): Date {
+  /* The ban exists to stop a CALENDAR value being read through the process
+     timezone. This builds an instant from an instant by arithmetic on epoch
+     milliseconds: no calendar, no timezone, no parsing. This module is where
+     the rule's own message says such a conversion belongs, and this is the
+     only exemption in the codebase. */
+  // eslint-disable-next-line no-restricted-syntax
+  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+}

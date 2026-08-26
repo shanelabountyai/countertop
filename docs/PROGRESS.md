@@ -961,3 +961,68 @@ C-014 committed and pushed at 40c835d
   `/kitchen`. Anyone who knows the path can reprice the menu.
 
 C-015 committed and pushed at 70f7f83
+
+---
+
+## C-016 — Sales report
+
+**Built:**
+- `packages/core/orders/report.ts` — `salesReport(orders, timezone)`. Pure, no
+  clock: day and hour buckets in the restaurant's calendar, top sellers,
+  modifier attach rates, no-show rate, and an in-flight count.
+- `salesRole` on `STATUS_FACTS`, plus `SOLD_STATUSES` / `NO_SHOW_STATUSES` /
+  `salesRoleOf` — the report derives what counts from the ONE status module.
+- `instantDaysBefore(now, days)` in `packages/core/orders/business-day.ts` —
+  the report window's lower bound, and the only `no-restricted-syntax`
+  exemption in the codebase.
+- `packages/db/report.ts` — `loadReportOrders(since)`, a `select` naming only
+  snapshot columns.
+- `apps/web/app/kitchen/report/page.tsx` — the screen, with a 1/7/30/90-day
+  window selector.
+- 22 new engine tests, 5 database tests, 6 e2e.
+
+**Decided:**
+- **`salesRole` is a field on `STATUS_FACTS`, not a list in the report.** Four
+  values — `sold`, `no_show`, `cancelled`, `in_flight` — so a new state cannot
+  ship without deciding which one it is. A boolean pair would have let a state
+  be neither, and a list in `report.ts` is the grep-not-compiler failure the
+  "one status module" invariant exists to prevent.
+- **Only `picked_up` is revenue.** A cancelled order counts toward nothing, a
+  no-show only toward its own rate, and an order still on the pass toward
+  `inFlight` — which is DISPLAYED, so a midday report explains its own missing
+  money instead of quietly under-reporting.
+- **The no-show rate is null, not 0, when nothing has finished.** A rate over
+  zero orders is unknown. A screen printing "0% no-shows" on an empty day is
+  lying, and it is the kind of lie an owner acts on.
+- **A negation is never an attach.** `intensity === 'none'` is skipped when
+  counting. "42% of burritos add onions", read off a column of people REMOVING
+  them, is the phone-transcription bug in report form — asserted in the engine
+  tests, the database tests and the e2e.
+- **The attach denominator is units of the item, not orders.** A line of 3
+  burritos with guacamole is 3 attached of 3, not 1 of 1. And the bowl's
+  guacamole is its own row: an option is rated against its own item.
+- **The window is an INSTANT range; the buckets are the restaurant's
+  calendar.** Turning "the last 30 days in Los Angeles" into a pair of instants
+  is the local → instant direction `business-day.ts` refuses to take, because a
+  DST boundary makes it ambiguous. So the query is generous and the engine is
+  exact. The cost is a partial oldest day, which the screen states.
+- **The attach key is `JSON.stringify` of the tuple, not a delimiter.** A group
+  or option name can contain any character a manager can type; there is no
+  separator that is safe, so the key does not use one. There is a test with a
+  quote in an item name.
+- **Grouped by the snapshot NAME, so a rename splits the history.** The honest
+  answer without joining a menu table, and a real ceiling — in the write-up.
+- **A bar chart of divs.** At most 24 rows on one screen; a charting dependency
+  would be a thing to keep patched forever for that.
+
+**Left behind:**
+- **A renamed item reports as two rows.** Grouping by `menuItemId` and showing
+  the most recent snapshot name would merge them without a menu join, but it
+  makes "which name wins" a decision, and the ids are documented as correlation
+  only.
+- **No CSV export, no printing, no date-range picker.** Four fixed windows.
+- **Every report is a full scan of the window.** No aggregate is precomputed —
+  fine at one restaurant, wrong at a chain, and the fix is a materialised daily
+  rollup, not an index.
+- **Revenue is placed-price revenue, not money collected.** `paymentState` is
+  P1-8 and unread here; an unpaid picked-up order counts in full.

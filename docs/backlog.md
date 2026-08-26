@@ -36,7 +36,7 @@ npm run lint && npm run typecheck && npm test && PORT=3400 npm run test:e2e
 
 ## Phase 4 — the capstone
 
-- [ ] **C-016** — Sales report *(P1-1)* — items by day/hour in the restaurant's timezone, top sellers, modifier attach rates, no-show rate.
+- [x] **C-016** — Sales report *(P1-1)* — items by day/hour in the restaurant's timezone, top sellers, modifier attach rates, no-show rate.
 - [ ] **C-017** — Seeded rush script — 30 orders / 20 minutes with the ugly cases: mid-rush option 86 hitting an open cart, a wrong advance undone, a no-show aging to `abandoned`, a deliberate double-submit, orders bouncing off the pause gate. Zero stuck, lost or duplicated orders. **Confirm the ugly-case list against the PRD's Success Metrics verbatim before building.**
 
 ## Deferred by decision (not backlog)
