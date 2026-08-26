@@ -1829,3 +1829,5 @@ C-030 committed and pushed at edd0dc2
   staff screens that are actually used on a phone; the customer's are desktop.
 - **The queue screenshot has one card mid-undo.** That is real — a cook had
   just advanced it — but it is luck of the timing rather than a staged detail.
+
+C-031 committed and pushed at 604c2c9
