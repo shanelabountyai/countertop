@@ -55,6 +55,7 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 - [x] **C-032** — The portfolio page — `docs/portfolio/` and a private Claude artifact, built from the C-031 screenshots.
 - [x] **C-033** — The gate runs before a push — `.githooks/pre-push` runs `npm run gate`, wired by `postinstall`. CI has been billing-blocked since C-029, so four items shipped unverified by anything but a local run someone remembered to do.
 - [x] **C-034** — Reservations PRD — `prd-reservations.md`, the adjacent product Countertop's Non-Goals names: table allocation under contention, and SMS confirm/change as the primary guest interface.
+- [x] **C-035** — The CI-only half runs locally too — `scripts/ci-local.sh`: a database built from nothing, the four hand-written invariant assertions, the drift check and the TZ=UTC / TZ=Pacific/Kiritimati double run. The pre-push hook runs it before the gate.
 
 ## Deferred by decision (not backlog)
 

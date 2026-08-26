@@ -1,7 +1,12 @@
 #!/bin/sh
 # CI is blocked on GitHub Actions billing (every run since C-029 dies in ~3s),
-# so the gate runs here instead. `git push --no-verify` skips it deliberately.
-# Delete this hook once CI actually runs — the gate belongs in CI, not on a laptop.
+# so both halves of it run here instead:
+#   ci:local — a database built from nothing, the hand-written invariants, the
+#              drift check, and the unit suite under two hostile timezones
+#   gate     — lint, typecheck, unit, production build, e2e
+# `git push --no-verify` skips them deliberately (docs-only commits).
+# Delete this hook once CI actually runs — the gate belongs in CI, not here.
 set -e
-echo "pre-push: running npm run gate (CI is billing-blocked; --no-verify to skip)"
+echo "pre-push: ci:local, then npm run gate (CI is billing-blocked; --no-verify to skip)"
+npm run ci:local
 npm run gate

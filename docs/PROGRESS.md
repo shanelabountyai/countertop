@@ -1955,3 +1955,44 @@ C-032 committed and pushed at 33639f8
   port 3500 or created a repo.
 
 C-033 and C-034 committed and pushed at c60a0f6
+
+## C-035 — The CI-only half runs locally too
+
+**Built:**
+- `scripts/ci-local.sh` + `npm run ci:local` — drops and recreates
+  `countertop_ci` and `countertop_ci_shadow`, applies every migration from
+  nothing, asserts the four objects Prisma cannot express (the append-only
+  trigger, the settings singleton CHECK, and the two unique indexes), runs the
+  drift check against a real shadow database, and runs the unit suite twice
+  under `TZ=UTC` and `TZ=Pacific/Kiritimati`. The throwaway databases are
+  dropped on exit via a trap, pass or fail.
+- `.githooks/pre-push` now runs `ci:local` **before** the gate — the cheap,
+  fast-failing half first.
+
+**Decided:**
+- **The workflow file stays the original; this mirrors it.** Generating one from
+  the other would be a build step for two consumers. The script says in its
+  first comment that `ci.yml` is the source and that this is deleted the day CI
+  runs again.
+- **Throwaway databases, not the test database.** `db:reset:test` rebuilds the
+  database everything else depends on; a CI check that scribbles on the suite's
+  own database is a check that changes what it measures. `countertop_ci` exists
+  for ninety seconds and is dropped by a trap.
+- **The invariant SQL is copied verbatim, catalog comment included.** Those four
+  assertions are the reason a from-scratch build exists at all: a migration that
+  drops the append-only trigger passes every local test against a database that
+  still has it.
+- **Cheap enough to be unconditional.** The whole script is ~90 seconds, most of
+  it the two unit runs. Anything that made the pre-push hook slower would get
+  `--no-verify`'d within a week.
+
+**Left behind:**
+- **It is still this laptop.** One Postgres version, one architecture, one Node.
+  `ubuntu-latest` with a `postgres:16` service container is a different machine
+  and that difference is a real part of what CI buys.
+- **`npm ci` from a clean checkout is not covered.** CI installs from the
+  lockfile into an empty tree; this runs against whatever `node_modules` is
+  already here, so a missing dependency that happens to be installed locally
+  still slips through.
+- **Two files now describe the same checks.** They will drift. The mitigation is
+  that the local one is meant to be deleted, not maintained.
