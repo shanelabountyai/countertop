@@ -1129,3 +1129,34 @@ C-016 committed and pushed at 667158e
   would be the real capstone demo and is a project of its own.
 
 C-017 committed and pushed at 5442b5b
+
+## C-018 — The write-up, finished
+
+**Built:**
+- `docs/WRITEUP.md` — the four sections marked "Reserved for the end" now
+  written, plus the two that had said "Filled in as phases land" since C-001.
+  470 lines.
+
+**Decided:**
+- **The hardest bug is the one that was green everywhere.** C-007's `.js`
+  specifiers resolved under `tsc`, under vitest, under tsx and under ESLint,
+  and failed only in Turbopack — for code that had been merged, tested and
+  type-checked for three sessions without ever being COMPILED, because a
+  server action no rendered page imports is in no bundle. The other candidates
+  were all found by a test doing its job; that one was found by a timeout
+  naming a port.
+- **C-017 gets a Defects entry that records finding nothing.** Fourteen of
+  fifteen assertions passed on the first run of the largest piece of behaviour
+  in the project, and the fifteenth was a typo in the test. That is evidence
+  about the unit suite, and worth writing down as such rather than as a
+  brag — an integration test written first would have been the only thing
+  failing and the worst place to debug any of it.
+- **The two C-015 defect entries were appended past the end of the file** by a
+  previous session, sitting under "By the Numbers". Lifted back into "Defects
+  Found" where they belong; nothing was reworded.
+
+**Left behind:**
+- **The live-demo line still reads `_(Vercel, later)_`.** Deploying is a
+  decision about hosting a real database, not a write-up task.
+- **"By the Numbers" counts itself.** The documentation line is approximate by
+  construction and marked `~`.

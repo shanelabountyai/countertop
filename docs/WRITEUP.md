@@ -8,7 +8,7 @@
 **Repo:** https://github.com/shanelabountyai/countertop (private)
 **Live demo:** _(Vercel, later)_
 **Built with:** Claude Code + Next.js (App Router) · TypeScript · Postgres/Prisma · Tailwind · Vitest/Playwright + axe
-**Status:** In progress · Started 2026-08-25
+**Status:** Complete — all 17 backlog items shipped · 2026-08-25
 
 ---
 
@@ -23,11 +23,71 @@ the kitchen works a live queue that announces itself when a new order lands.
 
 ## What I Built
 
-_(Filled in as phases land.)_
+Pickup-only online ordering for one fast-casual restaurant, end to end.
+
+**For the customer:** a menu that renders sold-out items rather than hiding
+them; an item composer with required groups, min/max rules, intensity levels
+(none / light / regular / extra) and a live price that is explicitly *not* the
+authority; a cart that re-prices itself on every read; a checkout that refuses
+politely and specifically when the kitchen is paused, closed, or slammed; and a
+tokenized status page that follows the order without a login.
+
+**For the kitchen:** a queue grouped by state with tap targets sized for
+greasy gloves, elapsed-time flags that escalate, and negations rendered so a
+removal can never be read as an addition — the phone-transcription bug this
+product exists to kill. A new order chimes and flashes until someone
+acknowledges it, and the acknowledgment *is* the `placed → accepted`
+transition, so there is no separate accept chore to forget. Every forward tap
+has a five-second undo that appends a correction rather than erasing one.
+Behind that: item- and option-level 86'ing, a pause switch with an
+auto-pause threshold and store hours behind one code path, price editing with
+a confirm-on-save that shows old → new, a shared-modifier-group warning that
+names every item an edit will touch, and a sales report bucketed in the
+restaurant's own calendar.
+
+**And a rush that goes wrong on purpose:** `npm run demo:rush` replays thirty
+orders through twenty minutes of service including a mid-rush 86 that strands a
+cart, a wrong advance and its undo, a no-show aging out, a deliberate
+double-submit, and orders bouncing off the pause gate. It is the capstone demo
+and a test in the same file.
 
 ## How It's Built
 
-_(Filled in as phases land.)_
+Three workspaces, and the split is the whole design.
+
+**`packages/core` — pure decisions, no I/O and no clock.** The price engine and
+the one orderability function; the order state machine as a single nine-field
+table every reader derives its status list from; the checkout gate as one
+function with three triggers; the estimate; the business-day and
+restaurant-clock conversions; the sales report; the time-in-state tally. Nothing
+in here reads `Date.now()` — a lint rule enforces it — so every one of these is
+a function you can call with a frozen instant and a hand-written fixture. That
+is why 2,738 lines of engine carry 22 test files' worth of arithmetic, and why
+twenty minutes of simulated rush runs in under a second.
+
+**`packages/db` — the three things only a database can do.** Take the next
+`(businessDay, seq)` without racing (a unique constraint and a retry loop, never
+a check-then-write); refuse a second order for the same idempotency key; and
+write a status change and its event in one transaction, because a status that
+moved without an event is a hole in the history the reports read. Migrations
+touching constraints or triggers are hand-written — the order event log's
+append-only rule is a Postgres trigger, not a convention.
+
+**`apps/web` — screens that decide nothing.** Every price the customer sees is
+recomputed server-side before it means anything; every status list on the
+kitchen screen comes from the status module; the checkout button and the
+placement writer ask the *same* gate function, so they cannot disagree about
+why the door is shut. Live updates are a server-issued cursor the client echoes
+back — never the client's clock — polled on a fixed five-second interval that a
+WebSocket could replace without touching a line of logic.
+
+**The gate, unchanged for all seventeen items:** `lint && typecheck && test &&
+PORT=3400 test:e2e`, with e2e running against a real production build rather
+than a dev server. CI applies every migration to a throwaway Postgres from
+scratch, checks for schema drift, and runs the unit suite twice — under `TZ=UTC`
+and `TZ=Pacific/Kiritimati` — expecting identical results, because the report
+bucketing and the order-number reset are exactly what a UTC-only CI would
+hide.
 
 **Key design decisions**
 
@@ -244,24 +304,6 @@ second spec file wrote its own copy of an existing helper. A shared
 after a server action, assert the state it produced before navigating away —
 never assume the cookie is on the next request.
 
-## Skills Learned / Functions Unlocked
-
-_(Filled in as phases land — menu variant modeling, order-queue state
-transitions, near-real-time UI updates, price computation from composed
-selections.)_
-
-## The Hardest Bug
-
-_(Reserved. There will be one.)_
-
-## What I'd Do Differently
-
-_(Reserved for the end.)_
-
-## By the Numbers
-
-_(Reserved for the end.)_
-
 **C-015 — the guard bounded the wrong end of the range.** The group editor
 refused any save where `max > options.length`, reasoning that "choose up to 4"
 of 3 options is a rule nobody can satisfy. It is not: a max above the count is
@@ -286,3 +328,143 @@ cart cookie, one file over. The fix is to assert the outcome the write produces
 — the "Saved —" status line — before navigating, which is a better assertion
 than the one it replaced anyway: it proves the save happened rather than
 inferring it from a later screen.
+
+**C-017 — nothing. And that is the finding.** The seeded rush is the largest
+single piece of behaviour in the project — thirty orders, five deliberately
+ugly cases, a hundred and twenty transitions — and fourteen of its fifteen
+assertions passed on the first run. The fifteenth failed because the test
+asserted a column called `priceDeltaCents` on a snapshot row that actually
+carries `appliedDeltaCents`: my typo, in the test, caught by the test.
+
+*Why that is worth recording rather than being smug about:* the rush exercises
+concurrency, idempotency, the state machine, the gate, the 86 path and the
+snapshot rule all at once, and it found nothing because each of those had
+already been driven directly by a test that could isolate a failure to one
+function. An integration test that passes first time is evidence the unit tests
+were doing their job; an integration test written *first* would have been the
+only thing failing, and it would have been the worst possible place to debug
+any of it.
+
+## Skills Learned / Functions Unlocked
+
+- **Modelling variants as one mechanism instead of three.** S/M/L is a required
+  single-select modifier group with price deltas — not a separate "variant"
+  concept, not a `required` boolean beside `min`/`max`, not a discount rule for
+  `light`. Every time this project was tempted into a second way of saying
+  something, the second way turned out to be a way to disagree.
+- **A state machine as a table the compiler walks you through.** Seven statuses
+  × nine facts, and every reader — queue groupings, the throttle's open count,
+  the polling stop set, the alert set, the report's sales roles — is a filter
+  over it. Adding a state is a compile error until all nine questions are
+  answered. This is the structural fix for a defect a previous build shipped by
+  spelling a status list twice.
+- **Time as a parameter, everywhere, without exception.** No function in the
+  domain layer reads a clock. It started as a testability rule and paid off
+  three separate times: fixtures that are the same instant forever, a CI leg
+  that runs the suite under a hostile timezone, and finally a twenty-minute
+  rush that replays in under a second.
+- **Snapshot-versus-reference as a rule with a regression test behind it.** A
+  placed order copies every name and price it was composed from. The test that
+  keeps it honest renames, reprices, 86s and deletes every menu row an order
+  referenced, then asserts the receipt is byte-identical.
+- **Concurrency handled by constraints, not by checks.** The daily order number
+  contends on a unique index with a bounded retry; the double-submit contends
+  on the idempotency key. Both were then driven concurrently by the rush rather
+  than argued about.
+- **Near-real-time without a second renderer.** The poll endpoint answers
+  yes/no against a server-issued cursor and returns no data, so a queue card
+  has exactly one implementation — the server component, re-run — instead of a
+  copy in a client bundle drifting away from it.
+- **Accessibility as a keyboard walk, not an axe score.** Axe reported zero
+  violations on a control a keyboard user could not see. The automated pass
+  proves the absence of some failures; it never proves usability.
+
+## The Hardest Bug
+
+**The production build could not resolve the domain engine — and everything
+else was green.**
+
+Every relative import inside `packages/core` and `packages/db` carried an
+explicit `.js` extension: `export * from './pricing/index.js'`. That is the
+shape Node's ESM resolver requires, and TypeScript's `moduleResolution:
+"Bundler"` maps it back onto the `.ts` file sitting beside it. Turbopack, for a
+`transpilePackages` workspace, does not perform that mapping. `next build`
+failed with twenty-five copies of *Module not found: Can't resolve
+'./cart/index.js'*.
+
+What made it hard was not the fix — it is a one-line-per-file deletion. It was
+that the repo had been green for three full sessions while this was true.
+`tsc --noEmit`: green. ESLint: green. The entire unit suite, including every
+database test that imports the same modules through the same specifiers: green.
+None of those is a bundler, and the bundler had never been asked. `app/cart/
+actions.ts` had existed since C-005 and had *never once been compiled*, because
+a server action that no rendered page imports is not in any bundle. The code was
+real, tested, type-checked, and had never been built.
+
+It surfaced on the first e2e sweep after the first page that actually renders
+something importing the engine — which is to say, at the worst moment, three
+minutes into a run, as `webServer was not able to start`. That message names a
+port, not a module.
+
+*The fix:* drop the extension from every relative specifier pointing at a `.ts`
+file, keeping it on the ones pointing at genuine `.js` (the generated Prisma
+client). vitest, tsx and tsc all resolve extensionless TypeScript, so the
+extension had been buying nothing this repo used, and costing the one check
+nobody was running. Setting Turbopack's `root` to the workspace root was tried
+first; it changes nothing.
+
+*The lesson worth keeping:* a build is a different kind of check from a
+type-check, and a gate that only builds inside the e2e leg discovers resolution
+failures as a timeout. If a project has a domain package, one real page should
+import it from the first session that package exists — so the bundler has an
+opinion early, while the diff that caused it is still one file.
+
+## What I'd Do Differently
+
+- **Build something the bundler cares about in session one.** See above. A
+  single page importing `packages/core` would have moved a three-session-old
+  latent failure into the session that caused it.
+- **Write the shared e2e helpers before the second spec file needs them.** Two
+  separate defects — C-014's `goto` outrunning the cart cookie, and C-015's
+  `goto` outrunning a server action — are the same defect, in two files, both
+  written because a spec quietly reinvented a helper that already existed one
+  directory over. A `placeOrder` fixture would have carried the guard for free
+  and neither would have happened.
+- **Treat "assert the state the write produced, then navigate" as a house
+  rule, not a fix.** It is the correct assertion anyway: it proves the write
+  landed instead of inferring it from a later screen.
+- **Decide the menu's final size in session two, not session seventeen.**
+  Growing `SAMPLE_MENU` from four items to twenty-five at the very end was safe
+  only because every new item was *additive* — but it left two invariants
+  enforced by nothing except a comment (which groups may be reused, and that no
+  item name may contain an option name). Had the menu been its real size when
+  the price fixtures were written, neither constraint would exist.
+- **Put the time-in-state tally on a screen while building it.** It is a
+  function, a test and a line of demo output. The kitchen would read it daily
+  and it is thirty lines of TSX away from the report page that already exists.
+- **Sort out CI billing before trusting a green local gate.** Every run in this
+  project's history failed in two seconds on an account billing block, so the
+  from-scratch migration replay, the drift check and the TZ×2 legs were only
+  ever executed by hand. That is how the C-001 drift-check defect was found —
+  by running CI's steps manually because CI would not — but it is luck, not
+  method.
+
+## By the Numbers
+
+| | |
+|---|---|
+| Requirements shipped | 17 of 17 (C-001 → C-017), one per session |
+| Commits | 38 |
+| TypeScript / TSX | 12,936 lines across 119 tracked files |
+| …of which tests | 5,220 lines — 40% of the codebase |
+| Domain engine (`packages/core`) | 2,738 lines, zero I/O, zero clock reads |
+| Database layer (`packages/db`) | 1,496 lines |
+| Web app (`apps/web`) | 3,298 lines |
+| Unit tests | 356, in 20 files, passing under `TZ=UTC` and `TZ=Pacific/Kiritimati` |
+| End-to-end specs | 61, in 8 files, against a production build, with axe on every screen |
+| Hand-written migrations | 4, including an append-only trigger and 6 CHECK constraints |
+| Menu fixture | 25 items, 8 modifier groups, 5 categories |
+| The seeded rush | 30 orders / 20 simulated minutes / 5 ugly cases / 0 stuck, lost or duplicated |
+| Documentation | ~2,520 lines across the PRD, PROGRESS, RELEASE_NOTES, backlog and this file |
+| Defects recorded | 7, each with how it was found and what would catch it earlier |
+| Build window | 2026-08-25, start to finish |
