@@ -806,3 +806,5 @@ C-012 committed and pushed at a2c1ec3
 - **The confirmation does not repeat the estimate.** After placement the cart
   is empty and the line is gone; the customer's ready time lives on the status
   page C-014 builds behind the token already printed on the receipt.
+
+C-013 committed and pushed at 17924aa
