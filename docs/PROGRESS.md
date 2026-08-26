@@ -753,3 +753,5 @@ C-011 committed and pushed at 347af21
   instantly — the customer surfaces are `force-dynamic` but nothing polls them
   until C-014. Placement refuses regardless, so the cost is a wasted trip to
   the cart, never a bad order.
+
+C-012 committed and pushed at a2c1ec3
