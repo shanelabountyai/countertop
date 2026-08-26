@@ -20,8 +20,8 @@ export async function resetDatabase(): Promise<void> {
 /**
  * Writes packages/core's SAMPLE_MENU into the database, keeping its readable
  * ids ('burrito', 'guacamole') as primary keys so a failing assertion names
- * something you can find. C-017's seed grows this to the PRD's ~25 items; the
- * shape does not change.
+ * something you can find. C-017 grew it to 25 items and 8 groups; the shape
+ * did not change, which is why nothing here did either.
  */
 export async function seedSampleMenu(): Promise<void> {
   await prisma.category.createMany({

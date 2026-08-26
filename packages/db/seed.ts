@@ -10,28 +10,23 @@
 // checkout calls, and moved with the same `applyOrderAction` the kitchen
 // buttons call. A fixture assembled by hand-writing rows would agree with
 // itself and prove nothing.
-import { addLine, EMPTY_CART, type Cart, type Composition } from '@countertop/core';
+import {
+  addLine,
+  EMPTY_CART,
+  instantMinutesAfter,
+  type Cart,
+  type Composition,
+} from '@countertop/core';
 import { prisma } from './index';
 import { loadMenu } from './menu';
 import { placeOrder } from './placement';
 import { applyOrderAction } from './transitions';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
-// Relative instants as UTC FIELD arithmetic, which normalises. `new Date(<a
-// number>)` is banned repo-wide and the ban is worth more than the
-// convenience; `getUTC*` reads no process timezone.
+// Relative instants through the shared helper (C-017 pulled it into
+// packages/core once this file, the rush and two fixtures each had a copy).
 const anchor = new Date();
-const minutesAgo = (minutes: number): Date =>
-  new Date(
-    Date.UTC(
-      anchor.getUTCFullYear(),
-      anchor.getUTCMonth(),
-      anchor.getUTCDate(),
-      anchor.getUTCHours(),
-      anchor.getUTCMinutes() - minutes,
-      anchor.getUTCSeconds(),
-    ),
-  );
+const minutesAgo = (minutes: number): Date => instantMinutesAfter(anchor, -minutes);
 
 type SeedOrder = {
   customerName: string;

@@ -5,7 +5,15 @@
 // "extra"), a min-2 group, an item with no modifiers at all, and two groups
 // (`protein`, `salsa`) REUSED across two items with no duplication.
 //
-// C-017's seed grows this to the PRD's ~25 items; the shape does not change.
+// C-017 grew it to the PRD's 25 items and 8 groups (Measurement Method). The
+// first four items and six groups are UNTOUCHED — every hand-calculated
+// fixture in this package is priced against them, and a menu that grew by
+// editing the rows the arithmetic was checked against proves nothing. The new
+// items only COMPOSE the existing groups, plus the two new ones.
+//
+// Two groups are deliberately left alone: `salsa` stays on exactly the burrito
+// and the bowl, and `fillings` on exactly the taco plate, because C-015's
+// shared-group warning asserts "affects 2 items" and "affects 1 item" by name.
 import type { Menu } from './types';
 
 export const SAMPLE_MENU: Menu = {
@@ -13,6 +21,8 @@ export const SAMPLE_MENU: Menu = {
     { id: 'burritos', name: 'Burritos & Bowls' },
     { id: 'plates', name: 'Plates' },
     { id: 'sides', name: 'Sides' },
+    { id: 'drinks', name: 'Drinks' },
+    { id: 'sweets', name: 'Sweets' },
   ],
   groups: {
     // S/M/L is a required single-select modifier group with price deltas —
@@ -90,6 +100,32 @@ export const SAMPLE_MENU: Menu = {
         { id: 'mushroom', name: 'Mushroom', priceDeltaCents: -50, available: true },
       ],
     },
+    // Required, and one of its options is a NEGATION priced at zero — "No
+    // rice" is a choice the kitchen has to read, not the absence of one.
+    rice: {
+      id: 'rice',
+      name: 'Rice',
+      min: 1,
+      max: 1,
+      intensityEnabled: false,
+      options: [
+        { id: 'white-rice', name: 'White rice', priceDeltaCents: 0, available: true },
+        { id: 'brown-rice', name: 'Brown rice', priceDeltaCents: 50, available: true },
+        { id: 'no-rice', name: 'No rice', priceDeltaCents: 0, available: true },
+      ],
+    },
+    'tortilla-style': {
+      id: 'tortilla-style',
+      name: 'Tortilla',
+      min: 1,
+      max: 1,
+      intensityEnabled: false,
+      options: [
+        { id: 'flour-tortilla', name: 'Flour tortilla', priceDeltaCents: 0, available: true },
+        { id: 'corn-tortilla', name: 'Corn tortilla', priceDeltaCents: 0, available: true },
+        { id: 'wheat-tortilla', name: 'Whole-wheat tortilla', priceDeltaCents: 50, available: true },
+      ],
+    },
   },
   items: {
     burrito: {
@@ -122,6 +158,181 @@ export const SAMPLE_MENU: Menu = {
       categoryId: 'sides',
       name: 'Chips & salsa',
       basePriceCents: 350,
+      available: true,
+      modifierGroupIds: [],
+    },
+
+    // ── The other 21 (C-017). Composition only: no group below is new to this
+    // list, and no existing item's groups changed. Item names deliberately
+    // avoid containing an existing OPTION name ("Chips & guac", not "Chips &
+    // queso"), because Playwright matches accessible names by substring and
+    // case-insensitively — "Chips & queso" would make every `Queso` locator in
+    // the availability suite ambiguous.
+    'breakfast-burrito': {
+      id: 'breakfast-burrito',
+      categoryId: 'burritos',
+      name: 'Breakfast burrito',
+      basePriceCents: 950,
+      available: true,
+      modifierGroupIds: ['protein', 'toppings'],
+    },
+    'california-burrito': {
+      id: 'california-burrito',
+      categoryId: 'burritos',
+      name: 'California burrito',
+      basePriceCents: 1295,
+      available: true,
+      modifierGroupIds: ['protein', 'tortilla-style', 'addons'],
+    },
+    'garden-bowl': {
+      id: 'garden-bowl',
+      categoryId: 'burritos',
+      name: 'Garden bowl',
+      basePriceCents: 1050,
+      available: true,
+      modifierGroupIds: ['size', 'rice', 'toppings'],
+    },
+    'enchilada-plate': {
+      id: 'enchilada-plate',
+      categoryId: 'plates',
+      name: 'Enchilada plate',
+      basePriceCents: 1395,
+      available: true,
+      modifierGroupIds: ['protein', 'rice'],
+    },
+    'fajita-plate': {
+      id: 'fajita-plate',
+      categoryId: 'plates',
+      name: 'Fajita plate',
+      basePriceCents: 1595,
+      available: true,
+      modifierGroupIds: ['protein', 'tortilla-style', 'toppings'],
+    },
+    'tamale-plate': {
+      id: 'tamale-plate',
+      categoryId: 'plates',
+      name: 'Tamale plate',
+      basePriceCents: 1250,
+      available: true,
+      modifierGroupIds: [],
+    },
+    'torta': {
+      id: 'torta',
+      categoryId: 'plates',
+      name: 'Torta',
+      basePriceCents: 1150,
+      available: true,
+      modifierGroupIds: ['protein', 'toppings', 'addons'],
+    },
+    'quesadilla': {
+      id: 'quesadilla',
+      categoryId: 'plates',
+      name: 'Quesadilla',
+      basePriceCents: 895,
+      available: true,
+      modifierGroupIds: ['protein'],
+    },
+    'nachos': {
+      id: 'nachos',
+      categoryId: 'plates',
+      name: 'Loaded nachos',
+      basePriceCents: 1145,
+      available: true,
+      modifierGroupIds: ['protein', 'addons', 'toppings'],
+    },
+    'chips-guac': {
+      id: 'chips-guac',
+      categoryId: 'sides',
+      name: 'Chips & guac',
+      basePriceCents: 595,
+      available: true,
+      modifierGroupIds: [],
+    },
+    'taquitos': {
+      id: 'taquitos',
+      categoryId: 'sides',
+      name: 'Taquitos',
+      basePriceCents: 650,
+      available: true,
+      modifierGroupIds: [],
+    },
+    'rice-side': {
+      id: 'rice-side',
+      categoryId: 'sides',
+      name: 'Side of rice',
+      basePriceCents: 300,
+      available: true,
+      modifierGroupIds: ['rice'],
+    },
+    'beans-side': {
+      id: 'beans-side',
+      categoryId: 'sides',
+      name: 'Side of beans',
+      basePriceCents: 300,
+      available: true,
+      modifierGroupIds: [],
+    },
+    'elote': {
+      id: 'elote',
+      categoryId: 'sides',
+      name: 'Street corn',
+      basePriceCents: 425,
+      available: true,
+      modifierGroupIds: ['toppings'],
+    },
+    'horchata': {
+      id: 'horchata',
+      categoryId: 'drinks',
+      name: 'Horchata',
+      basePriceCents: 425,
+      available: true,
+      modifierGroupIds: ['size'],
+    },
+    'agua-fresca': {
+      id: 'agua-fresca',
+      categoryId: 'drinks',
+      name: 'Agua fresca',
+      basePriceCents: 425,
+      available: true,
+      modifierGroupIds: ['size'],
+    },
+    'mexican-coke': {
+      id: 'mexican-coke',
+      categoryId: 'drinks',
+      name: 'Mexican Coke',
+      basePriceCents: 350,
+      available: true,
+      modifierGroupIds: [],
+    },
+    'bottled-water': {
+      id: 'bottled-water',
+      categoryId: 'drinks',
+      name: 'Bottled water',
+      basePriceCents: 250,
+      available: true,
+      modifierGroupIds: [],
+    },
+    'churros': {
+      id: 'churros',
+      categoryId: 'sweets',
+      name: 'Churros',
+      basePriceCents: 495,
+      available: true,
+      modifierGroupIds: [],
+    },
+    'tres-leches': {
+      id: 'tres-leches',
+      categoryId: 'sweets',
+      name: 'Tres leches',
+      basePriceCents: 650,
+      available: true,
+      modifierGroupIds: [],
+    },
+    'paleta': {
+      id: 'paleta',
+      categoryId: 'sweets',
+      name: 'Paleta',
+      basePriceCents: 375,
       available: true,
       modifierGroupIds: [],
     },

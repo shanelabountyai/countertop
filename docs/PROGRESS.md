@@ -1028,3 +1028,102 @@ C-015 committed and pushed at 70f7f83
   P1-8 and unread here; an unpaid picked-up order counts in full.
 
 C-016 committed and pushed at 667158e
+
+## C-017 — The seeded rush
+
+**Built:**
+- `packages/db/rush.ts` — the rush itself: 30 orders arriving across 20
+  minutes, a 45-minute kitchen tail, and the five ugly cases the PRD names.
+  Declarative (`RUSH_ORDERS`, `COMPOSITIONS`, a default cadence with
+  per-order overrides), executed minute by minute.
+- `packages/db/rush.test.ts` — 15 tests, one describe block per ugly case plus
+  the three lagging Success Metrics.
+- `packages/db/rush-demo.ts` and `npm run demo:rush` — the same run, narrated:
+  ugly cases, final statuses, time-in-state and the day's sales.
+- `packages/core/orders/time-in-state.ts` — `timeInState(events, now)` and
+  `timeInStateReport(orders, now)`, derived from the append-only event log.
+  9 unit tests.
+- `packages/core/orders/business-day.ts` — `instantMinutesAfter(instant, n)`,
+  extracted once four files had grown the same UTC-field expression. 4 tests.
+- `packages/core/menu/sample-menu.ts` — grown to the PRD Measurement Method's
+  25 items and 8 modifier groups across 5 categories. The original 4 items and
+  6 groups are byte-identical.
+
+**Decided:**
+- **Simulated time, not wall-clock.** Twenty minutes of service runs in under a
+  second because every call takes its instant as a parameter. That is the
+  payoff for "nothing in `packages/core` reads the clock", not a workaround for
+  it — a rush that had to run at 1× could not be a test at all, and the demo
+  would be a thing nobody waits for twice.
+- **Everything goes through the real paths.** `placeOrder` for placements,
+  `applyOrderAction` for every move, the settings row for the pause, the
+  `available` column for the 86. Rows written directly would agree with
+  themselves and prove nothing — the same reason `seed.ts` places its orders.
+- **The script throws on any refusal it did not script.** An unexpected
+  `option_unavailable` or a gate bounce kills the run naming the customer,
+  rather than delivering 28 orders and reporting 30. That guard is what lets
+  the rush run under the SHIPPING throttle default (25 open orders) instead of
+  a raised one: if the rush ever stops fitting, it says so.
+- **Orders sharing an arrival minute are submitted concurrently.** Minute 11
+  takes three at once. The `(businessDay, seq)` unique constraint and its retry
+  loop are the point — a rush of sequential awaits would never touch them, and
+  the Success Metric is about *concurrent* placements. The cost: which name got
+  which number inside a minute is not deterministic, so the test asserts the
+  set of numbers is exactly 1..30, never a name-to-number mapping.
+- **Time in state is derived from the event log, never from
+  `statusChangedAt`.** That column holds one instant and can only answer "how
+  long has this been ready?". Rae Sutton's ticket was advanced by mistake and
+  sent back, so it visited `preparing` twice — 5 minutes then 3 — and only the
+  append-only log still knows that. It is the concrete reason undo is a logged
+  revert rather than an overwrite.
+- **Terminal states do not accrue.** An order picked up half an hour ago has
+  not been "in `picked_up`" for half an hour; it is done. Unfinished orders run
+  their last span to `now`.
+- **An average is over the orders that ENTERED the status.** 29 orders reached
+  `ready`; the cancelled one must not drag the mean toward zero. A status
+  nothing visited reads null, not 0 — the same rule as C-016's no-show rate.
+- **The hand tally is written out in a comment and hard-coded.** `placed`
+  30 × 1, `accepted` 30 × 2, `preparing` 27 × 8 + 12 slow + 3 + 4 + 8 = 243,
+  `ready` 27 × 3 + 33 + 4 = 118. Deriving the expectation from the same table
+  the script runs would agree with a bug; the PRD asks for a HAND tally and
+  that is what the arithmetic in the comment is.
+- **The cadence is uniform on purpose, with an explicit `slow` column.** Every
+  order is accepted at +1 and starts cooking at +3, which is what makes
+  `placed` and `accepted` flat across all thirty and the tally checkable on
+  paper. The 12 minutes of variation are five named tickets.
+- **The menu grew by ADDING.** The new 21 items only compose existing groups
+  plus the two new ones; not one of the four original items or six original
+  groups moved. Every hand-calculated price fixture in `packages/core` is
+  priced against those rows, and growing the menu by editing them would have
+  quietly rewritten the arithmetic the suite checks.
+- **`salsa` stays on exactly two items and `fillings` on exactly one.** C-015's
+  shared-group warning asserts "Shared — affects 2 items" and "Affects 1 item:
+  Taco plate" by name. New items deliberately route around both groups.
+- **New item names avoid containing an existing option name.** "Chips & guac",
+  not "Chips & queso" — Playwright matches accessible names by substring and
+  case-insensitively, so a "Chips & queso" item would make every `Queso`
+  locator in the availability suite ambiguous. A naming rule, enforced by
+  nothing but this note and the suite going red.
+- **The demo anchors an hour ago; the test pins a fixed instant.** A demo wants
+  to be today so `/kitchen/report`'s one-day window has something in it; an
+  assertion wants to be the same day forever.
+
+**Left behind:**
+- **The rush leaves the queue EMPTY.** All 30 orders reach a terminal state by
+  minute 45, which is the headline result — but it means `npm run demo:rush`
+  followed by `/kitchen` shows nothing, and the payoff screen is
+  `/kitchen/report`. A variant that stops at minute 20 would leave a queue full
+  of live cards; that is a flag on the demo, not a second script.
+- **The auto-pause threshold is never triggered by the rush.** The peak is
+  around 16 open orders against a default of 25. Manual pause is the scripted
+  trigger; the threshold has its own tests in `gate.test.ts`.
+- **`slow` pushes ready and pickup together.** No ticket is cooked fast and
+  collected late except the no-show, so the `ready` column is 3 minutes for 27
+  of the 30. A real service has a much fatter tail there.
+- **No time-in-state SCREEN.** The tally is a function, a test and a line of
+  demo output. Putting it on `/kitchen/report` beside the sales numbers is a
+  small piece of work nobody has asked for yet.
+- **Nothing asserts what the kitchen queue LOOKED like mid-rush.** The rush is
+  asserted at the database grain; the screens are covered by their own e2e
+  specs against the ordinary seed. A Playwright run driving the 20 minutes
+  would be the real capstone demo and is a project of its own.

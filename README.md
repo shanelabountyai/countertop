@@ -21,7 +21,14 @@ npm run db:migrate:all
 
 ```bash
 npm run dev          # http://localhost:3400
+npm run demo:rush    # the seeded rush, then open /kitchen/report
 ```
+
+`demo:rush` RESETS the dev database and replays thirty orders through twenty
+minutes of service, ugly cases included — a mid-rush 86, a wrong advance and
+its undo, a no-show, a double-submit, and orders arriving while paused. It
+finishes with every order in a terminal state, so the payoff screen is
+`/kitchen/report`, not the queue.
 
 **This repo owns port 3400** (storage 3000, rental 3100, bookable 3300). It is
 the default in `apps/web/package.json` and `playwright.config.ts`, not an

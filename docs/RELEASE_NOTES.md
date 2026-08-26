@@ -565,3 +565,46 @@ the same confusion, in a spreadsheet instead of on a phone call.
 **Last month's sales stay under last month's menu.** Rename an item, reprice
 it, take it off the menu entirely: the history it already earned does not move
 a cent, because the report reads the orders, never the menu.
+
+## A rush, including the parts that go wrong
+
+Thirty orders arrive in twenty minutes and the kitchen works them all the way
+through — but a demo where nothing goes wrong only proves that nothing went
+wrong. So five things go wrong, on purpose, every time it runs.
+
+**The kitchen runs out of guacamole in the middle of it.** One customer already
+has it in their cart. Their order is refused at checkout — for the guacamole,
+not for the burrito, because out of avocado is not out of burritos — and they
+place it again a minute later without it. One order already on the grill had
+guacamole on it, so staff cancel that one with the reason attached. The orders
+already handed over do not move a cent: their receipts still say guacamole, at
+the price it was sold at, an hour after the menu said otherwise.
+
+**A cook marks the wrong ticket ready and undoes it.** The undo does not erase
+the mistake — it appends a correction, which is why the report afterwards can
+still say that ticket was on the grill twice, five minutes and then three.
+
+**Someone orders and never comes to collect it.** The food sits on the shelf
+for thirty-three minutes, past all three no-show marks, and is closed out as a
+no-show rather than a cancellation. The two are different facts and the sales
+report keeps them apart.
+
+**A customer taps Place order twice.** One order exists, and both taps get the
+same answer back — not merely "no duplicate", but the same order number, twice.
+
+**The restaurant pauses mid-rush.** Three orders arrive during the pause and are
+turned away with a reason rather than silently dropped. One of those customers
+comes back after it lifts, and their order is a new one, not a replay.
+
+**Zero stuck, zero lost, zero duplicated.** Every one of the thirty orders ends
+somewhere final. The order numbers run 1 to 30 with no gaps and no repeats,
+including the three that were submitted in the same instant.
+
+**Twenty minutes of service, in under a second.** Nothing in the ordering engine
+reads a clock — every price, every transition, every deadline is told what time
+it is. That discipline was for correctness; the reward is that a rush can be
+replayed as fast as a database can take it, which is what makes it a test and
+not just a demo.
+
+**`npm run demo:rush`** prints what happened: the five ugly cases, where the
+orders ended up, how long they spent in each state, and the day's sales.

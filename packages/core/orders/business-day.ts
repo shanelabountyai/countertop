@@ -119,3 +119,28 @@ export function instantDaysBefore(now: Date, days: number): Date {
   // eslint-disable-next-line no-restricted-syntax
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 }
+
+/**
+ * `instant` plus a whole number of minutes, as an instant (C-017).
+ *
+ * The seeded rush, the demo runner and their fixtures all need "minute N of
+ * this run", and each had grown its own copy of the same UTC-field expression.
+ * Built from `Date.UTC` fields rather than epoch arithmetic, so it needs no
+ * lint exemption: `Date.UTC` normalises an out-of-range minute across the
+ * hour, day and year boundaries, and reads no process timezone on the way.
+ *
+ * Negative minutes go backwards, which is how a seed says "22 minutes ago".
+ */
+export function instantMinutesAfter(instant: Date, minutes: number): Date {
+  return new Date(
+    Date.UTC(
+      instant.getUTCFullYear(),
+      instant.getUTCMonth(),
+      instant.getUTCDate(),
+      instant.getUTCHours(),
+      instant.getUTCMinutes() + minutes,
+      instant.getUTCSeconds(),
+      instant.getUTCMilliseconds(),
+    ),
+  );
+}

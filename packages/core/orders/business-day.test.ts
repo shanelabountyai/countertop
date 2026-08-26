@@ -3,6 +3,7 @@ import {
   businessDayOf,
   formatMinuteOfDay,
   instantDaysBefore,
+  instantMinutesAfter,
   restaurantClock,
 } from './business-day';
 
@@ -107,5 +108,34 @@ describe('instantDaysBefore', () => {
 
   it('returns the same instant for zero days', () => {
     expect(instantDaysBefore(AT, 0)).toEqual(AT);
+  });
+});
+
+describe('instantMinutesAfter', () => {
+  const noon = new Date(Date.UTC(2026, 6, 14, 12, 0, 0));
+
+  it('normalises past the hour, the day and the year', () => {
+    expect(instantMinutesAfter(noon, 90)).toEqual(new Date(Date.UTC(2026, 6, 14, 13, 30, 0)));
+    expect(instantMinutesAfter(noon, 13 * 60)).toEqual(new Date(Date.UTC(2026, 6, 15, 1, 0, 0)));
+    expect(instantMinutesAfter(new Date(Date.UTC(2026, 11, 31, 23, 30, 0)), 45)).toEqual(
+      new Date(Date.UTC(2027, 0, 1, 0, 15, 0)),
+    );
+  });
+
+  it('goes backwards on a negative count', () => {
+    expect(instantMinutesAfter(noon, -12 * 60 - 1)).toEqual(
+      new Date(Date.UTC(2026, 6, 13, 23, 59, 0)),
+    );
+  });
+
+  it('keeps the seconds and milliseconds it was given', () => {
+    const odd = new Date(Date.UTC(2026, 6, 14, 12, 0, 37, 412));
+    expect(instantMinutesAfter(odd, 5)).toEqual(new Date(Date.UTC(2026, 6, 14, 12, 5, 37, 412)));
+  });
+
+  it('is an INSTANT shift, unaffected by the process timezone', () => {
+    // The whole point of the UTC-field form: the result is the same instant
+    // whatever TZ the suite runs under, which CI checks by running it twice.
+    expect(instantMinutesAfter(noon, 30).getTime() - noon.getTime()).toBe(30 * 60_000);
   });
 });
