@@ -23,21 +23,59 @@ function done(saved: string): never {
   redirect(`/kitchen/menu?saved=${encodeURIComponent(saved)}`);
 }
 
-function rejected(): never {
-  redirect('/kitchen/menu?error=1');
+/** Back to the editor, unchanged. `why` replaces the generic banner when
+ *  there is something specific worth saying — a value that moved under the
+ *  manager is not the same as a value they mistyped. */
+function rejected(why?: string): never {
+  redirect(why ? `/kitchen/menu?error=${encodeURIComponent(why)}` : '/kitchen/menu?error=1');
+}
+
+/**
+ * The confirm panel showed a price. This is where it is checked (C-026).
+ *
+ * The panel re-reads the current value on every render, so a screen left open
+ * through someone else's edit already shows the truth. What it cannot cover is
+ * the window between that render and the tap — and the whole purpose of this
+ * screen is "here is the number you are replacing", so applying the change
+ * against a DIFFERENT number is the one failure it must not have.
+ *
+ * The bound argument is client input like any other, which is why the answer
+ * is a comparison against the database rather than trust.
+ */
+function stale(seen: unknown, actual: number, what: string, format: (c: number) => string): void {
+  if (typeof seen !== 'number' || seen === actual) return;
+  rejected(
+    `${what} is ${format(actual)} now, not the ${format(seen)} you were shown. Someone else changed it — check the new value before saving.`,
+  );
+}
+
+/** The three values a group's confirm panel displayed, if it sent them. */
+type SeenGroup = { name: string; min: number; max: number };
+
+function seenGroup(value: unknown): SeenGroup | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const { name, min, max } = value as Partial<SeenGroup>;
+  return typeof name === 'string' && typeof min === 'number' && typeof max === 'number'
+    ? { name, min, max }
+    : null;
 }
 
 /**
  * An item's base price. Non-negative: an item that pays the customer to order
  * it is a typo every time, and the composition engine has no notion of one.
  */
-export async function saveItemPrice(itemId: unknown, priceText: unknown): Promise<void> {
+export async function saveItemPrice(
+  itemId: unknown,
+  priceText: unknown,
+  seenFromCents?: unknown,
+): Promise<void> {
   if (typeof itemId !== 'string' || typeof priceText !== 'string') rejected();
   const cents = parsePriceInput(priceText);
   if (cents === null || cents < 0) rejected();
 
   const item = await prisma.menuItem.findUnique({ where: { id: itemId } });
   if (!item) rejected();
+  stale(seenFromCents, item.basePriceCents, item.name, formatCents);
   await prisma.menuItem.update({ where: { id: itemId }, data: { basePriceCents: cents } });
   done(`${item.name} is now priced at ${formatCents(cents)}`);
 }
@@ -47,13 +85,18 @@ export async function saveItemPrice(itemId: unknown, priceText: unknown): Promis
  * discount, not a mistake — which is exactly why the confirm step showing
  * old → new matters more on this row than on an item's.
  */
-export async function saveOptionPrice(optionId: unknown, priceText: unknown): Promise<void> {
+export async function saveOptionPrice(
+  optionId: unknown,
+  priceText: unknown,
+  seenFromCents?: unknown,
+): Promise<void> {
   if (typeof optionId !== 'string' || typeof priceText !== 'string') rejected();
   const cents = parsePriceInput(priceText);
   if (cents === null) rejected();
 
   const option = await prisma.modifierOption.findUnique({ where: { id: optionId } });
   if (!option) rejected();
+  stale(seenFromCents, option.priceDeltaCents, option.name, (c) => formatDeltaCents(c) || '$0.00');
   await prisma.modifierOption.update({
     where: { id: optionId },
     data: { priceDeltaCents: cents },
@@ -72,6 +115,7 @@ export async function saveGroup(
   name: unknown,
   minText: unknown,
   maxText: unknown,
+  seen?: unknown,
 ): Promise<void> {
   if (typeof groupId !== 'string') rejected();
   const bounds = parseBounds(minText, maxText);
@@ -83,6 +127,21 @@ export async function saveGroup(
     include: { options: true },
   });
   if (!group) rejected();
+
+  // Same check as a price's, over the three values the panel displayed. A
+  // group's bounds are what make every item that shares it orderable, so
+  // applying "0 → 1" to a group someone else has already moved to 2 is the
+  // same failure with more items downstream of it.
+  const wasShown = seenGroup(seen);
+  if (
+    wasShown &&
+    (wasShown.name !== group.name || wasShown.min !== group.min || wasShown.max !== group.max)
+  ) {
+    rejected(
+      `${group.name} is now "choose ${group.min} to ${group.max}". Someone else changed it while you were looking — check it before saving.`,
+    );
+  }
+
   // A MIN above the number of options is a rule no composition can satisfy —
   // the item becomes unorderable and the composer can only say so. A max above
   // it is merely slack ("choose up to 4" of 3), which the seeded Fillings group

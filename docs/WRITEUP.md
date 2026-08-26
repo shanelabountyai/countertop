@@ -329,6 +329,28 @@ cart cookie, one file over. The fix is to assert the outcome the write produces
 than the one it replaced anyway: it proves the save happened rather than
 inferring it from a later screen.
 
+**C-026 — the one spec that did not reseed, and the eleven sessions it got away
+with it.** `menu.spec.ts` asserts hand-calculated seed prices — "$10.95",
+"$13.45" — and was the only spec file with no `reseed()` in a `beforeEach`. The
+file that runs immediately before it, `menu-editing.spec.ts`, exists to rewrite
+live menu rows. It never broke because that file happened to end on a test
+whose own `beforeEach` had just reseeded, so the database was incidentally
+clean at the handover.
+
+*How it was found:* three tests appended to the end of `menu-editing.spec.ts`,
+the last of which leaves the burrito at $12.50. Four `menu.spec.ts` assertions
+failed at once, in a change that had touched neither the menu screen nor the
+composer.
+
+*Fix:* `test.beforeEach(reseed)` in `menu.spec.ts`.
+
+*The lesson:* a suite that passes because of the order its files happen to run
+in is a suite with a hidden dependency, and the failure it eventually produces
+points at the wrong change. What made it invisible is that the incidental clean
+state was produced by a `beforeEach` — the right mechanism, in the wrong file.
+The general rule: every spec that asserts seeded data must reseed, whether or
+not it writes any.
+
 **C-023 — a `'use server'` file may only export async functions.** The settings
 actions exported `DAY_NAMES`, a plain const array, alongside them. `tsc`,
 ESLint and the whole unit suite were green; `next build` failed with *A "use
@@ -509,5 +531,5 @@ opinion early, while the diff that caused it is still one file.
 | Menu fixture | 25 items, 8 modifier groups, 5 categories |
 | The seeded rush | 30 orders / 20 simulated minutes / 5 ugly cases / 0 stuck, lost or duplicated |
 | Documentation | ~2,520 lines across the PRD, PROGRESS, RELEASE_NOTES, backlog and this file |
-| Defects recorded | 9, each with how it was found and what would catch it earlier |
+| Defects recorded | 10, each with how it was found and what would catch it earlier |
 | Build window | 2026-08-25, start to finish |

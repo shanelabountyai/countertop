@@ -1547,3 +1547,67 @@ C-024 committed and pushed at 48ca554
   it and none of the rest.
 
 C-025 committed and pushed at cee5fde
+
+## C-026 — The confirm is checked against the number it showed
+
+**Built:**
+- `saveItemPrice`, `saveOptionPrice` and `saveGroup` take the values their
+  confirm panel DISPLAYED and refuse if the database has moved since.
+- `rejected(why?)` now carries a specific message; the editor's error banner
+  renders it instead of the generic line when there is one.
+- 3 e2e tests, each driving a second page — a real other manager, not a
+  simulated one.
+
+**Decided:**
+- **The confirm panel was UX; now it is checked.** C-015 built the panel and
+  made it re-read the current value on every render, which closes the big
+  window: a screen left open through someone else's edit already shows the
+  truth. What it could not cover is the window between that render and the tap,
+  and this is a screen whose entire purpose is "here is the number you are
+  replacing". Applying the change against a different number is the one failure
+  it must not have. Exactly the pattern the idempotency key and the order
+  number already follow: the visible control is the UX, the check is the
+  mechanism.
+- **The bound value is client input, so the check is a comparison against the
+  database.** A server action's bound arguments arrive over the wire like any
+  other; the panel's number is evidence of what the manager saw, never
+  authority about what is true.
+- **The message names both numbers.** "Burrito is $11.50 now, not the $10.95
+  you were shown" — a manager who is told only "not saved" retypes the same
+  edit and wins the race the second time.
+- **A group carries three values, not a version column.** Name, min and max are
+  what the panel displayed, so they are what gets compared. A `version` integer
+  would be the general answer and would need a migration, a bump on every
+  write, and a story for every other writer; three fields need none of that and
+  say what actually changed.
+- **The check is staleness, not paranoia.** An unchanged value still saves —
+  there is a test for it, because a "have things moved?" check that also blocks
+  the ordinary case is a check people route around.
+
+**Found on the way (a latent defect this change exposed):**
+- **`menu.spec.ts` asserted seeded prices without reseeding.** It was the only
+  spec doing so, which made it quietly dependent on the state the previous
+  spec file left behind — and `menu-editing.spec.ts`, which rewrites live menu
+  rows, runs immediately before it. It passed for eleven sessions because that
+  file happened to END on a test whose own `beforeEach` had reseeded. C-026
+  appended three tests after it, the last of which leaves the burrito at
+  $12.50, and four assertions about $10.95 fell over at once.
+  *Fix:* `test.beforeEach(reseed)` in `menu.spec.ts`. An assertion about $10.95
+  has to be an assertion about the SEED, not about test ordering — and the
+  failure only looked like it belonged to C-026.
+
+**Left behind:**
+- **`smoke.spec.ts` still has no reseed**, correctly: it asserts a landing page
+  that reads no seeded data.
+- **The 86 toggles are still last-write-wins,** deliberately. Availability is a
+  boolean a cook flips at arm's length and the intended state is obvious from
+  the button they tapped; a staleness refusal there would be a dialog between a
+  cook and a race they do not care about.
+- **Delete is not staleness-checked.** Deleting a group someone else just
+  renamed deletes it anyway. The confirm names the items it affects and those
+  are read fresh; the group's own name moving does not change what deleting it
+  does.
+- **Still no version column, so two edits to DIFFERENT fields of one group
+  conflict.** Renaming Salsa while someone else widens its max refuses, though
+  both could have applied. Rarer than the case it catches, and the safe
+  direction.

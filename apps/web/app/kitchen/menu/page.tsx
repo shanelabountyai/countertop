@@ -93,8 +93,8 @@ export default async function MenuEditorPage({
         title={`Change the price of ${target.name}?`}
         action={
           kind === 'item'
-            ? saveItemPrice.bind(null, target.id, params.price ?? '')
-            : saveOptionPrice.bind(null, target.id, params.price ?? '')
+            ? saveItemPrice.bind(null, target.id, params.price ?? '', fromCents)
+            : saveOptionPrice.bind(null, target.id, params.price ?? '', fromCents)
         }
         submitLabel={`Save new price for ${target.name}`}
       >
@@ -147,7 +147,11 @@ export default async function MenuEditorPage({
         action={
           deleting
             ? deleteGroup.bind(null, group.id)
-            : saveGroup.bind(null, group.id, name, params.min ?? '', params.max ?? '')
+            : saveGroup.bind(null, group.id, name, params.min ?? '', params.max ?? '', {
+                name: group.name,
+                min: group.min,
+                max: group.max,
+              })
         }
         submitLabel={deleting ? `Delete ${group.name} and remove it from the menu` : `Save changes to ${group.name}`}
         destructive={deleting}
@@ -216,8 +220,14 @@ export default async function MenuEditorPage({
         </p>
       )}
       {params.error && (
-        <p role="alert" className="mt-4 rounded-lg border-2 border-red-600 bg-red-50 p-3 text-lg font-semibold">
-          That change was not saved. Check the value and try again.
+        <p
+          role="alert"
+          data-testid="menu-error"
+          className="mt-4 rounded-lg border-2 border-red-600 bg-red-50 p-3 text-lg font-semibold"
+        >
+          {params.error === '1'
+            ? 'That change was not saved. Check the value and try again.'
+            : params.error}
         </p>
       )}
 

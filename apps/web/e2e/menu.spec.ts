@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { reseed } from './fixtures';
 
 // C-007: the customer menu and the item composer (P0-1, P0-2 display side).
 //
@@ -10,6 +11,16 @@ import { expect, test, type Page } from '@playwright/test';
 //   Burrito 1095 + chicken 0 + guacamole 250 + cheese "extra" (50 + 75) = 1470
 //   NO onions adds nothing — a negation is free by construction
 //   tax 8.25% of 1470 = 121.275 → 121;  total 1591
+
+// This file asserts SEEDED prices and was the only one that did so without
+// reseeding — so it silently depended on whatever the previous spec file left
+// behind. `menu-editing.spec.ts` runs immediately before it and rewrites live
+// menu rows; it happened to end on a test that reseeded, until C-026 added
+// three that do not. An assertion about $10.95 has to be an assertion about
+// the seed, not about test ordering.
+test.beforeEach(() => {
+  reseed();
+});
 
 const total = (page: Page) => page.getByTestId('line-total');
 

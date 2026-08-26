@@ -189,3 +189,60 @@ test('the confirm panel itself is accessible', async ({ page }) => {
     .analyze();
   expect(results.violations).toEqual([]);
 });
+
+// C-026: the confirm panel showed a number. Saving is checked against it.
+//
+// The panel already re-reads the current value on every render (C-015), so a
+// screen left open through someone else's edit shows the truth. What these
+// cover is the window between that render and the tap — which is the one
+// window a screen whose entire purpose is "here is the number you are
+// replacing" must not apply a change across.
+test('a price that moved between the confirm and the tap is refused, by value', async ({
+  page,
+  context,
+}) => {
+  await retype(page, 'Burrito', '109.50');
+  await expect(page.getByText('Was $10.95, will be $109.50.')).toBeVisible();
+
+  // Someone else, on the prep table's other phone.
+  const other = await context.newPage();
+  await other.goto('/kitchen/menu');
+  await other.getByRole('textbox', { name: 'Price for Burrito', exact: true }).fill('11.50');
+  await other.getByRole('button', { name: 'Review price for Burrito', exact: true }).click();
+  await other.getByRole('button', { name: 'Save new price for Burrito', exact: true }).click();
+  await expect(other.getByRole('status')).toContainText('$11.50');
+  await other.close();
+
+  // The first manager's confirm is now about a price that no longer exists.
+  await page.getByRole('button', { name: 'Save new price for Burrito', exact: true }).click();
+  await expect(page.getByTestId('menu-error')).toContainText('$11.50 now');
+  await expect(page.getByTestId('menu-error')).toContainText('not the $10.95 you were shown');
+
+  // And nothing was written: the other manager's price stands.
+  await page.goto('/menu');
+  await expect(page.getByRole('link', { name: /Burrito \$11\.50/ })).toBeVisible();
+});
+
+test('a group whose bounds moved under the confirm is refused', async ({ page, context }) => {
+  await page.goto('/kitchen/menu');
+  await page.getByRole('spinbutton', { name: 'Choose at least, Salsa' }).fill('1');
+  await page.getByRole('button', { name: 'Review changes to Salsa', exact: true }).click();
+  await expect(page.getByText('Shared — affects 2 items:')).toBeVisible();
+
+  const other = await context.newPage();
+  await other.goto('/kitchen/menu');
+  await other.getByRole('spinbutton', { name: 'Choose at most, Salsa' }).fill('2');
+  await other.getByRole('button', { name: 'Review changes to Salsa', exact: true }).click();
+  await other.getByRole('button', { name: 'Save changes to Salsa' }).click();
+  await expect(other.getByRole('status')).toContainText('Salsa updated');
+  await other.close();
+
+  await page.getByRole('button', { name: 'Save changes to Salsa' }).click();
+  await expect(page.getByTestId('menu-error')).toContainText('choose 0 to 2');
+});
+
+test('an unchanged value still saves — the check is staleness, not paranoia', async ({ page }) => {
+  await retype(page, 'Burrito', '12.50');
+  await page.getByRole('button', { name: 'Save new price for Burrito', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Burrito is now priced at $12.50');
+});

@@ -694,3 +694,19 @@ Two things are shown and deliberately cannot be edited: the timezone and the
 tax rate. Changing either reaches backwards into every report already run and
 every order number already issued. The screen says so instead of pretending
 they are not there.
+
+## The number you were shown is the number that gets replaced
+
+Changing a price shows you the old one beside the new one before anything is
+saved — that guard has been there since the menu editor shipped, and it is what
+catches $10.95 typed as $109.50.
+
+It is now checked, not just displayed. If someone else changes that price
+between the moment your confirm screen was drawn and the moment you tap Save,
+the save is refused and told you why: "Burrito is $11.50 now, not the $10.95
+you were shown." Nothing is written, and the other person's price stands until
+you have looked at it.
+
+The same goes for a modifier group's rules. Two people editing "Salsa" from two
+phones on the same prep table is a normal Tuesday, and the one who tapped
+second should find out rather than quietly win.
