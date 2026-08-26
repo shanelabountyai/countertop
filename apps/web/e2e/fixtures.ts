@@ -48,11 +48,21 @@ export function reseed(): void {
  * which is what makes that safe (C-026).
  */
 export function seedMidServiceRush(): void {
+  runSeedScript('db:rush:test');
+}
+
+/** The whole rush, worked to the end: 28 picked up, 1 cancelled, 1 no-show.
+ *  What the sales report looks like with a day's service behind it. */
+export function seedFinishedRush(): void {
+  runSeedScript('db:rush:test:full');
+}
+
+function runSeedScript(script: string): void {
   try {
-    execSync('npm run db:rush:test', { cwd: '../..', stdio: ['ignore', 'ignore', 'pipe'] });
+    execSync(`npm run ${script}`, { cwd: '../..', stdio: ['ignore', 'ignore', 'pipe'] });
   } catch (error) {
     const stderr = (error as { stderr?: Buffer }).stderr?.toString().trim();
-    throw new Error(`db:rush:test failed${stderr ? `:\n${stderr}` : ' with no output'}`);
+    throw new Error(`${script} failed${stderr ? `:\n${stderr}` : ' with no output'}`);
   }
 }
 

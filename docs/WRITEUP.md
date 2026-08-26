@@ -51,6 +51,67 @@ cart, a wrong advance and its undo, a no-show aging out, a deliberate
 double-submit, and orders bouncing off the pause gate. It is the capstone demo
 and a test in the same file.
 
+## The Screens
+
+Every image below is a real screenshot of the running application, captured by
+Playwright against the seeded database — `SCREENSHOTS=1 npm run test:e2e --
+screenshots.spec.ts` regenerates them. Nothing here is a mockup, and the
+numbers on them are the numbers the tests assert.
+
+**The kitchen queue, twelve minutes into the seeded rush.** Twenty-two live
+tickets across four states, read on a wall-mounted tablet at arm's length.
+
+![The kitchen queue, mid-rush](screenshots/10-kitchen-viewport.png)
+
+**One ticket, close up — and the reason this product exists.** "NO ONIONS" is a
+red badge; "Guacamole" on the same card is plain text. A removal that renders
+like an addition is the phone-transcription bug Countertop was built to kill,
+and this is the only screen where getting it wrong costs a remake.
+
+![A kitchen card with a negation](screenshots/06-kitchen-card.png)
+
+**The item composer.** Required groups, min/max rules, and intensity levels —
+none / light / regular / extra — with a live price that is explicitly not the
+authority. The server re-prices every line at cart-add and again at placement.
+
+![The item composer](screenshots/02-composer.png)
+
+**The sales report, after a full service.** Twenty-eight orders, $478.55, a
+3.4% no-show rate over the orders the kitchen actually finished — and a
+time-in-state table read off the append-only event log. The 4 h 3 min in
+`Preparing` and 1 h 58 min in `Ready` are the same 243 and 118 minutes the
+seeded rush's tests hand-tally in a comment.
+
+![The sales report after service](screenshots/11-report-after.png)
+
+**The same report, mid-service** — and the reason it is worth showing twice.
+Nothing has been picked up yet, so revenue is $0.00 and the no-show rate reads
+"—" rather than "0%": a rate over zero finished orders is unknown, not zero.
+Twenty-two orders are counted as still open rather than quietly missing from
+the totals.
+
+![The sales report mid-service](screenshots/07-report-midservice.png)
+
+**The price confirm, on a phone.** $10.95 typed as $109.50 is a perfectly valid
+price, so no parser catches it — only showing the manager both numbers does.
+Since C-026 the value it displays is also checked at save time.
+
+![The price confirm on a phone](screenshots/09-price-confirm.png)
+
+**The operator's settings.** Opening hours, the point at which a queue closes
+the door on itself, and the two numbers every estimate is built from.
+
+![The settings screen](screenshots/08-settings.png)
+
+**The customer's side:** the menu, the cart with the negation carried through,
+and the tokenized status page.
+
+![The customer menu](screenshots/01-menu.png)
+
+![The cart](screenshots/03-cart.png)
+
+![The status page](screenshots/04-status.png)
+
 ## How It's Built
 
 Three workspaces, and the split is the whole design.

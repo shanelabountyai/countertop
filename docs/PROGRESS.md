@@ -1791,3 +1791,41 @@ C-029 committed and pushed at ac0fbbe
   with greasy gloves would be better with a picture of it.
 
 C-030 committed and pushed at edd0dc2
+
+## C-031 — Screenshots of the real thing
+
+**Built:**
+- `apps/web/e2e/screenshots.spec.ts` — 11 captures, skipped unless
+  `SCREENSHOTS=1`, written to `docs/screenshots/`.
+- `seedFinishedRush()` and `npm run db:rush:test:full`, so the report can be
+  photographed with a day's service behind it as well as mid-lunch.
+- A **The Screens** section in `docs/WRITEUP.md` with all of them.
+
+**Decided:**
+- **They are e2e specs, not a standalone Playwright script.** `webServer`
+  already knows how to build the app and start it on the right port; a second
+  launcher would be a second thing to keep in step with how this project
+  actually serves itself. The cost is one `test.skip` guard.
+- **Skipped, not excluded.** They appear in `--list`'s total, which is exactly
+  why the house rule reconciles `passed + skipped + flaky` rather than reading
+  the tail. A spec directory nobody counts is a spec directory that rots.
+- **The report is photographed TWICE.** Mid-service it reads $0.00 revenue and
+  a "—" no-show rate over 22 open orders; after service, $478.55 and 3.4%. The
+  first one is the more interesting picture, because it is the screen refusing
+  to print a zero it cannot justify.
+- **The queue gets a full-page AND a viewport capture.** The tall one shows the
+  load; the viewport one shows what a cook sees without scrolling, which is the
+  honest version of "does this work at arm's length".
+- **Nothing is staged.** Every number on every screenshot comes from the seeded
+  rush and is asserted somewhere in the suite — the report's 4 h 3 min in
+  `Preparing` is the same 243 minutes `rush.test.ts` hand-tallies in a comment.
+  A screenshot of a mockup would be a nicer picture and would prove nothing.
+
+**Left behind:**
+- **1.6 MB of PNGs in the repo.** Regenerable, and they will drift the first
+  time a screen changes without someone re-running the command. The honest
+  alternative — generating them in CI — needs CI.
+- **No dark mode, no mobile customer flow.** The phone captures are the two
+  staff screens that are actually used on a phone; the customer's are desktop.
+- **The queue screenshot has one card mid-undo.** That is real — a cook had
+  just advanced it — but it is luck of the timing rather than a staged detail.

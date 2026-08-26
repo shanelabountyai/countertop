@@ -51,6 +51,7 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 - [x] **C-028** — The rush on screen — six e2e tests against a kitchen queue holding 22 live tickets, and a fix for the C-019 demo anchoring an hour back so every card read as overdue.
 - [x] **C-029** — Hours are confirmed before they are saved — a diff of only the days that move, with a separate warning naming every day the save would close.
 - [x] **C-030** — The write-up caught up — refreshed numbers, and a section on where the post-backlog items came from.
+- [x] **C-031** — Screenshots of the real thing — 11 Playwright captures of the running app against the seeded rush, embedded in the write-up. Skipped unless `SCREENSHOTS=1`.
 
 ## Deferred by decision (not backlog)
 
