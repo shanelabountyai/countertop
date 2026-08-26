@@ -72,11 +72,21 @@ jobs:
       # Its own step, before Playwright can bury it (C-024).
       - run: npm run build:test
 
+      # This runner shares a machine with a human. Anything left listening on
+      # its port — a crashed run, a dev server someone started with PORT set,
+      # a process a previous job did not reap — makes Playwright refuse to
+      # start, or worse, adopt it. The port is the runner's alone, so freeing
+      # it by port is precise rather than a blunt pkill.
+      - name: Free port ${{ env.PORT }}
+        run: PIDS=$(lsof -ti :$PORT || true); [ -z "$PIDS" ] || kill -9 $PIDS
+
       - name: e2e (production build)
         run: npm run test:e2e
         env:
           CI: true
 
-      - name: Drop the runner's database
+      - name: Drop the runner's database and free the port
         if: always()
-        run: dropdb --if-exists "$RUNNER_DB"
+        run: |
+          dropdb --if-exists "$RUNNER_DB"
+          PIDS=$(lsof -ti :$PORT || true); [ -z "$PIDS" ] || kill -9 $PIDS
