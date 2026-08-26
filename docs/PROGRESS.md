@@ -1380,3 +1380,5 @@ C-021 committed and pushed at 8bf2c63
 - **No constraint relates a base price to its deltas.** An item at $0 with a
   −$1.50 size option prices to a negative line, which the price engine will
   happily compute. Cross-row again, and no menu has ever been written that way.
+
+C-022 committed and pushed at 65b9216
