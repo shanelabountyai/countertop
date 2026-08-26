@@ -760,3 +760,20 @@ different size of decision from moving a closing time by half an hour.
 
 Submitting the hours that are already saved says "nothing was changed" and
 offers no save button at all.
+
+## The gate moved to where the pushes are
+
+Every push since late August has run a CI job that lasted three seconds and
+failed before it started — an account billing block, not a test. The convention
+says to watch CI go green before calling something done, and for four items
+that sentence had nothing behind it.
+
+Until CI runs again, the gate runs on the push itself: lint, typecheck, unit
+tests, a production build and the end-to-end suite, all of it before the commits
+leave the machine. It is a tracked hook rather than a dependency, and it is
+wired up by `npm install` so a fresh clone cannot silently miss it.
+
+It is a stopgap and the file says so in its first line. A laptop cannot run the
+part of CI that matters most — migrations applied to an empty database from
+scratch, and the unit suite run twice under two hostile timezones expecting
+identical answers.

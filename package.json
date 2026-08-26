@@ -36,7 +36,7 @@
     "db:rush:test:full": "dotenv -e .env.test -- tsx packages/db/rush-demo.ts",
     "db:reset:test": "dropdb --if-exists countertop_test && createdb countertop_test && npm run db:migrate:test",
     "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
-    "postinstall": "npm run db:generate"
+    "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true; npm run db:generate"
   },
   "devDependencies": {
     "@types/pg": "^8.21.0",

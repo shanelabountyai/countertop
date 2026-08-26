@@ -1876,3 +1876,80 @@ C-031 committed and pushed at 604c2c9
   keeps that from reading as a mistake.
 
 C-032 committed and pushed at 33639f8
+
+## C-033 — The gate runs before a push
+
+**Built:**
+- `.githooks/pre-push` — runs `npm run gate` and refuses the push on a non-zero
+  exit. `git push --no-verify` is the deliberate escape hatch, named in the
+  hook's own comment.
+- `git config core.hooksPath .githooks`, wired into `postinstall` so a fresh
+  clone gets it without anyone remembering.
+
+**Decided:**
+- **A tracked `.githooks/` directory, not husky and not `.git/hooks/`.** Husky
+  is a dependency for a three-line shell script. `.git/hooks/` is untracked, so
+  it exists only on the laptop that created it — which is exactly the failure
+  mode this item is about.
+- **The hook is the stopgap, and says so in its first comment.** The gate
+  belongs in CI. Running it on a laptop makes a push slow and makes the machine
+  the authority, which is the thing CI exists to stop being true. The comment
+  tells whoever finds it to delete the hook once CI runs.
+- **CI's failure was never in the code.** Every run since C-029 died in 2–4
+  seconds: *"the job was not started because recent account payments have
+  failed or your spending limit needs to be increased."* Four items — C-029
+  through C-032 — were pushed under a convention that says "watch CI green
+  before saying done," against a CI that never started. The two real fixes are
+  clearing the billing block or making the repo public for free minutes; both
+  are account decisions, not commits.
+
+**Left behind:**
+- **The gate on a laptop is not the gate in CI.** It runs against this machine's
+  Postgres, this machine's timezone, and whatever is already built. CI's
+  migrate-from-scratch, drift check, and the `TZ=Pacific/Kiritimati` × `TZ=UTC`
+  double run are precisely what a local gate cannot reproduce.
+- **A slow pre-push invites `--no-verify`.** The full gate is minutes. The first
+  time it is skipped in a hurry, this item's value goes with it.
+
+## C-034 — The reservations PRD
+
+**Built:**
+- `prd-reservations.md` — "Countertop Reserve," the product Countertop's
+  Non-Goals list names and declines: table reservations with SMS confirm and
+  change. Twelve P0s, eight P1s, success metrics, phasing, build notes, plus
+  two appendices — fourteen verbatim message templates and the inbound keyword
+  grammar as a table.
+
+**Decided:**
+- **A separate product, not a Countertop feature.** Countertop's Non-Goals say
+  reservations are "adjacent business, different feature family." Bolting them
+  on would have made the menu model and the floor plan share a repo for no
+  reason beyond both belonging to a restaurant.
+- **The two learning artifacts are allocation-under-contention and an inbound
+  channel that mutates state.** Tables are not slots: they combine, they have
+  minimums, and a turn is a function of party size. And every prior project's
+  writes came from a browser session the app controlled — here a stranger with
+  a phone can move a state machine, which makes the webhook a trust boundary.
+- **A change is a re-allocation, never an edit.** The tempting shortcut frees
+  the old table before securing the new one, and there is a window where the
+  guest owns nothing. The PRD states the failing case as an acceptance
+  criterion so it cannot be rediscovered at runtime.
+- **`CHANGE` sends a link; only confirm/cancel/stop/help are parsed.** Free-text
+  time parsing ("can we do 8ish sat?") is an NLP project wearing a reservation
+  costume.
+- **Consent, quiet hours and STOP are P0 and not simplifiable.** They are the
+  one part of this product with a regulator attached. STOP is parsed before
+  reservation lookup, and it never cancels the booking — opting out of texts is
+  not opting out of dinner.
+- **Message bodies are snapshotted onto the reservation.** Rendering history by
+  chasing a template FK is the same defect class as joining an order to a live
+  menu row — the rule this project exists to practise, in a second product.
+
+**Left behind:**
+- **No release-notes entry.** It is a specification for a different product; the
+  portfolio-facing notes are Countertop's.
+- **Quiet hours want an operator review.** 21:00 is almost certainly too early
+  for a room that seats until 22:00 — left open in the PRD rather than guessed,
+  the same way Countertop's v2 addendum handled store hours.
+- **No backlog derived from it.** The PRD phases the work; nothing has claimed
+  port 3500 or created a repo.

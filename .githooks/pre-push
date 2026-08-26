@@ -1,0 +1,7 @@
+#!/bin/sh
+# CI is blocked on GitHub Actions billing (every run since C-029 dies in ~3s),
+# so the gate runs here instead. `git push --no-verify` skips it deliberately.
+# Delete this hook once CI actually runs — the gate belongs in CI, not on a laptop.
+set -e
+echo "pre-push: running npm run gate (CI is billing-blocked; --no-verify to skip)"
+npm run gate

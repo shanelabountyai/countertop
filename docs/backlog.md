@@ -53,6 +53,8 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 - [x] **C-030** — The write-up caught up — refreshed numbers, and a section on where the post-backlog items came from.
 - [x] **C-031** — Screenshots of the real thing — 11 Playwright captures of the running app against the seeded rush, embedded in the write-up. Skipped unless `SCREENSHOTS=1`.
 - [x] **C-032** — The portfolio page — `docs/portfolio/` and a private Claude artifact, built from the C-031 screenshots.
+- [ ] **C-033** — The gate runs before a push — `.githooks/pre-push` runs `npm run gate`, wired by `postinstall`. CI has been billing-blocked since C-029, so four items shipped unverified by anything but a local run someone remembered to do.
+- [ ] **C-034** — Reservations PRD — `prd-reservations.md`, the adjacent product Countertop's Non-Goals names: table allocation under contention, and SMS confirm/change as the primary guest interface.
 
 ## Deferred by decision (not backlog)
 
