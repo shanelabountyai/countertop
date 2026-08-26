@@ -1756,3 +1756,5 @@ C-028 committed and pushed at 70e91f5
   "11:00–21:00" is equality by text; it happens to be exact here because both
   sides are formatted by the same function, but it is not a comparison of
   minutes.
+
+C-029 committed and pushed at ac0fbbe
