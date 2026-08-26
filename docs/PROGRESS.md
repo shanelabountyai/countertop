@@ -1707,3 +1707,5 @@ C-027 committed and pushed at a6c32fc
 - **Nothing asserts the chime.** The new-order alert has its own tests in
   `kitchen.spec.ts`; a rush arriving mid-service should fire it, and this spec
   loads a queue where the alerting orders are already there.
+
+C-028 committed and pushed at 70e91f5
