@@ -517,6 +517,25 @@ close a verification gap and were themselves verified by exactly the mechanism
 that has the gap. The pre-push hook ran, went green, and the push landed a
 broken workflow.
 
+Its second run got further and failed on something older than the runner. The
+workflow gives the runner port 3450, because it shares a machine with a dev
+server and the port table exists precisely so two things never listen on one
+port. Playwright waited five minutes at `http://localhost:3450` and timed out —
+while the server sat happily on 3400, because `apps/web/package.json` read
+`next start -p 3400`. The port was hardcoded in the one script that had to
+honour it.
+
+The project convention says the port is "a config default, and `PORT` is still
+overridable." It was not overridable; it was frozen. Nothing had ever noticed,
+because every caller — the gate, the hook, every local sweep — wanted 3400 and
+got 3400. The first caller that wanted a different port was the first one on
+this machine that could not have 3400, and the failure it produced was a
+five-minute timeout with a healthy server running the whole time.
+
+`next start -p ${PORT:-3400}` in both `dev` and `start`: the default survives,
+and the override now does something. Two defects on a runner's first two runs,
+both of them things a laptop had structurally agreed not to see.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required
