@@ -1545,3 +1545,5 @@ C-024 committed and pushed at 48ca554
   comment at the top of `fixtures.ts` explaining which four defects it exists
   to prevent. A lint rule banning `execSync` in a spec would cover a third of
   it and none of the rest.
+
+C-025 committed and pushed at cee5fde
