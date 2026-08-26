@@ -959,3 +959,5 @@ C-014 committed and pushed at 40c835d
   new total before placing. Nobody is charged a price they did not see.
 - **No staff authentication**, same standing scope line as the rest of
   `/kitchen`. Anyone who knows the path can reprice the menu.
+
+C-015 committed and pushed at 70f7f83
