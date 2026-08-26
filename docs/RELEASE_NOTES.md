@@ -671,3 +671,26 @@ what is doing the writing.
 One thing is deliberately still allowed: an option that costs less than
 nothing. "Small −$1.50" is an ordinary menu decision, not a mistake, and there
 is a test that says so.
+
+## Running the restaurant without a database client
+
+Opening hours, the point at which a queue gets too long and the door closes on
+its own, how long before closing time the last online order is taken, and the
+two numbers every "ready in about…" estimate is built from — all of these were
+real settings the software already obeyed, and none of them could be changed
+without writing SQL.
+
+They now have a screen. A day is open or it is not; a day nobody ticks is a
+closed day. There is a one-tap "close for today" for the mornings when the
+answer is no, and it works out which day today is from the restaurant's own
+clock rather than from the browser's, so it cannot close the wrong one from an
+airport.
+
+The screen refuses bad values by name — "Wednesday closes at 11:00, which is
+not after it opens at 18:00" — and the database refuses them again underneath,
+because the message and the rule are two different jobs.
+
+Two things are shown and deliberately cannot be edited: the timezone and the
+tax rate. Changing either reaches backwards into every report already run and
+every order number already issued. The screen says so instead of pretending
+they are not there.

@@ -29,6 +29,24 @@
  * settings row must fail loudly at the first placement, not silently reset the
  * order numbers — or unlock the doors — at the wrong hour for a week.
  */
+/**
+ * Weekday names, indexed the way `RestaurantClock.weekday` is: 0 = Sunday.
+ *
+ * Here rather than beside either of its readers, because both the gate's "we
+ * open on Thursday" message and the settings screen's list of days have to
+ * agree with `weekday` — and with each other. Two arrays indexed by the same
+ * number is one array too many.
+ */
+export const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
+
 export type RestaurantClock = {
   /** "YYYY-MM-DD" in the restaurant's calendar. */
   day: string;

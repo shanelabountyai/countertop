@@ -329,6 +329,25 @@ cart cookie, one file over. The fix is to assert the outcome the write produces
 than the one it replaced anyway: it proves the save happened rather than
 inferring it from a later screen.
 
+**C-023 — a `'use server'` file may only export async functions.** The settings
+actions exported `DAY_NAMES`, a plain const array, alongside them. `tsc`,
+ESLint and the whole unit suite were green; `next build` failed with *A "use
+server" file can only export async functions, found object*.
+
+*How it was found:* the e2e sweep, where a build failure surfaces as the web
+server refusing to start.
+
+*Fix:* the names moved to `packages/core`, which is where they belonged anyway
+— the checkout gate already had a private copy of the same seven strings
+indexed by the same weekday number, so the constraint pushed a duplicate out of
+existence.
+
+*Why it is the same lesson as C-007:* a build is a distinct kind of check from
+a type-check, and this repo still runs it only inside the e2e leg. Both times,
+the code was merged-quality by every signal available before the bundler was
+asked. The cheap fix remains an explicit build step in the gate rather than one
+buried three minutes into a Playwright run.
+
 **C-019 — closing a page aborts its own write, the same as navigating away.**
 The status spec cancels an order from the kitchen queue in a second tab, closes
 that tab, and loads the customer's status page expecting to see `cancelled`. It
@@ -490,5 +509,5 @@ opinion early, while the diff that caused it is still one file.
 | Menu fixture | 25 items, 8 modifier groups, 5 categories |
 | The seeded rush | 30 orders / 20 simulated minutes / 5 ugly cases / 0 stuck, lost or duplicated |
 | Documentation | ~2,520 lines across the PRD, PROGRESS, RELEASE_NOTES, backlog and this file |
-| Defects recorded | 8, each with how it was found and what would catch it earlier |
+| Defects recorded | 9, each with how it was found and what would catch it earlier |
 | Build window | 2026-08-25, start to finish |

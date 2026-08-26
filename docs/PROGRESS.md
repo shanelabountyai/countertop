@@ -1382,3 +1382,76 @@ C-021 committed and pushed at 8bf2c63
   happily compute. Cross-row again, and no menu has ever been written that way.
 
 C-022 committed and pushed at 65b9216
+
+## C-023 — The operator's settings screen
+
+**Built:**
+- `apps/web/app/kitchen/settings/page.tsx` — the week's opening hours, a
+  one-tap "close for today", the auto-pause threshold, the pre-close cutoff and
+  the two ready-time numbers. Linked from the kitchen queue.
+- `apps/web/app/kitchen/settings/actions.ts` — `saveHours`, `saveService`,
+  `setClosedToday`. Plain `<form action={…}>` posts, no client component.
+- `packages/core/orders/business-day.ts` — `WEEKDAY_NAMES`, now shared with the
+  gate's "we open on Thursday" message.
+- 6 e2e tests, axe included.
+
+**Decided:**
+- **Every rule here is ALSO a CHECK constraint, on purpose.** The constraint is
+  what makes the rule true (C-011, C-013, C-022); this is what makes it
+  readable. A manager who types 900 into "minutes per order" is told the
+  ceiling is 60, not handed a Postgres error string. The ranges are repeated
+  rather than imported because a CHECK is SQL and cannot export anything — each
+  one carries a comment naming its migration.
+- **The week saves as a week, in one transaction.** `deleteMany` then
+  `createMany`. A partial write would leave the restaurant open on days the
+  manager just closed, and a day with no row IS a closed day, so the failure
+  mode of a half-save is the worst possible one.
+- **Closing at 00:00 means midnight at the END of the day.** `<input
+  type="time">` cannot express 24:00, and the constraint that a close must be
+  after its open makes the reading unambiguous — nothing can close at the start
+  of its own day. Stored as 1440, shown as "00:00", and the screen says so.
+- **"Close for today" computes the date from the RESTAURANT's clock.** Never
+  from the form: a manager on holiday in another timezone would otherwise close
+  the wrong day, and "today" is the only date that control can mean.
+- **Timezone and tax rate are shown and not editable.** Changing the timezone
+  moves the business day order numbers reset on and re-buckets every past
+  report; changing the tax rate is a decision with a paper trail. Both are
+  migration-shaped, not form fields. The screen says why rather than hiding
+  them.
+- **Refusals name the day and both times.** "Wednesday closes at 11:00, which
+  is not after it opens at 18:00" — a generic "invalid hours" makes a manager
+  check all seven rows.
+- **The tests assert the CUSTOMER's gate, not the settings screen.** Closing
+  today is proved by the checkout saying "We are closed today."; the prep
+  numbers by the quoted estimate moving to 40 minutes. A form that saves a
+  value it does not reach anything with is a form that passes its own test.
+
+**Found on the way:**
+- **A `'use server'` file may only export async functions.** `DAY_NAMES` — a
+  plain const array — compiled, type-checked and lint-passed, and failed at
+  BUILD time with "found object". This is the same class as C-007's `.js`
+  specifiers: a build is a distinct kind of check, and this repo runs it only
+  inside the e2e leg. *Fix:* the names moved to `packages/core`, which is where
+  they belonged anyway — the gate already had a private copy indexed by the
+  same weekday number.
+- **`getByRole('alert')` is ambiguous in any Next app.** The router renders its
+  own `role="alert"` route announcer on every navigation. *Fix:* a test id
+  beside the role.
+- **I broke this project's own rule about navigating before a write lands.**
+  The estimate spec clicked Add to cart and went straight to `/checkout`,
+  arriving at an empty one. Fourth instance (C-014, C-015, C-019, here) —
+  which is the argument for a shared `addToCart` e2e fixture rather than for
+  remembering harder.
+
+**Left behind:**
+- **One window per day.** `dayOfWeek` is the primary key, so split lunch/dinner
+  service still cannot be expressed — a recorded ceiling since C-011, and this
+  screen inherits it rather than fixing it.
+- **No staff authentication**, the same standing scope line as every other
+  `/kitchen` screen. This one now edits the restaurant's hours, which raises
+  the stakes of that line without changing it.
+- **`closedOnDay` can only be TODAY.** Closing next Tuesday in advance needs a
+  date picker and a list of upcoming closures; the column holds one date.
+- **No confirm step on hours.** The menu editor confirms a price change old →
+  new (C-015); saving hours does not, even though closing a day is at least as
+  consequential as repricing a burrito.

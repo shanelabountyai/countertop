@@ -86,6 +86,9 @@ export default async function KitchenPage({
           <Link href="/kitchen/menu" className="text-sm underline underline-offset-4">
             Edit menu
           </Link>
+          <Link href="/kitchen/settings" className="text-sm underline underline-offset-4">
+            Settings
+          </Link>
           <Link href="/kitchen/report" className="text-sm underline underline-offset-4">
             Sales
           </Link>

@@ -14,7 +14,7 @@
 //
 // Pure: `now` is a parameter, and the wall-clock reading it needs is computed
 // by `restaurantClock` and handed in. Nothing here reads a database or a clock.
-import { formatMinuteOfDay, type RestaurantClock } from './business-day';
+import { formatMinuteOfDay, WEEKDAY_NAMES, type RestaurantClock } from './business-day';
 
 /** Why ordering is off. Ordered by precedence — see `checkoutGate`. */
 export type GateReason =
@@ -179,13 +179,11 @@ export function checkoutGate(state: GateState, clock: RestaurantClock): GateResu
  * same rule the estimate follows (P0-7).
  */
 function nextOpeningMessage(hours: readonly StoreHoursDay[], clock: RestaurantClock): string {
-  const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
   for (let ahead = 1; ahead <= 7; ahead += 1) {
     const weekday = (clock.weekday + ahead) % 7;
     const day = hours.find((candidate) => candidate.dayOfWeek === weekday);
     if (!day) continue;
-    const when = ahead === 1 ? 'tomorrow' : `on ${names[weekday]}`;
+    const when = ahead === 1 ? 'tomorrow' : `on ${WEEKDAY_NAMES[weekday]}`;
     return `We are closed right now. We open ${when} at ${formatMinuteOfDay(day.openMinute)}.`;
   }
 
