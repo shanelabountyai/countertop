@@ -3,6 +3,7 @@ import { SAMPLE_MENU } from '../menu/sample-menu';
 import type { Composition } from '../menu/types';
 import {
   checkClientTotal,
+  parsePriceInput,
   priceLine,
   priceOrder,
   taxOn,
@@ -253,4 +254,36 @@ describe('checkClientTotal — the client total is evidence, never input', () =>
   it('returns null when they agree', () => {
     expect(checkClientTotal(4260, 4260)).toBeNull();
   });
+});
+
+describe('parsePriceInput — the typed price becomes cents, or nothing', () => {
+  // THE FAT-FINGER (P0-13). The $1.50 → $15.00 slip is a legal price, so no
+  // parser can catch it — that is what the confirm-on-save step is for. What
+  // this function must never do is turn a typo into a plausible number.
+  it.each([
+    ['15', 1500],
+    ['15.00', 1500],
+    ['$15', 1500],
+    ['9.5', 950],
+    ['0', 0],
+    ['-1.50', -150],
+    ['−1.50', -150], // U+2212, which is what the menu itself renders
+    ['  2.25  ', 225],
+  ])('reads %j as %i cents', (text, cents) => {
+    expect(parsePriceInput(text)).toBe(cents);
+  });
+
+  // 15.10 * 100 is 1509.9999999999998 in binary floating point. Parsed off the
+  // string it cannot be anything but 1510.
+  it('is exact on the value that floating point gets wrong', () => {
+    expect(parsePriceInput('15.10')).toBe(1510);
+    expect(parsePriceInput('1.005')).toBeNull(); // three decimals is not money
+  });
+
+  it.each(['', ' ', 'abc', '1.5.0', '1,50', '12.345', '1e3', '--1', '10000000'])(
+    'refuses %j rather than returning a number',
+    (text) => {
+      expect(parsePriceInput(text)).toBeNull();
+    },
+  );
 });

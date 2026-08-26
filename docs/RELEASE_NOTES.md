@@ -499,3 +499,35 @@ make.
 **The link is unguessable, and the order number is not the key.** #047 is a
 counter; anyone could count. The status link is 128 bits of randomness, and it
 is kept out of search engines.
+
+---
+
+## Changing a price without breaking a night
+
+The menu gets edited on a phone, one-handed, standing at a prep table between
+rushes. That is the device this screen was built for — not a laptop in an
+office, which is where menu editors are usually designed and nowhere near where
+they are used.
+
+**Nothing saves without showing you the number.** Type a new price, tap review,
+and the screen puts the old price beside the new one in large type: *Was
+$10.95, will be $109.50.* That is the whole guard, and it has to be, because
+$109.50 is a perfectly valid price — no amount of validation can tell it from
+one you meant. What software can do is refuse to publish it silently.
+
+**A shared modifier group tells you what else it touches.** One "Salsa" group
+serves the burrito and the bowl. Making it required takes two seconds and
+changes an item you were not thinking about — so before it applies, the screen
+names every item, in full, not "affects 2 items". Deleting one warns the same
+way, then removes it cleanly from each.
+
+**Orders already placed do not move.** Reprice a burrito to $99 and every
+ticket already on the line keeps the price it was ordered at, on the kitchen
+card and on the customer's status page both. A placed order is a copy, not a
+live lookup — this is the promise the whole system is built around, and the
+menu editor is where it gets tested hardest.
+
+**Built for gloves and thumbs.** Every button and every field clears 48 pixels,
+nothing runs off the side of a 390-pixel screen, and cancel is a link rather
+than a second button — so walking away from a change you did not mean to make
+is never one mis-tap from saving it.

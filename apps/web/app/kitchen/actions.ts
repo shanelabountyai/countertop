@@ -10,6 +10,7 @@ import { CANCEL_REASONS, type CancelReason, type OrderAction } from '@countertop
 import { prisma } from '@countertop/db';
 import { applyOrderAction } from '@countertop/db/transitions';
 import { revalidatePath } from 'next/cache';
+import { revalidateMenuSurfaces } from '@/lib/revalidate-menu';
 
 export type KitchenResult = { ok: true } | { ok: false; message: string };
 
@@ -105,14 +106,4 @@ export async function setOptionAvailable(optionId: unknown, available: unknown):
   if (typeof optionId !== 'string' || typeof available !== 'boolean') return;
   await prisma.modifierOption.updateMany({ where: { id: optionId }, data: { available } });
   revalidateMenuSurfaces();
-}
-
-/** The three customer surfaces an 86 has to reach, plus the board itself. The
- *  fourth surface — a placed order — must NOT change, so it is not here. */
-function revalidateMenuSurfaces(): void {
-  revalidatePath('/kitchen/availability');
-  revalidatePath('/menu');
-  revalidatePath('/menu/[itemId]', 'page');
-  revalidatePath('/cart');
-  revalidatePath('/checkout');
 }

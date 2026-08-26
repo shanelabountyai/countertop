@@ -144,3 +144,24 @@ export function checkClientTotal(
   if (serverTotalCents === clientTotalCents) return null;
   return { serverTotalCents, clientTotalCents };
 }
+
+/**
+ * A typed price ("15", "15.5", "-1.50", "$2.00") → integer cents, or null if
+ * it is not a price at all (P0-13).
+ *
+ * Parsed off the STRING, never through `parseFloat(x) * 100`: 15.10 in binary
+ * floating point is 1509.9999…, so the multiply-then-round route puts a real
+ * menu price a cent low by luck of the value. The regex is also the input
+ * validation — "1.5.0", "abc" and "" are null, not NaN silently becoming 0.
+ *
+ * Negative is legal: a modifier delta may be a discount ("Small −$1.50").
+ * Callers that price an ITEM reject negatives themselves; this function's job
+ * is only to say what the manager typed.
+ */
+export function parsePriceInput(text: string): number | null {
+  const match = /^\s*(-|−)?\s*\$?\s*(\d+)(?:\.(\d{1,2}))?\s*$/.exec(text);
+  if (!match) return null;
+  const cents = Number(match[2]) * 100 + Number((match[3] ?? '').padEnd(2, '0'));
+  if (!Number.isSafeInteger(cents) || cents > 100_000_00) return null;
+  return match[1] ? -cents : cents;
+}

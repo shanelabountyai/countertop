@@ -111,6 +111,11 @@ Recorded as they are made, with the ceiling each one has.
 - **The status link has no expiry and no revocation** (C-014). It is 128 bits of randomness with a unique constraint, printed once on the receipt, and it works forever — a link shared, forwarded or left in a browser history is a permanent read handle on a name, a phone number and an order. P1-5 ("status-link hardening") is deferred by decision, so the only mitigation shipped is `robots: { index: false }`, which stops a crawler filing it but stops nothing else. The order data is not sensitive in the way a payment record is, which is why the deferral is defensible and not why it is safe.
 - **Lose the link and the order is unreachable from the customer side** (C-014). There is no lookup by name, by phone or by order number — deliberately, because all three are guessable and a lookup form keyed on any of them is the enumeration hole the token exists to close. The customer's recovery path is the counter staff, who have the kitchen queue's name-and-number search. A shipped product sends the link to the phone captured at checkout, which is P1-3's outbox.
 
+- **The editor covers editing, not authoring** (C-015). Prices, group names and group min/max can be changed; nothing can be added, removed or reordered except a modifier group, which can be deleted. That is P0-13's scope read literally — the requirement is about editing *safely*, and adding a row has no destructive-edit problem to solve — but it means the menu's shape still comes from the seed, and a restaurant adding a seasonal item does it in SQL. The confirm-and-warn machinery generalises to authoring unchanged; the missing part is the forms, and the ordering (`sortOrder`) which nothing on this screen exposes.
+- **Two managers confirming stale panels: last write wins** (C-015). The confirm panel re-reads the current price on every render, so the old value it shows is genuinely current at render time — but nothing stops a second manager confirming a panel opened before the first one saved. The window is the seconds between tapping review and tapping save, and the loser's change simply disappears with no indication it ever conflicted. A version column on the row and a mismatch check in the action is the fix, and it is the same optimistic-concurrency shape as the placement retry; it is not here because a one-restaurant P0 has one person editing the menu.
+- **A price edit reaches open carts silently** (C-015). Unlike an 86, a reprice puts no flag on a cart already holding the item — it does not need to, because `reviewCart` re-prices every line at checkout and the customer sees the new total on the screen where they place the order. Nobody is charged a price they did not see. What nobody is told is that the number *moved*: a cart built at $10.95 and checked out at $12.50 shows $12.50 with no "this went up" beside it, which is honest arithmetic and slightly dishonest UX. The 86 path has the flag because a sold-out line has to be *fixed*; a repriced one only has to be seen.
+- **The intensity surcharge is not editable** (C-015). `extraPriceDeltaCents` — what "extra chipotle" adds on top of the option's own delta — is set by the seed and reachable from nowhere in the UI. It is a price, so P0-13 arguably covers it, and the same confirm panel would serve it with no new machinery. It is left out because the editor already carries two grains of price (item base, modifier delta) and a third that only appears on intensity-enabled groups is a row most of the screen would render empty.
+
 ## Defects Found
 
 **C-001 — the drift check could never have passed.** CI's schema-drift step runs
@@ -242,3 +247,28 @@ _(Reserved for the end.)_
 ## By the Numbers
 
 _(Reserved for the end.)_
+
+**C-015 — the guard bounded the wrong end of the range.** The group editor
+refused any save where `max > options.length`, reasoning that "choose up to 4"
+of 3 options is a rule nobody can satisfy. It is not: a max above the count is
+slack, and the seeded Fillings group ships exactly that — min 2, max 4, three
+fillings. The bound that *does* make a group unorderable is a MIN above the
+count, which nothing checked. So the screen refused a legal edit and permitted
+the illegal one, and the way it announced itself was the e2e case for the
+NON-shared group, which never got as far as its assertion because tapping
+"Review changes to Fillings" with every field untouched went straight to
+"Nothing was changed". A validation rule that rejects the seed's own data is
+wrong about the domain, not about the data — and a spec that only exercised the
+shared group would have shipped it, because Salsa's 0/3 happens to satisfy both
+the right rule and the wrong one.
+
+**C-015 — a `goto` racing a server action reads the value it just replaced.**
+The negative-delta spec clicked Save and immediately navigated to the composer,
+which faithfully rendered `+$2.50` — the old price — because the navigation
+aborted the in-flight POST. It looks exactly like a revalidation bug, and the
+temptation is to go widen `revalidateMenuSurfaces`. It was neither: nothing had
+been written yet. `status.spec.ts` already carries the same warning about the
+cart cookie, one file over. The fix is to assert the outcome the write produces
+— the "Saved —" status line — before navigating, which is a better assertion
+than the one it replaced anyway: it proves the save happened rather than
+inferring it from a later screen.

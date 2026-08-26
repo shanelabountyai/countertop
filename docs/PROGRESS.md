@@ -880,3 +880,82 @@ C-013 committed and pushed at 17924aa
   a lookup.
 
 C-014 committed and pushed at 40c835d
+
+---
+
+## C-015 — Safe menu editing
+
+**Built:**
+- `apps/web/app/kitchen/menu/page.tsx` — the editor. Item base prices, modifier
+  deltas, and each group's name/min/max, all on one screen, all going through a
+  confirm step before anything is written.
+- `apps/web/app/kitchen/menu/actions.ts` — `saveItemPrice`, `saveOptionPrice`,
+  `saveGroup`, `deleteGroup`. Each re-parses and re-checks its own arguments;
+  the confirm panel is UX, not the guard.
+- `parsePriceInput` in `packages/core/pricing/pricing.ts` — a typed price
+  ("15", "$15", "-1.50", "−1.50") to integer cents, or null.
+- `apps/web/lib/revalidate-menu.ts` — the list of surfaces a live-menu change
+  has to reach, extracted out of `kitchen/actions.ts` so the 86 board and the
+  editor cannot drift apart on it.
+- `apps/web/e2e/menu-editing.spec.ts` — 11 specs, the whole file at a 390×844
+  viewport.
+
+**Decided:**
+- **The confirm step is a URL, not client state.** `?edit=item:burrito&price=…`
+  renders a confirm panel instead of the list. It survives a reload, works
+  before hydration, and re-reads the CURRENT price from the database on every
+  render — so a panel left open through someone else's edit shows the real old
+  value rather than one captured at click time. A `confirm()` dialog would have
+  been one line and none of that.
+- **Old → new, side by side and large, is the entire defence against the
+  fat-finger.** $1.50 → $15.00 is a perfectly valid price; no parser can catch
+  it. `parsePriceInput` exists to stop a typo becoming a plausible NUMBER, not
+  to stop it being the wrong one.
+- **Parsed off the string, never `parseFloat(x) * 100`.** 15.10 in binary
+  floating point is 1509.9999…, so the multiply-then-round route puts a real
+  menu price a cent low by luck of the value. The regex is also the validation:
+  "1.5.0", "1,50" and "" are null, not NaN silently becoming 0.
+- **Negative deltas stay legal; negative item prices do not.** "Small −$1.50"
+  is a discount the menu already ships. An item that pays the customer to order
+  it is a typo every time.
+- **One form, two submit buttons, for the group row.** `<button name="edit"
+  value="delete-group:…">` — the submitting button's own name/value picks which
+  confirm panel opens. Nested forms are illegal HTML and a second form would
+  have needed the fields duplicated.
+- **The affected-items list is derived from `loadMenu`, not a second query.**
+  Items whose `modifierGroupIds` contain the group. A separate "who uses this"
+  query is the thing that drifts from what the composer actually renders.
+- **Always the full list, never a count.** The manager has to recognise the
+  item they had forgotten about; "affects 2 items" is not that. The amber
+  shared-warning styling is what turns on at two or more.
+- **Deleting a group deletes the joins first, in one transaction.**
+  `ItemModifierGroup.group` is `onDelete: Restrict`, so the database refuses to
+  let this happen as a side effect — which is the schema comment from C-003
+  paying off exactly where it said it would.
+- **Cancel is a link, not a second submit button.** Leaving without saving must
+  never be one mis-tap away from saving on a 390px screen.
+- **The whole e2e file runs at 390×844, not one spec.** The between-rush device
+  is a phone; a desktop-viewport suite proves nothing about this screen. The
+  spec asserts zero horizontal overflow, ≥48px on every button and text field,
+  and axe-clean on both the list and the confirm panel.
+
+- **Only the MIN is bounded by the option count.** A min above it makes the
+  item unorderable; a max above it is slack the seeded Fillings group already
+  ships (min 2, max 4, three fillings). The first version of the guard had this
+  exactly backwards — see the write-up.
+
+**Left behind:**
+- **No add, no delete, no reorder for items, categories or options.** P0-13 is
+  about editing SAFELY, and the seed owns the menu's shape. Adding a row has no
+  destructive-edit problem to solve, which is why it is not here.
+- **`extraPriceDeltaCents` is not editable.** The intensity surcharge is a
+  price the editor cannot reach; it comes from the seed. Same confirm panel
+  would serve it.
+- **No optimistic-concurrency check on save.** Two managers confirming stale
+  panels at once: last write wins. The panel re-reads on render, so the window
+  is the seconds between confirm and save, not minutes.
+- **A price edit does not warn about carts already holding the item.** It does
+  not need to — `reviewCart` re-prices at checkout and the customer sees the
+  new total before placing. Nobody is charged a price they did not see.
+- **No staff authentication**, same standing scope line as the rest of
+  `/kitchen`. Anyone who knows the path can reprice the menu.

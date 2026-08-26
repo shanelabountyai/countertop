@@ -138,9 +138,9 @@ Each queue card shows everything the line cook needs without tapping through: or
 - [ ] The seeded rush demo shows alerts firing and being acknowledged — an order arriving silently is a test failure
 
 **P0-13: Safe menu editing** *(new in v2 — OPS: edited on a phone, one-handed, in 90 seconds)*
-- [ ] Price edits confirm-on-save showing old → new (the $1.50 → $15.00 fat-finger is the target defect)
-- [ ] Editing or deleting a modifier group shared across items warns with the list of affected items before applying
-- [ ] Menu editing screens are usable on a phone viewport (the between-rush device is a phone, not a laptop)
+- [x] Price edits confirm-on-save showing old → new (the $1.50 → $15.00 fat-finger is the target defect)
+- [x] Editing or deleting a modifier group shared across items warns with the list of affected items before applying
+- [x] Menu editing screens are usable on a phone viewport (the between-rush device is a phone, not a laptop)
 
 ### Nice-to-Have (P1)
 
