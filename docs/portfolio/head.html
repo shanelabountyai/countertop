@@ -1,0 +1,223 @@
+<title>Countertop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;800&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+  :root {
+    --ground: #f6f8f8;
+    --surface: #ffffff;
+    --band: #eceff0;
+    --ink: #12171a;
+    --muted: #5d686c;
+    --rule: #d6dedf;
+    --accent: #c21f30;
+    --accent-ink: #ffffff;
+    --go: #1d5c3e;
+
+    --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --measure: 34rem;
+    --wide: 60rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0e1214;
+      --surface: #161b1e;
+      --band: #1b2225;
+      --ink: #e8edee;
+      --muted: #94a1a5;
+      --rule: #293336;
+      --accent: #ee5567;
+      --accent-ink: #14090b;
+      --go: #56b98a;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0e1214;
+    --surface: #161b1e;
+    --band: #1b2225;
+    --ink: #e8edee;
+    --muted: #94a1a5;
+    --rule: #293336;
+    --accent: #ee5567;
+    --accent-ink: #14090b;
+    --go: #56b98a;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 1.0625rem;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: var(--wide); margin: 0 auto; padding: 0 1.5rem; }
+  .col { max-width: var(--measure); }
+
+  p { margin: 0 0 1.1rem; }
+  p:last-child { margin-bottom: 0; }
+  strong { font-weight: 600; }
+  a { color: inherit; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 0.85rem;
+  }
+  .eyebrow .tag { color: var(--accent); }
+
+  /* ---- hero ---- */
+  .hero { padding: 5rem 0 3rem; }
+  .badge {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(2.6rem, 11vw, 6rem);
+    line-height: 0.94;
+    letter-spacing: -0.02em;
+    padding: 0.18em 0.3em 0.24em;
+    text-transform: uppercase;
+  }
+  .hero h1 { margin: 0; font-weight: 400; }
+  .hero .deck {
+    font-size: clamp(1.15rem, 2.4vw, 1.4rem);
+    line-height: 1.5;
+    margin-top: 2rem;
+    max-width: 40rem;
+    text-wrap: pretty;
+  }
+  .hero .deck em { font-style: normal; color: var(--muted); }
+
+  /* ---- stat strip ---- */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    margin-top: 3.25rem;
+  }
+  .stat { padding: 1.1rem 1.25rem 1.2rem; border-right: 1px solid var(--rule); }
+  .stat:last-child { border-right: 0; }
+  .stat .n {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 1.6rem;
+    font-weight: 600;
+    display: block;
+    line-height: 1.1;
+  }
+  .stat .l {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: block;
+    margin-top: 0.4rem;
+  }
+  .stat.zero .n { color: var(--go); }
+
+  /* ---- sections ---- */
+  section { padding: 3.75rem 0; border-top: 1px solid var(--rule); }
+  section:first-of-type { border-top: 0; }
+  h2 {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 0 0 1.4rem;
+    text-wrap: balance;
+    max-width: 22ch;
+  }
+  h3 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 1.1rem;
+    letter-spacing: -0.005em;
+    margin: 2.2rem 0 0.6rem;
+  }
+
+  /* ---- figures ---- */
+  figure { margin: 2.5rem 0 0; }
+  .shot {
+    background: var(--band);
+    border: 1px solid var(--rule);
+    padding: 0.75rem;
+  }
+  .shot img { display: block; width: 100%; height: auto; }
+  .shot.tall { max-height: 34rem; overflow-y: auto; }
+  figcaption {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    line-height: 1.6;
+    color: var(--muted);
+    margin-top: 0.7rem;
+    max-width: 48rem;
+  }
+  figcaption b { color: var(--ink); font-weight: 600; }
+  .pair { display: grid; gap: 2rem; grid-template-columns: 1fr; }
+  @media (min-width: 52rem) { .pair { grid-template-columns: 1fr 1fr; } }
+  .pair figure { margin-top: 0; }
+
+  /* ---- ticket list ---- */
+  .tickets { list-style: none; margin: 2rem 0 0; padding: 0; display: grid; gap: 0; }
+  .tickets li {
+    display: grid;
+    grid-template-columns: 3.5rem 1fr;
+    gap: 1rem;
+    padding: 1rem 0;
+    border-top: 1px dashed var(--rule);
+    align-items: baseline;
+  }
+  .tickets li:last-child { border-bottom: 1px dashed var(--rule); }
+  .tickets .no {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .tickets .what { margin: 0; }
+  .tickets .what b { font-weight: 600; }
+
+  /* ---- defect blocks ---- */
+  .defect { border-left: 3px solid var(--accent); padding-left: 1.25rem; margin-top: 2.25rem; }
+  .defect h3 { margin-top: 0; }
+
+  /* ---- table ---- */
+  .tablewrap { overflow-x: auto; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 0.82rem; }
+  th, td { text-align: left; padding: 0.6rem 1rem 0.6rem 0; border-bottom: 1px solid var(--rule); }
+  td:last-child, th:last-child { text-align: right; font-variant-numeric: tabular-nums; padding-right: 0; }
+  th { font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.68rem; color: var(--muted); }
+
+  footer { padding: 3rem 0 5rem; border-top: 1px solid var(--rule); }
+  footer p { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); max-width: 44rem; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .hero .badge { animation: stamp 520ms cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+    @keyframes stamp {
+      from { opacity: 0; transform: scale(1.06) rotate(-0.6deg); }
+      to { opacity: 1; transform: none; }
+    }
+  }
+</style>

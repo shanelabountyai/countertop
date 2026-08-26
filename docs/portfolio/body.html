@@ -1,0 +1,282 @@
+<div class="wrap">
+
+  <header class="hero">
+    <p class="eyebrow">Countertop <span class="tag">·</span> pickup ordering for one restaurant <span class="tag">·</span> build #5</p>
+    <h1><span class="badge">No onions</span></h1>
+    <p class="deck">
+      Two words a phone order gets wrong often enough to build a product around.
+      Countertop is a fast-casual restaurant&rsquo;s own pickup ordering &mdash; a composer where a
+      removal can never be mistaken for an addition, a kitchen queue read at arm&rsquo;s length with
+      greasy gloves, and a seeded rush that goes wrong on purpose so the demo proves something.
+      <em>Built with Claude Code over two days, to professional standards.</em>
+    </p>
+
+    <div class="stats">
+      <div class="stat"><span class="n">31</span><span class="l">requirements shipped</span></div>
+      <div class="stat"><span class="n">370</span><span class="l">unit tests, two timezones</span></div>
+      <div class="stat"><span class="n">86</span><span class="l">end-to-end specs</span></div>
+      <div class="stat"><span class="n">11</span><span class="l">defects written up</span></div>
+      <div class="stat zero"><span class="n">0</span><span class="l">stuck, lost or duplicated</span></div>
+    </div>
+  </header>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow"><span class="tag">P0-11</span> &nbsp;the founding case</p>
+      <h2>A removal that reads like an addition is a remake</h2>
+      <p>
+        Phone orders tie up staff during the rush and get transcribed wrong. The expensive
+        version of wrong is a negation: someone asks for no onions, the ticket says onions,
+        and the burrito comes back. Every design decision in this build points at that one
+        failure.
+      </p>
+      <p>
+        So <strong>&ldquo;no onions&rdquo; is a real selection</strong>, not the absence of one. It is carried
+        through the composer, into the order&rsquo;s snapshot, onto the kitchen card &mdash; and it
+        renders as a red block on a card where the additions are plain text. It is the only
+        screen where getting this wrong costs money, and it is the one place the colour is loud.
+      </p>
+    </div>
+
+    <figure>
+      <div class="shot" style="max-width: 26rem;">
+        <img src="IMG_CARD" alt="A kitchen order card: ticket #001 for Ada Nkemelu, one burrito with chicken and guacamole, and NO ONIONS shown as a red badge.">
+      </div>
+      <figcaption>
+        <b>One ticket, twelve minutes into the rush.</b> &ldquo;Guacamole&rdquo; is plain text; &ldquo;NO ONIONS&rdquo;
+        is a red badge. The advance control is the biggest thing on the card, because it is the
+        one a cook hits without looking.
+      </figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow"><span class="tag">C-017</span> &nbsp;the capstone</p>
+      <h2>A rush that goes wrong on purpose</h2>
+      <p>
+        Thirty orders arrive in twenty minutes and the kitchen works them all the way through.
+        A happy path replayed thirty times only proves the happy path thirty times, so five
+        things go wrong every time it runs:
+      </p>
+      <ul class="tickets">
+        <li><span class="no">86</span><p class="what"><b>The kitchen runs out of guacamole at minute eight.</b> One cart already holds it and is refused at the <i>option</i> grain &mdash; out of avocado is not out of burritos. One order already on the grill is cancelled with the reason attached. The orders already handed over do not move a cent.</p></li>
+        <li><span class="no">undo</span><p class="what"><b>A cook marks the wrong ticket ready.</b> The undo appends a correction rather than erasing one, which is why the report afterwards still knows that ticket was on the grill twice &mdash; five minutes, then three.</p></li>
+        <li><span class="no">no&#8209;show</span><p class="what"><b>Food nobody collects.</b> Thirty-three minutes on the shelf, past all three marks, closed out as a no-show rather than a cancellation. They are different facts and the sales report keeps them apart.</p></li>
+        <li><span class="no">×2</span><p class="what"><b>A customer taps Place order twice.</b> One order exists, and both taps get the same order number back. Idempotency means the same answer, not merely no duplicate.</p></li>
+        <li><span class="no">pause</span><p class="what"><b>The restaurant pauses mid-service.</b> Three arrivals are turned away with a reason rather than dropped. One comes back after it lifts, and their order is a new one, not a replay.</p></li>
+      </ul>
+      <p style="margin-top:1.6rem">
+        Order numbers run 1 to 30 with no gaps and no repeats, including the three submitted in
+        the same instant. Nothing is stuck. And twenty minutes of service replays in
+        <strong>under a second</strong>, because nothing in the ordering engine reads a clock &mdash;
+        every price, every transition, every deadline is told what time it is. That discipline
+        was for correctness; being able to run the rush as a test is the dividend.
+      </p>
+    </div>
+
+    <figure>
+      <div class="shot">
+        <img src="IMG_QUEUE" alt="The kitchen queue mid-rush: a new-order alert bar, then sections for New, Accepted and Preparing, each holding order cards with names, ages and large advance buttons.">
+      </div>
+      <figcaption>
+        <b>The queue, stopped twelve minutes in</b> &mdash; twenty-two live tickets across four
+        states, as it fits on a wall-mounted tablet without scrolling. Nothing is flagged as
+        running late, because nothing is.
+      </figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow"><span class="tag">P1-1</span> &nbsp;numbers that refuse to flatter</p>
+      <h2>The report says what it does not know</h2>
+      <p>
+        The same screen, twice. On the left, mid-service: nothing has been picked up, so revenue
+        is <strong>$0.00</strong> and the no-show rate reads <strong>&ldquo;&mdash;&rdquo;</strong>, not
+        &ldquo;0%&rdquo;. A rate over zero finished orders is unknown, and a screen printing
+        &ldquo;0% no-shows&rdquo; on an empty day is lying &mdash; the kind of lie an owner acts on.
+        The twenty-two orders still on the pass are counted as open rather than quietly missing
+        from the totals.
+      </p>
+      <p>
+        On the right, after service. The time-in-state table is read off the append-only event
+        log, not off the order &mdash; which is how it can count a reverted ticket&rsquo;s two visits
+        to <i>Preparing</i> separately. Its <span style="font-family:var(--mono);font-size:0.9em">4 h 3 min</span>
+        and <span style="font-family:var(--mono);font-size:0.9em">1 h 58 min</span> are the same
+        243 and 118 minutes the rush&rsquo;s tests hand-tally in a comment.
+      </p>
+    </div>
+
+    <div class="pair" style="margin-top:2.5rem">
+      <figure>
+        <div class="shot tall"><img src="IMG_REPORT_MID" alt="The sales report mid-service: orders sold 0, revenue $0.00, no-show rate shown as a dash, 22 still open, and a time-in-state table."></div>
+        <figcaption><b>Mid-service.</b> Nothing sold yet, and it says so four different ways rather than rounding any of them to zero.</figcaption>
+      </figure>
+      <figure>
+        <div class="shot tall"><img src="IMG_REPORT_AFTER" alt="The sales report after service: 28 orders sold, $478.55 revenue, a 3.4% no-show rate, top sellers, modifier attach rates and time in each state."></div>
+        <figcaption><b>After service.</b> 28 sold, $478.55, a 3.4% no-show rate over the orders the kitchen actually finished. A removal is never counted as an attach.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow"><span class="tag">P0-1 / P0-2</span> &nbsp;the composer</p>
+      <h2>The price on the screen is a preview, not a promise</h2>
+      <p>
+        Size is a required single-select modifier group with price deltas &mdash; not a separate
+        &ldquo;variant&rdquo; concept. Required is <span style="font-family:var(--mono);font-size:0.9em">min&nbsp;&gt;&nbsp;0</span>,
+        not a second flag that can contradict it. Intensity is none / light / regular / extra,
+        and only <i>extra</i> can carry a surcharge. Every one of those is one mechanism instead
+        of two, because two ways to say a thing are two ways to disagree.
+      </p>
+      <p>
+        The live total is display-only. The server re-prices every line when it enters the cart
+        and again at placement; a client-supplied total is input to a mismatch log, never to the
+        database.
+      </p>
+    </div>
+    <figure>
+      <div class="shot tall" style="max-width:38rem">
+        <img src="IMG_COMPOSER" alt="The item composer for a burrito: required protein group, add-ons, salsa and toppings with none/light/regular/extra pills, and a running line total.">
+      </div>
+      <figcaption><b>Composing a burrito.</b> Carnitas, guacamole, extra cheese, no onions &mdash; $16.20, recomputed on the server the moment it is added.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow"><span class="tag">P0-13 / C-023</span> &nbsp;the person running it</p>
+      <h2>Guards where a valid number is the wrong number</h2>
+      <p>
+        $10.95 typed as $109.50 is a perfectly valid price, so no parser catches it. The only
+        defence is showing the manager both numbers before publishing one &mdash; and then
+        <strong>checking that the old one is still true when they tap Save</strong>. Two phones on
+        one prep table is a normal Tuesday; the one who taps second finds out rather than quietly
+        winning.
+      </p>
+      <p>
+        The same reasoning gave the opening hours a confirm step, listing only the days that
+        move and warning separately about any the save would close. Timezone and tax rate are
+        shown and deliberately not editable: changing either reaches backwards into every report
+        already run and every order number already issued.
+      </p>
+    </div>
+    <div class="pair" style="margin-top:2.5rem">
+      <figure>
+        <div class="shot"><img src="IMG_CONFIRM" alt="A price confirmation on a phone: Change the price of Burrito? $10.95 struck through, arrow, $109.50, with Save and Cancel."></div>
+        <figcaption><b>The fat-finger guard,</b> on the phone it actually gets used on.</figcaption>
+      </figure>
+      <figure>
+        <div class="shot tall"><img src="IMG_SETTINGS" alt="The settings screen: close for today, opening hours for each weekday, and service numbers for the pause threshold, cutoff and prep times."></div>
+        <figcaption><b>Settings.</b> Every rule here is also a database constraint &mdash; the screen explains, the constraint enforces.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow"><span class="tag">defects</span> &nbsp;eleven, each with how it was found</p>
+      <h2>The two worth reading</h2>
+
+      <div class="defect">
+        <h3>The code that was never built</h3>
+        <p>
+          Every relative import inside the domain packages carried an explicit
+          <span style="font-family:var(--mono);font-size:0.9em">.js</span> extension &mdash; the shape Node&rsquo;s
+          resolver wants, and TypeScript maps it back onto the <span style="font-family:var(--mono);font-size:0.9em">.ts</span>
+          file beside it. Turbopack does not. The build failed with twenty-five copies of
+          <i>Module not found</i>.
+        </p>
+        <p>
+          What made it hard was that the repo had been green for three sessions while this was
+          true. Type-check: green. Lint: green. Every unit test importing those same modules
+          through those same specifiers: green. None of them is a bundler. One server action had
+          existed for two sessions and had <strong>never once been compiled</strong>, because a
+          server action no rendered page imports is in no bundle. It surfaced three minutes into
+          an end-to-end run, as a message naming a port.
+        </p>
+        <p>
+          The fix was a one-line-per-file deletion. The lesson took two occurrences: a build is a
+          different kind of check from a type-check, and it now has its own gate step.
+        </p>
+      </div>
+
+      <div class="defect">
+        <h3>A demo where every alarm was always on</h3>
+        <p>
+          Stopping the seeded rush mid-service so the queue has live cards on it &mdash; a feature
+          added deliberately &mdash; anchored the run a flat hour in the past. So a rush stopped
+          twelve minutes in put the stop forty-eight minutes ago: every card past the
+          fifteen-minute overdue mark, every aging flag lit. A lunch rush rendered as a disaster.
+        </p>
+        <p>
+          Nothing failed. The demo did exactly what it was told. It just showed a queue nobody
+          would believe, and it passed every check because there was no check. An aging flag
+          that is always on is worse than no aging flag &mdash; and the only thing that catches
+          <i>technically correct, obviously wrong</i> is looking at it.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow"><span class="tag">C-018 &rarr; C-031</span> &nbsp;after the backlog ended</p>
+      <h2>A backlog that wrote itself</h2>
+      <p>
+        The plan ended at seventeen requirements and the project was complete against it. Fourteen
+        more items followed, and all of them came from one place: the <strong>&ldquo;Left
+        behind&rdquo;</strong> section every progress entry is required to carry &mdash; what was
+        deliberately not done, recorded at the moment it was decided.
+      </p>
+      <p>
+        That turns out to be a better backlog than one written in advance, because every entry
+        already knows why it was deferred. Half became features that had been database columns
+        with no screen. The other half was the project auditing itself: constraints for rules only
+        application code enforced, a gate step for the check that had escaped twice, shared test
+        fixtures for a defect class that had recurred four times.
+      </p>
+      <p>
+        Four of the eleven recorded defects were found in those fourteen items &mdash; and three of
+        the four were in code the earlier items had shipped green.
+      </p>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th scope="col">By the numbers</th><th scope="col">&nbsp;</th></tr></thead>
+          <tbody>
+            <tr><td>Requirements shipped</td><td>31</td></tr>
+            <tr><td>TypeScript / TSX</td><td>14,700 lines</td></tr>
+            <tr><td>&hellip;of which tests</td><td>40%</td></tr>
+            <tr><td>Domain engine, zero I/O and zero clock reads</td><td>2,754 lines</td></tr>
+            <tr><td>Unit tests, run under two hostile timezones</td><td>370</td></tr>
+            <tr><td>End-to-end specs, against a production build</td><td>86</td></tr>
+            <tr><td>Accessibility checks</td><td>every screen</td></tr>
+            <tr><td>Hand-written migrations</td><td>4</td></tr>
+            <tr><td>CHECK constraints and append-only triggers</td><td>11 + 1</td></tr>
+            <tr><td>Seeded rush</td><td>30 orders / 20 min / 5 ugly cases</td></tr>
+            <tr><td>Orders stuck, lost or duplicated</td><td>0</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>
+      Next.js (App Router) &middot; TypeScript &middot; Postgres with hand-written migrations &middot;
+      Tailwind &middot; Vitest and Playwright with axe. Money is integer cents everywhere. A placed
+      order is an immutable copy of what it was composed from, never a foreign key chased back to
+      a live menu row &mdash; there is a regression test that renames, reprices, 86s and deletes
+      every menu row an order referenced, then asserts the receipt is byte-identical.
+    </p>
+    <p style="margin-top:1rem">
+      Every screenshot on this page is the running application against its seeded database,
+      captured by Playwright. Nothing is a mockup, and every number on them is asserted somewhere
+      in the suite.
+    </p>
+  </footer>
+
+</div>

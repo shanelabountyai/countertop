@@ -1831,3 +1831,46 @@ C-030 committed and pushed at edd0dc2
   just advanced it — but it is luck of the timing rather than a staged detail.
 
 C-031 committed and pushed at 604c2c9
+
+## C-032 — The portfolio page
+
+**Built:**
+- `docs/portfolio/` — `head.html` (design tokens and type), `body.html` (the
+  words, with named image slots) and `build.mjs`, which inlines the
+  screenshots as data URIs. The built page is ~1.1 MB and gitignored.
+- Published as a private Claude artifact:
+  https://claude.ai/code/artifact/40b1ec20-d478-4b63-8db2-08d660788255
+
+**Decided:**
+- **The page opens on the bug, not the product.** A red NO ONIONS badge at
+  display scale, reproducing the app's own kitchen-card treatment. The page's
+  accent is literally the colour the product uses to prevent the failure the
+  product exists to prevent — which is a better reason for a palette than
+  liking the colour.
+- **Steel neutrals, not warm cream.** The obvious "restaurant" palette is cream
+  and terracotta with a serif display face, which is both a cliché and what
+  every generated page looks like. A stainless pass under service light is the
+  material this product is actually used on.
+- **Section eyebrows are the project's real requirement ids** — `P0-11`,
+  `C-017`, `P1-1`. Decorative `01 / 02 / 03` markers imply a sequence; these
+  encode something true and are greppable in the repo.
+- **Three fragments and a build script, not one HTML file.** The head carries
+  tokens and nothing else, the body carries the words, and images are wired in
+  by NAME — so a renamed screenshot fails loudly in the build rather than
+  rendering a broken image on a portfolio page.
+- **The built file is not committed.** 1.1 MB of base64 that is entirely
+  derived from two fragments and eleven PNGs already in the repo.
+- **Both themes designed, not inverted.** Tokens at `:root`, redefined under
+  `prefers-color-scheme` and again under an explicit `data-theme`, so all three
+  viewer states resolve as a set. Verified by rendering the page locally in
+  both before publishing.
+
+**Left behind:**
+- **The artifact link is private and not in the README.** Anyone cloning the
+  repo would get a dead link; the page is shared deliberately or not at all.
+- **The page's numbers are hand-copied from the write-up.** They will drift the
+  next time anything ships, and the honest fix is to stop editing the numbers
+  in two places rather than to generate them.
+- **Screenshots are light-mode UI on a dark page in dark theme.** The
+  application has no dark mode; the steel frame around each figure is what
+  keeps that from reading as a mistake.
