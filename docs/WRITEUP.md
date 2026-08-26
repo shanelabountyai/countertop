@@ -492,6 +492,31 @@ were doing their job; an integration test written *first* would have been the
 only thing failing, and it would have been the worst possible place to debug
 any of it.
 
+### The first clean checkout found the bug the laptop could not (C-036)
+
+CI has never run on this project — every GitHub Actions run since C-029 dies in
+three seconds on an account billing block. C-035 rebuilt the CI-only checks as
+a local script, and C-036 put a self-hosted runner on the same Mac so that a
+push triggers something.
+
+Its first run failed, in a way no local run ever could. The workflow wrote the
+runner's env files, ran the from-scratch database script, and the unit suite
+inside it died on `PrismaClientInitializationError` — eighteen `packages/db`
+tests, all of them connecting to a database that did not exist yet. The step
+that creates the runner's database was ordered *after* the step whose tests
+connect to it.
+
+On a laptop that ordering is invisible and always will be: `countertop_test`
+was created weeks ago and is still there, so the step that "creates" it is a
+no-op that happens to be in the wrong place. It fails only where nothing exists
+until something makes it — which is the one thing a clean checkout buys, and it
+bought it on the first run.
+
+*The uncomfortable part:* the two prior items, C-033 and C-035, were built to
+close a verification gap and were themselves verified by exactly the mechanism
+that has the gap. The pre-push hook ran, went green, and the push landed a
+broken workflow.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

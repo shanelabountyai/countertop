@@ -51,6 +51,16 @@ jobs:
           printf 'DATABASE_URL=%s\nDIRECT_URL=%s\n' "$URL" "$URL" > .env.test
           printf 'DATABASE_URL=%s\nDIRECT_URL=%s\nPORT=%s\n' "$URL" "$URL" "$PORT" > .env.local
 
+      - name: Build the runner's database from scratch
+        run: |
+          dropdb --if-exists "$RUNNER_DB"
+          createdb "$RUNNER_DB"
+          npm run db:migrate:test
+
+      # Before ci:local, not after: its unit suite includes the packages/db
+      # tests, and those connect to the database .env.test names. Ordering this
+      # the other way is green on a laptop, where that database already exists,
+      # and fails only here — which is the whole reason a clean checkout runs.
       # Migrations from nothing, the hand-written invariants, the drift check,
       # and the unit suite under two hostile timezones — one script, shared
       # with the pre-push hook.
@@ -58,14 +68,6 @@ jobs:
 
       - run: npm run lint
       - run: npm run typecheck
-
-      - name: Build the runner's database from scratch
-        run: |
-          dropdb --if-exists "$RUNNER_DB"
-          createdb "$RUNNER_DB"
-          npm run db:migrate:test
-
-      - run: npm test
 
       # Its own step, before Playwright can bury it (C-024).
       - run: npm run build:test
