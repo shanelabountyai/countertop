@@ -1657,3 +1657,5 @@ C-026 committed and pushed at c83d2d5
   certainly not decided anywhere.
 - **No add, no delete, no reorder for options** — the standing C-015 line. This
   edits the prices of what is there.
+
+C-027 committed and pushed at a6c32fc
