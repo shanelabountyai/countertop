@@ -1709,3 +1709,50 @@ C-027 committed and pushed at a6c32fc
   loads a queue where the alerting orders are already there.
 
 C-028 committed and pushed at 70e91f5
+
+## C-029 — Hours are confirmed before they are saved
+
+**Built:**
+- The hours form now opens a confirm panel (a GET to `?review=hours&…`)
+  instead of writing. The panel diffs the submitted week against the current
+  one and lists only the days that move, old → new.
+- A distinct warning naming every day the save would CLOSE.
+- "Nothing was changed" when the submitted week is the saved week, with no
+  save button on it at all.
+- 2 new e2e tests; the two existing hours tests now go through the panel.
+
+**Decided:**
+- **Closing a day earns the same guard as repricing a burrito.** C-023 shipped
+  the hours with no confirm and said so in its own left-behind note. A week is
+  seven checkboxes and fourteen time fields on a phone; unticking one by
+  accident shuts online ordering for a day and nothing would have said so until
+  a customer noticed.
+- **Only the days that MOVED are listed.** A diff of all seven days is not a
+  diff — it is the form again, and a manager scanning it for the one row that
+  changed will find the wrong row eventually.
+- **Closing is called out separately from changing.** "Wednesday 11:00–21:00 →
+  12:00–20:00" and "Wednesday → closed" are different sizes of decision, and
+  the amber banner names every day in the second category.
+- **The panel is a URL carrying the submitted fields, and the action
+  re-validates all of them.** Same shape as the menu editor's confirm: it
+  survives a reload, works before hydration, and re-reads the CURRENT hours to
+  diff against on every render. `saveHours` was not changed at all — the panel
+  POSTs the same field names, and a field that made a round trip through a URL
+  is client input like any other.
+- **Cancel is a link, not a second submit.** Leaving without saving must never
+  be one mis-tap away from saving — lifted verbatim from the menu editor,
+  because it was right there.
+- **The service numbers still save directly.** Changing "pause above 25 orders"
+  to 30 is reversible and visible on the same screen a second later; closing
+  Tuesday is neither.
+
+**Left behind:**
+- **The confirm does not say which day is TODAY.** Closing the day you are
+  currently open on is the sharpest version of this mistake and reads exactly
+  like closing any other.
+- **No confirm on "close for today".** It is one button whose label is the
+  whole consequence, and it has a one-tap undo sitting beside it.
+- **The diff compares strings, not windows.** "11:00–21:00" versus
+  "11:00–21:00" is equality by text; it happens to be exact here because both
+  sides are formatted by the same function, but it is not a comparison of
+  minutes.

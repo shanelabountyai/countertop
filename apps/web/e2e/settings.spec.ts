@@ -40,7 +40,10 @@ test('unticking a day closes the restaurant on it, and the week saves as a week'
   for (const day of ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']) {
     await page.getByRole('checkbox', { name: day }).uncheck();
   }
-  await page.getByRole('button', { name: 'Save hours' }).click();
+  await page.getByRole('button', { name: 'Review hours' }).click();
+  // C-029: closing seven days is not something to discover afterwards.
+  await expect(page.getByTestId('closing-warning')).toContainText('This CLOSES Sunday, Monday');
+  await page.getByRole('button', { name: 'Save these hours' }).click();
   await expect(page.getByTestId('settings-saved')).toContainText('closed every day');
 
   // With no day open at all the gate has no next opening to name, and says
@@ -54,7 +57,8 @@ test('a closing time that is not after its opening is refused, by name', async (
   await page.getByRole('checkbox', { name: 'Wednesday' }).check();
   await page.getByRole('textbox', { name: 'Wednesday opens' }).fill('18:00');
   await page.getByRole('textbox', { name: 'Wednesday closes' }).fill('11:00');
-  await page.getByRole('button', { name: 'Save hours' }).click();
+  await page.getByRole('button', { name: 'Review hours' }).click();
+  await page.getByRole('button', { name: 'Save these hours' }).click();
 
   // The message names the DAY and both times — a generic "invalid hours" makes
   // a manager check all seven rows.
@@ -100,4 +104,31 @@ test('the settings screen has no detectable accessibility violations', async ({ 
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();
   expect(results.violations).toEqual([]);
+});
+
+// C-029: the hours confirm.
+test('changing hours is confirmed old → new before anything is written', async ({ page }) => {
+  await page.goto('/kitchen/settings');
+  await page.getByRole('textbox', { name: 'Thursday opens' }).fill('12:30');
+  await page.getByRole('button', { name: 'Review hours' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Change the opening hours?' })).toBeVisible();
+  await expect(page.getByText('00:00–24:00')).toBeVisible();
+  await expect(page.getByText('12:30–24:00')).toBeVisible();
+  // Only the day that moved is listed — a diff of all seven is not a diff.
+  await expect(page.getByRole('definition')).toHaveCount(1);
+  // Nothing closes, so no warning.
+  await expect(page.getByTestId('closing-warning')).toHaveCount(0);
+
+  // Cancelling leaves the hours exactly as they were.
+  await page.getByRole('link', { name: 'Cancel' }).click();
+  await expect(page.getByRole('textbox', { name: 'Thursday opens' })).toHaveValue('00:00');
+});
+
+test('submitting the hours already saved says so instead of writing them', async ({ page }) => {
+  await page.goto('/kitchen/settings');
+  await page.getByRole('button', { name: 'Review hours' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Nothing was changed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save these hours' })).toHaveCount(0);
 });

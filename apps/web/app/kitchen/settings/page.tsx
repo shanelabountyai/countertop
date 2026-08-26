@@ -28,15 +28,126 @@ const timeValue = (minute: number): string => formatMinuteOfDay(minute === 1440 
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string; error?: string }>;
+  // The hours confirm carries its own fields back — `open-3`, `from-3`,
+  // `to-3` — so the panel is a URL rather than client state. Same shape as the
+  // menu editor's confirm (C-015): it survives a reload, works before
+  // hydration, and re-reads the CURRENT hours to diff against on every render.
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const { saved, error } = await searchParams;
+  const params = await searchParams;
+  const { saved, error } = params;
   const state = await loadGateState();
   // Read once, here (CLAUDE.md time rules).
   const today = restaurantClock(new Date(), state.timezone).day;
   const closedToday = state.closedOnDay === today;
 
   const hoursByDay = new Map(state.hours.map((day) => [day.dayOfWeek, day]));
+
+  // ---- the hours confirm ------------------------------------------------
+  //
+  // Closing a day is at least as consequential as repricing a burrito, and
+  // only one of those was guarded (C-023's own note). The panel diffs the
+  // submitted week against the CURRENT one, read fresh here — so a confirm
+  // left open through someone else's edit describes the change that would
+  // actually happen.
+  if (params.review === 'hours') {
+    const changes = WEEKDAY_NAMES.map((name, dayOfWeek) => {
+      const before = hoursByDay.get(dayOfWeek);
+      const wanted = params[`open-${dayOfWeek}`] === 'on';
+      const from = params[`from-${dayOfWeek}`] ?? '';
+      const to = params[`to-${dayOfWeek}`] ?? '';
+      const after = wanted ? `${from}–${to === '00:00' ? '24:00' : to}` : null;
+      const wasText = before
+        ? `${timeValue(before.openMinute)}–${before.closeMinute === 1440 ? '24:00' : timeValue(before.closeMinute)}`
+        : null;
+      return { name, wasText, after, closing: wasText !== null && after === null };
+    }).filter((change) => change.wasText !== change.after);
+
+    return (
+      <main className="mx-auto max-w-2xl p-4 sm:p-6">
+        <h1 className="text-3xl font-semibold">
+          {changes.length === 0 ? 'Nothing was changed' : 'Change the opening hours?'}
+        </h1>
+
+        {changes.length === 0 ? (
+          <p role="alert" className="mt-4 text-lg">
+            The hours you submitted are the hours already saved.
+          </p>
+        ) : (
+          <>
+            {changes.some((change) => change.closing) && (
+              <p
+                data-testid="closing-warning"
+                className="mt-4 rounded-lg border-2 border-amber-600 bg-amber-50 p-3 text-lg font-semibold"
+              >
+                This CLOSES{' '}
+                {changes
+                  .filter((change) => change.closing)
+                  .map((change) => change.name)
+                  .join(', ')}
+                . Online ordering will be shut on those days.
+              </p>
+            )}
+            <dl className="mt-6 flex flex-col gap-2 text-lg">
+              {changes.map((change) => (
+                <div key={change.name} className="flex flex-wrap gap-2">
+                  <dt className="font-semibold">{change.name}:</dt>
+                  <dd className="tabular-nums">
+                    <span className="text-neutral-500 line-through">
+                      {change.wasText ?? 'closed'}
+                    </span>{' '}
+                    <span aria-hidden>→</span> <span>{change.after ?? 'closed'}</span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </>
+        )}
+
+        <div className="mt-8 flex flex-col gap-3">
+          {changes.length > 0 && (
+            /* The submitted week, carried back as hidden fields and POSTed to
+               the same action as before. The panel re-parses nothing and
+               decides nothing: `saveHours` re-validates every value, because a
+               field that made a round trip through a URL is client input. */
+            <form action={saveHours}>
+              {WEEKDAY_NAMES.map((_, dayOfWeek) => (
+                <div key={dayOfWeek}>
+                  {params[`open-${dayOfWeek}`] === 'on' && (
+                    <input type="hidden" name={`open-${dayOfWeek}`} value="on" />
+                  )}
+                  <input
+                    type="hidden"
+                    name={`from-${dayOfWeek}`}
+                    value={params[`from-${dayOfWeek}`] ?? ''}
+                  />
+                  <input
+                    type="hidden"
+                    name={`to-${dayOfWeek}`}
+                    value={params[`to-${dayOfWeek}`] ?? ''}
+                  />
+                </div>
+              ))}
+              <button
+                type="submit"
+                className="min-h-14 w-full rounded-lg bg-green-800 px-5 text-xl font-bold text-white"
+              >
+                Save these hours
+              </button>
+            </form>
+          )}
+          {/* Cancel is a link, not a second submit: leaving without saving must
+              never be one mis-tap away from saving. */}
+          <Link
+            href="/kitchen/settings"
+            className="min-h-14 rounded-lg border-2 border-neutral-400 px-5 py-3 text-center text-xl font-bold"
+          >
+            Cancel
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-3xl p-4 sm:p-6">
@@ -84,7 +195,12 @@ export default async function SettingsPage({
         </form>
       </section>
 
-      <form action={saveHours} className="mt-8 rounded-xl border-2 border-neutral-300 p-4">
+      <form
+        method="get"
+        action="/kitchen/settings"
+        className="mt-8 rounded-xl border-2 border-neutral-300 p-4"
+      >
+        <input type="hidden" name="review" value="hours" />
         <h2 className="text-2xl font-semibold">Opening hours</h2>
         <p className="mt-1 text-lg text-neutral-700">
           Local times in {state.timezone}. A day with its box unticked is closed. A closing time
@@ -134,7 +250,7 @@ export default async function SettingsPage({
           type="submit"
           className="mt-4 min-h-14 rounded-lg bg-neutral-900 px-6 text-lg font-bold text-white"
         >
-          Save hours
+          Review hours
         </button>
       </form>
 

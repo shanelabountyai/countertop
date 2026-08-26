@@ -746,3 +746,17 @@ fix than it sounds. The demo used to anchor its clock an hour back, so a queue
 stopped twelve minutes in showed every ticket at forty-eight minutes and every
 warning lit. A demo where the alarms are always on is a demo that teaches you
 to ignore them.
+
+## Closing a day, on purpose
+
+Opening hours are seven checkboxes and fourteen time fields on a phone held in
+one hand. Unticking one by accident shuts online ordering for a whole day, and
+nothing used to say so until a customer noticed.
+
+Saving now shows what changes first, and only what changes — the one day that
+moved, old beside new, not all seven rows again. If the save would close a day
+that is currently open, that gets its own warning naming the days: this is a
+different size of decision from moving a closing time by half an hour.
+
+Submitting the hours that are already saved says "nothing was changed" and
+offers no save button at all.
