@@ -473,3 +473,29 @@ off the same count that decides whether the kitchen is at capacity.
 **While ordering is paused, there is no time promise at all.** The pause
 message takes its place. A restaurant that is not taking orders does not tell
 you when your food will be ready.
+
+## A link that answers "is it ready yet?"
+
+**The receipt hands you a link, and the link is your order.** Order number,
+your name, everything you asked for, and what it came to. Not a login, not an
+account — one link, printed the moment you order.
+
+**It updates itself.** Leave it open on the walk over and the page moves from
+"Order received" to "Cooking now" to "Ready for pickup" without a reload and
+without a refresh button. Once your food is in your hand, the page stops
+asking — a finished order has no more news.
+
+**The wait shrinks as you wait.** The estimate on the status page is the same
+honest range from the checkout, minus the minutes already gone. When it runs
+out, the page says "any minute now" rather than counting down to a zero it
+cannot promise.
+
+**A cancelled order says so, and says why.** Not a silent status change and not
+a generic failure: the reason the kitchen picked, written for the person
+waiting for the food — "The kitchen ran out of something in this order" —
+plus whatever they typed. That is the call the restaurant no longer has to
+make.
+
+**The link is unguessable, and the order number is not the key.** #047 is a
+counter; anyone could count. The status link is 128 bits of randomness, and it
+is kept out of search engines.

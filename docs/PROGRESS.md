@@ -808,3 +808,73 @@ C-012 committed and pushed at a2c1ec3
   page C-014 builds behind the token already printed on the receipt.
 
 C-013 committed and pushed at 17924aa
+
+## C-014 — Customer status page
+
+**Built:**
+- `apps/web/app/status/[token]/page.tsx` — the page behind the token printed on
+  the receipt. Order number and name, a status banner whose copy comes from a
+  `Record<OrderStatus, …>`, the remaining-time estimate, the order's own lines
+  and its subtotal/tax/total, and a distinct cancelled view carrying the reason
+  in the customer's words. Rendered entirely from the snapshot: no menu table
+  is touched, and the internal UUID never reaches the page.
+- `findOrderByStatusToken` in `packages/db/placement.ts`, beside
+  `findOrderByIdempotencyKey` and sharing `ORDER_RECEIPT` — the same shape the
+  confirmation renders, so the two cannot drift.
+- `remainingEstimate(estimate, elapsedMinutes)` in
+  `packages/core/orders/estimate.ts`: the C-013 window with the time already
+  spent taken off it, null once the low end reaches zero. Both estimates now
+  build their label through one `range()` helper.
+- `LiveUpdates` is mounted with `active={!isTerminal(order.status)}` — the prop
+  C-009 added for exactly this — so a picked-up or cancelled order stops asking.
+- The receipt's `<code>/status/…</code>` placeholder is now a real link.
+- Tests: 6 unit specs on `remainingEstimate`, 5 e2e (the link opens the right
+  order; an unknown token is a 404; the status moves under the customer with no
+  reload; the cancelled view with its reason and zero polls after it; axe).
+
+**Decided:**
+- **The token is the key, and the order number deliberately is not.** #047 is
+  guessable by construction — it is a counter — so a page keyed on it would
+  hand out the day's orders to anyone who could count. A bad token and a
+  deleted order return the same 404, so a probe cannot confirm what exists.
+- **`robots: { index: false }`.** A link that is secret only because it is
+  unguessable stops being secret the moment a crawler files it. Real hardening
+  (expiry, revocation) is P1-5 and deferred; one line of metadata is not.
+- **The estimate is the checkout's window minus the time already spent, and it
+  goes null rather than counting to zero.** "0–10 min" is a promise about the
+  past. Below the low end the page says "any minute now", which is the only
+  honest thing left to say (P0-7: never a precise wrong number).
+- **The status page never asks the gate.** C-013 put that rule at the call
+  site for this reason: an order already cooking still has a ready time after
+  the restaurant stops taking new ones. The checkout renders the pause message
+  instead of an estimate; this page does not.
+- **Which statuses get an estimate is `isOpen`, not a list.** Exactly
+  placed/accepted/preparing — asked of the status module, so a new state cannot
+  quietly acquire or lose a time promise.
+- **Two wordings for one cancel reason.** Staff pick "Out of an item"; the
+  customer reads "The kitchen ran out of something in this order." Same enum,
+  two `Record<CancelReason, string>` tables, because a kitchen note is not an
+  apology. The `other` note is appended verbatim — it is the only reason that
+  requires one.
+- **Options render as a flat list here, grouped on the kitchen card.** The
+  kitchen reads "Salsa: chipotle, NO onions" at arm's length; a customer
+  checking their own order reads the selections. The negation stays visually
+  distinct on both — this is the screen they verify us against.
+
+**Left behind:**
+- **One global polling cursor, so every event re-renders every status page.**
+  The cursor is the tip of the whole event log; a customer's page refreshes
+  when a stranger's order advances. Correct, and wasteful in a rush.
+- **The estimate can move outwards after placement.** It is recomputed from
+  the current queue, not frozen at placement, so a customer 4 minutes in can be
+  told "16–26 min" when they were quoted "10–20". That is the honest direction
+  and the alternative is a countdown that lies.
+- **A revert on a terminal order is invisible to the customer.** Polling stops
+  at `picked_up`; a cook's undo puts the order back to `ready` and the page
+  already stopped asking. `cancelled` has no revert, so this is only the
+  fat-fingered pickup.
+- **No customer cancel button**, though `cancellableByCustomer` is true while
+  `placed`. Not in C-014's scope; the state machine is ready for it.
+- **No link recovery.** Lose the URL and the order is unreachable from the
+  customer side — the phone number captured at checkout is P1-3's channel, not
+  a lookup.

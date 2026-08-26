@@ -49,6 +49,7 @@ _(Filled in as phases land.)_
 | `picked_up` and `abandoned` are terminal *and* revertable; `cancelled` is not | no undo past the last state, or undo everywhere | The five-second undo exists for the last tap, which is the one a fat finger gets wrong. Un-cancelling would have to re-charge a refund |
 | An advance may carry the state it expects to reach | advance = "whatever comes next" | Two cooks tapping the same card half a second apart otherwise skips a state. The stale tap names a state already behind, and is refused |
 | The mock refund is an append-only event | a payment interface with one implementation | The event is the record either way, and an interface with one implementation carries no information. The real adapter is P2 |
+| The customer's status page is keyed on an unguessable token | the daily order number, or a name-and-number lookup form | #047 is a counter — a page keyed on it hands out the day's orders to anyone who can count, and a lookup form keyed on a name is the same hole with extra steps |
 
 ## Scaling Caveats and Deliberate Simplifications
 
@@ -103,6 +104,12 @@ Recorded as they are made, with the ceiling each one has.
 - **The estimate is a shape, not a measurement** (C-013). `base + perOrder × openCount`, widened to a ten-minute range and rounded down to the nearest five. It has never been compared against a single real ticket, because there are none — accuracy is explicitly not a P0 metric (P0-7), and the range exists so the number can be honest without being right. What it cannot see: a twelve-burrito order counts once, the fryer being down does not count at all, and a queue of ten drinks reads exactly like a queue of ten catering bowls. P1-7's prep weight is the first of those; the other two are a kitchen telling the software something it currently has no way to say.
 - **The checkout estimate is recalculated per render, not per poll** (C-013). P0-7 asks for recalculation "on each poll", and the checkout page has no poll — it is `force-dynamic`, so every navigation and reload recomputes off a fresh open-order count, and nothing else changes while a customer sits on the page reading it. The polling half of the requirement lands with C-014's status page, which already has the poller (`LiveUpdates`) and the reason to run it.
 - **Prep times are columns, not a screen** (C-013). Same shape as the gate's hours and thresholds: `prepBaseMinutes` and `prepPerOrderMinutes` have defaults and CHECK constraints, and changing them means a migration or a psql session. The constraints are what stop the values that break the promise quietly — a negative increment would quote a *shorter* wait the busier the kitchen got — but a restaurant tuning its own prep time is a settings screen, and C-015 is where one appears.
+
+- **One global polling cursor serves every screen** (C-014). The cursor is the tip of the whole append-only event log, so a customer's status page re-renders when a stranger's order advances — thirty open status pages in a rush is thirty wasted server renders per event, each of them a `count()` and a full order read. It is deliberate: the alternative is a per-order cursor, which means the updates endpoint has to resolve a token before it can answer, and the freshness question stops being the one cheap query that a WebSocket can later push verbatim. The upgrade is a monotonic sequence column on `OrderEvent` plus a per-order high-water mark, at which point both the queue and the status page ask the same narrower question.
+- **The status estimate is recomputed from the current queue, not frozen at placement** (C-014). A customer quoted "10–20 min" at checkout and four minutes in can be shown "16–26 min" if eight orders landed behind them. That is the honest direction — the food genuinely is further away — but it is a promise that moved, and no screen explains why it moved. Freezing the window at placement would be a countdown that lies instead; the real answer is a kitchen signal the software currently has no way to receive, same ceiling as C-013's.
+- **Polling stops at a terminal state, and one terminal state is revertable** (C-014). `isTerminal` is what turns the poller off, and `picked_up` is terminal — but it is also the one terminal state with a `previous`, because the fat-fingered advance needs its undo (C-004). A cook who marks the wrong order picked up and undoes it two seconds later has a customer whose page said "Picked up" and then stopped asking. `cancelled` is the only terminal state with no way back; `picked_up` and `abandoned` both have one, so this covers a mis-tapped pickup and a no-show closed out a minute too early. Keeping the poll alive for a state defined as having no more news would undo the requirement to fix the case it was designed for; the honest fix is the undo writing something the customer's page is told to come back for.
+- **The status link has no expiry and no revocation** (C-014). It is 128 bits of randomness with a unique constraint, printed once on the receipt, and it works forever — a link shared, forwarded or left in a browser history is a permanent read handle on a name, a phone number and an order. P1-5 ("status-link hardening") is deferred by decision, so the only mitigation shipped is `robots: { index: false }`, which stops a crawler filing it but stops nothing else. The order data is not sensitive in the way a payment record is, which is why the deferral is defensible and not why it is safe.
+- **Lose the link and the order is unreachable from the customer side** (C-014). There is no lookup by name, by phone or by order number — deliberately, because all three are guessable and a lookup form keyed on any of them is the enumeration hole the token exists to close. The customer's recovery path is the counter staff, who have the kitchen queue's name-and-number search. A shipped product sends the link to the phone captured at checkout, which is P1-3's outbox.
 
 ## Defects Found
 
@@ -194,6 +201,29 @@ clicks the label the way a customer does.
 *What I'd instrument next time:* an automated a11y pass proves the absence of
 some failures, never the presence of usability. A keyboard walk of any screen
 with custom-styled inputs belongs in the same session that styles them.
+
+**C-014 — a `goto` that outran the cart it was carrying.** The new status specs
+place a real order first, so each one adds a burrito, then navigates to
+checkout. One of the five reached an empty checkout and hung waiting for a name
+field that was never rendered — and only one, intermittently, which is the
+signature of a race rather than a bug.
+
+*How it was found:* the failure alarm on the sweep fired on the inline `✘`
+before the run was over, and the saved page snapshot said "Your cart is empty"
+in as many words. No stack trace needed reading.
+
+*Fix:* the cart is an httpOnly cookie written by the server action's *response*.
+`page.goto('/checkout')` fired immediately after the click races that response,
+and a `goto` does not wait for a navigation it did not cause. C-011's own
+checkout spec had already solved this — its helper awaits
+`expect(page).toHaveURL(/\/cart/)` — and the new helper had quietly reinvented
+a worse version of it.
+
+*What I'd instrument next time:* the lesson is not "add a wait", it is that a
+second spec file wrote its own copy of an existing helper. A shared
+`placeOrder` fixture would have carried the guard for free. The general rule:
+after a server action, assert the state it produced before navigating away —
+never assume the cookie is on the next request.
 
 ## Skills Learned / Functions Unlocked
 

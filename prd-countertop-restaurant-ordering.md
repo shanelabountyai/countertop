@@ -89,9 +89,9 @@ States: `placed → accepted → preparing → ready → picked_up`; `placed|acc
 - [ ] Kitchen queue tap targets are ≥ 48px, state-advance is the largest control on each card, and card text is legible at arm's length (item lines ≥ 18px equivalent) — greasy gloves and knuckle-taps are the input device
 
 **P0-5: Live updates (polling)**
-- [ ] Kitchen queue and customer status views poll every 5–10 seconds; new orders are announced per P0-12, not merely rendered
-- [ ] The update fetch is an endpoint returning changes since a server-issued cursor (echoed from the previous response — never the client's clock), so a later WebSocket upgrade (P2) swaps the transport, not the logic
-- [ ] Customer status page pauses polling when the tab is backgrounded and stops on terminal states (`picked_up`, `cancelled`, `abandoned`)
+- [x] Kitchen queue and customer status views poll every 5–10 seconds; new orders are announced per P0-12, not merely rendered
+- [x] The update fetch is an endpoint returning changes since a server-issued cursor (echoed from the previous response — never the client's clock), so a later WebSocket upgrade (P2) swaps the transport, not the logic
+- [x] Customer status page pauses polling when the tab is backgrounded and stops on terminal states (`picked_up`, `cancelled`, `abandoned`)
 
 **P0-6: Availability, pause, and hours** *(one checkout gate, three triggers)*
 - [x] Manager or kitchen can toggle **item** availability instantly; unavailable items render as "sold out," not hidden
@@ -102,21 +102,21 @@ States: `placed → accepted → preparing → ready → picked_up`; `placed|acc
 
 **P0-7: Estimated ready time**
 Simple v1: configurable base prep time + per-open-order increment.
-- [ ] Estimate shown at checkout and on the status page, recalculated on each poll
-- [ ] The estimate is an honest range (e.g., "15–25 min"), never a precise wrong number; while ordering is paused (manual or auto) the checkout estimate is replaced by the pause message — never a stale time promise
-- [ ] Accuracy is not a P0 metric — existence and recalculation are; tuning is P1
+- [x] Estimate shown at checkout and on the status page, recalculated on each poll
+- [x] The estimate is an honest range (e.g., "15–25 min"), never a precise wrong number; while ordering is paused (manual or auto) the checkout estimate is replaced by the pause message — never a stale time promise
+- [x] Accuracy is not a P0 metric — existence and recalculation are; tuning is P1
 
 **P0-8: Order identity — number, name, contact** *(new in v2 — PO + OPS)*
 Every order gets a short human-callable identity at placement: a daily-resetting sequential order number (e.g., #047, reset per restaurant-timezone day) plus a required customer name and optional phone.
 - [ ] Placing an order assigns the next sequential number for the current restaurant-timezone day; two concurrent placements never share a number (unique constraint tested under the seeded rush)
 - [x] Checkout requires a name (1–40 chars); phone is optional and feeds the P1-3 notification stub
-- [ ] Order number + name appear on the kitchen queue card, customer status page, and order confirmation; the internal UUID never appears in any UI
+- [x] Order number + name appear on the kitchen queue card, customer status page, and order confirmation; the internal UUID never appears in any UI
 - [x] An optional order-level note (e.g., "blue Honda out front," ≤140 chars) is captured at checkout and shown on the kitchen card
 
 **P0-9: Tax line (explicit decision)** *(new in v2 — PO)*
 Order totals carry an explicit tax field computed server-side from a single configurable flat rate (default 8.25%); subtotal, tax, and total are distinct persisted fields on the order snapshot.
 - [ ] Tax = round(subtotal × rate) in integer cents, computed and snapshotted server-side at placement
-- [ ] Receipt/status/checkout views show subtotal, tax, and total as separate lines
+- [x] Receipt/status/checkout views show subtotal, tax, and total as separate lines
 - [ ] Tampered client tax values are ignored, same as P0-2 totals
 
 **P0-10: Idempotent order placement** *(new in v2 — PO)*

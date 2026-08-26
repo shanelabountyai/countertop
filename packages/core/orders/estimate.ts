@@ -42,6 +42,15 @@ export type ReadyEstimate = {
 const RANGE_MINUTES = 10;
 const STEP_MINUTES = 5;
 
+/** The one place a range becomes the string a screen prints. Both estimates
+ *  below go through it, so the checkout and the status page cannot disagree
+ *  about what a range looks like. */
+const range = (lowMinutes: number, highMinutes: number): ReadyEstimate => ({
+  lowMinutes,
+  highMinutes,
+  label: `${lowMinutes}–${highMinutes} min`,
+});
+
 export function readyEstimate(state: EstimateState): ReadyEstimate {
   const centre =
     state.prepBaseMinutes + state.prepPerOrderMinutes * Math.max(0, state.openOrderCount);
@@ -51,9 +60,27 @@ export function readyEstimate(state: EstimateState): ReadyEstimate {
   // floor of one step keeps a misconfigured zero from reading as "now".
   const lowMinutes = Math.max(STEP_MINUTES, Math.floor(centre / STEP_MINUTES) * STEP_MINUTES);
 
-  return {
-    lowMinutes,
-    highMinutes: lowMinutes + RANGE_MINUTES,
-    label: `${lowMinutes}–${lowMinutes + RANGE_MINUTES} min`,
-  };
+  return range(lowMinutes, lowMinutes + RANGE_MINUTES);
+}
+
+/**
+ * The same estimate, seen from INSIDE the queue (P0-7, the C-014 status page).
+ *
+ * The checkout answers "how long if I order now?"; a customer who already
+ * ordered is asking "how much longer?", and the honest answer is the same
+ * window with the time already spent taken off it. Recomputed on every poll,
+ * so a queue that got busier moves it out — which is the point of showing a
+ * range rather than a countdown to a fixed clock time.
+ *
+ * Null once the low end reaches zero: we are INSIDE the window now, and the
+ * caller says "any minute" instead. A range that shrinks to "0–10 min" and
+ * then goes negative is the precise wrong number P0-7 forbids.
+ */
+export function remainingEstimate(
+  estimate: ReadyEstimate,
+  elapsedMinutes: number,
+): ReadyEstimate | null {
+  const spent = Math.max(0, elapsedMinutes);
+  const lowMinutes = estimate.lowMinutes - spent;
+  return lowMinutes <= 0 ? null : range(lowMinutes, estimate.highMinutes - spent);
 }

@@ -149,11 +149,15 @@ function Confirmation({ confirmation }: { confirmation: OrderConfirmation }) {
           <dd data-testid="confirmed-total">{formatCents(confirmation.totalCents)}</dd>
         </div>
       </dl>
-      {/* C-014 renders the page behind this token. Printing the link now beats
-          a confirmation that quietly drops the one thing a customer keeps. */}
-      <p className="mt-4 text-sm text-neutral-700">
-        Track this order at <code>/status/{confirmation.statusToken}</code>
-      </p>
+      {/* The one thing a customer keeps. The token is the only handle on this
+          order from outside — the number is guessable, so it is not a key. */}
+      <Link
+        href={`/status/${confirmation.statusToken}`}
+        data-testid="track-order"
+        className="mt-4 flex min-h-12 w-fit items-center rounded-lg border-2 border-green-800 px-4 text-lg font-semibold text-green-900"
+      >
+        Track this order
+      </Link>
       <Link href="/menu" className="mt-4 inline-block underline underline-offset-4">
         Order something else
       </Link>

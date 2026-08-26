@@ -116,6 +116,18 @@ export const findOrderByIdempotencyKey = (idempotencyKey: string): Promise<Order
   prisma.order.findUnique({ where: { idempotencyKey }, ...ORDER_RECEIPT });
 
 /**
+ * The customer's status page (C-014, P0-5, P0-8).
+ *
+ * The token is the ONLY handle on an order from outside the building: the
+ * UUID never appears in a URL, and the order NUMBER deliberately is not a key
+ * here — #047 is guessable, and a page keyed on it would let anyone read
+ * today's orders by counting. Same `ORDER_RECEIPT` shape as the confirmation,
+ * so the status page renders from the snapshot with zero menu joins.
+ */
+export const findOrderByStatusToken = (statusToken: string): Promise<OrderReceipt | null> =>
+  prisma.order.findUnique({ where: { statusToken }, ...ORDER_RECEIPT });
+
+/**
  * Place the cart.
  *
  * Order of operations matters and is deliberate:
