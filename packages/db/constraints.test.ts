@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
-import { resetDatabase } from './testing/index';
+import { resetDatabase, seedSampleMenu } from './testing/index';
 
 // These assert the DATABASE refuses, not that the application remembers to
 // check. Correctness never depends on the client behaving, and it does not
@@ -290,5 +290,95 @@ describe('the gate settings', () => {
     await expect(
       prisma.restaurantSettings.create({ data: settings({ closedOnDay: '2026-07-04' }) }),
     ).resolves.toMatchObject({ closedOnDay: '2026-07-04' });
+  });
+});
+
+// C-022: the menu's own integrity. The editor refuses these too (C-015) and
+// that is where the MESSAGE belongs; this asserts the database refuses them
+// whatever writes the row.
+describe('menu integrity (C-022)', () => {
+  beforeEach(async () => {
+    await resetDatabase();
+    await prisma.category.create({ data: { id: 'cat', name: 'Things', sortOrder: 0 } });
+  });
+
+  const group = (overrides: Record<string, unknown> = {}) => ({
+    id: 'g',
+    name: 'Group',
+    min: 0,
+    max: 3,
+    ...overrides,
+  });
+
+  it('refuses a group nobody can pick anything from', async () => {
+    await expect(prisma.modifierGroup.create({ data: group({ max: 0 }) })).rejects.toThrow();
+  });
+
+  it('refuses the unsatisfiable group: choose at least 3, at most 2', async () => {
+    await expect(
+      prisma.modifierGroup.create({ data: group({ min: 3, max: 2 }) }),
+    ).rejects.toThrow();
+  });
+
+  it('refuses a negative minimum, and allows zero', async () => {
+    await expect(prisma.modifierGroup.create({ data: group({ min: -1 }) })).rejects.toThrow();
+    await expect(prisma.modifierGroup.create({ data: group({ min: 0 }) })).resolves.toBeTruthy();
+  });
+
+  it('catches an UPDATE that makes a valid group unsatisfiable', async () => {
+    // The real path: a manager narrowing `max` on a group that is already
+    // required. Nothing composed from it could validate afterwards.
+    await prisma.modifierGroup.create({ data: group({ min: 2, max: 4 }) });
+    await expect(
+      prisma.modifierGroup.update({ where: { id: 'g' }, data: { max: 1 } }),
+    ).rejects.toThrow();
+  });
+
+  const item = (overrides: Record<string, unknown> = {}) => ({
+    id: 'i',
+    categoryId: 'cat',
+    name: 'Thing',
+    basePriceCents: 500,
+    sortOrder: 0,
+    ...overrides,
+  });
+
+  it('refuses an item that pays the customer to order it, and allows a free one', async () => {
+    await expect(prisma.menuItem.create({ data: item({ basePriceCents: -1 }) })).rejects.toThrow();
+    await expect(
+      prisma.menuItem.create({ data: item({ basePriceCents: 0 }) }),
+    ).resolves.toBeTruthy();
+  });
+
+  it('allows a NEGATIVE modifier delta — "Small −$1.50" is an ordinary option', async () => {
+    await prisma.modifierGroup.create({ data: group() });
+    await expect(
+      prisma.modifierOption.create({
+        data: { id: 'o', groupId: 'g', name: 'Small', priceDeltaCents: -150, sortOrder: 0 },
+      }),
+    ).resolves.toBeTruthy();
+  });
+
+  it('refuses an extra surcharge that makes the food cheaper, and allows null', async () => {
+    await prisma.modifierGroup.create({ data: group({ intensityEnabled: true }) });
+    const option = (overrides: Record<string, unknown>) => ({
+      groupId: 'g',
+      name: 'Cheese',
+      priceDeltaCents: 50,
+      sortOrder: 0,
+      ...overrides,
+    });
+    await expect(
+      prisma.modifierOption.create({ data: option({ id: 'a', extraPriceDeltaCents: -1 }) }),
+    ).rejects.toThrow();
+    // Null is the common case: "extra" costs nothing on most options.
+    await expect(
+      prisma.modifierOption.create({ data: option({ id: 'b', extraPriceDeltaCents: null }) }),
+    ).resolves.toBeTruthy();
+  });
+
+  it('accepts the whole seeded menu, which is the fixture every price test uses', async () => {
+    await resetDatabase();
+    await expect(seedSampleMenu()).resolves.toBeUndefined();
   });
 });

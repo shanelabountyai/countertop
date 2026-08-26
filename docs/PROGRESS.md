@@ -1332,3 +1332,51 @@ C-020 committed and pushed at 0d8407a
   different, smaller thing.
 
 C-021 committed and pushed at 8bf2c63
+
+## C-022 — Menu integrity, in the database
+
+**Built:**
+- `packages/db/prisma/migrations/20260826070000_menu_integrity/` — five
+  hand-written CHECK constraints, no schema change:
+  `min >= 0`, `max >= 1`, `max >= min` on `ModifierGroup`;
+  `basePriceCents >= 0` on `MenuItem`;
+  `extraPriceDeltaCents IS NULL OR >= 0` on `ModifierOption`.
+- 8 constraint tests, including one that the seeded menu — the fixture every
+  price test is calculated against — satisfies all of them.
+
+**Decided:**
+- **The editor already refuses all five; that is not a reason to skip them.**
+  `parseBounds` rejects `max < min` and `max < 1`, and the price parser rejects
+  a negative base price. This is the other half of the house rule the order
+  number and the idempotency key already follow: the database refuses, so
+  correctness does not depend on the only screen that writes menu rows today
+  staying the only one. The MESSAGE stays in the editor, where a manager can
+  read it.
+- **A negative modifier delta is deliberately NOT constrained.** "Small
+  −$1.50" and "Veggie −$1.00" are ordinary options, and a constraint that
+  forbade them would be a pricing policy invented by a migration. There is a
+  test asserting a negative delta is accepted, so the next person to reach for
+  `priceDeltaCents >= 0` has to delete an assertion that says why.
+- **`max = 0` is refused rather than treated as "hidden".** A group whose
+  options cannot be selected renders as a broken screen, not as a menu
+  decision.
+- **"`min` must not exceed the option count" stays OUT of the database.** It is
+  a cross-row invariant a CHECK cannot see, and a trigger for it would have to
+  fire on two tables and cope with a group being inserted before the options
+  that satisfy it — which is exactly how the seed writes them. It stays in the
+  editor, where C-015 put it after getting the bound backwards.
+- **No schema.prisma change, so no drift.** CHECK constraints are not
+  representable in the Prisma datamodel and are not diffed; the drift check was
+  run locally against a shadow database and reports no difference. Same pattern
+  as the gate's six constraints in C-011.
+
+**Left behind:**
+- **Nothing enforces that an item has a resolvable category or group.** Both
+  are real foreign keys already, so the database carries it — but that is luck
+  of the schema rather than a decision recorded anywhere until this line.
+- **A group can still be saved with `min` above its option count by anything
+  that is not the editor.** The seed and the tests are the only other writers,
+  and both write valid groups.
+- **No constraint relates a base price to its deltas.** An item at $0 with a
+  −$1.50 size option prices to a negative line, which the price engine will
+  happily compute. Cross-row again, and no menu has ever been written that way.

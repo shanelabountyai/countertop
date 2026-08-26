@@ -655,3 +655,19 @@ fixed the first line is a different order than the one you were reading.
 And the link only carries which line you are editing, never what is in it. What
 is in it comes off your cart on the server, so a hand-edited URL cannot invent
 a burrito you never composed.
+
+## A menu that cannot be saved broken
+
+"Choose at least three, at most two" is a group nothing can ever be ordered
+from — and until now the only thing stopping it being saved was the screen that
+saves it. The rules now live in the database: a group cannot require more than
+it allows, cannot allow nothing at all, an item cannot be priced below zero,
+and asking for extra cheese cannot make a burrito cheaper.
+
+The edit screen still explains the problem in words, which is where an
+explanation belongs. The database is what makes the rule true regardless of
+what is doing the writing.
+
+One thing is deliberately still allowed: an option that costs less than
+nothing. "Small −$1.50" is an ordinary menu decision, not a mistake, and there
+is a test that says so.
