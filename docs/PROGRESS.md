@@ -1270,3 +1270,63 @@ C-019 committed and pushed at 5a70972
   combined. A median would be more honest and is not what "average" means.
 
 C-020 committed and pushed at 0d8407a
+
+## C-021 — Editing a cart line in place
+
+**Built:**
+- An `Edit` link on every cart line → `/menu/<itemId>?line=<lineId>`.
+- `apps/web/app/menu/[itemId]/page.tsx` resolves that line from the cart cookie
+  server-side and hands the composer an `editing` prop.
+- `Composer` takes `editing?: { lineId, composition }`: pre-filled state, a
+  "Save changes" button, a back link to the cart, and `updateCartLine` instead
+  of `addToCart` on submit.
+- 2 e2e tests.
+
+**Decided:**
+- **The line id travels in the URL; the composition never does.** The query
+  string names WHICH line, and the server reads what is in it from the cookie.
+  A composition in a query string is a composition the client wrote, and this
+  screen already has a rule about that.
+- **`replaceLine`, not remove-then-add.** It keeps the line where it sat. A
+  customer who edits the first of three lines and finds it at the bottom is
+  looking at a different cart than the one they were reading — asserted by an
+  e2e that edits the burrito with chips behind it and checks the order.
+- **A stale or mismatched `?line=` composes a fresh one.** A line removed in
+  another tab, or a line id belonging to a different item, falls through to an
+  ordinary Add — no error page, no 404. Saving a bowl's line id under
+  `/menu/burrito` would silently change what the customer ordered, so the guard
+  is `line.composition.itemId === item.id` and there is a test for the stale
+  case.
+- **Pre-filled via `useState`'s initial value, not an effect.** The first
+  render is already correct. An effect would paint an empty composer and then
+  fill it in under someone's thumb.
+- **No new server action.** `updateCartLine` has existed and been exported
+  since C-005 with no caller, and `replaceLine` under it has been unit-tested
+  just as long. This item is a screen, not an engine change.
+
+**Found on the way (harness, not product):**
+- **A `beforeEach` seed failed once and told us nothing.** One sweep failed in
+  `menu-editing.spec.ts` with the entire diagnosis being `Error: Command
+  failed: npm run db:seed:test`. The seed runs clean standalone and the next
+  sweep was green, so it is a race — most likely the seed's `TRUNCATE` losing a
+  lock to an in-flight `/api/updates` poll from a page a previous test left
+  open, which is exactly the kind of thing you want the message for.
+  *Fix:* one `reseed()` helper in `apps/web/e2e/reseed.ts`, replacing eight
+  copies of the same `execSync`, capturing **stderr** instead of
+  `stdio: 'ignore'` and re-throwing it. `stdio: 'ignore'` throws away the half
+  of the output with the reason in it. The next occurrence will name its cause.
+
+**Left behind:**
+- **The seed/TRUNCATE lock race is diagnosable now, not fixed.** If it recurs
+  with a message, the answer is probably closing pages before reseeding or
+  giving the seed a lock timeout with a retry.
+- **Editing is a navigation, not a modal.** Opening the composer leaves the
+  cart page. On a phone that is the right shape; on a desktop a dialog would
+  keep the totals visible.
+- **No optimistic concurrency on the line.** Two tabs editing the same line
+  both succeed and the last save wins. The cart is one person's cookie, so the
+  race is a person being odd, not a defect.
+- **The composer still cannot tell you what changed.** It shows the new price,
+  never "was $13.45". The cart's own price-change banner (P0-3) covers the case
+  that actually matters — a price moving under a customer — and this is a
+  different, smaller thing.

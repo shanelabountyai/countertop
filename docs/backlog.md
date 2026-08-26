@@ -41,6 +41,7 @@ npm run lint && npm run typecheck && npm test && PORT=3400 npm run test:e2e
 - [x] **C-018** — The write-up finished — the four "Reserved for the end" sections of `docs/WRITEUP.md`, plus the two that had said "filled in as phases land" since C-001.
 - [x] **C-019** — Stopping the rush mid-service — `runRush(anchor, untilMinute)` and `npm run demo:rush:live`, so `/kitchen` has live cards to look at. Found and fixed a `page.close()` racing a server action in `status.spec.ts`.
 - [x] **C-020** — Time in each state on `/kitchen/report` — read off the append-only event log, terminal states excluded, `STATUS_LABEL` shared with the queue.
+- [x] **C-021** — Editing a cart line in place — `?line=` re-opens the composer pre-filled from the cart cookie and saves through `replaceLine`, which keeps the line where it sat. Also folded eight copies of the e2e reseed into one helper that keeps stderr.
 
 ## Deferred by decision (not backlog)
 

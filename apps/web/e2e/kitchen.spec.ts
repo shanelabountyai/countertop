@@ -1,6 +1,6 @@
-import { execSync } from 'node:child_process';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { reseed } from './reseed';
 
 // C-008: the kitchen queue (P0-4, P0-11).
 //
@@ -121,7 +121,7 @@ test('the kitchen queue has no detectable accessibility violations', async ({ pa
 // (or on a retry running against a queue a previous attempt already advanced).
 test.describe('taking action on a card', () => {
   test.beforeEach(() => {
-    execSync('npm run db:seed:test', { cwd: '../..', stdio: 'ignore' });
+    reseed();
   });
 
   test('advancing moves the card and offers an undo that survives the re-render', async ({
@@ -160,7 +160,7 @@ test.describe('taking action on a card', () => {
 // C-009: polling with a server-issued cursor (P0-5).
 test.describe('the queue keeps itself fresh', () => {
   test.beforeEach(() => {
-    execSync('npm run db:seed:test', { cwd: '../..', stdio: 'ignore' });
+    reseed();
   });
 
   test('a change made on another screen arrives without anyone reloading', async ({
@@ -249,7 +249,7 @@ const chimes = (page: Page): Promise<number> =>
 
 test.describe('a new order announces itself', () => {
   test.beforeEach(() => {
-    execSync('npm run db:seed:test', { cwd: '../..', stdio: 'ignore' });
+    reseed();
   });
 
   test('chimes, and keeps chiming, until someone accepts', async ({ page }) => {

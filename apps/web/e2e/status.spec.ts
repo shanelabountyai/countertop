@@ -1,6 +1,6 @@
-import { execSync } from 'node:child_process';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { reseed } from './reseed';
 
 // C-014: the customer's status page (P0-5, P0-7, P0-8).
 //
@@ -32,7 +32,7 @@ const card = (page: Page, name: string): Locator =>
   page.getByRole('listitem').filter({ hasText: name }).first();
 
 test.beforeEach(() => {
-  execSync('npm run db:seed:test', { cwd: '../..', stdio: 'ignore' });
+  reseed();
 });
 
 test('the receipt hands the customer a link that opens their own order', async ({ page }) => {

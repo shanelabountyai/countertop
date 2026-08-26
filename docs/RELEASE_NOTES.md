@@ -640,3 +640,18 @@ Orders still open count up to now, so a busy lunch reads longer than a finished
 one — the screen says so rather than quietly excluding them. And states an
 order has finished with are not listed at all: an order picked up an hour ago
 has not been "picked up" for an hour. It is done.
+
+## Changing your mind about a line
+
+A cart line now has an Edit button. It re-opens the same composer you built it
+in, already filled in — your protein still selected, your guacamole still
+ticked, your quantity and your note where you left them — and the button says
+Save changes instead of Add to cart.
+
+Saving replaces that line where it sits rather than removing it and adding a
+new one at the bottom. A three-line order that reshuffles itself because you
+fixed the first line is a different order than the one you were reading.
+
+And the link only carries which line you are editing, never what is in it. What
+is in it comes off your cart on the server, so a hand-edited URL cannot invent
+a burrito you never composed.

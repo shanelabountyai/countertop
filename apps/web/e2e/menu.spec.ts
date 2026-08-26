@@ -83,6 +83,73 @@ test('a composed line reaches the cart, with the negation distinct and the tax t
   await expect(page.getByText('Nothing in it yet.')).toBeVisible();
 });
 
+// C-021: editing a line in place. `replaceLine` has existed and been unit
+// tested since C-005; this is the screen that finally calls it.
+test('a cart line re-opens pre-filled, and saving replaces it where it sat', async ({ page }) => {
+  await page.goto('/menu/burrito');
+  await page.getByRole('radio', { name: /Chicken/ }).check();
+  await page.getByRole('checkbox', { name: /Guacamole/ }).check();
+  await page.getByRole('button', { name: /Add to cart/ }).click();
+  await expect(page).toHaveURL(/\/cart$/);
+
+  await page.goto('/menu/chips');
+  await page.getByRole('button', { name: /Add to cart/ }).click();
+  await expect(page).toHaveURL(/\/cart$/);
+  await expect(page.getByRole('heading', { level: 2 })).toHaveText([
+    '1 × Burrito',
+    '1 × Chips & salsa',
+  ]);
+
+  const burritoLine = page.getByRole('listitem').filter({ hasText: 'Burrito' }).first();
+  await burritoLine.getByRole('link', { name: 'Edit' }).click();
+  await expect(page).toHaveURL(/\/menu\/burrito\?line=/);
+
+  // Pre-filled on the FIRST render, from the cart cookie — not an empty
+  // composer that fills itself in afterwards.
+  await expect(page.getByRole('radio', { name: /Chicken/ })).toBeChecked();
+  await expect(page.getByRole('checkbox', { name: /Guacamole/ })).toBeChecked();
+  await expect(total(page)).toHaveText('$13.45');
+  // The way back is to the cart, because that is where this was opened from.
+  await expect(page.getByRole('link', { name: '← Cart' })).toBeVisible();
+
+  await page.getByRole('checkbox', { name: /Guacamole/ }).uncheck();
+  await page.getByRole('radiogroup', { name: 'Onions' }).getByText('No onions').click();
+  await page.getByRole('spinbutton', { name: 'Quantity' }).fill('2');
+  await expect(total(page)).toHaveText('$21.90');
+
+  await page.getByRole('button', { name: /Save changes/ }).click();
+  await expect(page).toHaveURL(/\/cart$/);
+
+  // Two lines, not three — and the burrito is still the first of them.
+  await expect(page.getByRole('heading', { level: 2 })).toHaveText([
+    '2 × Burrito',
+    '1 × Chips & salsa',
+  ]);
+  await expect(page.getByText('NO onions')).toBeVisible();
+  await expect(page.getByText('Guacamole')).toHaveCount(0);
+});
+
+test('a line id that is no longer in the cart composes a fresh one instead', async ({ page }) => {
+  await page.goto('/menu/burrito');
+  await page.getByRole('radio', { name: /Chicken/ }).check();
+  await page.getByRole('button', { name: /Add to cart/ }).click();
+
+  const href = await page
+    .getByRole('listitem')
+    .filter({ hasText: 'Burrito' })
+    .first()
+    .getByRole('link', { name: 'Edit' })
+    .getAttribute('href');
+  await page.getByRole('button', { name: 'Remove' }).click();
+  await expect(page.getByText('Nothing in it yet.')).toBeVisible();
+
+  // The stale link still resolves — it just has nothing to edit, so it is an
+  // ordinary composer with an ordinary Add button.
+  await page.goto(href!);
+  await expect(page.getByRole('button', { name: /Add to cart/ })).toBeVisible();
+  await expect(page.getByRole('radio', { name: /Chicken/ })).not.toBeChecked();
+});
+
 for (const path of ['/menu', '/menu/burrito', '/cart']) {
   test(`${path} has no detectable accessibility violations`, async ({ page }) => {
     await page.goto(path);

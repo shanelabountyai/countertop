@@ -79,6 +79,15 @@ export default async function CartPage() {
               )}
 
               <div className="mt-3 flex gap-3">
+                {/* Edit re-opens the composer on THIS line (C-021). A link,
+                    not a form: it changes nothing until the customer saves,
+                    and it has to survive being opened in a new tab. */}
+                <Link
+                  href={`/menu/${line.composition.itemId}?line=${line.id}`}
+                  className="flex min-h-12 items-center rounded-md border border-neutral-300 px-4 text-sm"
+                >
+                  Edit
+                </Link>
                 <form action={removeCartLineForm.bind(null, line.id)}>
                   <button
                     type="submit"

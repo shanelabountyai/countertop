@@ -1,6 +1,6 @@
-import { execSync } from 'node:child_process';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { reseed } from './reseed';
 
 // C-011: the checkout gate and the checkout it gates (P0-6, P0-8, P0-10).
 //
@@ -27,7 +27,7 @@ const pauseFrom = async (page: Page, why?: string) => {
 };
 
 test.beforeEach(() => {
-  execSync('npm run db:seed:test', { cwd: '../..', stdio: 'ignore' });
+  reseed();
 });
 
 test('places an order end to end, and it lands on the kitchen queue', async ({ page }) => {

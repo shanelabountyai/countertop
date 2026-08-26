@@ -1,6 +1,6 @@
-import { execSync } from 'node:child_process';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { reseed } from './reseed';
 
 // C-012: the 86 board and the three surfaces one 86 has to touch (P0-6).
 //
@@ -11,7 +11,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 // Every test mutates the shared menu rows, so each starts from the seed.
 test.beforeEach(() => {
-  execSync('npm run db:seed:test', { cwd: '../..', stdio: 'ignore' });
+  reseed();
 });
 
 const eightySix = async (page: Page, name: string) => {

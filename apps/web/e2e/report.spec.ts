@@ -1,6 +1,6 @@
-import { execSync } from 'node:child_process';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { reseed } from './reseed';
 
 // C-016: the sales report (P1-1).
 //
@@ -16,7 +16,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 //   #004 Sam Okafor   accepted    — five lines
 
 test.beforeEach(() => {
-  execSync('npm run db:seed:test', { cwd: '../..', stdio: 'ignore' });
+  reseed();
 });
 
 const card = (page: Page, name: string): Locator =>

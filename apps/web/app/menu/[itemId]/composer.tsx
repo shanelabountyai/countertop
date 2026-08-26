@@ -23,7 +23,7 @@ import {
   type OptionSelection,
 } from '@countertop/core/menu';
 import { appliedDeltaCents, priceLine } from '@countertop/core/pricing';
-import { addToCart } from '@/app/cart/actions';
+import { addToCart, updateCartLine } from '@/app/cart/actions';
 import { formatCents, formatDeltaCents } from '@/lib/money';
 
 /** What a customer can say about one option. `null` is "not selected at all". */
@@ -76,14 +76,32 @@ const INTENSITY_CHOICES: { value: Intensity | ''; label: (name: string) => strin
   { value: 'extra', label: () => 'Extra' },
 ];
 
-export function Composer({ menu, itemId }: { menu: Menu; itemId: string }) {
+/** The cart line this composer was opened on, if it was opened on one (C-021).
+ *  Resolved server-side from the cart cookie — the composition is never taken
+ *  off the URL. */
+export type EditingLine = { lineId: string; composition: Composition };
+
+export function Composer({
+  menu,
+  itemId,
+  editing,
+}: {
+  menu: Menu;
+  itemId: string;
+  editing?: EditingLine;
+}) {
   const item = menu.items[itemId]!;
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  const [selections, setSelections] = useState<OptionSelection[]>([]);
-  const [quantity, setQuantity] = useState(1);
-  const [note, setNote] = useState('');
+  // Pre-filled from the line when editing. `useState`'s initial value, not an
+  // effect: the first render is already correct, so the screen never shows an
+  // empty composer and then fills itself in under someone's thumb.
+  const [selections, setSelections] = useState<OptionSelection[]>(
+    editing ? [...editing.composition.selections] : [],
+  );
+  const [quantity, setQuantity] = useState(editing?.composition.quantity ?? 1);
+  const [note, setNote] = useState(editing?.composition.note ?? '');
   // Requirements are shown as hints from the start; the red text only appears
   // once someone has actually tried to add. Nagging before the first tap is
   // how a form teaches people to ignore its errors.
@@ -115,7 +133,12 @@ export function Composer({ menu, itemId }: { menu: Menu; itemId: string }) {
     if (!validity.ok) return;
 
     startTransition(async () => {
-      const result = await addToCart(composition);
+      // `replaceLine` keeps the line where it was in the cart. Remove-then-add
+      // would send it to the bottom, which is a different cart than the one
+      // the customer was looking at.
+      const result = editing
+        ? await updateCartLine(editing.lineId, composition)
+        : await addToCart(composition);
       if (result.ok) router.push('/cart');
       else setServerErrors(result.errors.map((error) => error.message));
     });
@@ -123,8 +146,11 @@ export function Composer({ menu, itemId }: { menu: Menu; itemId: string }) {
 
   return (
     <main className="mx-auto max-w-2xl p-6">
-      <Link href="/menu" className="text-sm underline underline-offset-4">
-        ← Menu
+      <Link
+        href={editing ? '/cart' : '/menu'}
+        className="text-sm underline underline-offset-4"
+      >
+        {editing ? '← Cart' : '← Menu'}
       </Link>
 
       <h1 className="mt-4 text-3xl font-semibold">{item.name}</h1>
@@ -291,7 +317,7 @@ export function Composer({ menu, itemId }: { menu: Menu; itemId: string }) {
         ))}
         {attempted && !validity.ok && (
           <p className="text-sm font-medium text-red-700">
-            Fix the choices above before adding this to your cart.
+            Fix the choices above before {editing ? 'saving this line' : 'adding this to your cart'}.
           </p>
         )}
       </div>
@@ -302,7 +328,8 @@ export function Composer({ menu, itemId }: { menu: Menu; itemId: string }) {
         disabled={pending}
         className="mt-4 min-h-14 w-full rounded-lg bg-neutral-900 px-6 text-lg font-semibold text-white disabled:opacity-60"
       >
-        Add to cart · <span data-testid="line-total">{formatCents(priced.lineTotalCents)}</span>
+        {editing ? 'Save changes' : 'Add to cart'} ·{' '}
+        <span data-testid="line-total">{formatCents(priced.lineTotalCents)}</span>
       </button>
     </main>
   );

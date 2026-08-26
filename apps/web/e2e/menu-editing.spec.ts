@@ -1,6 +1,6 @@
-import { execSync } from 'node:child_process';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { reseed } from './reseed';
 
 // C-015: safe menu editing (P0-13).
 //
@@ -11,7 +11,7 @@ test.use({ viewport: { width: 390, height: 844 } }); // iPhone 14 portrait
 
 // Every test rewrites live menu rows, so each starts from the seed.
 test.beforeEach(() => {
-  execSync('npm run db:seed:test', { cwd: '../..', stdio: 'ignore' });
+  reseed();
 });
 
 // `exact: true` throughout: "Price for Burrito" is a PREFIX of "Price for
