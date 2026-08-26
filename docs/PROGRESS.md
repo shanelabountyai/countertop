@@ -1503,3 +1503,45 @@ C-023 committed and pushed at 488927f
   and the two TZ legs — has only ever been executed by hand.
 
 C-024 committed and pushed at 48ca554
+
+## C-025 — Shared e2e fixtures
+
+**Built:**
+- `apps/web/e2e/fixtures.ts` (was `reseed.ts`) — `reseed`, `card`,
+  `addBurritoToCart`, `placeOrderFor`.
+- Local copies deleted from `checkout.spec.ts` (its own
+  `addBurritoToCart`), `availability.spec.ts` (`burritoWithGuacamole`),
+  `status.spec.ts` (`placeOrderFor` and `card`), `kitchen.spec.ts` and
+  `report.spec.ts` (`card`).
+
+**Decided:**
+- **This is a defect-class fix, not a tidy-up.** Four times a spec has clicked
+  something that triggers a server action and navigated before the write
+  landed: C-014's cart cookie, C-015's price save, C-019's `page.close()` after
+  a cancel, C-023's checkout. Every one was a spec writing its own worse copy
+  of a helper that already existed one file over, with the guard missing. The
+  guard now lives in one function, and nothing else has to remember.
+- **`addBurritoToCart` takes a `{ guacamole }` flag rather than becoming
+  generic.** Three call sites wanted the same burrito and one wanted guacamole
+  on it. A helper that takes a composition would be a second, worse composer;
+  the composer's own suite still drives the screen by hand, which is what that
+  suite is for.
+- **`card` takes a `Page` rather than reading a test fixture.** Half its
+  callers are driving a SECOND page — the kitchen tab beside the customer's —
+  and a helper that could only see the default one would have been rewritten
+  locally on the spot, which is the whole problem.
+- **`placeOrderFor` asserts the link looks like a link before returning it.**
+  A spec that goes on to `goto` it fails in the helper if placement quietly did
+  not produce one, rather than three lines later on a 404.
+
+**Left behind:**
+- **`menu.spec.ts` and `menu-editing.spec.ts` still compose by hand,
+  deliberately.** They are the specs ABOUT those screens; driving them through
+  a helper would test the helper.
+- **No fixture for the kitchen's advance buttons.** `report.spec.ts`'s `pickUp`
+  walks a card to `picked_up` through the real labels and is used only there —
+  one call site is not a pattern yet.
+- **Nothing stops the next spec from writing its own copy.** The rule is a
+  comment at the top of `fixtures.ts` explaining which four defects it exists
+  to prevent. A lint rule banning `execSync` in a spec would cover a third of
+  it and none of the rest.

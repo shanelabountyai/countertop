@@ -16,7 +16,6 @@ import {
   restaurantClock,
   queueAging,
   undoRemainingMs,
-  type OrderStatus,
 } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
 import { loadQueue, queueCursor, type QueueOrder } from '@countertop/db/queue';

@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { reseed } from './reseed';
+import { addBurritoToCart, reseed } from './fixtures';
 
 // C-011: the checkout gate and the checkout it gates (P0-6, P0-8, P0-10).
 //
@@ -10,14 +10,6 @@ import { reseed } from './reseed';
 // trigger is driven directly in packages/core's unit tests, where the clock is
 // a parameter; what is proved here is the two triggers that are deterministic
 // at any hour, and that the screens and the server agree about them.
-
-// Burrito 1095 + chicken 0 = 1095; tax 8.25% of 1095 = 90.3375 → 90; total 1185.
-const addBurritoToCart = async (page: Page) => {
-  await page.goto('/menu/burrito');
-  await page.getByRole('radio', { name: /Chicken/ }).check();
-  await page.getByRole('button', { name: /Add to cart/ }).click();
-  await expect(page).toHaveURL(/\/cart/);
-};
 
 const pauseFrom = async (page: Page, why?: string) => {
   await page.goto('/kitchen');

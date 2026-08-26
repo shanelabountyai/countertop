@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Locator, type Page } from '@playwright/test';
-import { reseed } from './reseed';
+import { expect, test, type Page } from '@playwright/test';
+import { card, reseed } from './fixtures';
 
 // C-016: the sales report (P1-1).
 //
@@ -18,9 +18,6 @@ import { reseed } from './reseed';
 test.beforeEach(() => {
   reseed();
 });
-
-const card = (page: Page, name: string): Locator =>
-  page.getByRole('listitem').filter({ hasText: name }).first();
 
 /** Tap a card forward through the REAL buttons until it is picked up. Each
  *  label comes from the status module, so this walks the actual state machine

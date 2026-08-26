@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { reseed } from './reseed';
+import { addBurritoToCart, reseed } from './fixtures';
 
 // C-012: the 86 board and the three surfaces one 86 has to touch (P0-6).
 //
@@ -18,14 +18,6 @@ const eightySix = async (page: Page, name: string) => {
   await page.goto('/kitchen/availability');
   await page.getByRole('button', { name: `Mark ${name} sold out` }).click();
   await expect(page.getByRole('button', { name: `Put ${name} back on` })).toBeVisible();
-};
-
-const burritoWithGuacamole = async (page: Page) => {
-  await page.goto('/menu/burrito');
-  await page.getByRole('radio', { name: /Chicken/ }).check();
-  await page.getByRole('checkbox', { name: /Guacamole/ }).check();
-  await page.getByRole('button', { name: /Add to cart/ }).click();
-  await expect(page).toHaveURL(/\/cart$/);
 };
 
 test('an 86 item is rendered sold out on the menu, not hidden, and cannot be added', async ({
@@ -50,7 +42,7 @@ test('an 86 item is rendered sold out on the menu, not hidden, and cannot be add
 test('an 86 option flags the carts holding it and blocks checkout, at the option grain', async ({
   page,
 }) => {
-  await burritoWithGuacamole(page);
+  await addBurritoToCart(page, { guacamole: true });
   await eightySix(page, 'Guacamole');
 
   await page.goto('/cart');
@@ -67,7 +59,7 @@ test('an 86 option flags the carts holding it and blocks checkout, at the option
 });
 
 test('putting an option back on clears the flag it left in the cart', async ({ page }) => {
-  await burritoWithGuacamole(page);
+  await addBurritoToCart(page, { guacamole: true });
   await eightySix(page, 'Guacamole');
   await page.goto('/cart');
   await expect(page.getByText('Guacamole is sold out.')).toBeVisible();
@@ -82,7 +74,7 @@ test('putting an option back on clears the flag it left in the cart', async ({ p
 });
 
 test('an order already placed is untouched by the 86 that follows it', async ({ page }) => {
-  await burritoWithGuacamole(page);
+  await addBurritoToCart(page, { guacamole: true });
   await page.getByRole('link', { name: 'Checkout' }).click();
   await page.getByRole('textbox', { name: /Name for the order/ }).fill('Jo Marquez');
   await page.getByRole('button', { name: /Place order/ }).click();

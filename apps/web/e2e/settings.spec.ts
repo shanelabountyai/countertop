@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { reseed } from './reseed';
+import { reseed } from './fixtures';
 
 // C-023: the operator's settings.
 //

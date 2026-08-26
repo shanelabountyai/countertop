@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { reseed } from './reseed';
+import { card, reseed } from './fixtures';
 
 // C-008: the kitchen queue (P0-4, P0-11).
 //
@@ -11,9 +11,6 @@ import { reseed } from './reseed';
 //   #002 Morgan Ellis preparing, 22m  — past the 15-minute flag
 //   #003 Priya Shah   ready, 25m      — past the second no-show mark
 //   #004 Sam Okafor   accepted        — five lines, none hidden
-
-const card = (page: Page, name: string): Locator =>
-  page.getByRole('listitem').filter({ hasText: name }).first();
 
 const heightOf = async (locator: Locator): Promise<number> => {
   const box = await locator.boundingBox();

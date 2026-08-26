@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Locator, type Page } from '@playwright/test';
-import { reseed } from './reseed';
+import { expect, test } from '@playwright/test';
+import { card, placeOrderFor, reseed } from './fixtures';
 
 // C-014: the customer's status page (P0-5, P0-7, P0-8).
 //
@@ -8,28 +8,6 @@ import { reseed } from './reseed';
 // thing under test and it only exists because placement minted it. Nothing
 // here reads a token out of the database — if the receipt does not hand the
 // customer a working link, these fail, which is the point.
-
-// Burrito 1095 + chicken 0 = 1095; tax 8.25% of 1095 = 90.3375 → 90; total 1185.
-const placeOrderFor = async (page: Page, name: string): Promise<string> => {
-  await page.goto('/menu/burrito');
-  await page.getByRole('radio', { name: /Chicken/ }).check();
-  await page.getByRole('button', { name: /Add to cart/ }).click();
-  // Wait for the add to actually land before navigating: the cart is an
-  // httpOnly cookie written by the server action's response, and a `goto`
-  // racing it arrives at an empty checkout.
-  await expect(page).toHaveURL(/\/cart/);
-  await page.getByRole('link', { name: 'Checkout' }).click();
-  await page.getByRole('textbox', { name: /Name for the order/ }).fill(name);
-  await page.getByRole('button', { name: /Place order/ }).click();
-  await expect(page.getByTestId('order-number')).toBeVisible();
-
-  const href = await page.getByTestId('track-order').getAttribute('href');
-  expect(href).toMatch(/^\/status\/.+/);
-  return href as string;
-};
-
-const card = (page: Page, name: string): Locator =>
-  page.getByRole('listitem').filter({ hasText: name }).first();
 
 test.beforeEach(() => {
   reseed();

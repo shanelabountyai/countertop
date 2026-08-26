@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { reseed } from './reseed';
+import { reseed } from './fixtures';
 
 // C-015: safe menu editing (P0-13).
 //
