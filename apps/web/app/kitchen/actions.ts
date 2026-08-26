@@ -83,3 +83,36 @@ export async function setOrderingPaused(paused: unknown, message?: unknown): Pro
   revalidatePath('/cart');
   return { ok: true };
 }
+
+/**
+ * The 86 board's two writes (P0-6). Both grains, one shape.
+ *
+ * `updateMany`, not `update`: a stale board tapping an id that has since been
+ * deleted should change nothing, not throw a 500 at a cook mid-rush.
+ *
+ * These flip ONE boolean. Everything an 86 means is already downstream of it —
+ * the menu renders "sold out", `validateComposition` refuses the composition,
+ * `reviewCart` flags the lines already holding it, and placement refuses the
+ * order. A placed order is untouched by construction: it is a snapshot.
+ */
+export async function setItemAvailable(itemId: unknown, available: unknown): Promise<void> {
+  if (typeof itemId !== 'string' || typeof available !== 'boolean') return;
+  await prisma.menuItem.updateMany({ where: { id: itemId }, data: { available } });
+  revalidateMenuSurfaces();
+}
+
+export async function setOptionAvailable(optionId: unknown, available: unknown): Promise<void> {
+  if (typeof optionId !== 'string' || typeof available !== 'boolean') return;
+  await prisma.modifierOption.updateMany({ where: { id: optionId }, data: { available } });
+  revalidateMenuSurfaces();
+}
+
+/** The three customer surfaces an 86 has to reach, plus the board itself. The
+ *  fourth surface — a placed order — must NOT change, so it is not here. */
+function revalidateMenuSurfaces(): void {
+  revalidatePath('/kitchen/availability');
+  revalidatePath('/menu');
+  revalidatePath('/menu/[itemId]', 'page');
+  revalidatePath('/cart');
+  revalidatePath('/checkout');
+}

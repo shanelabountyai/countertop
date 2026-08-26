@@ -431,3 +431,30 @@ on the grill still gets their order back rather than a closed sign.
 **And checkout itself is here**: name, optional phone, an order note for "blue
 Honda out front", and an order number on a receipt. Placing twice by accident
 still produces one order.
+
+## When the kitchen runs out
+
+Restaurants run out of things mid-service, and it is rarely the whole dish —
+it is the avocado. Countertop now takes both, from one screen the kitchen can
+reach with one hand.
+
+**Two grains, because "out of guacamole" is not "out of burritos."** Mark a
+whole item sold out, or mark a single option sold out and leave everything
+else orderable. Out of avocado, the burrito still sells.
+
+**A sold-out item stays on the menu, marked sold out.** It is not quietly
+removed. A customer who cannot find the burrito assumes the site is broken; a
+customer who sees it greyed out knows the kitchen ran out and orders something
+else.
+
+**"No onions" still works when the onions run out.** Asking for none of a
+thing there is none of is not a problem to solve, and the screen does not
+pretend it is.
+
+**A cart that already held it is flagged, not silently repriced or emptied.**
+The customer is told which line is affected and checkout waits until they fix
+it — the same answer the server gives if they try anyway.
+
+**And an order already placed does not change at all.** It was copied when it
+was placed. The ticket on the kitchen line still says guacamole, whatever the
+menu says thirty seconds later.

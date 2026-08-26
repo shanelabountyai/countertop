@@ -94,8 +94,8 @@ States: `placed → accepted → preparing → ready → picked_up`; `placed|acc
 - [ ] Customer status page pauses polling when the tab is backgrounded and stops on terminal states (`picked_up`, `cancelled`, `abandoned`)
 
 **P0-6: Availability, pause, and hours** *(one checkout gate, three triggers)*
-- [ ] Manager or kitchen can toggle **item** availability instantly; unavailable items render as "sold out," not hidden
-- [ ] Manager or kitchen can toggle **modifier option** availability independently (out of avocado ≠ out of burritos); composing an item with an unavailable option is blocked, and in-cart lines holding one are flagged per P0-3
+- [x] Manager or kitchen can toggle **item** availability instantly; unavailable items render as "sold out," not hidden
+- [x] Manager or kitchen can toggle **modifier option** availability independently (out of avocado ≠ out of burritos); composing an item with an unavailable option is blocked, and in-cart lines holding one are flagged per P0-3
 - [x] A "pause new orders" switch stops checkout with a clear customer-facing message; in-flight orders continue
 - [x] When open orders (`placed|accepted|preparing`) reach a configurable max (default 25), checkout auto-pauses with the same message; it auto-resumes below the threshold, and the manual switch always overrides *(prep-weight upgrade: P1-7)*
 - [x] Configurable weekly store hours plus a "closed today" override gate checkout through the same code path as pause, with a clear "we open at 11:00" message; new orders cut off a configurable N minutes before close (default 15)

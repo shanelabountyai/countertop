@@ -89,9 +89,14 @@ export default async function KitchenPage({
       <NewOrderAlert count={unacknowledged} />
       <div className="flex flex-wrap items-baseline justify-between gap-4">
         <h1 className="text-3xl font-semibold">Kitchen queue</h1>
-        <Link href="/menu" className="text-sm underline underline-offset-4">
-          Customer menu
-        </Link>
+        <div className="flex gap-4">
+          <Link href="/kitchen/availability" className="text-sm underline underline-offset-4">
+            Availability
+          </Link>
+          <Link href="/menu" className="text-sm underline underline-offset-4">
+            Customer menu
+          </Link>
+        </div>
       </div>
 
       <PauseSwitch gate={gate} paused={gateState.paused} />

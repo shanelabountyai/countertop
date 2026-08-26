@@ -699,3 +699,57 @@ C-010 committed and pushed at 354d1a8
   printed but the page behind it is C-014's.
 
 C-011 committed and pushed at 347af21
+
+## C-012 — Availability at two grains
+
+**Built:**
+- `apps/web/app/kitchen/availability/page.tsx` — the 86 board. Items by
+  category, then every modifier group's options, one tap per row, no dialog and
+  no save button. Plain `<form action={…}>`, so it works before hydration.
+- `setItemAvailable` / `setOptionAvailable` in `apps/web/app/kitchen/actions.ts`
+  — the two writes, plus `revalidateMenuSurfaces()`, which names the three
+  customer surfaces an 86 has to reach.
+- A link to the board from the queue header, next to "Customer menu".
+- Tests: 6 e2e specs — the item grain, the option grain with an affected open
+  cart, the restore, the placed order that must NOT change, and the
+  gloves-and-axe pass.
+
+**Decided:**
+- **This item shipped almost no logic, and that is the result.** Both grains
+  were already answered by `validateComposition`, and `reviewCart` already
+  flagged the lines holding a sold-out option, and `placeOrder` already refused
+  the order — so C-012 was the missing *write surface*, nothing more. That is
+  the payoff of "one orderability function" stated as a test: adding the 86
+  button required no new rule, and there was nowhere for a second answer to
+  appear.
+- **`updateMany`, not `update`.** A board left open on a wall screen holds ids
+  that a later menu edit can delete. `update` throws `P2025` on a missing row,
+  which is a 500 in a cook's face mid-rush; `updateMany` changes nothing and
+  re-renders the truth.
+- **The board is a server component with plain forms.** No client state, no
+  optimistic toggle: the row shows what the database says, and the only way to
+  see a stale one is to not have pressed the button. An optimistic 86 that
+  failed silently would be exactly the wrong lie to tell a kitchen.
+- **The e2e asserts the surface that must NOT move.** Placing an order with
+  guacamole, then 86'ing guacamole, then reading the kitchen card — the ticket
+  still says Guacamole and says nothing about sold out. The snapshot rule has a
+  unit-level regression test; this is the same claim at the grain a demo can
+  see.
+- **The button says what it does, with the name in it.** "Mark Guacamole sold
+  out", not a toggle switch — a switch's meaning depends on its current
+  position, which is the thing a glance across a kitchen gets wrong.
+
+**Left behind:**
+- **No per-item availability override.** 86'ing guacamole 86s it for the
+  burrito and the bowl alike, because they share the group object — right for
+  stock, wrong for a group reused as a structure device. C-015 (P0-13) owns
+  the warning that names the blast radius.
+- **No bulk action and no auto-restore.** An 86 persists until someone taps it
+  back, including overnight. A "put everything back on" button and an
+  end-of-day reset are both settings-screen work.
+- **No staff authentication**, the same scope line as the queue: anyone with
+  the URL can 86 the menu. Recorded in the write-up.
+- **A customer's open tab learns about the 86 on its next render**, not
+  instantly — the customer surfaces are `force-dynamic` but nothing polls them
+  until C-014. Placement refuses regardless, so the cost is a wasted trip to
+  the cart, never a bad order.
