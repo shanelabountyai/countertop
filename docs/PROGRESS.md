@@ -1455,3 +1455,5 @@ C-022 committed and pushed at 65b9216
 - **No confirm step on hours.** The menu editor confirms a price change old →
   new (C-015); saving hours does not, even though closing a day is at least as
   consequential as repricing a burrito.
+
+C-023 committed and pushed at 488927f
