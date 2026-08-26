@@ -1611,3 +1611,5 @@ C-025 committed and pushed at cee5fde
   conflict.** Renaming Salsa while someone else widens its max refuses, though
   both could have applied. Rarer than the case it catches, and the safe
   direction.
+
+C-026 committed and pushed at c83d2d5
