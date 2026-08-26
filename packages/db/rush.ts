@@ -401,7 +401,10 @@ export type RushAttempt = {
 
 export type RushResult = {
   anchor: Date;
+  /** The instant the run stopped — minute `untilMinute` of the rush. */
   end: Date;
+  /** Where it stopped. Below `RUSH_END_MINUTE` the kitchen is mid-service. */
+  untilMinute: number;
   attempts: RushAttempt[];
   /** Label → order id, for the orders that made it in. A retry overwrites its
    *  own refused attempt, which is what the customer would say happened. */
@@ -502,15 +505,24 @@ async function move(
 }
 
 /**
- * Seed a fresh database and run the whole rush against it.
+ * Seed a fresh database and run the rush against it.
  *
  * Minute by minute, because ordering within a minute is the only thing that
  * matters: the pause has to be ON before the orders that bounce off it are
  * submitted, and the 86 has to have landed before the stranded cart is. So
  * everything that changes the RESTAURANT runs first, then the placements for
  * that minute go in together, then the kitchen's taps.
+ *
+ * `untilMinute` stops the clock early, which is the only way to see the thing
+ * the whole product is about: a kitchen queue with live cards on it. Run to
+ * the end and every order is terminal and `/kitchen` is empty — the right
+ * RESULT, and a poor screenshot. Stopping is a truncation, not a variant: the
+ * orders that had not arrived yet simply have not arrived.
  */
-export async function runRush(anchor: Date = RUSH_ANCHOR): Promise<RushResult> {
+export async function runRush(
+  anchor: Date = RUSH_ANCHOR,
+  untilMinute: number = RUSH_END_MINUTE,
+): Promise<RushResult> {
   await resetDatabase();
   await seedSampleMenu();
   // Shipping defaults, threshold included. The rush is supposed to FIT under
@@ -525,7 +537,7 @@ export async function runRush(anchor: Date = RUSH_ANCHOR): Promise<RushResult> {
   const carts = new Map<RushOrder, Cart>();
   const kitchen: { orderId: string; label: string; step: KitchenStep }[] = [];
 
-  for (let minute = 0; minute <= RUSH_END_MINUTE; minute += 1) {
+  for (let minute = 0; minute <= untilMinute; minute += 1) {
     // 1. The restaurant changes under the customers.
     if (minute === EIGHTY_SIX_MINUTE) {
       await prisma.modifierOption.update({
@@ -581,5 +593,5 @@ export async function runRush(anchor: Date = RUSH_ANCHOR): Promise<RushResult> {
     grouped.map((row) => [row.status, row._count]),
   ) as Record<OrderStatus, number>;
 
-  return { anchor, end: at(anchor, RUSH_END_MINUTE), attempts, orderIds, finalStatuses };
+  return { anchor, end: at(anchor, untilMinute), untilMinute, attempts, orderIds, finalStatuses };
 }

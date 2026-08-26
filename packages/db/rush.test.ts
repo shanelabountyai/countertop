@@ -275,3 +275,62 @@ describe('the time-in-state report', () => {
     });
   });
 });
+
+// Declared LAST on purpose: its `beforeAll` re-runs the rush, which truncates
+// the database every test above reads. A describe added after this one would
+// be looking at a different service.
+describe('stopping the rush mid-service', () => {
+  let midService: RushResult;
+
+  beforeAll(async () => {
+    midService = await runRush(RUSH_ANCHOR, 12);
+  }, 180_000);
+
+  it('leaves a queue with live cards on it, which the full run does not', async () => {
+    const open = await prisma.order.findMany({ where: { status: { in: ['placed', 'accepted', 'preparing'] } } });
+    expect(open.length).toBeGreaterThan(10);
+
+    // Every queue status is represented, which is the point of the screenshot.
+    const onQueue = await prisma.order.groupBy({ by: ['status'], _count: true });
+    const statuses = onQueue.map((row) => row.status);
+    expect(statuses).toEqual(expect.arrayContaining(['placed', 'accepted', 'preparing', 'ready']));
+  });
+
+  it('is a truncation, not a variant: nothing after minute 12 has happened', async () => {
+    // Arrivals are exactly the customers due by minute 12.
+    const expected = RUSH_ORDERS.filter((o) => o.minute <= 12 && !o.expectRefusal).length;
+    expect(midService.attempts.filter((a) => a.outcome === 'placed')).toHaveLength(expected);
+
+    // The pause (15) and the wrong-advance undo (13) are still in the future.
+    expect(await prisma.orderEvent.count({ where: { kind: 'revert' } })).toBe(0);
+    const settings = await prisma.restaurantSettings.findUniqueOrThrow({ where: { id: 'singleton' } });
+    expect(settings.ordersPaused).toBe(false);
+
+    // The 86 (minute 8) and its cancel (minute 9) already have.
+    const guac = await prisma.modifierOption.findUniqueOrThrow({ where: { id: 'guacamole' } });
+    expect(guac.available).toBe(false);
+    expect(await prisma.order.count({ where: { status: 'cancelled' } })).toBe(1);
+  });
+
+  it('runs an unfinished order\'s last span to the stop, not to the wall clock', async () => {
+    expect(midService.untilMinute).toBe(12);
+    expect(midService.end).toEqual(instantMinutesAfter(RUSH_ANCHOR, 12));
+
+    // Ada Nkemelu: placed 0, accepted 1, preparing 3, ready 11 — and her
+    // pickup at 14 has not happened. At the stop she has been on the shelf a
+    // minute, and `ready` is the span still running.
+    const ada = await orderFor('Ada Nkemelu');
+    expect(ada.status).toBe('ready');
+    expect(timeInState(await eventsFor('Ada Nkemelu'), midService.end)).toMatchObject({
+      placed: 1 * MIN,
+      accepted: 2 * MIN,
+      preparing: 8 * MIN,
+      ready: 1 * MIN,
+      picked_up: 0,
+    });
+
+    // And the tally counts her as still in flight: nothing is booked as sold.
+    const rows = timeInStateReport([await eventsFor('Ada Nkemelu')], midService.end);
+    expect(rows.find((r) => r.status === 'picked_up')).toMatchObject({ orders: 0, averageMs: null });
+  });
+});

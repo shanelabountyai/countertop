@@ -329,6 +329,30 @@ cart cookie, one file over. The fix is to assert the outcome the write produces
 than the one it replaced anyway: it proves the save happened rather than
 inferring it from a later screen.
 
+**C-019 — closing a page aborts its own write, the same as navigating away.**
+The status spec cancels an order from the kitchen queue in a second tab, closes
+that tab, and loads the customer's status page expecting to see `cancelled`. It
+saw `placed`: `page.close()` killed the in-flight server action before it
+committed. The spec had passed for two sessions on timing alone, and failed on a
+run whose diff touched no application code at all.
+
+*How it was found:* the failure alarm on a sweep that was only supposed to
+confirm a demo script. The assertion named the received value — `placed` — which
+is the whole diagnosis in one word.
+
+*Fix:* assert the write's own receipt before closing. A cancelled order leaves
+the queue, so its absence from the kitchen screen proves the transition
+committed.
+
+*Why it is worth a third entry:* this is the same defect as C-014's `goto`
+outrunning the cart cookie and C-015's `goto` outrunning a price save. The rule
+that came out of those — *after a server action, assert the state it produced
+before navigating away* — was correct and was written down, and this still
+shipped, because nobody had noticed that `page.close()` is a way of navigating
+away. A rule phrased around one API does not generalise on its own. The rule is
+better stated as: **a server action is not finished until something you can
+observe says so, and nothing that ends the page may happen before that.**
+
 **C-017 — nothing. And that is the finding.** The seeded rush is the largest
 single piece of behaviour in the project — thirty orders, five deliberately
 ugly cases, a hundred and twenty transitions — and fourteen of its fifteen
@@ -466,5 +490,5 @@ opinion early, while the diff that caused it is still one file.
 | Menu fixture | 25 items, 8 modifier groups, 5 categories |
 | The seeded rush | 30 orders / 20 simulated minutes / 5 ugly cases / 0 stuck, lost or duplicated |
 | Documentation | ~2,520 lines across the PRD, PROGRESS, RELEASE_NOTES, backlog and this file |
-| Defects recorded | 7, each with how it was found and what would catch it earlier |
+| Defects recorded | 8, each with how it was found and what would catch it earlier |
 | Build window | 2026-08-25, start to finish |

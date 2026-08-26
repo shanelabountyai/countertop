@@ -1162,3 +1162,58 @@ C-017 committed and pushed at 5442b5b
   construction and marked `~`.
 
 C-018 committed and pushed at d183641
+
+## C-019 — Stopping the rush mid-service
+
+**Built:**
+- `runRush(anchor, untilMinute)` — the loop stops where it is told. Default
+  unchanged (`RUSH_END_MINUTE`), and `RushResult` now carries `untilMinute`
+  and an `end` that reflects it.
+- `npm run demo:rush -- --until 12`, and `npm run demo:rush:live` as the
+  shorthand. The narration only claims the ugly cases that have actually
+  happened by the stop, and says how long the no-show has been on the shelf
+  instead of announcing an abandonment that is still 28 minutes away.
+- The sales block prints the in-flight count when there is one, so a
+  mid-service run reads "0 sold, 22 still in flight" rather than looking like a
+  restaurant that sold nothing.
+- 3 new database tests, declared LAST in the file with a comment saying why.
+
+**Decided:**
+- **Stopping is a TRUNCATION, not a variant.** No second script, no second
+  order table, no "live mode" branch anywhere in the rush. The orders that had
+  not arrived yet simply have not arrived, and there is a test asserting
+  exactly that: at minute 12 the revert count is zero and the pause is off,
+  while the 86 and its cancel have already happened.
+- **The default is still the full run.** `demo:rush` with no flag is the
+  capstone: thirty orders, everything terminal, zero stuck. The live variant is
+  for looking at the screen the product is actually about.
+- **The mid-service describe is declared last in `rush.test.ts`.** Its
+  `beforeAll` re-runs the rush, which truncates the database every test above
+  it reads. A describe added after it would silently be looking at a different
+  service — the comment says so, because nothing enforces it.
+- **The demo's ugly-case narration is derived, not printed.** Each line is
+  guarded by the minute its case happens on. A demo that claims a no-show at
+  minute 12 is a demo nobody checks twice.
+
+**Found and fixed (a defect the sweep caught, not a C-019 regression):**
+- **`status.spec.ts` closed the page that had just issued a cancel.** The spec
+  taps "Out of an item" on the kitchen queue and immediately calls
+  `kitchen.close()`, then loads the customer's status page expecting
+  `cancelled`. Closing a page aborts an in-flight server action exactly the way
+  a `goto` does, so the cancel never landed and the customer's page rendered
+  `placed`. It had passed for two sessions on timing alone.
+  *Fix:* assert the write's own receipt — a cancelled order leaves the queue,
+  so `expect(kitchen.getByText('Jordan Vale')).toHaveCount(0)` — before
+  closing. This is the THIRD instance of the same defect class in this project
+  (C-014's `goto` racing the cart cookie, C-015's racing a price save); the
+  first two are already in the write-up with the rule stated. What is new is
+  that `page.close()` is a member of that class and nobody had said so.
+
+**Left behind:**
+- **`--until 12` is a hard-coded choice of "mid-service".** Minute 12 has all
+  four queue states populated and 22 open orders, which is what makes a
+  screenshot; nothing computes that, it was picked by looking.
+- **Still nothing asserts what the queue LOOKED like.** The mid-service run
+  makes a Playwright walk of the rush possible for the first time — there is
+  finally a database state with live cards in it — but that spec is not
+  written.

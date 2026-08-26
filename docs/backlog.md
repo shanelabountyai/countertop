@@ -39,6 +39,7 @@ npm run lint && npm run typecheck && npm test && PORT=3400 npm run test:e2e
 - [x] **C-016** — Sales report *(P1-1)* — items by day/hour in the restaurant's timezone, top sellers, modifier attach rates, no-show rate.
 - [x] **C-017** — Seeded rush script — 30 orders / 20 minutes with the ugly cases: mid-rush option 86 hitting an open cart, a wrong advance undone, a no-show aging to `abandoned`, a deliberate double-submit, orders bouncing off the pause gate. Zero stuck, lost or duplicated orders. **Confirm the ugly-case list against the PRD's Success Metrics verbatim before building.**
 - [x] **C-018** — The write-up finished — the four "Reserved for the end" sections of `docs/WRITEUP.md`, plus the two that had said "filled in as phases land" since C-001.
+- [x] **C-019** — Stopping the rush mid-service — `runRush(anchor, untilMinute)` and `npm run demo:rush:live`, so `/kitchen` has live cards to look at. Found and fixed a `page.close()` racing a server action in `status.spec.ts`.
 
 ## Deferred by decision (not backlog)
 

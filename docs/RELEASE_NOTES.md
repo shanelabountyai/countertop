@@ -608,3 +608,17 @@ not just a demo.
 
 **`npm run demo:rush`** prints what happened: the five ugly cases, where the
 orders ended up, how long they spent in each state, and the day's sales.
+
+## Watching the rush instead of reading about it
+
+The full seeded rush finishes with every order handed over, which is the right
+result and a dull screenshot — the kitchen queue it leaves behind is empty.
+`npm run demo:rush:live` stops the clock twelve minutes in instead: twenty-two
+orders on the pass across all four states, one already cancelled because the
+kitchen ran out of guacamole four minutes ago, and one that has been sitting
+ready for five minutes with nobody there to collect it.
+
+Nothing about it is a special mode. It is the same rush, stopped early — the
+orders that had not arrived yet simply have not arrived, the pause has not
+happened, and the report says twenty-two orders are still in flight rather than
+claiming a day with no sales in it.

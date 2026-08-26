@@ -97,6 +97,12 @@ test('a cancelled order gets its own view with the reason, and stops polling', a
   const theirs = card(kitchen, 'Jordan Vale');
   await theirs.getByText('Cancel…').click();
   await theirs.getByRole('button', { name: 'Out of an item' }).click();
+  // Assert the write LANDED before closing the page that issued it. Closing
+  // aborts an in-flight server action exactly the way a `goto` does, and this
+  // spec passed for two sessions on the timing alone — the customer's page
+  // then loads an order that is still `placed`. A cancelled order leaves the
+  // queue, so its absence is the write's own receipt.
+  await expect(kitchen.getByText('Jordan Vale')).toHaveCount(0);
   await kitchen.close();
 
   // Counted from before the load: a terminal order has no further news, so
