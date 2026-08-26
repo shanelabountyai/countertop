@@ -878,3 +878,5 @@ C-013 committed and pushed at 17924aa
 - **No link recovery.** Lose the URL and the order is unreachable from the
   customer side — the phone number captured at checkout is P1-3's channel, not
   a lookup.
+
+C-014 committed and pushed at 40c835d
