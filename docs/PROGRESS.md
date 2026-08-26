@@ -1268,3 +1268,5 @@ C-019 committed and pushed at 5a70972
 - **A long-open order dominates its column.** The seeded no-show sitting ready
   for 33 minutes moves the `ready` average more than the other 27 orders
   combined. A median would be more honest and is not what "average" means.
+
+C-020 committed and pushed at 0d8407a
