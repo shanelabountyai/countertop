@@ -1,0 +1,80 @@
+name: CI (self-hosted)
+
+# GitHub-hosted runners are billing-blocked (see ci.yml, which stays the
+# original and runs the day that clears). This workflow does the same job on a
+# runner living on the developer's Mac, where minutes are free.
+#
+# It buys the two things the pre-push hook cannot: a CLEAN `npm ci` from the
+# lockfile into an empty checkout, and an automatic run triggered by the push
+# rather than by someone remembering.
+#
+# It does NOT buy a different machine. Same Postgres, same architecture, same
+# Node. `ci.yml` is still the one that would catch a macOS-only assumption.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-self-hosted-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # NOT 3400. The runner shares this machine with the developer's dev server,
+  # and the whole port table exists because two things listening on one port
+  # fail silently rather than loudly.
+  PORT: 3450
+  # NOT countertop_test either — the runner must never drop the database a
+  # local sweep is in the middle of using.
+  RUNNER_DB: countertop_runner
+
+jobs:
+  gate:
+    runs-on: [self-hosted, macOS]
+    steps:
+      - uses: actions/checkout@v4
+
+      # The step the pre-push hook structurally cannot run: install from the
+      # lockfile into a tree with no node_modules. A dependency that is missing
+      # from package.json but happens to be installed locally fails here.
+      - run: npm ci
+
+      # .env.test and .env.local are gitignored, so a clean checkout has
+      # neither. The runner writes its own, pointed at its own database.
+      - name: Write the runner's env files
+        run: |
+          URL="postgresql://$(whoami)@localhost:5432/$RUNNER_DB"
+          printf 'DATABASE_URL=%s\nDIRECT_URL=%s\n' "$URL" "$URL" > .env.test
+          printf 'DATABASE_URL=%s\nDIRECT_URL=%s\nPORT=%s\n' "$URL" "$URL" "$PORT" > .env.local
+
+      # Migrations from nothing, the hand-written invariants, the drift check,
+      # and the unit suite under two hostile timezones — one script, shared
+      # with the pre-push hook.
+      - run: npm run ci:local
+
+      - run: npm run lint
+      - run: npm run typecheck
+
+      - name: Build the runner's database from scratch
+        run: |
+          dropdb --if-exists "$RUNNER_DB"
+          createdb "$RUNNER_DB"
+          npm run db:migrate:test
+
+      - run: npm test
+
+      # Its own step, before Playwright can bury it (C-024).
+      - run: npm run build:test
+
+      - name: e2e (production build)
+        run: npm run test:e2e
+        env:
+          CI: true
+
+      - name: Drop the runner's database
+        if: always()
+        run: dropdb --if-exists "$RUNNER_DB"

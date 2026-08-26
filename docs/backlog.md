@@ -56,6 +56,7 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 - [x] **C-033** — The gate runs before a push — `.githooks/pre-push` runs `npm run gate`, wired by `postinstall`. CI has been billing-blocked since C-029, so four items shipped unverified by anything but a local run someone remembered to do.
 - [x] **C-034** — Reservations PRD — `prd-reservations.md`, the adjacent product Countertop's Non-Goals names: table allocation under contention, and SMS confirm/change as the primary guest interface.
 - [x] **C-035** — The CI-only half runs locally too — `scripts/ci-local.sh`: a database built from nothing, the four hand-written invariant assertions, the drift check and the TZ=UTC / TZ=Pacific/Kiritimati double run. The pre-push hook runs it before the gate.
+- [x] **C-036** — CI on a runner in the room — a self-hosted macOS runner and `ci-self-hosted.yml`, which buys the clean `npm ci` and the automatic trigger the pre-push hook cannot. Its own port (3450) and its own database (`countertop_runner`), so it can never collide with a local sweep.
 
 ## Deferred by decision (not backlog)
 

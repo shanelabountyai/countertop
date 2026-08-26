@@ -1996,3 +1996,43 @@ C-033 and C-034 committed and pushed at c60a0f6
   still slips through.
 - **Two files now describe the same checks.** They will drift. The mitigation is
   that the local one is meant to be deleted, not maintained.
+
+## C-036 — CI on a runner in the room
+
+**Built:**
+- A self-hosted GitHub Actions runner (`countertop-mac`, labels `macOS`,
+  `ARM64`, `countertop`) in `~/actions-runner-countertop`, installed as a
+  launchd agent so it comes back at login.
+- `.github/workflows/ci-self-hosted.yml` — `npm ci` into a clean checkout, then
+  `ci:local`, lint, typecheck, a database built from scratch, the unit suite,
+  the production build as its own step, and e2e.
+
+**Decided:**
+- **`ci.yml` is untouched and stays the original.** It is what runs on a real
+  `ubuntu-latest` with a `postgres:16` service container the day billing is
+  unblocked. The self-hosted file is the stand-in, and says so in its header.
+- **The runner gets its own port and its own database.** 3450, not 3400, and
+  `countertop_runner`, not `countertop_test`. Both exist for the same reason:
+  the runner shares a machine with a developer, and a job triggered by a push
+  must never adopt a dev server or drop a database a local sweep is using.
+- **What it actually buys is two things, and the header says only two.**
+  `npm ci` from the lockfile into an empty tree — which the pre-push hook
+  structurally cannot do — and a run that happens because of the push rather
+  than because someone remembered. It does not buy a different machine.
+- **One runner serves one repo.** A personal account cannot own account-level
+  runners; sharing across projects needs a GitHub organization and the repos
+  moved into it. Running one runner per repo on this Mac would let two sweeps
+  run at once, which is the thing the conventions ban outright.
+
+**Left behind:**
+- **Unknown whether a failed-payment state disables Actions entirely.**
+  Self-hosted minutes are not metered, so the job should start — but if the
+  block is account-wide rather than minute-based, this workflow will die in
+  three seconds like the others, and public-or-pay is the only remaining path.
+  The next push settles it.
+- **435 MB and a launchd agent.** `~/actions-runner-countertop/svc.sh stop`,
+  `svc.sh uninstall`, then `config.sh remove` reverses all of it.
+- **A push now runs the suite twice** — once in the hook, once on the runner.
+  The hook is the one that can block a bad push; the runner is the one that
+  reports. Dropping the hook is the obvious simplification once the runner has
+  proven itself.
