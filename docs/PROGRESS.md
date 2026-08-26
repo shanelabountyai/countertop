@@ -1659,3 +1659,51 @@ C-026 committed and pushed at c83d2d5
   edits the prices of what is there.
 
 C-027 committed and pushed at a6c32fc
+
+## C-028 — The rush, on screen
+
+**Built:**
+- `apps/web/e2e/rush.spec.ts` — six tests against the kitchen queue with
+  twenty-two live tickets on it: every section populated and the counts
+  reconciling, the cancelled order gone and the stranded customer back, a
+  negation unmistakable beside an addition on the same card, the ready shelf
+  aging without every flag lit, every control ≥48px, axe clean.
+- `seedMidServiceRush()` in `fixtures.ts` and `npm run db:rush:test`.
+- The demo's anchor fixed: a run now ends NOW.
+
+**Decided:**
+- **This is the assertion C-017 could not make.** The rush was proved at the
+  database grain — thirty orders, five ugly cases, zero stuck — and C-019 made
+  a mid-service queue possible. Nothing had looked at the screen under that
+  load, which is the thing the product is about: twenty-two tickets read at
+  arm's length, in a hurry, with gloves on.
+- **The tap-target check runs across the whole queue, not one card.**
+  `kitchen.spec.ts` asserts 48px on a single card; a layout that holds for one
+  card and collapses under a full column is the version a cook actually meets.
+  Twenty-plus controls, every one measured.
+- **The negation is asserted BESIDE an addition on the same card.** "NO onions"
+  in bold next to "Guacamole" not in bold. Asserting the negation alone would
+  pass on a card where everything is bold, which is the same failure with extra
+  steps.
+
+**Found and fixed (a defect I shipped in C-019):**
+- **The live demo anchored a flat hour back**, so `--until 12` left the stop at
+  48 minutes ago and every card on the queue 48+ minutes old — past the
+  15-minute overdue flag, every ticket screaming. A queue that looked like a
+  disaster rather than a lunch rush, which is precisely the opposite of what
+  the flag is for. *Fix:* anchor so minute `until` is NOW. A full run ends now
+  too, which also puts it inside the report's one-day window instead of an hour
+  before the present for no reason. There is a test asserting nothing on the
+  mid-service queue is flagged "Running late".
+
+**Left behind:**
+- **The spec asserts one moment, not the twenty minutes.** Driving the whole
+  rush through the browser — advancing cards as they arrive, watching the alert
+  fire — would be the real capstone demo and is a project of its own; this is a
+  photograph of the hardest moment in it.
+- **`db:rush:test` replaces the ordinary seed for one spec file.** Safe only
+  because every spec that asserts seeded data reseeds (C-026), which is a
+  property nothing enforces.
+- **Nothing asserts the chime.** The new-order alert has its own tests in
+  `kitchen.spec.ts`; a rush arriving mid-service should fire it, and this spec
+  loads a queue where the alerting orders are already there.

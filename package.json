@@ -32,6 +32,7 @@
     "db:seed:test": "dotenv -e .env.test -- tsx packages/db/seed.ts",
     "demo:rush": "dotenv -e .env.local -- tsx packages/db/rush-demo.ts",
     "demo:rush:live": "npm run demo:rush -- --until 12",
+    "db:rush:test": "dotenv -e .env.test -- tsx packages/db/rush-demo.ts --until 12",
     "db:reset:test": "dropdb --if-exists countertop_test && createdb countertop_test && npm run db:migrate:test",
     "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
     "postinstall": "npm run db:generate"

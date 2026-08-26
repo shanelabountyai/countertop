@@ -26,13 +26,21 @@ const money = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
 const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
 /**
- * An hour ago, so the whole rush and its 45-minute tail land just behind the
- * present and the report's one-day window has something in it. The TEST pins a
- * fixed anchor instead (`RUSH_ANCHOR`) — a demo wants to be today, an
- * assertion wants to be the same day forever.
+ * Anchored so the run ENDS NOW.
  *
+ * Minute `until` of the rush is the present moment, which is the only anchor
+ * that makes a stopped run look like a service in progress: cards aged 0–12
+ * minutes, the no-show five minutes on the shelf, the estimate meaning
+ * something. The first version of this anchored a flat hour back, so
+ * `--until 12` left every ticket 48 minutes old and every aging flag lit — a
+ * queue that looked like a disaster rather than a lunch rush.
+ *
+ * A full run ends now too, which puts it inside the report's one-day window.
+ *
+ * The TEST pins a fixed anchor instead (`RUSH_ANCHOR`): a demo wants to be
+ * today, an assertion wants to be the same day forever.
  */
-const anchorAnHourAgo = (): Date => instantMinutesAfter(new Date(), -60);
+const anchorSoItEndsNow = (until: number): Date => instantMinutesAfter(new Date(), -until);
 
 /**
  * `--until N` stops the rush at minute N, which is how you get a kitchen queue
@@ -49,8 +57,8 @@ function untilMinuteFromArgv(): number {
 }
 
 async function main(): Promise<void> {
-  const anchor = anchorAnHourAgo();
   const until = untilMinuteFromArgv();
+  const anchor = anchorSoItEndsNow(until);
   const rush = await runRush(anchor, until);
   const { timezone } = await loadSettings();
 

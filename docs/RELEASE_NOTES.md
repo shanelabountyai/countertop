@@ -725,3 +725,24 @@ more of something must never make the food cheaper.
 Leaving it blank means extra is free, which is what most options are — and the
 screen says "free" rather than "$0.00", because those are two different
 statements about a menu.
+
+## The screen, in the middle of the rush
+
+The seeded rush proved the orders were right. This proves the screen is — the
+kitchen queue with twenty-two live tickets on it, stopped twelve minutes into
+service.
+
+Every state has cards in it and the counts on the headings add up to the orders
+that exist. The order cancelled four minutes ago when the guacamole ran out is
+gone from the queue rather than sitting there greyed out, and the customer that
+same shortage turned away is back on it, having reordered without it. "NO
+onions" is unmistakable in bold on a card that also has guacamole on it in
+plain text, which is the whole point of the product on the one screen where
+getting it wrong costs a remake. Every button is still thumb-sized across a
+full column, not just on a card by itself.
+
+And nothing is flagged as running late, because nothing is — which is a smaller
+fix than it sounds. The demo used to anchor its clock an hour back, so a queue
+stopped twelve minutes in showed every ticket at forty-eight minutes and every
+warning lit. A demo where the alarms are always on is a demo that teaches you
+to ignore them.

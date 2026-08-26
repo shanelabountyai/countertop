@@ -48,6 +48,7 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 - [x] **C-025** — Shared e2e fixtures — `reseed`, `card`, `addBurritoToCart`, `placeOrderFor` in one file, with the write-then-navigate guard in it. Four defects have come from specs reinventing these without it.
 - [x] **C-026** — The confirm is checked against the number it showed — a price or group whose value moved between the confirm panel's render and the tap is refused, naming both values. Exposed and fixed a latent ordering dependency in `menu.spec.ts`.
 - [x] **C-027** — The intensity surcharge is editable — a second confirm-guarded price row on every option in an intensity group. Blank means free, which is the column's null and a different fact from $0.00.
+- [x] **C-028** — The rush on screen — six e2e tests against a kitchen queue holding 22 live tickets, and a fix for the C-019 demo anchoring an hour back so every card read as overdue.
 
 ## Deferred by decision (not backlog)
 

@@ -40,6 +40,23 @@ export function reseed(): void {
 }
 
 /**
+ * Seed the SEEDED RUSH, stopped twelve minutes in (C-017, C-019, C-028).
+ *
+ * Twenty-two live tickets across all four queue states, anchored so minute 12
+ * is now — so the ages on the cards are the ages a cook would be reading. It
+ * replaces the ordinary seed entirely; every spec file that follows reseeds,
+ * which is what makes that safe (C-026).
+ */
+export function seedMidServiceRush(): void {
+  try {
+    execSync('npm run db:rush:test', { cwd: '../..', stdio: ['ignore', 'ignore', 'pipe'] });
+  } catch (error) {
+    const stderr = (error as { stderr?: Buffer }).stderr?.toString().trim();
+    throw new Error(`db:rush:test failed${stderr ? `:\n${stderr}` : ' with no output'}`);
+  }
+}
+
+/**
  * One order card on the kitchen queue, by the customer's name.
  *
  * `.first()` because a card's option lines are list items too, and a name that
