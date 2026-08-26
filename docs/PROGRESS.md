@@ -1330,3 +1330,5 @@ C-020 committed and pushed at 0d8407a
   never "was $13.45". The cart's own price-change banner (P0-3) covers the case
   that actually matters — a price moving under a customer — and this is a
   different, smaller thing.
+
+C-021 committed and pushed at 8bf2c63
