@@ -1501,3 +1501,5 @@ C-023 committed and pushed at 488927f
 - **CI still cannot run.** Every run in this repo's history has died in about
   two seconds on an account billing block, so this step — like the drift check
   and the two TZ legs — has only ever been executed by hand.
+
+C-024 committed and pushed at 48ca554

@@ -44,6 +44,7 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 - [x] **C-021** — Editing a cart line in place — `?line=` re-opens the composer pre-filled from the cart cookie and saves through `replaceLine`, which keeps the line where it sat. Also folded eight copies of the e2e reseed into one helper that keeps stderr.
 - [x] **C-022** — Menu integrity in the database — five hand-written CHECK constraints on `ModifierGroup`, `MenuItem` and `ModifierOption`, plus a test that a negative modifier delta stays legal.
 - [x] **C-023** — The operator's settings screen — the week's hours, close-for-today, the auto-pause threshold, the pre-close cutoff and the two ready-time numbers, all previously columns with no UI. Every rule mirrors its CHECK constraint.
+- [x] **C-024** — The build is a gate step — `npm run gate`, plus a Production build step in CI. The bundler has rejected code the whole rest of the gate passed, twice.
 
 ## Deferred by decision (not backlog)
 
