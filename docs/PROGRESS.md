@@ -2025,14 +2025,33 @@ C-033 and C-034 committed and pushed at c60a0f6
   run at once, which is the thing the conventions ban outright.
 
 **Left behind:**
-- **Unknown whether a failed-payment state disables Actions entirely.**
-  Self-hosted minutes are not metered, so the job should start — but if the
-  block is account-wide rather than minute-based, this workflow will die in
-  three seconds like the others, and public-or-pay is the only remaining path.
-  The next push settles it.
+- **Settled: the billing block does not reach self-hosted runners.** The
+  GitHub-hosted `CI` workflow still dies in four seconds on the same pushes
+  this one goes green on. Self-hosted minutes are not metered, so nothing about
+  payment gates them. No public repo, no payment.
+
+**What it caught, on its first four runs:**
+1. **The runner's database was created after the tests that connect to it.**
+   Eighteen `packages/db` tests died on `PrismaClientInitializationError`.
+   Invisible on a laptop, where `countertop_test` has existed for weeks.
+2. **`PORT` was never actually overridable.** `apps/web/package.json` read
+   `next start -p 3400`, so the runner's 3450 was ignored: Playwright waited
+   five minutes on 3450 while a healthy server served 3400. The convention had
+   claimed the override worked since C-001; no caller had ever wanted a
+   different port, so nothing tested the claim. Now `-p ${PORT:-3400}`.
+3. **An orphaned server held the port.** Self-inflicted — a manual
+   verification's `next start` survived a `pkill -f "next start"`, because the
+   live process is `next-server`. The workflow now frees its port by port
+   before e2e and again in an `always()` step; freeing by port rather than by
+   `pkill` is what keeps it from taking a sibling project's sweep with it.
+
+**Green at last:** run 33020960765, 2m32s — 370 unit tests under both
+timezones, 86 e2e passed + 11 skipped reconciling against 97.
 - **435 MB and a launchd agent.** `~/actions-runner-countertop/svc.sh stop`,
   `svc.sh uninstall`, then `config.sh remove` reverses all of it.
 - **A push now runs the suite twice** — once in the hook, once on the runner.
   The hook is the one that can block a bad push; the runner is the one that
   reports. Dropping the hook is the obvious simplification once the runner has
   proven itself.
+
+C-033 through C-036 pushed; first green CI run at 33020960765 (commit d4bd3ea range).
