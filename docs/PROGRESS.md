@@ -1953,3 +1953,5 @@ C-032 committed and pushed at 33639f8
   the same way Countertop's v2 addendum handled store hours.
 - **No backlog derived from it.** The PRD phases the work; nothing has claimed
   port 3500 or created a repo.
+
+C-033 and C-034 committed and pushed at c60a0f6
