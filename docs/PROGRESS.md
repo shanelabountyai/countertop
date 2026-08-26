@@ -1758,3 +1758,34 @@ C-028 committed and pushed at 70e91f5
   minutes.
 
 C-029 committed and pushed at ac0fbbe
+
+## C-030 — The write-up caught up with the project
+
+**Built:**
+- `docs/WRITEUP.md`: status line, "By the Numbers" and a new section — *What
+  the twelve extra items were* — explaining where C-018 → C-029 came from.
+- The C-028 demo-anchor defect written up properly, taking the recorded count
+  to 11.
+
+**Decided:**
+- **The extra items came from the write-up's own "Left behind" lists, and that
+  is worth saying out loud.** Every PROGRESS entry is required to record what
+  it did not do at the moment it decided not to do it. Twelve items later,
+  that turns out to be a backlog that generates itself — and a better one than
+  a list written in advance, because every entry already knows why it was
+  deferred. That is the most transferable thing this project produced and it
+  was not in the plan.
+- **The defect count is a headline number, not a confession.** Eleven, each
+  with how it was found and what would catch it earlier. Four were found in the
+  twelve post-backlog items, and three of those four were in code the earlier
+  items had shipped green — which is the argument for the audit half of that
+  list existing at all.
+- **The numbers table is a snapshot and says its date.** It counts itself and
+  will be stale the next time anything ships; the alternative is generating it,
+  which is a script to maintain for a document written once.
+
+**Left behind:**
+- **The live-demo line still reads `_(Vercel, later)_`.** Deploying is a
+  decision about hosting a real database, not a write-up task.
+- **No screenshots.** A portfolio write-up about a screen read at arm's length
+  with greasy gloves would be better with a picture of it.

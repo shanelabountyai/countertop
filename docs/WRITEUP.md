@@ -8,7 +8,7 @@
 **Repo:** https://github.com/shanelabountyai/countertop (private)
 **Live demo:** _(Vercel, later)_
 **Built with:** Claude Code + Next.js (App Router) · TypeScript · Postgres/Prisma · Tailwind · Vitest/Playwright + axe
-**Status:** Complete — all 17 backlog items shipped · 2026-08-25
+**Status:** Complete — 17 backlog items, then 12 more from the left-behind list · 2026-08-25/26
 
 ---
 
@@ -329,6 +329,27 @@ cart cookie, one file over. The fix is to assert the outcome the write produces
 than the one it replaced anyway: it proves the save happened rather than
 inferring it from a later screen.
 
+**C-028 — a demo where every alarm was always on.** C-019 added the ability to
+stop the seeded rush mid-service so the kitchen queue has live cards on it, and
+anchored the run a flat hour in the past. Stopping twelve minutes in therefore
+put the stop forty-eight minutes ago: every card on the queue read as 48+
+minutes old, past the fifteen-minute overdue mark, every aging flag lit. A
+lunch rush rendered as a disaster.
+
+*How it was found:* writing the e2e that finally looked at the screen (C-028).
+Nothing failed — the demo did exactly what it was told — it just showed a queue
+nobody would believe.
+
+*Fix:* anchor so minute `until` is NOW. A full run ends now too, which is
+better anyway: it lands inside the report's one-day window instead of an hour
+before the present for no reason. There is now a test asserting nothing on the
+mid-service queue is flagged "Running late".
+
+*Why it is worth recording:* it passed every check, because there was no check.
+An aging flag that is always on is worse than no aging flag, and the only thing
+that catches "technically correct, obviously wrong" is looking at it — which is
+the argument for the screenshot-shaped test, not against it.
+
 **C-026 — the one spec that did not reseed, and the eleven sessions it got away
 with it.** `menu.spec.ts` asserts hand-calculated seed prices — "$10.95",
 "$13.45" — and was the only spec file with no `reseed()` in a `beforeEach`. The
@@ -518,18 +539,37 @@ opinion early, while the diff that caused it is still one file.
 
 | | |
 |---|---|
-| Requirements shipped | 17 of 17 (C-001 → C-017), one per session |
-| Commits | 38 |
-| TypeScript / TSX | 12,936 lines across 119 tracked files |
-| …of which tests | 5,220 lines — 40% of the codebase |
-| Domain engine (`packages/core`) | 2,738 lines, zero I/O, zero clock reads |
-| Database layer (`packages/db`) | 1,496 lines |
-| Web app (`apps/web`) | 3,298 lines |
-| Unit tests | 356, in 20 files, passing under `TZ=UTC` and `TZ=Pacific/Kiritimati` |
-| End-to-end specs | 61, in 8 files, against a production build, with axe on every screen |
-| Hand-written migrations | 4, including an append-only trigger and 6 CHECK constraints |
+| Requirements shipped | 29 — the PRD's 17 (C-001 → C-017), then 12 more worked off this document's own "left behind" lists |
+| Commits | 62, one pair per item: the work, then its SHA recorded in a follow-up |
+| TypeScript / TSX | 14,656 lines across 126 tracked files |
+| …of which tests | 5,874 lines — 40% of the codebase, and it has stayed 40% |
+| Domain engine (`packages/core`) | 2,754 lines, zero I/O, zero clock reads |
+| Database layer (`packages/db`) | 1,593 lines |
+| Web app (`apps/web`) | 4,139 lines |
+| Unit tests | 370, in 20 files, passing under `TZ=UTC` and `TZ=Pacific/Kiritimati` |
+| End-to-end specs | 86, in 10 files, against a production build, with axe on every screen |
+| Hand-written migrations | 4, carrying an append-only trigger and 11 CHECK constraints |
 | Menu fixture | 25 items, 8 modifier groups, 5 categories |
-| The seeded rush | 30 orders / 20 simulated minutes / 5 ugly cases / 0 stuck, lost or duplicated |
-| Documentation | ~2,520 lines across the PRD, PROGRESS, RELEASE_NOTES, backlog and this file |
-| Defects recorded | 10, each with how it was found and what would catch it earlier |
-| Build window | 2026-08-25, start to finish |
+| The seeded rush | 30 orders / 20 simulated minutes / 5 ugly cases / 0 stuck, lost or duplicated — replayed in under a second |
+| Documentation | ~3,400 lines across the PRD, PROGRESS, RELEASE_NOTES, backlog and this file |
+| Defects recorded | 11, each with how it was found and what would catch it earlier |
+| Build window | 2026-08-25 into 2026-08-26 |
+
+### What the twelve extra items were
+
+The backlog ended at C-017 and the project was complete against its PRD. The
+items after it came from one place: the **"Left behind"** section every
+PROGRESS entry is required to carry. Writing down what you did not do, at the
+moment you decided not to do it, turns out to be a backlog that generates
+itself — and a better one than a list written in advance, because every entry
+already knows why it was deferred.
+
+Roughly half of them were features that had been columns with no screen (the
+operator settings, the intensity surcharge, cart line editing). The other half
+were the project auditing itself: constraints for rules only application code
+enforced, a gate step for the check that had escaped twice, shared fixtures for
+a defect class that had recurred four times, and a confirm step for the one
+consequential save that did not have one.
+
+Four of the eleven recorded defects were found in those twelve items, and three
+of the four were defects in code the earlier items had shipped green.
