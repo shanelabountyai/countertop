@@ -607,6 +607,31 @@ from a count without leaving it somewhere visible is how an order disappears
 pair cannot be split later.
 
 
+### The pre-push hook caught a flake, which is the hook working (C-042)
+
+The C-042 push was refused by the pre-push gate: `report.test.ts` failed with
+`Hook timed out in 10000ms` — a `beforeEach` exceeding vitest's default hook
+timeout, on a test the item had not touched. No assertion was ever wrong; 409
+of 410 passed, and the same tree had already gone green through a full gate
+minutes earlier (105 e2e passed, 14 skipped, reconciled against 119 listed).
+
+Three back-to-back runs of the same suite under the same `TZ=UTC` all passed
+410/410, so it is intermittent rather than a regression. The hook in question
+is `resetDatabase()` — a `TRUNCATE ... RESTART IDENTITY CASCADE` over eleven
+tables — followed by seeding a twenty-five-item menu, and ten seconds is
+vitest's generic default rather than a number anybody chose for a suite whose
+every database file opens by taking `ACCESS EXCLUSIVE` on all of them.
+
+It is the same class as the seed/TRUNCATE lock race recorded at C-021, at a
+different site: that one was the e2e reseed losing a lock to an in-flight
+`/api/updates` poll, this one is the unit suite's own hook. C-021's
+left-behind note already names the fix — a lock timeout with a retry — and it
+is still not built, because a failure that fires once in five runs and blocks a
+push rather than passing one is the cheap direction for this to fail in. What
+the episode is worth recording for is the shape of the evidence: an assertion
+failure is a defect, a hook timeout is a harness, and telling them apart before
+touching the code is what stopped a config change being made to a green suite.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required
