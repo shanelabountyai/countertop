@@ -2233,3 +2233,5 @@ C-038 committed at 59ece61.
   carry one.
 - **The C-031 screenshots still predate C-037, C-038 and this.** Re-run with
   `SCREENSHOTS=1` when the portfolio page is next rebuilt.
+
+C-039 committed at de31384.
