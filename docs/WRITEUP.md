@@ -70,6 +70,23 @@ and this is the only screen where getting it wrong costs a remake.
 
 ![A kitchen card with a negation](screenshots/06-kitchen-card.png)
 
+**The same card, with the money still owed.** A customer who chose to pay at
+the counter carries the amount on the ticket and one control to clear it. The
+flag is order state, not a click that happened in this tab — the second screen
+at the counter must not still be showing money owed after someone else
+collects it.
+
+![An unpaid kitchen card](screenshots/13-unpaid-card.png)
+
+**Yesterday, still open.** Four tickets nobody tapped, flagged with the day
+they came from and counted in a banner, so the chore has a size. They are
+flagged, never swept: closing an order out is a transition to a terminal state
+only the person who was there can pick. They no longer chime, and they no
+longer count toward the wait estimate or the auto-pause — which is the bug this
+screen exists to have made visible.
+
+![The kitchen queue with leftovers from an earlier day](screenshots/14-leftover.png)
+
 **The item composer.** Required groups, min/max rules, and intensity levels —
 none / light / regular / extra — with a live price that is explicitly not the
 authority. The server re-prices every line at cart-add and again at placement.
@@ -102,6 +119,13 @@ Since C-026 the value it displays is also checked at save time.
 the door on itself, and the two numbers every estimate is built from.
 
 ![The settings screen](screenshots/08-settings.png)
+
+**The staff sign-in.** One shared passcode in front of every `/kitchen` route,
+the POSTs included — a screen on the wall behind the till does not want a
+per-cook login, it wants the queue to be unreachable from the internet. An
+unset passcode means locked, never open.
+
+![The kitchen sign-in](screenshots/12-staff-login.png)
 
 **The customer's side:** the menu, the cart with the negation carried through,
 and the tokenized status page.

@@ -1,9 +1,9 @@
 // Builds the portfolio page (C-032): `node docs/portfolio/build.mjs`.
 //
 // The page is published as a private Claude artifact, which must be entirely
-// self-contained — no external requests except Google Fonts. So the eleven
-// screenshots in `docs/screenshots/` are inlined as data URIs here rather than
-// linked, and the output is ~1.1 MB and deliberately NOT committed.
+// self-contained — no external requests except Google Fonts. So the
+// screenshots in `docs/screenshots/` that the page uses are inlined as data URIs
+// here rather than linked, and the output is ~1.1 MB and deliberately NOT committed.
 //
 // Two fragments and a script instead of one big HTML file, for the same reason
 // the app keeps its prices in one module: the head carries the design tokens

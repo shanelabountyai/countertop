@@ -2235,3 +2235,43 @@ C-038 committed at 59ece61.
   `SCREENSHOTS=1` when the portfolio page is next rebuilt.
 
 C-039 committed at de31384.
+
+## C-040 — The screenshots caught up
+
+**Built:**
+- Three new captures in `screenshots.spec.ts`: `12-staff-login` (C-037),
+  `13-unpaid-card` (C-038) and `14-leftover` (C-039) — the three surfaces that
+  shipped after C-031 and had no picture anywhere.
+- All fourteen regenerated. Six of the eleven existing ones changed: every
+  kitchen and status shot now carries the C-038 payment badge, which is the
+  point — the old set showed an app that no longer exists.
+- The three new blocks in `docs/WRITEUP.md`'s *The Screens*, and the portfolio
+  page rebuilt (`node docs/portfolio/build.mjs`, 1.14 MB).
+
+**Decided:**
+- **The sign-in shot is the one taken signed out**, in its own `describe` with
+  `test.use({ storageState: { cookies: [], origins: [] } })` — the same opt-out
+  `auth.spec.ts` uses, and for the same reason: global setup hands every other
+  context a cookie that makes the login page unreachable.
+- **The unpaid ticket is placed through the real checkout**, not written to the
+  database. A screenshot of a hand-built row would be a picture of a fixture;
+  this one is the badge a real pay-at-pickup order carries, priced by the
+  server.
+- **No new portfolio section.** The page's seven slots are arguments, not a
+  gallery, and none of the three new items is an argument it makes. The rebuild
+  is what the item owed; the images inside it are now current. The one edit
+  there is `IMG_CARD`'s alt text, which described a card that has since grown a
+  payment badge.
+- **The login shot was re-taken at 760×380.** At 900×700 it was two-thirds
+  white space — an honest picture of an empty page, and a bad one.
+
+**Left behind:**
+- **`backdateQueue()` moves `businessDay`, not `placedAt`,** so the leftover
+  card reads "2 min since ordered" under a badge saying 2020-01-01. True to
+  what the fixture edits, and slightly odd to look at. Ageing the timestamp too
+  would make the picture prettier and the fixture less honest about which
+  column the feature reads.
+- **Nothing checks that the screenshots match the app.** They are regenerated
+  by hand when someone remembers, which is exactly the debt this item paid off
+  — C-031's set went three items stale. A gate step cannot own it: the captures
+  write into `docs/`, and the gate must not touch the working tree.

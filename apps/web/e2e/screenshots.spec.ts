@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { card, reseed, seedFinishedRush, seedMidServiceRush } from './fixtures';
+import {
+  backdateQueue,
+  card,
+  placeOrderFor,
+  reseed,
+  seedFinishedRush,
+  seedMidServiceRush,
+} from './fixtures';
 
 // Screenshots for the write-up (C-031).
 //
@@ -140,5 +147,48 @@ test.describe('the operator', () => {
     await page.goto('/kitchen/menu?edit=item:burrito&price=109.50');
     await expect(page.getByText('Was $10.95, will be $109.50.')).toBeVisible();
     await page.screenshot({ path: shot('09-price-confirm'), fullPage: true });
+  });
+});
+
+// C-040: the three surfaces that shipped after C-031 and had no picture.
+
+test.describe('the staff boundary', () => {
+  // The one shot taken signed OUT, for the same reason auth.spec.ts is the one
+  // file that runs that way: the sign-in page is unreachable with the cookie
+  // global setup hands every other context.
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test('sign-in', async ({ page }) => {
+    await page.setViewportSize({ width: 760, height: 380 });
+    await page.goto('/kitchen');
+    await expect(page.getByRole('heading', { name: 'Kitchen sign-in' })).toBeVisible();
+    await page.screenshot({ path: shot('12-staff-login'), fullPage: true });
+  });
+});
+
+test.describe('the money and the leftovers', () => {
+  test.beforeEach(() => {
+    reseed();
+  });
+
+  test('an unpaid ticket, close up', async ({ page }) => {
+    // Placed through the real checkout, so the badge is the badge a real
+    // pay-at-pickup order carries — the bag leaving without the money is what
+    // this flag exists to stop.
+    await placeOrderFor(page, 'Robin Vale', { payAtPickup: true });
+    await page.setViewportSize({ width: 900, height: 900 });
+    await page.goto('/kitchen');
+    const ticket = card(page, 'Robin Vale');
+    await expect(ticket.getByText('Pay at pickup — $11.85')).toBeVisible();
+    await ticket.screenshot({ path: shot('13-unpaid-card') });
+  });
+
+  test('yesterday still open', async ({ page }) => {
+    const day = await backdateQueue();
+    await page.setViewportSize({ width: 1180, height: 820 });
+    await page.goto('/kitchen');
+    await expect(page.getByText('4 orders are still open from an earlier day')).toBeVisible();
+    await expect(page.getByText(`Left over from ${day}`).first()).toBeVisible();
+    await page.screenshot({ path: shot('14-leftover') });
   });
 });

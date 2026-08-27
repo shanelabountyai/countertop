@@ -897,3 +897,19 @@ numbers is worse than one that leaves a gap.
 earlier business day" — the same line the daily order numbers reset on, in the
 restaurant's own timezone. Flagging at closing time instead would flag the
 ticket a cook is still bagging as the door shuts.
+
+## C-040 — Pictures of the app that exists
+
+The write-up's screenshots were taken at C-031 and had gone three items stale:
+they showed a kitchen with no lock on the door, no money owed on any ticket,
+and no way to tell yesterday's forgotten order from one that is cooking.
+
+All fourteen are now captured from the running app against the seeded database
+— the same Playwright run that asserts the behaviour takes the picture of it.
+Six of the eleven that already existed came back different, which is the whole
+argument for regenerating rather than adding: every kitchen card now carries
+the payment badge that shipped two items ago.
+
+Three surfaces are pictured for the first time: the staff sign-in, a ticket
+flagged as still owing money with the one control that clears it, and a queue
+carrying four orders from an earlier day, banner and all.

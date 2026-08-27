@@ -63,6 +63,8 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 
 - [x] **C-039** — The end-of-day sweep *(P1-6)* — `isLeftOver` in `packages/core`, one predicate with three readers: the kitchen flags an order left over from an earlier business day with its date, the new-order chime stops counting it, and the P0-6 throttle and P0-7 estimate stop counting it too. Flagged, never swept — closing one out is a staff transition to the terminal state only they can pick. No migration.
 
+- [x] **C-040** — The screenshots caught up — all fourteen captures regenerated from the running app, three of them new: the staff sign-in (C-037), an unpaid ticket with its collect control (C-038), and a queue carrying leftovers from an earlier day (C-039). Six of the eleven that already existed came back different. The portfolio page rebuilt on top of them.
+
 ## Deferred by decision (not backlog)
 
 **A GitHub organization for the five projects** — deferred 2026-08-27, not
