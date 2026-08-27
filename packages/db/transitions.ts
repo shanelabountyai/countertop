@@ -53,12 +53,19 @@ export async function applyOrderAction(
     };
   }
 
+  // The engine decided whether the money goes back — it pushed the `refund`
+  // event, and that event IS the decision (P1-8). The column follows the log
+  // rather than re-deriving the rule here, so there is one place that knows
+  // when a cancellation refunds and one place that knows what it cost.
+  const refunded = decision.events.some((event) => event.kind === 'refund');
+
   const order = await prisma.$transaction(async (tx) => {
     const guard = await tx.order.updateMany({
       where: { id: orderId, status: current.status },
       data: {
         status: decision.status,
         statusChangedAt: now,
+        ...(refunded && { paymentState: 'refunded' as const }),
         ...(action.kind === 'cancel' && {
           cancelReason: action.reason,
           cancelNote: action.note ?? null,

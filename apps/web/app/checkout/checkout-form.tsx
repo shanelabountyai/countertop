@@ -10,6 +10,7 @@ import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { placeCartOrder, type CheckoutError, type OrderConfirmation } from './actions';
 import { formatCents } from '@/lib/money';
+import { PAYMENT_LABEL } from '@/lib/status-labels';
 
 const MAX_NAME = 40;
 const MAX_PHONE = 32;
@@ -62,6 +63,8 @@ export function CheckoutForm({
         customerName: formData.get('customerName'),
         customerPhone: formData.get('customerPhone'),
         orderNote: formData.get('orderNote'),
+        // The radio is the customer's INTENT; the server decides the state.
+        payNow: formData.get('payment') === 'now',
         clientTotalCents,
       });
       if (result.ok) setConfirmation(result.confirmation);
@@ -104,6 +107,22 @@ export function CheckoutForm({
           className="min-h-12 rounded-lg border border-neutral-400 px-3"
         />
       </label>
+
+      {/* P1-8. Both, deliberately (PRD open question, resolved in v2): a mock
+          card charge at checkout, and pay-at-pickup for the customer who would
+          rather hand over a card at the counter. The kitchen card flags the
+          second kind so the counter collects before the bag leaves. */}
+      <fieldset className="flex flex-col gap-2">
+        <legend className="font-medium">Payment</legend>
+        <label className="flex min-h-12 items-center gap-2">
+          <input type="radio" name="payment" value="now" defaultChecked className="size-5" />
+          Pay now — card
+        </label>
+        <label className="flex min-h-12 items-center gap-2">
+          <input type="radio" name="payment" value="pickup" className="size-5" />
+          {PAYMENT_LABEL.unpaid}
+        </label>
+      </fieldset>
 
       <button
         type="submit"
@@ -149,6 +168,12 @@ function Confirmation({ confirmation }: { confirmation: OrderConfirmation }) {
           <dd data-testid="confirmed-total">{formatCents(confirmation.totalCents)}</dd>
         </div>
       </dl>
+      {/* An unpaid order is the one the customer has to do something about. */}
+      <p className="mt-3 text-lg font-semibold" data-testid="confirmed-payment">
+        {confirmation.paymentState === 'unpaid'
+          ? `${PAYMENT_LABEL.unpaid} — ${formatCents(confirmation.totalCents)} due`
+          : PAYMENT_LABEL[confirmation.paymentState]}
+      </p>
       {/* The one thing a customer keeps. The token is the only handle on this
           order from outside — the number is guessable, so it is not a key. */}
       <Link

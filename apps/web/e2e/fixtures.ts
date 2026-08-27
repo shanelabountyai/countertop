@@ -109,10 +109,17 @@ export async function addBurritoToCart(
  * one before it is handed back, so a spec that goes on to `goto` it fails HERE
  * if placement quietly did not produce it.
  */
-export async function placeOrderFor(page: Page, name: string): Promise<string> {
+export async function placeOrderFor(
+  page: Page,
+  name: string,
+  /** P1-8. Leaves the default alone unless a spec asks — every existing spec
+   *  places a paid order, which is what the checkout form defaults to. */
+  { payAtPickup = false }: { payAtPickup?: boolean } = {},
+): Promise<string> {
   await addBurritoToCart(page);
   await page.getByRole('link', { name: 'Checkout' }).click();
   await page.getByRole('textbox', { name: /Name for the order/ }).fill(name);
+  if (payAtPickup) await page.getByRole('radio', { name: /Pay at pickup/ }).check();
   await page.getByRole('button', { name: /Place order/ }).click();
   await expect(page.getByTestId('order-number')).toBeVisible();
 

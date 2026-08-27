@@ -60,6 +60,31 @@ export async function abandonOrder(orderId: string): Promise<KitchenResult> {
 }
 
 /**
+ * The counter collected (P1-8).
+ *
+ * `updateMany` guarded on `unpaid`, not `update`: a card that has been open on
+ * a second screen since before the customer paid must not be able to re-mark a
+ * REFUNDED order as paid. Zero rows matched is not an error — it is the answer
+ * "someone already handled this", and the queue re-renders with the truth.
+ *
+ * ponytail: the column is the record; there is no `payment` event, so a
+ * counter-collected order carries no instant. A real provider makes this a
+ * logged event with a provider reference, and that is where the timestamp
+ * lands — the `refund` kind is the shape to copy.
+ */
+export async function markOrderPaid(orderId: unknown): Promise<KitchenResult> {
+  if (typeof orderId !== 'string' || orderId === '') {
+    return { ok: false, message: 'That order could not be read. Reload the queue.' };
+  }
+  await prisma.order.updateMany({
+    where: { id: orderId, paymentState: 'unpaid' },
+    data: { paymentState: 'paid' },
+  });
+  revalidatePath('/kitchen');
+  return { ok: true };
+}
+
+/**
  * The manual half of the checkout gate (P0-6): "pause new orders".
  *
  * In-flight orders are untouched — this only answers the question the gate

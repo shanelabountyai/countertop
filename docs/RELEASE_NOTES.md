@@ -826,3 +826,37 @@ slightly different bugs in it.
 **What it does not do.** It answers "is this the kitchen?", not "which cook
 advanced this order?" The event log's actor is still the literal `staff`.
 Per-cook accounts are a different project, and the log is where they land.
+
+## C-038 — Money the counter can see
+
+Online ordering has two kinds of customer: the one who pays on the phone and
+the one who pays at the counter. Both walk up to the same person holding the
+same bag, and only one of them still owes money. Countertop now tells them
+apart on the card, in the amount, before the bag moves.
+
+**The schema already knew.** `paymentState` and its `unpaid` default have been
+on the order since the data model went in, and the state machine has emitted a
+mock refund event on cancelling a paid order for just as long. Nothing ever
+wrote `paid`, so two of the three states were unreachable from the app and the
+refund event described a transition the column never made. This release needed
+no migration — only the wiring that makes the model true.
+
+**The flag carries the amount.** A cook reading a card at arm's length gets
+`PAY AT PICKUP — $11.85`, in amber rather than the red the running-late flags
+own, with `Collected — mark paid` directly under the advance button. A badge
+that says only "unpaid" sends someone to open the receipt, and mid-rush that
+means the bag goes out first.
+
+**It flags, it does not block.** Refusing to mark an order picked up until it
+is paid would look stricter and be worse: a cook who cannot hand over food
+because a screen disagrees about money will find a way around the screen, and
+whatever they find is not something the log can see.
+
+**The column follows the log.** Cancelling a paid order sets `refunded`
+because the engine emitted a `refund` event — not because the database layer
+re-derived the rule. One place knows when a cancellation refunds, one knows
+what it cost, and they cannot drift apart.
+
+**The rush shows both.** A third of the seeded thirty pay at the counter, fixed
+by arrival minute so every run is the same demo. A flag that appears on every
+card is decoration, and one that appears on none proves nothing.

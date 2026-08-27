@@ -10,6 +10,7 @@ import {
   formatOrderNumber,
   type CartReview,
   type Intensity,
+  type PaymentState,
 } from '@countertop/core';
 import { placeOrder, type OrderReceipt, type PlacementError } from '@countertop/db/placement';
 import { clearCart, readCart } from '@/lib/cart-session';
@@ -26,6 +27,8 @@ export type OrderConfirmation = {
   subtotalCents: number;
   taxCents: number;
   totalCents: number;
+  /** P1-8. What the receipt has to tell the customer to bring cash for. */
+  paymentState: PaymentState;
   lines: {
     itemName: string;
     quantity: number;
@@ -76,6 +79,7 @@ const confirm = (order: OrderReceipt): OrderConfirmation => ({
   subtotalCents: order.subtotalCents,
   taxCents: order.taxCents,
   totalCents: order.totalCents,
+  paymentState: order.paymentState,
   lines: order.lines.map((line) => ({
     itemName: line.itemName,
     quantity: line.quantity,
@@ -103,9 +107,13 @@ const confirm = (order: OrderReceipt): OrderConfirmation => ({
 export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
   if (!isRecord(raw)) return MALFORMED;
 
-  const { idempotencyKey, clientTotalCents } = raw;
+  const { idempotencyKey, clientTotalCents, payNow } = raw;
   if (typeof idempotencyKey !== 'string' || idempotencyKey === '') return MALFORMED;
   if (clientTotalCents !== undefined && typeof clientTotalCents !== 'number') return MALFORMED;
+  // The mock provider (P1-8). A real one is a call that can fail, and the
+  // failure — not the radio button — is what would decide the state; this is
+  // the seam where that call goes.
+  if (payNow !== undefined && typeof payNow !== 'boolean') return MALFORMED;
 
   const customerName = optionalString(raw.customerName);
   const customerPhone = optionalString(raw.customerPhone);
@@ -124,6 +132,7 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
     // the engine and the writer both take `now` as a parameter.
     now: new Date(),
     ...(clientTotalCents === undefined ? {} : { clientTotalCents }),
+    ...(payNow === undefined ? {} : { paidNow: payNow }),
   });
 
   if (!result.ok) return result;

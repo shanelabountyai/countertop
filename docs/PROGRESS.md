@@ -2105,3 +2105,55 @@ C-033 through C-036 pushed; first green CI run at 33020960765 (commit d4bd3ea ra
   Re-run with `SCREENSHOTS=1` when the portfolio page is next rebuilt.
 
 C-037 committed at 8670bfa.
+
+## C-038 — Payment state, made reachable
+
+**Built:**
+- `paidNow` on `PlacementInput` — a boolean, not a `PaymentState`. `refunded`
+  is something that happens to an order later, never something a checkout
+  request may ask for.
+- A Payment fieldset on checkout: "Pay now — card" (default) or "Pay at
+  pickup". The receipt and the customer's status page both say which, and the
+  unpaid ones name the amount due.
+- `PAYMENT_LABEL` beside `STATUS_LABEL` — one map, three readers.
+- The kitchen card's amber `PAY AT PICKUP — $11.85` badge and its
+  `Collected — mark paid` button, directly under the advance button.
+- `markOrderPaid`, an `updateMany` guarded on `paymentState: 'unpaid'`.
+- `transitions.ts` sets `refunded` when the engine emitted a `refund` event.
+- `packages/db/payment.test.ts` (4), `apps/web/e2e/payment.spec.ts` (4), and
+  `payAtPickup` on the shared `placeOrderFor` fixture.
+
+**Decided:**
+- **No migration, and that is the finding.** The column, its `unpaid` default
+  and the `refund` event kind have been in the schema since C-003, and the
+  engine has written the refund event since C-004. Two of the three states
+  were simply unreachable from the app. The item was wiring, not modelling.
+- **The column follows the LOG, not a second copy of the rule.** `refunded` is
+  set when `decision.events` contains a `refund` — so one place knows when a
+  cancellation refunds, and one knows what it cost. Re-deriving "was it paid
+  and is this a cancel" in the db layer is how the two drift.
+- **Flag, don't block.** The PRD says the card flags unpaid so the counter
+  collects; it does not say `ready → picked_up` is refused. A cook who cannot
+  hand over food because a screen disagrees about money will find a way around
+  the screen, and the way around is worse than the flag.
+- **The amount is on the badge.** A cook who has to open the receipt to find
+  out what to collect will wave the order through.
+- **Amber, not red.** The aging flags own red on this screen. Money owed is
+  not the same alarm as food going cold.
+- **`markOrderPaid` is guarded on `unpaid`, not on the id.** A card left open
+  on a second screen since before the refund must not be able to re-mark a
+  refunded order as paid. Zero rows matched is the answer "someone already
+  handled this", not an error.
+- **A third of the seeded rush pays at pickup**, derived from the arrival
+  minute so the mix is identical on every run. A badge on every card is not a
+  signal and a badge on none is not a demo.
+- **P1-5 was closed as already satisfied**, not built: the status token is
+  192 bits, lookup is by token only, and C-014 shipped the terminal view.
+
+**Left behind:**
+- **Payment is a column, not a history.** There is no `payment` event kind, so
+  an order collected at the counter carries a state and no instant. Marked
+  with a `ponytail:` comment in `markOrderPaid`; a real provider makes it a
+  logged event with a provider reference, and `refund` is the shape to copy.
+- **The C-031 screenshots still predate both this and C-037's sign-out link.**
+  Re-run with `SCREENSHOTS=1` when the portfolio page is next rebuilt.

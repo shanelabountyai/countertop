@@ -21,7 +21,8 @@ import { loadGateState } from '@countertop/db/gate';
 import { loadQueue, queueCursor, type QueueOrder } from '@countertop/db/queue';
 import { LiveUpdates } from '@/lib/live-updates';
 import { describeSelection } from '@/lib/menu-labels';
-import { STATUS_LABEL } from '@/lib/status-labels';
+import { PAYMENT_LABEL, STATUS_LABEL } from '@/lib/status-labels';
+import { formatCents } from '@/lib/money';
 import { signOut } from './login/actions';
 import { NewOrderAlert } from './new-order-alert';
 import { PauseSwitch } from './pause-switch';
@@ -187,6 +188,17 @@ export default async function KitchenPage({
                       <p className="text-2xl font-semibold">{order.customerName}</p>
                     </div>
 
+                    {/* P1-8. The counter has to collect before the bag leaves,
+                        and the amount is on the badge because a cook who has to
+                        open the receipt to find it will wave the order through.
+                        Amber, not the red the aging flags own: money owed is
+                        not the same alarm as food going cold. */}
+                    {order.paymentState === 'unpaid' && (
+                      <p className="mt-2 w-fit rounded bg-amber-200 px-2 py-1 text-lg font-bold uppercase text-amber-900">
+                        {PAYMENT_LABEL.unpaid} — {formatCents(order.totalCents)}
+                      </p>
+                    )}
+
                     <p
                       className={`mt-1 text-lg ${
                         aging.overdue ? 'font-bold text-red-700' : 'text-neutral-700'
@@ -252,7 +264,12 @@ export default async function KitchenPage({
                       </p>
                     )}
 
-                    <QueueControls orderId={order.id} status={order.status} undoMs={undoMs} />
+                    <QueueControls
+                      orderId={order.id}
+                      status={order.status}
+                      paymentState={order.paymentState}
+                      undoMs={undoMs}
+                    />
                   </li>
                 );
               })}

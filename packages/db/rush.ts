@@ -443,6 +443,11 @@ async function submit(order: RushOrder, anchor: Date, cart: Cart): Promise<RushA
     idempotencyKey: keyFor(order),
     now: at(anchor, order.minute),
     customerName: order.label,
+    // P1-8. Roughly a third of the rush pays at the counter, so the queue on
+    // screen holds both kinds — a badge that is on every card is not a signal,
+    // and one that is on none is not a demo. Derived from the arrival minute
+    // so the mix is the same on every run.
+    paidNow: order.minute % 3 !== 0,
   };
 
   // Two concurrent identical submissions for the double-tap; one otherwise.

@@ -59,6 +59,8 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 - [x] **C-037** — Staff auth on `/kitchen` — one shared passcode, one middleware, fails closed when `STAFF_PASSCODE` is unset. The write-up has called this "the first thing a real deployment needs" since C-008.
 - [x] **C-036** — CI on a runner in the room — a self-hosted macOS runner and `ci-self-hosted.yml`, which buys the clean `npm ci` and the automatic trigger the pre-push hook cannot. Its own port (3450) and its own database (`countertop_runner`), so it can never collide with a local sweep.
 
+- [x] **C-038** — Payment-state visibility *(P1-8)* — checkout takes a mock card charge or leaves the order as pay-at-pickup; the kitchen card flags the unpaid ones with the amount and a `Collected — mark paid` button; cancelling a paid order moves the column to `refunded` alongside the refund event the engine already wrote. The column and the `refund` event kind have been in the schema since C-003 — this item is what makes `paid` and `refunded` reachable, and it needed no migration.
+
 ## Deferred by decision (not backlog)
 
 **A GitHub organization for the five projects** — deferred 2026-08-27, not
@@ -82,6 +84,11 @@ one-project-at-a-time convention.
   re-authorizing against the new owner. Transfers leave redirects, so old
   links keep working.
 
-P1-2 order-ahead slots, P1-3 SMS notifications, P1-4 estimate tuning, P1-5 status-link
-hardening, P1-6 end-of-day sweep, P1-7 prep-weight throttling, P1-8 payment-state
-visibility, and everything in the PRD's P2 list.
+P1-2 order-ahead slots, P1-3 SMS notifications, P1-4 estimate tuning, P1-6 end-of-day
+sweep, P1-7 prep-weight throttling, and everything in the PRD's P2 list.
+
+**P1-5 needs no item: it shipped inside P0.** The status token is
+`randomBytes(24)` — 192 bits, above the ≥128 the requirement names — the order
+is looked up by that token and never by its number, so counting order numbers
+reaches nothing, and C-014 already renders the distinct terminal view. Closed
+as satisfied 2026-08-27 rather than built twice.

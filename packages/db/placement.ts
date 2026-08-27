@@ -70,6 +70,11 @@ export type PlacementInput = {
   /** What the browser thought the total was. Input to a mismatch LOG, never
    *  to the database (P0-2). */
   clientTotalCents?: number;
+  /** P1-8. The mock provider took the money at checkout; false (and absent) is
+   *  "pay at pickup", which is what the kitchen card flags. A BOOLEAN, not a
+   *  `PaymentState`: `refunded` is something that happens to an order later,
+   *  never something a checkout request may ask for. */
+  paidNow?: boolean;
 };
 
 export type PlacementResult =
@@ -238,6 +243,7 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
           taxCents: snapshot.taxCents,
           taxRatePpm: snapshot.taxRatePpm,
           totalCents: snapshot.totalCents,
+          paymentState: input.paidNow ? 'paid' : 'unpaid',
           statusToken: newStatusToken(),
           idempotencyKey,
           lines: {

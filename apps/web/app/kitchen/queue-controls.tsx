@@ -7,8 +7,21 @@
 // The advance button is deliberately the largest control here: greasy gloves
 // and knuckle-taps are the input device.
 import { useEffect, useState, useTransition } from 'react';
-import { CANCEL_REASONS, STATUS_FACTS, type CancelReason, type OrderStatus } from '@countertop/core';
-import { abandonOrder, advanceOrder, cancelOrder, revertOrder, type KitchenResult } from './actions';
+import {
+  CANCEL_REASONS,
+  STATUS_FACTS,
+  type CancelReason,
+  type OrderStatus,
+  type PaymentState,
+} from '@countertop/core';
+import {
+  abandonOrder,
+  advanceOrder,
+  cancelOrder,
+  markOrderPaid,
+  revertOrder,
+  type KitchenResult,
+} from './actions';
 
 /** A `Record<OrderStatus, …>`, so a new state does not compile until someone
  *  decides what its button says. */
@@ -33,10 +46,14 @@ const REASON_LABEL: Record<CancelReason, string> = {
 export function QueueControls({
   orderId,
   status,
+  paymentState,
   undoMs,
 }: {
   orderId: string;
   status: OrderStatus;
+  /** P1-8. Only `unpaid` puts a control here — there is no un-pay button, and
+   *  a refund is what cancelling a paid order does. */
+  paymentState: PaymentState;
   /** Milliseconds left on the undo, computed by the SERVER from the event log.
    *  A duration, not an instant — nothing here reads a clock to decide. */
   undoMs: number;
@@ -82,6 +99,22 @@ export function QueueControls({
           className="min-h-16 w-full rounded-lg bg-neutral-900 px-6 text-xl font-bold text-white disabled:opacity-60"
         >
           {ADVANCE_LABEL[status]}
+        </button>
+      )}
+
+      {/* Directly under the advance button, because "Picked up" is the tap
+          that lets the bag leave and this is the one that must happen first
+          (P1-8). Not a blocker: the PRD says flag, and a cook who cannot hand
+          over food because a screen disagrees about money will find a way
+          around the screen. */}
+      {paymentState === 'unpaid' && (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => act(() => markOrderPaid(orderId))}
+          className="min-h-12 w-full rounded-lg border-2 border-amber-700 bg-amber-100 px-4 text-lg font-bold text-amber-900 disabled:opacity-60"
+        >
+          Collected — mark paid
         </button>
       )}
 

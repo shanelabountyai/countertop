@@ -31,6 +31,7 @@ import { currentCheckout } from '@/lib/checkout-gate';
 import { LiveUpdates } from '@/lib/live-updates';
 import { describeSelection } from '@/lib/menu-labels';
 import { formatCents } from '@/lib/money';
+import { PAYMENT_LABEL } from '@/lib/status-labels';
 
 export const metadata = {
   title: 'Your order — Firebird Kitchen',
@@ -212,6 +213,15 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
             <dd data-testid="status-total">{formatCents(order.totalCents)}</dd>
           </div>
         </dl>
+
+        {/* P1-8. The customer's half of the same fact the kitchen card flags:
+            an unpaid order means bring a card to the counter. `refunded` is
+            here too — a cancelled order that took money has to say so. */}
+        <p className="mt-3 font-semibold" data-testid="status-payment">
+          {order.paymentState === 'unpaid'
+            ? `${PAYMENT_LABEL.unpaid} — ${formatCents(order.totalCents)} due`
+            : PAYMENT_LABEL[order.paymentState]}
+        </p>
 
         {order.orderNote && (
           <p className="mt-3 text-sm text-neutral-700">Your note: {order.orderNote}</p>
