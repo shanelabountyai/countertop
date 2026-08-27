@@ -60,6 +60,27 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 
 ## Deferred by decision (not backlog)
 
+**A GitHub organization for the five projects** — deferred 2026-08-27, not
+rejected. **Trigger to revisit: the second project that needs this CI
+treatment.** Until then one runner serves one repo, which matches the
+one-project-at-a-time convention.
+
+- *Why it would earn its keep:* private-repo **reusable workflows only work
+  inside an org**, so five projects could call one gate workflow instead of
+  drifting five copies — the same drift `ci-self-hosted.yml` and
+  `ci-local.sh` already show in miniature. Plus org-level secrets, one runner
+  shared serially (five per-repo runners would run parallel sweeps on one Mac,
+  which the conventions ban), an org profile as a portfolio surface, and a
+  separate billing surface that *might* restore free GitHub-hosted Actions —
+  unverified, and it may follow the payment method rather than the account.
+- *Money:* $0. Free covers unlimited private repos, collaborators and
+  self-hosted runners. Team ($4/user/mo) only adds branch protection and
+  required reviews on private repos — theatre for a solo project.
+- *One-time cost:* re-register the runner at org level (`config.sh remove`,
+  re-config), `git remote set-url` on every checkout, and Vercel
+  re-authorizing against the new owner. Transfers leave redirects, so old
+  links keep working.
+
 P1-2 order-ahead slots, P1-3 SMS notifications, P1-4 estimate tuning, P1-5 status-link
 hardening, P1-6 end-of-day sweep, P1-7 prep-weight throttling, P1-8 payment-state
 visibility, and everything in the PRD's P2 list.
