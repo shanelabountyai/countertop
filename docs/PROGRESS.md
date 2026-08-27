@@ -2275,3 +2275,5 @@ C-039 committed at de31384.
   by hand when someone remembers, which is exactly the debt this item paid off
   — C-031's set went three items stale. A gate step cannot own it: the captures
   write into `docs/`, and the gate must not touch the working tree.
+
+C-040 committed at 07ead94.
