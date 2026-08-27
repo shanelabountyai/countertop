@@ -2157,3 +2157,5 @@ C-037 committed at 8670bfa.
   logged event with a provider reference, and `refund` is the shape to copy.
 - **The C-031 screenshots still predate both this and C-037's sign-out link.**
   Re-run with `SCREENSHOTS=1` when the portfolio page is next rebuilt.
+
+C-038 committed at 59ece61.
