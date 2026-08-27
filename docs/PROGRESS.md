@@ -2103,3 +2103,5 @@ C-033 through C-036 pushed; first green CI run at 33020960765 (commit d4bd3ea ra
   different project and the log is where they would land.
 - **The C-031 screenshots predate the `Sign out` link** in the kitchen header.
   Re-run with `SCREENSHOTS=1` when the portfolio page is next rebuilt.
+
+C-037 committed at 8670bfa.
