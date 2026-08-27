@@ -2351,3 +2351,5 @@ C-040 committed at 07ead94.
   menu is mostly drinks would want a different one, and the migration cannot
   know that. The operator screen is the answer, and the bound (1–500) is wide
   enough for either extreme.
+
+C-041 committed at b7addfd.
