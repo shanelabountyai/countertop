@@ -6,7 +6,7 @@
 // Every rule enforced here is ALSO a CHECK constraint in the database (C-011,
 // C-013, C-022). That is deliberate and it is the house pattern: the
 // constraint is what makes the rule true, this is what makes it readable. A
-// manager who types 900 into "minutes per order" should be told the ceiling is
+// manager who types 900 into "minutes per prep point" should be told the ceiling is
 // 60, not handed a Postgres error string.
 //
 // Plain `<form action={...}>` posts, so the screen works before it hydrates —
@@ -118,11 +118,12 @@ export async function saveHours(formData: FormData): Promise<void> {
  * migration is the honest way to say so.
  */
 export async function saveService(formData: FormData): Promise<void> {
-  // CHECK "maxOpenOrders" > 0 (checkout_gate). The upper bound is this
-  // screen's own: a threshold above 500 is a threshold that never fires, and
-  // a manager who wants that should use the pause switch.
-  const maxOpenOrders = parseBounded(formData.get('maxOpenOrders'), 1, 500);
-  if (maxOpenOrders === null) rejected('Pause after must be a whole number of orders, 1 to 500.');
+  // CHECK "maxOpenWeight" > 0 (checkout_gate, renamed in prep_weight). The
+  // upper bound is this screen's own: a threshold above 500 is a threshold
+  // that never fires, and a manager who wants that should use the pause
+  // switch. Units are prep weight now, not orders (P1-7).
+  const maxOpenWeight = parseBounded(formData.get('maxOpenWeight'), 1, 500);
+  if (maxOpenWeight === null) rejected('Pause above must be a whole number of prep points, 1 to 500.');
 
   // CHECK "cutoffMinutes" BETWEEN 0 AND 720 (checkout_gate).
   const cutoffMinutes = parseBounded(formData.get('cutoffMinutes'), 0, 720);
@@ -136,15 +137,16 @@ export async function saveService(formData: FormData): Promise<void> {
     rejected('Base prep time must be a whole number of minutes, 0 to 240.');
   }
 
-  // CHECK "prepPerOrderMinutes" BETWEEN 0 AND 60 (ready_time_estimate).
-  const prepPerOrderMinutes = parseBounded(formData.get('prepPerOrderMinutes'), 0, 60);
-  if (prepPerOrderMinutes === null) {
-    rejected('Added per open order must be a whole number of minutes, 0 to 60.');
+  // CHECK "prepPerWeightMinutes" BETWEEN 0 AND 60 (ready_time_estimate,
+  // renamed in prep_weight).
+  const prepPerWeightMinutes = parseBounded(formData.get('prepPerWeightMinutes'), 0, 60);
+  if (prepPerWeightMinutes === null) {
+    rejected('Added per prep point must be a whole number of minutes, 0 to 60.');
   }
 
   await prisma.restaurantSettings.update({
     where: { id: 'singleton' },
-    data: { maxOpenOrders, cutoffMinutes, prepBaseMinutes, prepPerOrderMinutes },
+    data: { maxOpenWeight, cutoffMinutes, prepBaseMinutes, prepPerWeightMinutes },
   });
   done('Service settings saved.');
 }

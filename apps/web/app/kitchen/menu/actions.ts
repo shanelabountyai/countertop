@@ -81,6 +81,34 @@ export async function saveItemPrice(
 }
 
 /**
+ * An item's prep weight (P1-7) — how much kitchen work it is, in whole points.
+ *
+ * Deliberately NOT behind the confirm panel the prices sit behind. That guard
+ * exists because $1.50 → $15.00 is a valid price a customer pays; a weight is
+ * not money, is never shown to a customer, and the worst a fat finger does is
+ * make the throttle and the estimate a little wrong until someone retypes it.
+ * A confirm step on every row is the kind of ceremony staff learn to tap
+ * through, which would weaken the one that matters.
+ *
+ * Bounds mirror CHECK "prepWeight" BETWEEN 0 AND 50 (prep_weight). The regex
+ * is the parse: `Number('')` is 0, and an empty field must not silently make
+ * a fajita plate free work.
+ */
+export async function saveItemPrepWeight(formData: FormData): Promise<void> {
+  const itemId = formData.get('itemId');
+  const raw = formData.get('prepWeight');
+  const weight = typeof raw === 'string' && /^\d{1,2}$/.test(raw) ? Number(raw) : null;
+  if (typeof itemId !== 'string' || weight === null || weight > 50) {
+    rejected('Prep points must be a whole number from 0 to 50.');
+  }
+
+  const item = await prisma.menuItem.findUnique({ where: { id: itemId } });
+  if (!item) rejected();
+  await prisma.menuItem.update({ where: { id: itemId }, data: { prepWeight: weight } });
+  done(`${item.name} is now ${weight} prep ${weight === 1 ? 'point' : 'points'}`);
+}
+
+/**
  * A modifier's price delta. Negative IS legal here — "Small −$1.50" is a
  * discount, not a mistake — which is exactly why the confirm step showing
  * old → new matters more on this row than on an item's.

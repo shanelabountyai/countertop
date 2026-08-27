@@ -23,14 +23,14 @@ import { loadGateState } from '@countertop/db/gate';
 /** The gate and the P0-7 estimate, off ONE read of the queue.
  *
  *  They are asked together because they are the same question answered two
- *  ways — "are we taking orders?" and "how long if we are?" — and both count
- *  the same open orders. Two separate loads could quote a wait off a count the
- *  throttle had already moved past. */
+ *  ways — "are we taking orders?" and "how long if we are?" — and both read
+ *  the same open prep weight. Two separate loads could quote a wait off a
+ *  queue the throttle had already moved past. */
 export async function currentCheckout(): Promise<{
   gate: GateResult;
   estimate: ReadyEstimate;
 }> {
-  // Read once, here, and passed down — the count of today's open orders and
+  // Read once, here, and passed down — the weight of today's open orders and
   // the wall-clock reading the gate compares hours against are the same
   // instant's answers (CLAUDE.md time rules).
   const now = new Date();

@@ -32,6 +32,7 @@ export async function loadMenu(): Promise<Menu> {
           name: item.name,
           basePriceCents: item.basePriceCents,
           available: item.available,
+          prepWeight: item.prepWeight,
           modifierGroupIds: item.modifierGroups.map((join) => join.groupId),
         },
       ]),

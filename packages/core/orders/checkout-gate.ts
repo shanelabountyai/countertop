@@ -35,17 +35,21 @@ export type StoreHoursDay = {
 /**
  * Everything the gate reads, gathered by the caller in one query.
  *
- * `openOrderCount` is the count of orders in `OPEN_STATUSES` — derived from
- * THE status module, never a hard-coded list (CLAUDE.md).
+ * `openWeight` is the summed `prepWeight` of the orders in `OPEN_STATUSES` —
+ * derived from THE status module, never a hard-coded list (CLAUDE.md).
+ *
+ * Weight, not a count, since P1-7: ten bottled waters are not ten fajita
+ * plates, and a threshold that could not tell them apart shut the door on the
+ * easy queue and held it open on the impossible one.
  */
 export type GateState = {
   /** The manual switch. Always wins (P0-6). */
   paused: boolean;
   /** Shown instead of the default when staff set one. */
   pauseMessage: string | null;
-  /** The auto-pause threshold. Ordering resumes on its own below it. */
-  maxOpenOrders: number;
-  openOrderCount: number;
+  /** The auto-pause threshold, in prep weight. Ordering resumes below it. */
+  maxOpenWeight: number;
+  openWeight: number;
   /** A "YYYY-MM-DD" the restaurant declared closed, or null. */
   closedOnDay: string | null;
   /** One row per open day; a missing day is a closed day. */
@@ -157,7 +161,7 @@ export function checkoutGate(state: GateState, clock: RestaurantClock): GateResu
     };
   }
 
-  if (state.openOrderCount >= state.maxOpenOrders) {
+  if (state.openWeight >= state.maxOpenWeight) {
     return {
       open: false,
       reason: 'too_busy',

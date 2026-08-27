@@ -35,8 +35,8 @@ const WEEK: StoreHoursDay[] = [1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
 const state = (overrides: Partial<GateState> = {}): GateState => ({
   paused: false,
   pauseMessage: null,
-  maxOpenOrders: 25,
-  openOrderCount: 0,
+  maxOpenWeight: 60,
+  openWeight: 0,
   closedOnDay: null,
   hours: WEEK,
   cutoffMinutes: 15,
@@ -66,7 +66,7 @@ describe('the checkout gate (P0-6)', () => {
       // Both triggers fire. P0-6: "the manual switch always overrides" — and
       // a cook who paused because the fryer died must not be told the store is
       // merely busy, nor have their pause lifted when the queue drains.
-      const result = gate(LUNCH, { paused: true, openOrderCount: 99 });
+      const result = gate(LUNCH, { paused: true, openWeight: 99 });
       expect(result).toMatchObject({ reason: 'manually_paused' });
     });
 
@@ -85,29 +85,39 @@ describe('the checkout gate (P0-6)', () => {
     });
   });
 
-  describe('trigger 2 — the open-order threshold', () => {
-    it('stays open one order below the threshold', () => {
-      expect(gate(LUNCH, { maxOpenOrders: 25, openOrderCount: 24 })).toEqual({ open: true });
+  describe('trigger 2 — the open-weight threshold', () => {
+    it('stays open one unit of work below the threshold', () => {
+      expect(gate(LUNCH, { maxOpenWeight: 60, openWeight: 59 })).toEqual({ open: true });
     });
 
     it('closes AT the threshold, not one past it', () => {
-      // `>=`, so a max of 25 means twenty-five open orders is the cap. A gate
-      // that waits for 26 is a threshold nobody can verify by counting cards.
-      expect(gate(LUNCH, { maxOpenOrders: 25, openOrderCount: 25 })).toMatchObject({
+      // `>=`, so a max of 60 means sixty units of open work is the cap. A
+      // gate that waits for 61 is a threshold nobody can reason about.
+      expect(gate(LUNCH, { maxOpenWeight: 60, openWeight: 60 })).toMatchObject({
         reason: 'too_busy',
         transient: true,
       });
     });
 
     it('re-opens on its own as the queue drains', () => {
-      const busy = state({ openOrderCount: 25 });
-      const drained = { ...busy, openOrderCount: 24 };
+      const busy = state({ openWeight: 60 });
+      const drained = { ...busy, openWeight: 59 };
       expect(checkoutGate(busy, restaurantClock(LUNCH, TZ)).open).toBe(false);
       expect(checkoutGate(drained, restaurantClock(LUNCH, TZ)).open).toBe(true);
     });
 
+    it('reads WORK, so a queue of drinks is not a queue of plates (P1-7)', () => {
+      // Ten bottled waters (weight 0) and ten fajita plates (weight 4) are ten
+      // tickets either way. Only one of them is a kitchen that should stop
+      // taking orders — which the old count could not tell apart.
+      expect(gate(LUNCH, { maxOpenWeight: 20, openWeight: 0 })).toEqual({ open: true });
+      expect(gate(LUNCH, { maxOpenWeight: 20, openWeight: 40 })).toMatchObject({
+        reason: 'too_busy',
+      });
+    });
+
     it('is asked last: a closed restaurant is not "too busy"', () => {
-      expect(gate(AFTER_CLOSE, { openOrderCount: 99 })).not.toMatchObject({ reason: 'too_busy' });
+      expect(gate(AFTER_CLOSE, { openWeight: 99 })).not.toMatchObject({ reason: 'too_busy' });
     });
   });
 

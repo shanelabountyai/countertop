@@ -97,7 +97,7 @@ States: `placed → accepted → preparing → ready → picked_up`; `placed|acc
 - [x] Manager or kitchen can toggle **item** availability instantly; unavailable items render as "sold out," not hidden
 - [x] Manager or kitchen can toggle **modifier option** availability independently (out of avocado ≠ out of burritos); composing an item with an unavailable option is blocked, and in-cart lines holding one are flagged per P0-3
 - [x] A "pause new orders" switch stops checkout with a clear customer-facing message; in-flight orders continue
-- [x] When open orders (`placed|accepted|preparing`) reach a configurable max (default 25), checkout auto-pauses with the same message; it auto-resumes below the threshold, and the manual switch always overrides *(prep-weight upgrade: P1-7)*
+- [x] When open orders (`placed|accepted|preparing`) reach a configurable max (default 25), checkout auto-pauses with the same message; it auto-resumes below the threshold, and the manual switch always overrides *(upgraded to open prep WEIGHT, default 60, in C-041 — P1-7)*
 - [x] Configurable weekly store hours plus a "closed today" override gate checkout through the same code path as pause, with a clear "we open at 11:00" message; new orders cut off a configurable N minutes before close (default 15)
 
 **P0-7: Estimated ready time**
@@ -150,7 +150,7 @@ Each queue card shows everything the line cook needs without tapping through: or
 - **P1-4: Estimated-time tuning** — compare estimates vs. actual `ready` timestamps from P0-4 data and adjust the increment
 - **P1-5: Status page hardening** ✅ *(shipped inside P0 — closed as satisfied, not built twice)* — the tokenized status link is ≥128-bit random and unguessable; enumeration of sequential order numbers cannot resolve another customer's status page; terminal states render a final view
 - **P1-6: End-of-day sweep** ✅ *(C-039)* — any orders still open at close are flagged for closeout so tomorrow's queue and order numbers start clean
-- **P1-7: Prep-weight throttling & estimates** — per-item integer prep weight (default 1); the P0-6 auto-pause threshold and the P0-7 estimate compute from open *weight* instead of order count — ten bags of chips ≠ ten catering bowls
+- **P1-7: Prep-weight throttling & estimates** ✅ *(C-041)* — per-item integer prep weight (default 1); the P0-6 auto-pause threshold and the P0-7 estimate compute from open *weight* instead of order count — ten bags of chips ≠ ten catering bowls
 - **P1-8: Payment-state visibility** ✅ *(C-038)* — orders carry `unpaid | paid | refunded` (mock provider); the kitchen card flags unpaid ("pay at pickup") orders so the counter collects before handoff
 
 ### Future Considerations (P2)

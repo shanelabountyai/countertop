@@ -127,6 +127,10 @@ export const SAMPLE_MENU: Menu = {
       ],
     },
   },
+  // `prepWeight` is kitchen work, not price (P1-7): a plate off the flat-top is
+  // 3, a burrito on the line is 2, a scooped side is 1, and a bottle out of the
+  // fridge is 0. Weight is what the P0-6 throttle and the P0-7 estimate add up,
+  // so an order of four bottled waters holds the door open and quotes nothing.
   items: {
     burrito: {
       id: 'burrito',
@@ -134,6 +138,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Burrito',
       basePriceCents: 1095,
       available: true,
+      prepWeight: 2,
       modifierGroupIds: ['protein', 'addons', 'salsa', 'toppings'],
     },
     bowl: {
@@ -142,6 +147,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Burrito bowl',
       basePriceCents: 1195,
       available: true,
+      prepWeight: 2,
       // `protein` and `salsa` are the SAME group objects the burrito uses.
       modifierGroupIds: ['size', 'protein', 'salsa'],
     },
@@ -151,6 +157,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Taco plate',
       basePriceCents: 1250,
       available: true,
+      prepWeight: 3,
       modifierGroupIds: ['fillings'],
     },
     chips: {
@@ -159,6 +166,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Chips & salsa',
       basePriceCents: 350,
       available: true,
+      prepWeight: 1,
       modifierGroupIds: [],
     },
 
@@ -174,6 +182,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Breakfast burrito',
       basePriceCents: 950,
       available: true,
+      prepWeight: 2,
       modifierGroupIds: ['protein', 'toppings'],
     },
     'california-burrito': {
@@ -182,6 +191,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'California burrito',
       basePriceCents: 1295,
       available: true,
+      prepWeight: 3,
       modifierGroupIds: ['protein', 'tortilla-style', 'addons'],
     },
     'garden-bowl': {
@@ -190,6 +200,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Garden bowl',
       basePriceCents: 1050,
       available: true,
+      prepWeight: 2,
       modifierGroupIds: ['size', 'rice', 'toppings'],
     },
     'enchilada-plate': {
@@ -198,6 +209,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Enchilada plate',
       basePriceCents: 1395,
       available: true,
+      prepWeight: 3,
       modifierGroupIds: ['protein', 'rice'],
     },
     'fajita-plate': {
@@ -206,6 +218,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Fajita plate',
       basePriceCents: 1595,
       available: true,
+      prepWeight: 4,
       modifierGroupIds: ['protein', 'tortilla-style', 'toppings'],
     },
     'tamale-plate': {
@@ -214,6 +227,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Tamale plate',
       basePriceCents: 1250,
       available: true,
+      prepWeight: 2,
       modifierGroupIds: [],
     },
     'torta': {
@@ -222,6 +236,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Torta',
       basePriceCents: 1150,
       available: true,
+      prepWeight: 2,
       modifierGroupIds: ['protein', 'toppings', 'addons'],
     },
     'quesadilla': {
@@ -230,6 +245,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Quesadilla',
       basePriceCents: 895,
       available: true,
+      prepWeight: 2,
       modifierGroupIds: ['protein'],
     },
     'nachos': {
@@ -238,6 +254,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Loaded nachos',
       basePriceCents: 1145,
       available: true,
+      prepWeight: 2,
       modifierGroupIds: ['protein', 'addons', 'toppings'],
     },
     'chips-guac': {
@@ -246,6 +263,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Chips & guac',
       basePriceCents: 595,
       available: true,
+      prepWeight: 1,
       modifierGroupIds: [],
     },
     'taquitos': {
@@ -254,6 +272,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Taquitos',
       basePriceCents: 650,
       available: true,
+      prepWeight: 1,
       modifierGroupIds: [],
     },
     'rice-side': {
@@ -262,6 +281,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Side of rice',
       basePriceCents: 300,
       available: true,
+      prepWeight: 1,
       modifierGroupIds: ['rice'],
     },
     'beans-side': {
@@ -270,6 +290,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Side of beans',
       basePriceCents: 300,
       available: true,
+      prepWeight: 1,
       modifierGroupIds: [],
     },
     'elote': {
@@ -278,6 +299,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Street corn',
       basePriceCents: 425,
       available: true,
+      prepWeight: 1,
       modifierGroupIds: ['toppings'],
     },
     'horchata': {
@@ -286,6 +308,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Horchata',
       basePriceCents: 425,
       available: true,
+      prepWeight: 1,
       modifierGroupIds: ['size'],
     },
     'agua-fresca': {
@@ -294,6 +317,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Agua fresca',
       basePriceCents: 425,
       available: true,
+      prepWeight: 1,
       modifierGroupIds: ['size'],
     },
     'mexican-coke': {
@@ -302,6 +326,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Mexican Coke',
       basePriceCents: 350,
       available: true,
+      prepWeight: 0,
       modifierGroupIds: [],
     },
     'bottled-water': {
@@ -310,6 +335,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Bottled water',
       basePriceCents: 250,
       available: true,
+      prepWeight: 0,
       modifierGroupIds: [],
     },
     'churros': {
@@ -318,6 +344,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Churros',
       basePriceCents: 495,
       available: true,
+      prepWeight: 1,
       modifierGroupIds: [],
     },
     'tres-leches': {
@@ -326,6 +353,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Tres leches',
       basePriceCents: 650,
       available: true,
+      prepWeight: 0,
       modifierGroupIds: [],
     },
     'paleta': {
@@ -334,6 +362,7 @@ export const SAMPLE_MENU: Menu = {
       name: 'Paleta',
       basePriceCents: 375,
       available: true,
+      prepWeight: 0,
       modifierGroupIds: [],
     },
   },

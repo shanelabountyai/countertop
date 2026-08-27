@@ -20,6 +20,7 @@ const order = (overrides: Record<string, unknown> = {}) => ({
   taxCents: 83,
   taxRatePpm: 82_500,
   totalCents: 1083,
+  prepWeight: 2,
   statusToken: `token-${(tokenCounter += 1)}`,
   idempotencyKey: `idem-${tokenCounter}`,
   ...overrides,
@@ -258,8 +259,8 @@ describe('the gate settings', () => {
     // Zero would pause ordering permanently through a code path nobody would
     // think to look at. The manual switch is how you stop taking orders.
     await expect(
-      prisma.restaurantSettings.create({ data: settings({ maxOpenOrders: 0 }) }),
-    ).rejects.toThrow(/max_open_orders_positive/i);
+      prisma.restaurantSettings.create({ data: settings({ maxOpenWeight: 0 }) }),
+    ).rejects.toThrow(/max_open_weight_positive/i);
   });
 
   it('refuses a negative cutoff, which would extend ordering past close', async () => {
@@ -272,8 +273,8 @@ describe('the gate settings', () => {
     // A negative increment quotes a FASTER pickup the busier the kitchen gets
     // — wrong in the direction that has customers arrive early and wait.
     await expect(
-      prisma.restaurantSettings.create({ data: settings({ prepPerOrderMinutes: -1 }) }),
-    ).rejects.toThrow(/prep_per_order_in_range/i);
+      prisma.restaurantSettings.create({ data: settings({ prepPerWeightMinutes: -1 }) }),
+    ).rejects.toThrow(/prep_per_weight_in_range/i);
     await expect(
       prisma.restaurantSettings.create({ data: settings({ prepBaseMinutes: -5 }) }),
     ).rejects.toThrow(/prep_base_in_range/i);

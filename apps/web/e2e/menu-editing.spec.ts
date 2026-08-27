@@ -55,6 +55,35 @@ test('confirming saves the price and the customer menu shows it', async ({ page 
   await expect(page.getByRole('link', { name: /Burrito \$12\.50/ })).toBeVisible();
 });
 
+// C-041: prep points (P1-7). Deliberately NOT behind the confirm panel — a
+// weight is not money and no customer sees it, so the ceremony that guards a
+// price would only teach staff to tap through it.
+test('prep points save straight away, with no confirm step', async ({ page }) => {
+  await page.goto('/kitchen/menu');
+  await page.getByRole('spinbutton', { name: 'Prep points for Burrito', exact: true }).fill('5');
+  await page.getByRole('button', { name: 'Save prep points for Burrito', exact: true }).click();
+
+  await expect(page.getByRole('status')).toContainText('Burrito is now 5 prep points');
+  await expect(
+    page.getByRole('spinbutton', { name: 'Prep points for Burrito', exact: true }),
+  ).toHaveValue('5');
+});
+
+test('a prep point that is not a whole number is refused, with the bound', async ({ page }) => {
+  await page.goto('/kitchen/menu');
+  const field = page.getByRole('spinbutton', { name: 'Prep points for Burrito', exact: true });
+  // `type=number` steps in whole numbers and would refuse to submit this; the
+  // server is what makes the rule true, so relax the step and post it anyway.
+  // Deliberately NOT by switching the input to `type=text`: that changes its
+  // ROLE, and the spinbutton locator then waits thirty seconds for an element
+  // that no longer exists.
+  await field.evaluate((input: HTMLInputElement) => input.setAttribute('step', 'any'));
+  await field.fill('2.5');
+  await page.getByRole('button', { name: 'Save prep points for Burrito', exact: true }).click();
+
+  await expect(page.getByTestId('menu-error')).toContainText('0 to 50');
+});
+
 test('a modifier delta may be repriced negative, and the composer follows', async ({ page }) => {
   await page.goto('/kitchen/menu');
   await page.getByRole('textbox', { name: 'Price for Guacamole', exact: true }).fill('-0.50');

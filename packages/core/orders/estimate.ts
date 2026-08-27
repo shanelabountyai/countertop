@@ -1,6 +1,7 @@
 // THE ready-time estimate (P0-7).
 //
-// Configurable base prep time plus a per-open-order increment, widened into a
+// Configurable base prep time plus a per-open-WEIGHT increment (P1-7), widened
+// into a
 // RANGE and rounded to something a human would say out loud. One function, so
 // the checkout and the status page cannot promise different times for the same
 // queue.
@@ -15,18 +16,22 @@
 //     the checkout renders the gate notice INSTEAD of this. A screen that
 //     showed both would be promising a time for an order it will not take.
 //
-// Pure: the count comes in as a number, nothing here reads a clock or a
-// database. The queue is counted over OPEN_STATUSES by the caller — the same
-// count the auto-pause threshold reads, so "busy" means one thing.
+// Pure: the weight comes in as a number, nothing here reads a clock or a
+// database. It is summed over OPEN_STATUSES by the caller — the same number
+// the auto-pause threshold reads, so "busy" means one thing.
 
 /** What the estimate is computed from. Both minute values are settings. */
 export type EstimateState = {
   /** Minutes for a ticket with an empty queue in front of it. */
   prepBaseMinutes: number;
-  /** Added per order already open. Count-based; P1-7 makes it weight-based. */
-  prepPerOrderMinutes: number;
-  /** Orders in OPEN_STATUSES right now. */
-  openOrderCount: number;
+  /**
+   * Added per unit of open prep weight (P1-7). Weight rather than orders,
+   * because the queue ahead of you is work, not tickets: four bottled waters
+   * used to add four minutes to everyone else's quote.
+   */
+  prepPerWeightMinutes: number;
+  /** Summed `prepWeight` of the orders in OPEN_STATUSES right now. */
+  openWeight: number;
 };
 
 export type ReadyEstimate = {
@@ -53,7 +58,7 @@ const range = (lowMinutes: number, highMinutes: number): ReadyEstimate => ({
 
 export function readyEstimate(state: EstimateState): ReadyEstimate {
   const centre =
-    state.prepBaseMinutes + state.prepPerOrderMinutes * Math.max(0, state.openOrderCount);
+    state.prepBaseMinutes + state.prepPerWeightMinutes * Math.max(0, state.openWeight);
 
   // Round DOWN to the step, then add the width: the low end is the promise a
   // customer hears, so it must not drift later than the arithmetic says. A

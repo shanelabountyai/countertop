@@ -66,6 +66,18 @@ export type MenuItem = {
   /** The item grain of 86'ing. Unavailable items render "sold out", not hidden. */
   available: boolean;
   /**
+   * How much kitchen work this item is (P1-7). The P0-6 auto-pause threshold
+   * and the P0-7 estimate SUM this across open orders rather than counting the
+   * orders, so ten canned drinks and ten fajita plates stop meaning the same
+   * thing to both.
+   *
+   * A whole number, and 0 is legal: a drink pulled out of the fridge costs the
+   * kitchen nothing and should neither hold the door shut nor lengthen anyone
+   * else's quote. Required rather than defaulted, because a weight nobody set
+   * is a weight nobody thought about — and the compiler is the thing that asks.
+   */
+  prepWeight: number;
+  /**
    * References, not copies — which is what makes one "salsa" group reusable
    * across every item that has salsa, with no duplication to drift apart.
    */

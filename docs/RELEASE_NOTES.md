@@ -913,3 +913,29 @@ the payment badge that shipped two items ago.
 Three surfaces are pictured for the first time: the staff sign-in, a ticket
 flagged as still owing money with the one control that clears it, and a queue
 carrying four orders from an earlier day, banner and all.
+
+## C-041 — Ten bottled waters are not ten fajita plates
+
+Until now the kitchen's auto-pause and the wait a customer was quoted both read
+one number: how many orders were open. That number could not tell a queue of
+drinks from a queue of plates, so four people buying bottled water pushed the
+restaurant a sixth of the way to shutting online ordering off, and added four
+minutes to everyone else's estimate.
+
+Every menu item now carries a prep weight — a plate off the flat-top is 3, a
+burrito 2, a scooped side 1, a bottle out of the fridge 0 — and an order copies
+the sum of its lines' weight the way it copies its prices. The throttle and the
+estimate both add up the open orders' weight instead of counting rows.
+
+Two details worth the words. The weight is **snapshotted**, not looked up: an
+order weighs what it weighed when it was placed, so re-weighting an item at 3pm
+cannot change how heavy the 2pm queue was — asserted by the same regression
+test that mutates every menu row a placed order came from. And the threshold's
+conversion is **measured, not guessed**: the seeded rush averages 2.73 weight
+an order and peaks at 47, so the old default of 25 orders became 60 points, and
+the demo still fills a queue without tripping the pause.
+
+The staff screen for it deliberately has no confirm step. A price gets one
+because $1.50 typed as $15.00 is a valid price a customer pays; a prep point is
+kitchen workload nobody is charged for, and a second ceremony on every row
+would only teach people to tap through the one that matters.

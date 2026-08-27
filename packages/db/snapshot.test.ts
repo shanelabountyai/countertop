@@ -117,10 +117,13 @@ describe('the snapshot rule', () => {
 
     // Rename the category the line copied its categoryName from.
     await prisma.category.update({ where: { id: 'burritos' }, data: { name: 'RENAMED CATEGORY' } });
-    // Rename, reprice and 86 the item.
+    // Rename, reprice, re-WEIGH and 86 the item. The weight matters here for
+    // the same reason the price does (P1-7): the order's `prepWeight` is a
+    // copy, so re-weighting a burrito must not change how heavy an order
+    // already in the queue is — the whole receipt is compared below.
     await prisma.menuItem.update({
       where: { id: 'burrito' },
-      data: { name: 'RENAMED ITEM', basePriceCents: 9999, available: false },
+      data: { name: 'RENAMED ITEM', basePriceCents: 9999, prepWeight: 50, available: false },
     });
     // Rename a group the options copied their groupName from, and change its rules.
     await prisma.modifierGroup.update({

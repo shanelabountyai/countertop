@@ -142,6 +142,17 @@ export type SnapshotLine = {
 export type OrderSnapshot = {
   subtotalCents: number;
   taxCents: number;
+  /**
+   * The kitchen work this order is (P1-7): the sum of every line's item weight
+   * times its quantity, COPIED here the way the money is.
+   *
+   * Snapshotted for the same reason the prices are (CLAUDE.md): the throttle
+   * and the estimate add up the open orders' weight, and re-deriving it by
+   * joining back to `MenuItem` would make re-weighting an item silently change
+   * how heavy yesterday's queue was. An order weighs what it weighed when it
+   * was placed.
+   */
+  prepWeight: number;
   /** Snapshotted with the money, or a later rate change makes this receipt
    *  arithmetically unexplainable. */
   taxRatePpm: TaxRatePpm;
@@ -209,6 +220,14 @@ export function buildOrderSnapshot(
     };
   });
 
+  // Weight comes off the live menu, like every price above it, and then stops
+  // moving. `quantity` multiplies it: three burritos are three burritos' work.
+  const prepWeight = cart.lines.reduce((total, line) => {
+    const item = menu.items[line.composition.itemId];
+    if (!item) throw new Error(`Unknown item: ${line.composition.itemId}`);
+    return total + item.prepWeight * line.composition.quantity;
+  }, 0);
+
   const totals = priceOrder(
     lines.map(({ unitPriceCents, quantity, lineTotalCents }) => ({
       unitPriceCents,
@@ -218,5 +237,5 @@ export function buildOrderSnapshot(
     taxRatePpm,
   );
 
-  return { ...totals, taxRatePpm, lines };
+  return { ...totals, taxRatePpm, prepWeight, lines };
 }

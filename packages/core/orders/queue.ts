@@ -176,7 +176,7 @@ export type CloseableOrder = { status: OrderStatus; businessDay: string };
  * Is this order left over from a service that has already ended?
  *
  * ONE predicate, three readers — the queue's flag, the un-acknowledged count
- * behind the new-order alert, and the open-order count the throttle and the
+ * behind the new-order alert, and the open prep weight the throttle and the
  * ready-time estimate share. The same discipline as `checkoutGate` and
  * `validateComposition`: "is this stale?" has one answer, so the screen that
  * flags a card and the counter that stops quoting a wait for it cannot drift.

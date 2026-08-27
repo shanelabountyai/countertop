@@ -128,6 +128,10 @@ model MenuItem {
   /// The item grain of 86'ing (P0-6). Unavailable items render "sold out",
   /// they are not hidden.
   available      Boolean             @default(true)
+  /// Kitchen work, not price (P1-7). The P0-6 auto-pause threshold and the
+  /// P0-7 estimate sum this across open orders instead of counting them. 0 is
+  /// legal — a bottle out of the fridge is no work.
+  prepWeight     Int                 @default(1)
   sortOrder      Int
   modifierGroups ItemModifierGroup[]
 
@@ -207,6 +211,11 @@ model Order {
   /// receipt's arithmetic unexplainable.
   taxRatePpm      Int
   totalCents      Int
+  /// Snapshotted with the money (P1-7): the sum of each line's item weight
+  /// times its quantity, as the menu read at placement. Re-deriving it through
+  /// `menuItemId` would let re-weighting an item change how heavy a queue that
+  /// has already been cooked was.
+  prepWeight      Int
   paymentState    PaymentState  @default(unpaid)
   cancelReason    CancelReason?
   cancelNote      String?       @db.VarChar(140)
@@ -305,8 +314,12 @@ model RestaurantSettings {
   ordersPaused  Boolean @default(false)
   /// Shown to customers instead of the default while paused.
   pauseMessage  String? @db.VarChar(200)
-  /// Auto-pause threshold, counted over OPEN_STATUSES. Resumes below it.
-  maxOpenOrders Int     @default(25)
+  /// Auto-pause threshold, summed over OPEN_STATUSES as prep weight (P1-7).
+  /// Resumes below it. The default is 60 — 25 orders x 2.4, a little under the
+  /// 2.7 the seeded rush actually averages — so it holds the door at roughly
+  /// the queue depth the old 25-order count did, while telling a queue of
+  /// drinks from a queue of plates.
+  maxOpenWeight Int     @default(60)
   /// A "YYYY-MM-DD" in the restaurant's timezone declared closed, or null.
   /// A string, never a Postgres `date` — same reason as `Order.businessDay`.
   closedOnDay   String? @db.Char(10)
@@ -314,10 +327,9 @@ model RestaurantSettings {
   cutoffMinutes Int     @default(15)
   /// P0-7. Minutes a ticket takes with an empty queue in front of it.
   prepBaseMinutes Int @default(12)
-  /// P0-7. Added per order already open — the same OPEN_STATUSES count the
-  /// auto-pause threshold reads, so "busy" means one thing. Count-based;
-  /// P1-7 replaces the count with prep weight.
-  prepPerOrderMinutes Int @default(1)
+  /// P0-7. Added per unit of open prep weight — the same OPEN_STATUSES sum the
+  /// auto-pause threshold reads, so "busy" means one thing (P1-7).
+  prepPerWeightMinutes Int @default(1)
 }
 
 /// One row per day the restaurant is OPEN (P0-6). A missing day is a closed

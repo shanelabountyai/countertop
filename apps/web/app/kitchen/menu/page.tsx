@@ -21,13 +21,14 @@
 // render, so a confirm screen left open through someone else's edit shows the
 // real old value rather than a stale one captured at click time.
 import Link from 'next/link';
-import { parsePriceInput, type Menu } from '@countertop/core';
+import { parsePriceInput, type Menu, type MenuItem } from '@countertop/core';
 import { loadMenu } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
 import {
   deleteGroup,
   saveExtraSurcharge,
   saveGroup,
+  saveItemPrepWeight,
   saveItemPrice,
   saveOptionPrice,
 } from './actions';
@@ -252,8 +253,9 @@ export default async function MenuEditorPage({
       </Link>
       <h1 className="mt-4 text-3xl font-semibold">Edit menu</h1>
       <p className="mt-1 text-lg text-neutral-700">
-        Every change is shown to you before it is saved. Orders already placed never change — they
-        keep the prices they were placed at.
+        Every price change is shown to you before it is saved. Prep points save straight away —
+        they are kitchen workload, not money. Orders already placed never change — they keep the
+        prices they were placed at.
       </p>
 
       {params.saved && (
@@ -280,12 +282,13 @@ export default async function MenuEditorPage({
             {items
               .filter((item) => item.categoryId === category.id)
               .map((item) => (
-                <li key={item.id} className="rounded-lg border-2 border-neutral-300 p-3">
+                <li key={item.id} className="flex flex-col gap-2 rounded-lg border-2 border-neutral-300 p-3">
                   <PriceForm
                     editValue={`item:${item.id}`}
                     name={item.name}
                     defaultPrice={dollars(item.basePriceCents)}
                   />
+                  <WeightForm item={item} />
                 </li>
               ))}
           </ul>
@@ -436,6 +439,37 @@ function PriceForm({
         className="min-h-12 rounded-lg bg-neutral-900 px-5 text-lg font-bold text-white"
       >
         Review {what.toLowerCase()} for {name}
+      </button>
+    </form>
+  );
+}
+
+/** How much kitchen work an item is (P1-7). A POST that saves straight away:
+ *  no confirm panel, because this number is not money and no customer ever
+ *  sees it — see `saveItemPrepWeight`. */
+function WeightForm({ item }: { item: MenuItem }) {
+  return (
+    <form action={saveItemPrepWeight} className="flex flex-wrap items-end gap-3">
+      <input type="hidden" name="itemId" value={item.id} />
+      <span className="w-full text-base text-neutral-700 sm:w-auto sm:flex-1">
+        Kitchen work
+      </span>
+      <Field label={`Prep points for ${item.name}`} visible="pts">
+        <input
+          name="prepWeight"
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={50}
+          defaultValue={item.prepWeight}
+          className="min-h-12 w-20 rounded-lg border-2 border-neutral-400 px-3 text-lg tabular-nums"
+        />
+      </Field>
+      <button
+        type="submit"
+        className="min-h-12 rounded-lg border-2 border-neutral-900 px-5 text-lg font-bold"
+      >
+        Save prep points for {item.name}
       </button>
     </form>
   );

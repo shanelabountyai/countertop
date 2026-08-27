@@ -1,7 +1,7 @@
 // THE order state machine (P0-4, CLAUDE.md "One status module").
 //
-// Every reader — the kitchen queue's groupings, the throttle's open-order
-// count, the poller's stop condition, the alert's eligibility set, the report
+// Every reader — the kitchen queue's groupings, the throttle's open-weight
+// sum, the poller's stop condition, the alert's eligibility set, the report
 // queries — derives its status list from the ONE table below. None of them
 // hard-codes a status string. Adding a state means the compiler walks you
 // through the readers, because `STATUS_FACTS` is a `Record<OrderStatus, …>`

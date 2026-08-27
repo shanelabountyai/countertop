@@ -164,6 +164,21 @@ describe('the order snapshot (P0-3, P0-9)', () => {
     expect(line).toMatchObject({ basePriceCents: 1195, unitPriceCents: 1720 });
   });
 
+  it('weighs the order in kitchen work, quantity included (P1-7)', () => {
+    // Two burritos at 2 points each, plus chips at 1. Options carry no weight
+    // of their own: guacamole is a scoop, and pricing every modifier for
+    // labour is a model this product does not have.
+    expect(buildOrderSnapshot(SAMPLE_MENU, CART, RATE_PPM).prepWeight).toBe(5);
+
+    // Off the menu as it reads NOW, like every price above it — and then
+    // frozen, which is what `snapshot.test.ts` holds it to.
+    const heavier = menuWith((menu) => {
+      const burrito = menu.items.burrito;
+      if (burrito) burrito.prepWeight = 5;
+    });
+    expect(buildOrderSnapshot(heavier, CART, RATE_PPM).prepWeight).toBe(11);
+  });
+
   it('throws rather than snapshotting a zero for an item the menu lost', () => {
     const deleted = menuWith((menu) => {
       delete menu.items.burrito;
@@ -177,6 +192,7 @@ describe('the order snapshot (P0-3, P0-9)', () => {
       taxCents: 0,
       taxRatePpm: RATE_PPM,
       totalCents: 0,
+      prepWeight: 0,
       lines: [],
     });
   });

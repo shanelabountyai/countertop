@@ -45,6 +45,13 @@ a confirm-on-save that shows old → new, a shared-modifier-group warning that
 names every item an edit will touch, and a sales report bucketed in the
 restaurant's own calendar.
 
+**The throttle and the quoted wait measure work, not tickets.** Every item
+carries a prep weight — a plate off the flat-top is 3, a burrito 2, a bottle
+out of the fridge 0 — and the order copies its total weight the way it copies
+its prices. The auto-pause threshold and the ready-time estimate both add up
+the open orders' weight, so a queue of drinks stops holding the door shut on a
+kitchen that is standing empty.
+
 **And a rush that goes wrong on purpose:** `npm run demo:rush` replays thirty
 orders through twenty minutes of service including a mid-rush 86 that strands a
 cart, a wrong advance and its undo, a no-show aging out, a deliberate
@@ -203,7 +210,7 @@ Recorded as they are made, with the ceiling each one has.
 - **Fixed 5-second polling** (P0-5, resolved Open Question). Every open kitchen screen and every customer status page polls on a fixed interval — no backoff when idle. At one restaurant with a handful of screens this is free; it is linear in connected clients, so it is the first thing to change under load. The endpoint is designed as "changes since a server-issued cursor" precisely so a WebSocket upgrade swaps the transport and not the logic.
 - **The daily order number resets at midnight restaurant-time**, not at a configurable business-day boundary. A late-night kitchen serving past midnight will see the number reset mid-service. Recorded in the PRD's Open Questions as the accepted v1 simplification.
 - **The tax rate is a single flat configurable rate.** Real jurisdictions have category-dependent rates (prepared food vs. packaged). One rate, one rounding function, snapshotted per order.
-- **Throttling counts open orders, not prep weight** (P0-6; P1-7 is the upgrade). Ten bags of chips and ten catering bowls count the same. The estimate is honest about being rough — it is shown as a range, never a point.
+- ~~**Throttling counts open orders, not prep weight** (P0-6; P1-7 is the upgrade)~~ — **done in C-041.** Every menu item carries an integer prep weight, an order snapshots the sum of its lines' weight times their quantity alongside its money, and both the P0-6 auto-pause threshold and the P0-7 estimate read that sum instead of a row count. Ten bottled waters now weigh nothing and ten fajita plates weigh forty. The remaining ceiling is that weight is per ITEM: a burrito with eight modifiers weighs the same as a plain one, because pricing every option for labour is a model this product does not have. Adding it is an additive field on the option and a second term in one reduce — the same shape the item weight already has. The estimate is still honest about being rough: a range, never a point.
 - **`light` intensity costs the same as `regular`** (C-002). Restaurants do not discount light sauce, and inventing a discount rule nobody asked for is a pricing policy smuggled in as a default. If a menu ever needs per-intensity pricing beyond the "extra" surcharge, it is an additive field on the option.
 - **No default-included options** (C-002). "NO onions" is expressed as selecting Onions at `none`, not as deselecting something the item ships with. Default-inclusion changes what the composer screen renders and is not in P0-1; adding it later is additive to the group type.
 - **The five-second undo window is UI, not engine** (C-004). `applyTransition` allows a revert whenever the transition table does; the button is what expires. Correctness never depends on a client-side timer — same reasoning as the idempotency constraint versus the disabled submit button.

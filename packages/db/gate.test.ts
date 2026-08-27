@@ -40,6 +40,25 @@ const place = (): Promise<PlacementResult> =>
     now: DINNER,
   });
 
+/** One line of a groupless item, priced as the menu prices it — the cart's own
+ *  number is display-only, but a wrong one trips the C-026 price confirmation
+ *  and the placement never reaches the gate. */
+const placeItem = (
+  itemId: string,
+  unitPriceAtAddCents: number,
+  quantity: number,
+): Promise<PlacementResult> =>
+  placeOrder({
+    cart: {
+      lines: [
+        { id: `line-${itemId}`, unitPriceAtAddCents, composition: { itemId, quantity, selections: [] } },
+      ],
+    },
+    customerName: 'Dana',
+    idempotencyKey: `weight-key-${(keyCounter += 1)}`,
+    now: DINNER,
+  });
+
 const refusal = (result: PlacementResult) => {
   if (result.ok) throw new Error('expected the gate to refuse this placement');
   return result.errors.find((error) => error.kind === 'ordering_closed');
@@ -53,21 +72,32 @@ beforeEach(async () => {
 });
 
 describe('loadGateState (P0-6)', () => {
-  it('reads the settings row, the hours, and the open-order count together', async () => {
+  it('reads the settings row, the hours, and the open prep weight together', async () => {
     const state = await loadGateState(DINNER);
     expect(state).toMatchObject({
       timezone: 'America/Los_Angeles',
       taxRatePpm: 82_500,
       paused: false,
-      maxOpenOrders: 25,
-      openOrderCount: 0,
+      maxOpenWeight: 60,
+      openWeight: 0,
       closedOnDay: null,
       cutoffMinutes: 0,
-      // The P0-7 numbers ride along on the same read, off the same count.
+      // The P0-7 numbers ride along on the same read, off the same weight.
       prepBaseMinutes: 12,
-      prepPerOrderMinutes: 1,
+      prepPerWeightMinutes: 1,
     });
     expect(state.hours).toHaveLength(7);
+  });
+
+  it('weighs the work, not the tickets (P1-7)', async () => {
+    // Four bottles out of the fridge. Four TICKETS' worth of throttle under
+    // the old count, and no kitchen work at all — which is the whole item.
+    if (!(await placeItem('bottled-water', 250, 4)).ok) throw new Error('setup refused');
+    expect((await loadGateState(DINNER)).openWeight).toBe(0);
+
+    // Three orders of chips, one unit of work each.
+    if (!(await placeItem('chips', 350, 3)).ok) throw new Error('setup refused');
+    expect((await loadGateState(DINNER)).openWeight).toBe(3);
   });
 
   it('throws rather than inventing a wide-open restaurant when settings are missing', async () => {
@@ -75,10 +105,11 @@ describe('loadGateState (P0-6)', () => {
     await expect(loadGateState(DINNER)).rejects.toThrow();
   });
 
-  it('counts open orders from OPEN_STATUSES, not from a list spelled out here', async () => {
+  it('sums open weight over OPEN_STATUSES, not over a list spelled out here', async () => {
     const first = await place();
     if (!first.ok) throw new Error('setup placement refused');
-    expect((await loadGateState(DINNER)).openOrderCount).toBe(1);
+    // One burrito: `prepWeight` 2 in the sample menu, snapshotted at placement.
+    expect((await loadGateState(DINNER)).openWeight).toBe(2);
 
     // `ready` is deliberately NOT open: the food is made, so it no longer
     // competes for kitchen capacity and must not hold the throttle closed.
@@ -89,23 +120,23 @@ describe('loadGateState (P0-6)', () => {
     expect((await prisma.order.findUniqueOrThrow({ where: { id: first.order.id } })).status).toBe(
       'ready',
     );
-    expect((await loadGateState(DINNER)).openOrderCount).toBe(0);
+    expect((await loadGateState(DINNER)).openWeight).toBe(0);
   });
 
-  it('does not count an order left over from an earlier service (P1-6)', async () => {
+  it('does not weigh an order left over from an earlier service (P1-6)', async () => {
     const stale = await place();
     if (!stale.ok) throw new Error('setup placement refused');
-    expect((await loadGateState(DINNER)).openOrderCount).toBe(1);
+    expect((await loadGateState(DINNER)).openWeight).toBe(2);
 
     // The same row, one service later. `preparing` is as open as a status
-    // gets, and this is exactly the row nobody remembered to tap: counted, it
+    // gets, and this is exactly the row nobody remembered to tap: weighed in, it
     // inflates every quoted wait, and enough of them hold the auto-pause shut
     // on a restaurant that is standing empty.
     await prisma.order.update({
       where: { id: stale.order.id },
       data: { businessDay: '2026-07-03' },
     });
-    expect((await loadGateState(DINNER)).openOrderCount).toBe(0);
+    expect((await loadGateState(DINNER)).openWeight).toBe(0);
 
     // And the queue still shows it — flagged, not swept. This is the pair of
     // assertions that has to stay together: excluding it from the count
@@ -138,16 +169,18 @@ describe('placement obeys the gate (P0-6)', () => {
     expect((await place()).ok).toBe(true);
   });
 
-  it('auto-pauses at the open-order threshold and resumes below it', async () => {
-    await seedSettings({ maxOpenOrders: 2 });
+  it('auto-pauses at the open-weight threshold and resumes below it', async () => {
+    // Two burritos' worth of work, which is two orders of the `place()` cart.
+    await seedSettings({ maxOpenWeight: 4 });
     expect((await place()).ok).toBe(true);
     const second = await place();
     if (!second.ok) throw new Error('second placement refused');
 
-    // Two open orders, max of two: the gate is shut without anyone touching it.
+    // Four units of open work, max of four: the gate is shut without anyone
+    // touching it.
     expect(refusal(await place())).toMatchObject({ reason: 'too_busy' });
 
-    // Advance one to `ready` and it stops counting — the gate opens itself.
+    // Advance one to `ready` and its weight comes off — the gate opens itself.
     for (let i = 0; i < 3; i += 1) {
       await applyOrderAction(second.order.id, { kind: 'advance', actor: 'staff' }, DINNER);
     }

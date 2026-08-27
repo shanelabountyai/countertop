@@ -85,8 +85,8 @@ export type PlacementResult =
  * How many order numbers to try before giving up. Each retry means another
  * placement won that number in the microseconds since we read the maximum, so
  * this is a concurrency depth, not a delay — 25 simultaneous checkouts is
- * already a harder rush than the throttle (P0-6, default 25 open orders) lets
- * happen.
+ * already a harder rush than the throttle (P0-6, default 60 units of open prep
+ * weight — roughly 22 orders of the seeded menu) lets happen.
  */
 const MAX_SEQ_ATTEMPTS = 25;
 
@@ -243,6 +243,7 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
           taxCents: snapshot.taxCents,
           taxRatePpm: snapshot.taxRatePpm,
           totalCents: snapshot.totalCents,
+          prepWeight: snapshot.prepWeight,
           paymentState: input.paidNow ? 'paid' : 'unpaid',
           statusToken: newStatusToken(),
           idempotencyKey,

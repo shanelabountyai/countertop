@@ -258,13 +258,13 @@ export default async function SettingsPage({
       <form action={saveService} className="mt-8 rounded-xl border-2 border-neutral-300 p-4">
         <h2 className="text-2xl font-semibold">Service</h2>
         <NumberField
-          name="maxOpenOrders"
+          name="maxOpenWeight"
           label="Pause new orders above"
-          suffix="open orders"
-          value={state.maxOpenOrders}
+          suffix="prep points of open work"
+          value={state.maxOpenWeight}
           min={1}
           max={500}
-          hint="Counted over orders the kitchen still owes. Food already on the shelf does not count."
+          hint="Summed over the work the kitchen still owes, not the ticket count: a plate is 3 points, a burrito 2, a bottled drink 0. Food already on the shelf does not count."
         />
         <NumberField
           name="cutoffMinutes"
@@ -285,13 +285,13 @@ export default async function SettingsPage({
           hint="The floor of every estimate. Customers are shown a range around it, never a point."
         />
         <NumberField
-          name="prepPerOrderMinutes"
+          name="prepPerWeightMinutes"
           label="Add"
-          suffix="minutes per order already open"
-          value={state.prepPerOrderMinutes}
+          suffix="minutes per prep point already open"
+          value={state.prepPerWeightMinutes}
           min={0}
           max={60}
-          hint="The same open-order count the pause threshold reads, so 'busy' means one thing."
+          hint="The same open work the pause threshold reads, so 'busy' means one thing."
         />
         <button
           type="submit"

@@ -65,6 +65,8 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 
 - [x] **C-040** — The screenshots caught up — all fourteen captures regenerated from the running app, three of them new: the staff sign-in (C-037), an unpaid ticket with its collect control (C-038), and a queue carrying leftovers from an earlier day (C-039). Six of the eleven that already existed came back different. The portfolio page rebuilt on top of them.
 
+- [x] **C-041** — Prep-weight throttling & estimates *(P1-7)* — every menu item carries an integer prep weight, an order snapshots the sum of its lines' weight × quantity beside its money, and the P0-6 auto-pause threshold and the P0-7 estimate both read that sum instead of a row count. Ten bottled waters weigh 0; ten fajita plates weigh 40. Two settings renamed with their CHECKs (`maxOpenWeight` default 60, `prepPerWeightMinutes`), the menu editor grows a confirm-free prep-points field, and the snapshot regression test now re-weighs the item it mutates.
+
 ## Deferred by decision (not backlog)
 
 **A GitHub organization for the five projects** — deferred 2026-08-27, not

@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { readyEstimate, remainingEstimate, type EstimateState } from './estimate';
 
 // Firebird Kitchen's defaults: 12 minutes for a ticket with nothing in front
-// of it, one more minute per order already open.
+// of it, one more minute per unit of work already open (P1-7 — a burrito is 2,
+// a bottle of water is 0).
 const state = (overrides: Partial<EstimateState> = {}): EstimateState => ({
   prepBaseMinutes: 12,
-  prepPerOrderMinutes: 1,
-  openOrderCount: 0,
+  prepPerWeightMinutes: 1,
+  openWeight: 0,
   ...overrides,
 });
 
@@ -17,30 +18,32 @@ describe('readyEstimate', () => {
     expect(estimate.label).toBe('10–20 min');
   });
 
-  it('grows with the queue', () => {
-    // 12 + 4 = 16 -> the 15 step, so the whole range moves up together.
-    expect(readyEstimate(state({ openOrderCount: 4 })).label).toBe('15–25 min');
-    expect(readyEstimate(state({ openOrderCount: 12 })).label).toBe('20–30 min');
+  it('grows with the WORK in the queue, not the ticket count', () => {
+    // 12 + 4 = 16 -> the 15 step, so the whole range moves up together. Four
+    // units of work is two burritos, or four ticketsful of bottled water
+    // (which is zero) — the estimate can now tell those apart.
+    expect(readyEstimate(state({ openWeight: 4 })).label).toBe('15–25 min');
+    expect(readyEstimate(state({ openWeight: 12 })).label).toBe('20–30 min');
   });
 
-  it('honours a per-order increment above one minute', () => {
-    expect(readyEstimate(state({ prepPerOrderMinutes: 3, openOrderCount: 6 })).label).toBe(
+  it('honours a per-weight increment above one minute', () => {
+    expect(readyEstimate(state({ prepPerWeightMinutes: 3, openWeight: 6 })).label).toBe(
       '30–40 min',
     );
   });
 
   it('rounds the low end DOWN, so the promise cannot drift later', () => {
     // 19 minutes of arithmetic must not be sold as "20–30".
-    expect(readyEstimate(state({ openOrderCount: 7 })).lowMinutes).toBe(15);
+    expect(readyEstimate(state({ openWeight: 7 })).lowMinutes).toBe(15);
   });
 
   it('never promises "right now", whatever the settings say', () => {
     expect(readyEstimate(state({ prepBaseMinutes: 0 })).label).toBe('5–15 min');
-    expect(readyEstimate(state({ prepBaseMinutes: 2, openOrderCount: 0 })).lowMinutes).toBe(5);
+    expect(readyEstimate(state({ prepBaseMinutes: 2, openWeight: 0 })).lowMinutes).toBe(5);
   });
 
-  it('ignores a negative open count rather than shortening the estimate', () => {
-    expect(readyEstimate(state({ openOrderCount: -5 }))).toEqual(readyEstimate(state()));
+  it('ignores a negative open weight rather than shortening the estimate', () => {
+    expect(readyEstimate(state({ openWeight: -5 }))).toEqual(readyEstimate(state()));
   });
 });
 
@@ -74,7 +77,7 @@ describe('remainingEstimate', () => {
     // Same order, 4 minutes in, but 12 orders are now open: 20–30 quoted,
     // so 16–26 left — later than the 6–16 it would have had. An estimate that
     // could only shrink would be a countdown, not an estimate.
-    expect(remainingEstimate(readyEstimate(state({ openOrderCount: 12 })), 4)?.label).toBe(
+    expect(remainingEstimate(readyEstimate(state({ openWeight: 12 })), 4)?.label).toBe(
       '16–26 min',
     );
   });

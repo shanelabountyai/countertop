@@ -2277,3 +2277,77 @@ C-039 committed at de31384.
   write into `docs/`, and the gate must not touch the working tree.
 
 C-040 committed at 07ead94.
+
+## C-041 — The queue is measured in work
+
+**Built:**
+- `MenuItem.prepWeight` (integer, default 1, `CHECK BETWEEN 0 AND 50`) and
+  `Order.prepWeight` — the second one snapshotted at placement as
+  `Σ item.prepWeight × quantity`, with its default dropped after the backfill
+  so placement must supply it.
+- `checkoutGate` now reads `openWeight >= maxOpenWeight`; `readyEstimate` now
+  reads `prepBaseMinutes + prepPerWeightMinutes × openWeight`. Both settings
+  columns were RENAMED with their CHECK constraints, so the compiler and the
+  database moved together.
+- `loadGateState` swapped its `count()` for an `aggregate({_sum: prepWeight})`
+  under the same `businessDay >= today` filter — still ONE read feeding both
+  the throttle and the estimate.
+- The sample menu weighs itself: a plate off the flat-top 3 (fajitas 4), a
+  burrito 2, a scooped side 1, a bottle out of the fridge 0.
+- The menu editor grows a prep-points field per item — a POST that saves
+  straight away — and the settings screen's two service numbers now say "prep
+  points" instead of "orders".
+- Tests: an `openWeight` unit case in the gate ("a queue of drinks is not a
+  queue of plates"), a quantity-multiplied snapshot case in `placement.test`,
+  a `weighs the work, not the tickets` case in `gate.test` placing four
+  bottled waters for zero weight, two e2e cases on the new field, and
+  `prepWeight: 50` added to the item mutation in the snapshot regression.
+
+**Decided:**
+- **Weight is snapshotted, not joined.** `Order.prepWeight` is a copied number
+  like the prices are. Re-weighting a fajita plate at 3pm must not change how
+  heavy the 2pm queue was — the same rule that makes a receipt immutable, and
+  it is now asserted by the regression test that mutates every referenced menu
+  row.
+- **Rename, don't add-and-drop.** `maxOpenOrders → maxOpenWeight` and
+  `prepPerOrderMinutes → prepPerWeightMinutes` are the same settings with a new
+  unit, and a rename carries the value, the CHECK and the NOT NULL across.
+  Existing values are converted by `ROUND(× 2.4)` — the same factor the new
+  default comes from (25 orders × 2.4 = 60), deliberately under the 2.7 the
+  seeded rush actually measures, because erring toward pausing early is the
+  safe direction for a kitchen.
+- **Measured, not guessed.** The 2.4/2.7 numbers are from the seeded rush:
+  30 orders, mean weight 2.73, heaviest 5, and a live-demo peak of 47 open
+  weight against the new threshold of 60. The demo still fills the queue
+  without tripping the auto-pause, which is what it is for.
+- **Prep points get no confirm panel.** The price confirm exists because
+  $1.50 → $15.00 is a valid price a customer pays. A weight is not money and no
+  customer sees it, so a second ceremony on every row would only teach staff to
+  tap through the one that matters. Said out loud on the screen: "Prep points
+  save straight away — they are kitchen workload, not money."
+- **Zero is a legal weight.** A canned drink costs the kitchen nothing, so it
+  should neither hold the door shut nor lengthen anyone else's quote. The
+  CHECK allows 0 and the estimate's existing floor keeps a queue of drinks from
+  reading as "right now".
+
+**Left behind:**
+- **Weight is per ITEM, not per modifier.** A burrito with eight add-ons weighs
+  the same as a plain one. Pricing every option for labour is a model this
+  product does not have; the upgrade is an additive field on the option and a
+  second term in one reduce, which is the shape the item weight already has.
+- **`OrderLine` carries no weight column.** The order-level sum is what both
+  readers need, so a per-line copy would be a column nobody reads. It also
+  means the report cannot say which LINE of an order was the heavy one.
+- **Nothing recomputes the estimate a customer was already quoted.** The
+  status page recomputes on every poll, as it always did, but an order placed
+  when the queue was light keeps no record of what it was promised — so
+  "were we honest?" is still unanswerable, which is exactly what P1-4 is for.
+- **The write-up's By-the-Numbers table is stale again** — 5 migrations and 13
+  CHECK constraints now, and it still says 4 and 11 (it was last refreshed at
+  C-030, ten items ago). Half-updating the rows this item touched would make
+  the table read as current when its test counts are not, so it stays for a
+  C-030-style catch-up.
+- **The 2.4 conversion factor is a one-time judgement.** A restaurant whose
+  menu is mostly drinks would want a different one, and the migration cannot
+  know that. The operator screen is the answer, and the bound (1–500) is wide
+  enough for either extreme.

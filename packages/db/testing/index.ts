@@ -64,6 +64,7 @@ export async function seedSampleMenu(): Promise<void> {
       name: item.name,
       basePriceCents: item.basePriceCents,
       available: item.available,
+      prepWeight: item.prepWeight,
       sortOrder: index,
     })),
   });
@@ -83,11 +84,11 @@ type SettingsOverrides = {
   taxRatePpm?: number;
   ordersPaused?: boolean;
   pauseMessage?: string | null;
-  maxOpenOrders?: number;
+  maxOpenWeight?: number;
   closedOnDay?: string | null;
   cutoffMinutes?: number;
   prepBaseMinutes?: number;
-  prepPerOrderMinutes?: number;
+  prepPerWeightMinutes?: number;
 };
 
 /**
@@ -114,11 +115,11 @@ export async function seedSettings(overrides: SettingsOverrides = {}): Promise<v
       taxRatePpm: overrides.taxRatePpm ?? 82_500,
       ordersPaused: overrides.ordersPaused ?? false,
       pauseMessage: overrides.pauseMessage ?? null,
-      maxOpenOrders: overrides.maxOpenOrders ?? 25,
+      maxOpenWeight: overrides.maxOpenWeight ?? 60,
       closedOnDay: overrides.closedOnDay ?? null,
       cutoffMinutes: overrides.cutoffMinutes ?? 0,
       prepBaseMinutes: overrides.prepBaseMinutes ?? 12,
-      prepPerOrderMinutes: overrides.prepPerOrderMinutes ?? 1,
+      prepPerWeightMinutes: overrides.prepPerWeightMinutes ?? 1,
     },
   });
 }
@@ -130,7 +131,7 @@ export async function seedSettings(overrides: SettingsOverrides = {}): Promise<v
  * of the wall-clock hour it runs at, and CI runs this twice under two very
  * different timezones. The three gate triggers are exercised through the ones
  * that ARE deterministic — the pause switch, the closed-today override, and
- * the open-order threshold — plus the pure unit tests in packages/core, which
+ * the open-weight threshold — plus the pure unit tests in packages/core, which
  * drive the clock directly.
  */
 export async function seedStoreHours(
