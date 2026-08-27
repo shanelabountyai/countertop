@@ -1,8 +1,9 @@
-import type { Cart } from '@countertop/core';
+import { isLeftOver, type Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { loadGateState } from './gate';
 import { prisma } from './index';
 import { placeOrder, type PlacementResult } from './placement';
+import { loadQueue } from './queue';
 import { applyOrderAction } from './transitions';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
@@ -53,7 +54,7 @@ beforeEach(async () => {
 
 describe('loadGateState (P0-6)', () => {
   it('reads the settings row, the hours, and the open-order count together', async () => {
-    const state = await loadGateState();
+    const state = await loadGateState(DINNER);
     expect(state).toMatchObject({
       timezone: 'America/Los_Angeles',
       taxRatePpm: 82_500,
@@ -71,13 +72,13 @@ describe('loadGateState (P0-6)', () => {
 
   it('throws rather than inventing a wide-open restaurant when settings are missing', async () => {
     await prisma.restaurantSettings.deleteMany();
-    await expect(loadGateState()).rejects.toThrow();
+    await expect(loadGateState(DINNER)).rejects.toThrow();
   });
 
   it('counts open orders from OPEN_STATUSES, not from a list spelled out here', async () => {
     const first = await place();
     if (!first.ok) throw new Error('setup placement refused');
-    expect((await loadGateState()).openOrderCount).toBe(1);
+    expect((await loadGateState(DINNER)).openOrderCount).toBe(1);
 
     // `ready` is deliberately NOT open: the food is made, so it no longer
     // competes for kitchen capacity and must not hold the throttle closed.
@@ -88,7 +89,29 @@ describe('loadGateState (P0-6)', () => {
     expect((await prisma.order.findUniqueOrThrow({ where: { id: first.order.id } })).status).toBe(
       'ready',
     );
-    expect((await loadGateState()).openOrderCount).toBe(0);
+    expect((await loadGateState(DINNER)).openOrderCount).toBe(0);
+  });
+
+  it('does not count an order left over from an earlier service (P1-6)', async () => {
+    const stale = await place();
+    if (!stale.ok) throw new Error('setup placement refused');
+    expect((await loadGateState(DINNER)).openOrderCount).toBe(1);
+
+    // The same row, one service later. `preparing` is as open as a status
+    // gets, and this is exactly the row nobody remembered to tap: counted, it
+    // inflates every quoted wait, and enough of them hold the auto-pause shut
+    // on a restaurant that is standing empty.
+    await prisma.order.update({
+      where: { id: stale.order.id },
+      data: { businessDay: '2026-07-03' },
+    });
+    expect((await loadGateState(DINNER)).openOrderCount).toBe(0);
+
+    // And the queue still shows it — flagged, not swept. This is the pair of
+    // assertions that has to stay together: excluding it from the count
+    // without leaving it on a screen is how an order disappears.
+    expect(await loadQueue()).toHaveLength(1);
+    expect(isLeftOver({ status: 'placed', businessDay: '2026-07-03' }, '2026-07-04')).toBe(true);
   });
 });
 

@@ -30,9 +30,13 @@ export async function currentCheckout(): Promise<{
   gate: GateResult;
   estimate: ReadyEstimate;
 }> {
-  const state = await loadGateState();
+  // Read once, here, and passed down — the count of today's open orders and
+  // the wall-clock reading the gate compares hours against are the same
+  // instant's answers (CLAUDE.md time rules).
+  const now = new Date();
+  const state = await loadGateState(now);
   return {
-    gate: checkoutGate(state, restaurantClock(new Date(), state.timezone)),
+    gate: checkoutGate(state, restaurantClock(now, state.timezone)),
     estimate: readyEstimate(state),
   };
 }

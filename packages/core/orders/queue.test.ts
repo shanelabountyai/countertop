@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { QUEUE_STATUSES, type OrderStatus } from './state-machine';
+import { ORDER_STATUSES, QUEUE_STATUSES, type OrderStatus } from './state-machine';
 import { formatOrderNumber } from './placement';
 import {
   DEFAULT_AGING,
   elapsedMinutes,
   groupQueue,
+  isLeftOver,
   matchesLookup,
   queueAging,
   undoRemainingMs,
@@ -156,5 +157,44 @@ describe('the five-second undo (P0-4)', () => {
     // ended somewhere else.
     expect(undoRemainingMs('ready', advanceTo('preparing', 'accepted', secondsBefore(1)), NOON)).toBe(0);
     expect(undoRemainingMs('preparing', undefined, NOON)).toBe(0);
+  });
+});
+
+describe('left over from an earlier service (P1-6)', () => {
+  const TODAY = '2026-07-04';
+  const left = (over: Partial<{ status: OrderStatus; businessDay: string }> = {}) => ({
+    status: 'preparing' as OrderStatus,
+    businessDay: '2026-07-03',
+    ...over,
+  });
+
+  it('flags every queue status from an earlier day', () => {
+    for (const status of QUEUE_STATUSES) {
+      expect(isLeftOver(left({ status }), TODAY), status).toBe(true);
+    }
+  });
+
+  it('leaves today alone', () => {
+    for (const status of QUEUE_STATUSES) {
+      expect(isLeftOver(left({ status, businessDay: TODAY }), TODAY), status).toBe(false);
+    }
+  });
+
+  it('ignores terminal orders — history is not a chore', () => {
+    for (const status of ORDER_STATUSES.filter((s) => !QUEUE_STATUSES.includes(s))) {
+      expect(isLeftOver(left({ status }), TODAY), status).toBe(false);
+    }
+  });
+
+  it('compares days as strings, and that ordering holds across the boundaries', () => {
+    // The month and year rollovers are where a lexicographic shortcut would
+    // fail if the format were not zero-padded. It is, so they do not.
+    expect(isLeftOver(left({ businessDay: '2026-06-30' }), '2026-07-01')).toBe(true);
+    expect(isLeftOver(left({ businessDay: '2025-12-31' }), '2026-01-01')).toBe(true);
+    expect(isLeftOver(left({ businessDay: '2026-01-01' }), '2025-12-31')).toBe(false);
+  });
+
+  it('does not flag a day in the future — a clock that went backwards is not a chore', () => {
+    expect(isLeftOver(left({ businessDay: '2026-07-05' }), TODAY)).toBe(false);
   });
 });

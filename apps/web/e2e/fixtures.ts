@@ -127,3 +127,31 @@ export async function placeOrderFor(
   expect(href).toMatch(/^\/status\/.+/);
   return href as string;
 }
+
+/**
+ * Move every order on the queue back to an earlier business day (P1-6).
+ *
+ * There is no way to produce a leftover through the screens — `businessDay` is
+ * assigned by the server from the instant of placement — and no way to wait for
+ * one either. So the row is edited directly, which is the one thing a fixture
+ * may do that a spec may not.
+ *
+ * Prisma rather than a `psql` shell-out: the spec process already has the
+ * client as a dependency and the connection string in its environment, and a
+ * `psql` on PATH is an assumption about the machine rather than about the
+ * project. Disconnects immediately, because the next `reseed()` TRUNCATEs the
+ * same tables and an idle pool from this process is a lock race waiting to
+ * happen.
+ *
+ * Returns the day it wrote, so the assertion can name it rather than matching
+ * a loose pattern.
+ */
+export async function backdateQueue(businessDay = '2020-01-01'): Promise<string> {
+  const { prisma } = await import('@countertop/db');
+  try {
+    await prisma.order.updateMany({ data: { businessDay } });
+  } finally {
+    await prisma.$disconnect();
+  }
+  return businessDay;
+}

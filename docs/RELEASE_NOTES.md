@@ -860,3 +860,40 @@ what it cost, and they cannot drift apart.
 **The rush shows both.** A third of the seeded thirty pay at the counter, fixed
 by arrival minute so every run is the same demo. A flag that appears on every
 card is decoration, and one that appears on none proves nothing.
+
+## C-039 — Yesterday's queue is not today's work
+
+An order nobody closed out does not go away at midnight. It sits on the
+kitchen screen, mixed in among the tickets that are actually cooking, until
+somebody notices — and the longer it sits, the more it looks like part of the
+furniture. Countertop now knows the difference between a ticket and a leftover.
+
+**The flag names the day.** A card from a service that has already ended wears
+`LEFT OVER FROM 2026-08-25 — CLOSE IT OUT` in red, and a banner above the
+queue counts them: "3 orders are still open from an earlier day, the oldest
+from 2026-08-25." The count is what turns a card someone might scroll past
+into a chore with a size.
+
+**It stops chiming.** The new-order alert exists to say a customer is standing
+at the counter right now. A `placed` ticket from Tuesday that rings on every
+page load is an alarm staff learn to ignore, and an alarm that gets ignored is
+worth nothing during the rush it was built for. Leftovers are flagged loudly
+and silently — seen, not heard.
+
+**It stops holding the door shut.** The auto-pause threshold counts the work
+the kitchen still owes, and a three-day-old `preparing` row is not work: it is
+a tap somebody forgot. Counted, it inflated every quoted wait time, and enough
+of them would have held online ordering closed on a restaurant standing empty.
+They no longer count. The banner is what keeps the pressure on instead.
+
+**Flagged, never swept.** Nothing closes an order out automatically. Closing
+one is a real transition to a real terminal state — `abandoned` for food that
+was made and never collected, a reasoned `cancelled` for a ticket that never
+got cooked — and only the person who was there knows which. Guessing on their
+behalf would invent a no-show in the sales report, and a report that invents
+numbers is worse than one that leaves a gap.
+
+**One boundary, shared with the order numbers.** "Left over" means "from an
+earlier business day" — the same line the daily order numbers reset on, in the
+restaurant's own timezone. Flagging at closing time instead would flag the
+ticket a cook is still bagging as the door shuts.

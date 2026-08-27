@@ -158,7 +158,7 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
     if (existing) return { ok: true, order: existing, replayed: true };
   }
 
-  const [menu, settings] = await Promise.all([loadMenu(), loadGateState()]);
+  const [menu, settings] = await Promise.all([loadMenu(), loadGateState(now)]);
   const review = reviewCart(menu, cart, settings.taxRatePpm);
   const identity = normalizeIdentity(input);
   const errors: PlacementError[] = identity.ok ? [] : [...identity.violations];

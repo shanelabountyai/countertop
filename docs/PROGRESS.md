@@ -2159,3 +2159,77 @@ C-037 committed at 8670bfa.
   Re-run with `SCREENSHOTS=1` when the portfolio page is next rebuilt.
 
 C-038 committed at 59ece61.
+
+## C-039 — The end-of-day sweep
+
+**Built:**
+- `isLeftOver(order, today)` in `packages/core/orders/queue.ts` — one predicate,
+  three readers. Appended to the queue module rather than given a file of its
+  own: it is a fact about what the kitchen queue shows, and it already had the
+  `QUEUE_STATUSES` import it needs.
+- `loadGateState(now)` — the open-order count is now scoped to
+  `businessDay >= today`, so the P0-6 throttle and the P0-7 estimate stop
+  counting leftovers. Four call sites now pass the `now` they already had.
+- The kitchen banner (count + oldest day) and the per-card
+  `LEFT OVER FROM <day> — CLOSE IT OUT` badge, which outranks the un-acked
+  styling and suppresses the "New — not yet accepted" badge.
+- The un-acknowledged count excludes leftovers, so the chime and the screen
+  agree about what is new.
+- `backdateQueue()` in the e2e fixtures, 5 tests in `closeout.spec.ts`
+  (including axe), 5 unit tests, and one db test.
+
+**Decided:**
+- **Flag, don't sweep.** The PRD says "flagged for closeout". Closing an order
+  out is a transition to a specific terminal state, and only the person who was
+  there knows which: `abandoned` for food that was made and never collected,
+  `cancelled` with a reason for a ticket that never got cooked. An automatic
+  sweep would have to pick one, and picking `abandoned` for an order that was
+  in fact handed over quietly invents a no-show in the P1-1 report. It would
+  also need a `system` actor, which the state machine refuses for both
+  transitions — correctly.
+- **The business day, not closing time.** It is the same boundary the daily
+  order numbers reset on, which is what the requirement ties them together by.
+  Flagging at close would flag the ticket a cook is still bagging as the door
+  shuts. The store-hours CHECK constraints cap `closeMinute` at 1440, so
+  service cannot cross midnight and the two boundaries cannot invert.
+- **Leftovers stop counting toward the throttle, and that is the defect this
+  item actually fixes.** `OPEN_STATUSES` means work the kitchen owes. Stale
+  rows inflated every quoted wait and, at enough of them, would have held the
+  auto-pause shut permanently — online ordering refused, on a restaurant
+  standing empty, because of rows nobody tapped. The screen keeps showing them;
+  only the counter stops.
+- **The chime is for someone standing there now.** A leftover `placed` ticket
+  ringing on every load is an alarm staff learn to ignore, and then the alert
+  is worth nothing during the rush it exists for. Excluded from the count, and
+  its "New — not yet accepted" badge suppressed, because that badge names the
+  wrong tap: the answer for a leftover is Cancel, not Accept.
+- **A string comparison, not a date.** `businessDay` is `Char(10)` "YYYY-MM-DD",
+  which sorts lexicographically exactly as it sorts chronologically. Nothing is
+  parsed, so the `new Date(string)` ban is untouched. Tested across the month
+  and year rollovers, which is where an unpadded format would have failed.
+- **No new file, no migration, no bulk button.** The predicate went into the
+  module that already owned the queue's shape; nothing about the schema changed;
+  and a "close them all out" control would have to choose the terminal state
+  the whole item refuses to guess.
+- **`loadGateState` gave up its single round trip.** The count needs the
+  restaurant's calendar, which needs the settings row, so settings-and-hours
+  now resolve before the count. The property that file's header warns about is
+  preserved: the gate and the estimate still read exactly ONE count.
+
+**Left behind:**
+- **Local midnight is hard-coded as the service boundary.** A venue whose
+  service runs past it would see every live ticket flag at 00:00. Not reachable
+  today — the C-022 CHECK constraints refuse a `closeMinute` past 1440 — and
+  marked with a `ponytail:` comment naming the upgrade: a service-day offset in
+  settings that `businessDayOf` subtracts.
+- **`isLeftOver` is expressed twice, in two dialects** — once in TypeScript for
+  the screen, once as a Prisma `businessDay: { gte: today }` for the count. The
+  comment at the where-clause names it as the negation of the predicate. Doing
+  it in one dialect would mean loading every open order into memory to filter
+  it, which is unbounded exactly when it matters.
+- **Nothing prompts staff at opening.** The banner is there when someone looks
+  at the queue. A restaurant that opens the screen at 11:05 sees it then, not
+  at 11:00, and there is no notification. P1-3's outbox is the shape that would
+  carry one.
+- **The C-031 screenshots still predate C-037, C-038 and this.** Re-run with
+  `SCREENSHOTS=1` when the portfolio page is next rebuilt.

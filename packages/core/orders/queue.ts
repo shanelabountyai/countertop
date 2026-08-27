@@ -164,3 +164,57 @@ export function undoRemainingMs(
 
   return Math.max(0, windowMs - (now.getTime() - lastEvent.at.getTime()));
 }
+
+// ---------------------------------------------------------------------------
+// The end-of-day sweep (P1-6)
+// ---------------------------------------------------------------------------
+
+/** Enough of an order to tell whether it belongs to today's service. */
+export type CloseableOrder = { status: OrderStatus; businessDay: string };
+
+/**
+ * Is this order left over from a service that has already ended?
+ *
+ * ONE predicate, three readers — the queue's flag, the un-acknowledged count
+ * behind the new-order alert, and the open-order count the throttle and the
+ * ready-time estimate share. The same discipline as `checkoutGate` and
+ * `validateComposition`: "is this stale?" has one answer, so the screen that
+ * flags a card and the counter that stops quoting a wait for it cannot drift.
+ *
+ * Three things follow from a leftover being FLAGGED rather than swept:
+ *
+ *   * It is still on the queue, in its own status group, with its normal
+ *     controls. Closing one out is a staff transition with the right terminal
+ *     state — `abandoned` for food nobody collected, `cancelled` with a reason
+ *     for a ticket that never got cooked. An automatic sweep would have to
+ *     pick one, and picking `abandoned` for an order that was in fact handed
+ *     over quietly invents a no-show in the P1-1 report.
+ *   * It stops chiming. The alert means "a customer is standing there now"
+ *     (P0-12); a `placed` ticket from Tuesday that chimes every page load is
+ *     an alarm staff learn to ignore, which costs the alert its whole job.
+ *   * It stops holding the door shut. `OPEN_STATUSES` means work the kitchen
+ *     still owes, and a three-day-old `preparing` row is not work — it is a
+ *     tap somebody forgot. Counted, it inflates every quoted wait and can trip
+ *     the P0-6 auto-pause permanently: a restaurant unable to take orders
+ *     because of stale rows. The banner is what keeps the pressure on instead.
+ *
+ * The boundary is the business day, not closing time, and deliberately so: it
+ * is the SAME boundary the daily order numbers reset on (P0-8), which is what
+ * "tomorrow's queue and order numbers start clean" ties the two together by.
+ * Flagging at close would flag the ticket a cook is still bagging as the door
+ * shuts.
+ *
+ * A string comparison, because `businessDay` is "YYYY-MM-DD" — that format
+ * sorts lexicographically exactly as it sorts chronologically, zero-padded, so
+ * no date is parsed to compare two days (CLAUDE.md's `new Date(string)` ban).
+ *
+ * ponytail: local midnight is the boundary, so a venue whose service runs past
+ * it would see every live ticket flag at 00:00. Not reachable today — the
+ * store-hours CHECK constraints refuse a `closeMinute` past 1440 — and the
+ * upgrade is a service-day offset in settings that `businessDayOf` subtracts.
+ */
+export function isLeftOver(order: CloseableOrder, today: string): boolean {
+  // Queue statuses only: a terminal order from last week is history, not a
+  // chore. Derived from THE status module, never a list spelled out here.
+  return order.businessDay < today && QUEUE_STATUSES.includes(order.status);
+}

@@ -61,6 +61,8 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 
 - [x] **C-038** — Payment-state visibility *(P1-8)* — checkout takes a mock card charge or leaves the order as pay-at-pickup; the kitchen card flags the unpaid ones with the amount and a `Collected — mark paid` button; cancelling a paid order moves the column to `refunded` alongside the refund event the engine already wrote. The column and the `refund` event kind have been in the schema since C-003 — this item is what makes `paid` and `refunded` reachable, and it needed no migration.
 
+- [x] **C-039** — The end-of-day sweep *(P1-6)* — `isLeftOver` in `packages/core`, one predicate with three readers: the kitchen flags an order left over from an earlier business day with its date, the new-order chime stops counting it, and the P0-6 throttle and P0-7 estimate stop counting it too. Flagged, never swept — closing one out is a staff transition to the terminal state only they can pick. No migration.
+
 ## Deferred by decision (not backlog)
 
 **A GitHub organization for the five projects** — deferred 2026-08-27, not
@@ -84,8 +86,8 @@ one-project-at-a-time convention.
   re-authorizing against the new owner. Transfers leave redirects, so old
   links keep working.
 
-P1-2 order-ahead slots, P1-3 SMS notifications, P1-4 estimate tuning, P1-6 end-of-day
-sweep, P1-7 prep-weight throttling, and everything in the PRD's P2 list.
+P1-2 order-ahead slots, P1-3 SMS notifications, P1-4 estimate tuning, P1-7
+prep-weight throttling, and everything in the PRD's P2 list.
 
 **P1-5 needs no item: it shipped inside P0.** The status token is
 `randomBytes(24)` — 192 bits, above the ≥128 the requirement names — the order

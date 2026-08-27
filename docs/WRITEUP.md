@@ -251,6 +251,11 @@ Recorded as they are made, with the ceiling each one has.
 - **The menu grew to twenty-five items by ADDING only** (C-017). Not one of the four original items or six original modifier groups moved, because every hand-calculated price fixture in `packages/core` is priced against those exact rows. Two constraints came out of that and neither is enforced by anything but a note: `salsa` must stay on exactly two items and `fillings` on exactly one, because C-015's shared-group warning asserts those counts by name; and no item name may CONTAIN an existing option name, because Playwright matches accessible names by substring and case-insensitively, so a "Chips & queso" item would make every `Queso` locator in the availability suite ambiguous. The item is called "Chips & guac" for that reason and no other.
 
 
+- **A leftover is flagged at the business-day line, and that line is midnight restaurant-time** (C-039). "Still open from an earlier day" is the same boundary the daily order numbers reset on — deliberately, because the requirement ties the two together — which means it inherits the midnight caveat two screens up: a venue whose service runs past midnight would see every live ticket flag at 00:00. Not reachable today, because the C-022 store-hours CHECK constraints refuse a `closeMinute` past 1440, so service cannot cross the boundary it is measured against. Marked with a `ponytail:` comment; the upgrade is a service-day offset in settings that `businessDayOf` subtracts, and it fixes both caveats at once.
+- **Nothing closes an order out on its own** (C-039). The sweep flags; it never transitions. Closing a leftover means picking a terminal state — `abandoned` for food that was made and never collected, `cancelled` with a reason for a ticket that never got cooked — and only the person who was there knows which. An automatic sweep has to guess, and guessing `abandoned` for an order that was in fact handed over invents a no-show in the P1-1 report. It would also need a `system` actor for a transition the state machine refuses to give one, which is the machine being right. The ceiling is that a restaurant which never looks at its queue accumulates flags forever; the banner counts them, and nothing escalates.
+- **`isLeftOver` is written twice, in two dialects** (C-039). Once as a TypeScript predicate for the three readers on the screen, and once as a Prisma `businessDay: { gte: today }` in the open-order count — because the count is a `COUNT(*)`, and doing it in one dialect would mean loading every open order into the app to filter it, which is unbounded exactly when it matters. The where-clause carries a comment naming itself as the predicate's negation. It is the same shape as any query that restates a business rule in SQL, and the mitigation is the same: one db test asserts the two agree.
+- **The banner is the only prompt** (C-039). Leftovers are visible when somebody opens the kitchen screen, and not before — there is no notification at opening, no daily digest, nothing that reaches a phone. A shop that opens the screen at 11:05 learns about Tuesday's ticket at 11:05. P1-3's outbox is the shape a real prompt would take.
+
 ## Defects Found
 
 **C-001 — the drift check could never have passed.** CI's schema-drift step runs
@@ -535,6 +540,37 @@ five-minute timeout with a healthy server running the whole time.
 `next start -p ${PORT:-3400}` in both `dev` and `start`: the default survives,
 and the override now does something. Two defects on a runner's first two runs,
 both of them things a laptop had structurally agreed not to see.
+
+### A stale row could have held the doors shut (C-039)
+
+Latent since C-011, and found by reading rather than by a failing test. The
+P0-6 auto-pause counts orders in `OPEN_STATUSES` — `placed`, `accepted`,
+`preparing` — and refuses new checkouts once the count reaches
+`maxOpenOrders`, default 25. Nothing in that count knew what day it was.
+
+An order only leaves those statuses when a cook taps a button. Nothing expires
+one, nothing sweeps one at close, and until this item nothing on the screen
+even distinguished a ticket from last Tuesday from one that was cooking. So
+the failure mode was not a crash: it was arithmetic. Twenty-five forgotten
+taps, accumulated over any number of weeks, and online ordering refuses every
+customer with "the kitchen is at capacity right now" — on a restaurant
+standing empty, with nothing on any screen to explain it, and no amount of
+cooking able to clear it. Long before that, every stale row silently added its
+minute to every quoted wait time, which is the P0-7 estimate lying in exactly
+the way the range rule exists to prevent.
+
+Two things kept it theoretical. The seeded rush drains to a terminal state by
+minute forty-five, so no test had ever carried a queue across a business day —
+the fixtures could not produce the condition. And a real shop would have hit
+it slowly, as a wait estimate creeping up by a minute a week, which reads as
+the kitchen getting slower rather than as a bug.
+
+The fix is one clause: the count is scoped to `businessDay >= today`. The
+screen still shows every leftover, flagged and dated, because excluding a row
+from a count without leaving it somewhere visible is how an order disappears
+— and the db test asserts both halves in the same case, deliberately, so the
+pair cannot be split later.
+
 
 ## Skills Learned / Functions Unlocked
 

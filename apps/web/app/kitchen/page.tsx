@@ -11,6 +11,7 @@ import {
   formatOrderNumber,
   groupQueue,
   checkoutGate,
+  isLeftOver,
   matchesLookup,
   needsAcknowledgment,
   restaurantClock,
@@ -65,14 +66,25 @@ export default async function KitchenPage({
   // The SAME gate the customer's checkout asks. Staff see the live answer —
   // including an auto-pause nobody switched on — rather than the switch's
   // own position (P0-6).
-  const gateState = await loadGateState();
-  const gate = checkoutGate(gateState, restaurantClock(now, gateState.timezone));
+  const gateState = await loadGateState(now);
+  const clock = restaurantClock(now, gateState.timezone);
+  const gate = checkoutGate(gateState, clock);
   const groups = groupQueue(orders.filter((order) => matchesLookup(order, query)));
+  // P1-6, off the UNFILTERED list for the same reason the alert count is: a
+  // chore a search can hide is a chore nobody does.
+  const leftOver = orders.filter((order) => isLeftOver(order, clock.day));
   // Counted off the UNFILTERED list, deliberately. A cook who has typed a name
   // into the lookup box is still the person who has to hear the next order
   // arrive — an alert that a search can silence is an alert that will be
   // silenced during exactly the rush it exists for (P0-12).
-  const unacknowledged = orders.filter((order) => needsAcknowledgment(order.status)).length;
+  //
+  // Leftovers are excluded: the chime means "a customer is standing there
+  // now". A `placed` ticket from Tuesday that chimes on every page load is an
+  // alarm staff learn to ignore, and then the alert is worth nothing during
+  // the rush it exists for. The banner below is how that order gets seen.
+  const unacknowledged = orders.filter(
+    (order) => needsAcknowledgment(order.status) && !isLeftOver(order, clock.day),
+  ).length;
 
   return (
     <main className="mx-auto max-w-5xl p-6">
@@ -114,6 +126,21 @@ export default async function KitchenPage({
       </div>
 
       <PauseSwitch gate={gate} paused={gateState.paused} />
+
+      {/* The end-of-day sweep (P1-6). A count and a sentence, not a section:
+          each leftover stays in its own status group with its normal controls,
+          because closing one out is a real transition and only staff know
+          which — `abandoned` for food nobody collected, a reason'd `cancelled`
+          for a ticket that was never cooked. Guessing that for them would
+          invent a no-show in the sales report. */}
+      {leftOver.length > 0 && (
+        <p className="mt-4 rounded-lg border-2 border-red-500 bg-red-50 p-4 text-lg font-semibold text-red-800">
+          {leftOver.length === 1 ? '1 order is' : `${leftOver.length} orders are`} still open from
+          an earlier day, the oldest from {leftOver[0]?.businessDay}. Close{' '}
+          {leftOver.length === 1 ? 'it' : 'them'} out — marked below — so today&rsquo;s queue is
+          today&rsquo;s work.
+        </p>
+      )}
 
       {/* A plain GET form: the walk-up lookup works before hydration, and the
           result is a URL a second screen can be opened on (P0-11). */}
@@ -158,25 +185,39 @@ export default async function KitchenPage({
               {inGroup.map((order) => {
                 const aging = queueAging(order, now, DEFAULT_AGING);
                 const undoMs = undoRemainingMs(order.status, order.events[0], now);
+                const leftOverCard = isLeftOver(order, clock.day);
 
                 return (
                   <li
                     key={order.id}
                     className={`rounded-xl border-2 p-4 ${
-                      // Un-acknowledged outranks "running late". Both are
-                      // urgent; only one of them names the tap that fixes it,
-                      // and a placed order cannot be late in a way that
-                      // accepting it does not also address.
-                      needsAcknowledgment(order.status)
-                        ? 'alert-pulse border-sky-700 bg-sky-50'
-                        : aging.noShowLevel >= 2 || aging.overdue
-                          ? 'border-red-500 bg-red-50'
-                          : 'border-neutral-300'
+                      // Left over outranks everything, because it is the
+                      // only one of the three whose answer is not a tap on
+                      // this card's advance button (P1-6). Then
+                      // un-acknowledged over "running late": both are urgent,
+                      // only one names the tap that fixes it, and a placed
+                      // order cannot be late in a way that accepting it does
+                      // not also address.
+                      leftOverCard
+                        ? 'border-red-600 bg-red-50'
+                        : needsAcknowledgment(order.status)
+                          ? 'alert-pulse border-sky-700 bg-sky-50'
+                          : aging.noShowLevel >= 2 || aging.overdue
+                            ? 'border-red-500 bg-red-50'
+                            : 'border-neutral-300'
                     }`}
                   >
+                    {/* P1-6. Above the new-order badge and never instead of
+                        it: a leftover in `placed` is BOTH, and the older fact
+                        is the one that explains why nothing chimed. */}
+                    {leftOverCard && (
+                      <p className="mb-2 w-fit rounded bg-red-700 px-2 py-1 text-lg font-bold uppercase text-white">
+                        Left over from {order.businessDay} — close it out
+                      </p>
+                    )}
                     {/* The badge, not the animation, is what carries this to
                         a cook who has motion turned off. */}
-                    {needsAcknowledgment(order.status) && (
+                    {needsAcknowledgment(order.status) && !leftOverCard && (
                       <p className="mb-2 w-fit rounded bg-sky-700 px-2 py-1 text-lg font-bold uppercase text-white">
                         New — not yet accepted
                       </p>

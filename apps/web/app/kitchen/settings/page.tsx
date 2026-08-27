@@ -36,9 +36,10 @@ export default async function SettingsPage({
 }) {
   const params = await searchParams;
   const { saved, error } = params;
-  const state = await loadGateState();
   // Read once, here (CLAUDE.md time rules).
-  const today = restaurantClock(new Date(), state.timezone).day;
+  const now = new Date();
+  const state = await loadGateState(now);
+  const today = restaurantClock(now, state.timezone).day;
   const closedToday = state.closedOnDay === today;
 
   const hoursByDay = new Map(state.hours.map((day) => [day.dayOfWeek, day]));
