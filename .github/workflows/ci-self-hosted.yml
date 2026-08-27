@@ -48,8 +48,12 @@ jobs:
       - name: Write the runner's env files
         run: |
           URL="postgresql://$(whoami)@localhost:5432/$RUNNER_DB"
-          printf 'DATABASE_URL=%s\nDIRECT_URL=%s\n' "$URL" "$URL" > .env.test
-          printf 'DATABASE_URL=%s\nDIRECT_URL=%s\nPORT=%s\n' "$URL" "$URL" "$PORT" > .env.local
+          # STAFF_PASSCODE is not a secret here: it gates a queue screen on a
+          # throwaway database on this machine. It is written rather than
+          # defaulted because the app FAILS CLOSED without it (C-037), so a CI
+          # run with no value would be 90-odd e2e tests stuck on a login page.
+          printf 'DATABASE_URL=%s\nDIRECT_URL=%s\nSTAFF_PASSCODE=ci-runner\n' "$URL" "$URL" > .env.test
+          printf 'DATABASE_URL=%s\nDIRECT_URL=%s\nPORT=%s\nSTAFF_PASSCODE=ci-runner\n' "$URL" "$URL" "$PORT" > .env.local
 
       - name: Build the runner's database from scratch
         run: |

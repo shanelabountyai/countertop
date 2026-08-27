@@ -2055,3 +2055,51 @@ timezones, 86 e2e passed + 11 skipped reconciling against 97.
   proven itself.
 
 C-033 through C-036 pushed; first green CI run at 33020960765 (commit d4bd3ea range).
+
+## C-037 — Staff auth on /kitchen
+
+**Built:**
+- `apps/web/lib/staff-auth.ts` — the cookie name, the salted SHA-256 token, a
+  constant-time compare, `isStaff()`, and `safeNext()`.
+- `apps/web/middleware.ts` — matcher `/kitchen/:path*`, `/kitchen/login`
+  excepted. GET redirects to the login with `?next=`; anything else gets 401.
+- `apps/web/app/kitchen/login/` — the passcode form and `signIn`/`signOut`,
+  with the error state in the URL like C-015's and C-023's confirms.
+- A `Sign out` form in the kitchen header.
+- `apps/web/e2e/global-setup.ts` + `use.storageState` — every context starts
+  signed in; `auth.spec.ts` is the one file that opts out.
+- `STAFF_PASSCODE` in `.env.example` and in both CI workflows.
+
+**Decided:**
+- **The guard is the middleware, not fifteen `requireStaff()` calls.** A server
+  action POSTs to the path it was rendered on, so a route matcher covers every
+  write on the route. Recorded in the file as a route-layer ceiling: an action
+  imported into a page outside `/kitchen` would bypass it. Nothing does.
+- **The cookie is a digest of the passcode.** No session table, no expiry
+  sweep, no second secret. Rotation is the revocation mechanism, and it is
+  global by construction.
+- **Unset fails closed.** A dev default is how a known passcode reaches
+  production. The login page names the missing variable instead.
+- **GET redirects, non-GET is 401.** A 307 on a server action's POST makes the
+  browser re-POST the payload at the login page.
+- **The cookie is scoped `path=/kitchen`,** so customer surfaces never receive
+  it — in the browser or in the test fixtures.
+- **Global setup mints the cookie without touching the server**, which keeps it
+  independent of whether Playwright starts `webServer` before or after it.
+
+**What it caught:**
+- **`getByRole('alert')` is a strict-mode violation on every page in this app.**
+  Next's route announcer is itself a `role="alert"` live region. The new spec
+  asserted the wrong-passcode message by role and failed in 164ms. By text now.
+- **The `Sign out` button broke P0-11 the moment it was added.** `rush.spec`
+  asserts every visible `<button>` on a full queue is ≥48px tall; a 20px text
+  button in the header failed it at test 76 of 103. The spec was right and the
+  tempting fix — excluding the header from the selector — is how the exceptions
+  start. It is `min-h-12` now, like everything else staff can tap.
+
+**Left behind:**
+- **One shared passcode answers "is this the kitchen?", not "which cook?"** The
+  event log's `actor` is still the literal `staff`. Per-cook accounts are a
+  different project and the log is where they would land.
+- **The C-031 screenshots predate the `Sign out` link** in the kitchen header.
+  Re-run with `SCREENSHOTS=1` when the portfolio page is next rebuilt.

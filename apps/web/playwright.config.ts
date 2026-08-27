@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { STAFF_AUTH_FILE } from './e2e/auth-file';
 
 // e2e runs against a PRODUCTION build (CLAUDE.md "The gate") — a dev server is
 // not the artifact that ships. E2E_DEV=1 restores the dev server for stack
@@ -22,7 +23,11 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: 'list',
-  use: { baseURL, trace: 'on-first-retry' },
+  // Every context starts signed in as staff (C-037). Global setup mints the
+  // cookie; auth.spec.ts is the one file that opts back out, because what it
+  // asserts is what happens WITHOUT it.
+  globalSetup: './e2e/global-setup',
+  use: { baseURL, trace: 'on-first-retry', storageState: STAFF_AUTH_FILE },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
     command: process.env.E2E_DEV ? 'npm run dev:test' : 'npm run e2e:server',

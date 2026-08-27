@@ -12,3 +12,6 @@ packages/db/generated/
 
 # Built portfolio page: 1.1MB of inlined screenshots, rebuilt by docs/portfolio/build.mjs
 docs/portfolio/countertop.html
+
+# Minted by e2e/global-setup.ts from STAFF_PASSCODE (C-037)
+apps/web/e2e/.staff-auth.json

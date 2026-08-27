@@ -777,3 +777,52 @@ It is a stopgap and the file says so in its first line. A laptop cannot run the
 part of CI that matters most — migrations applied to an empty database from
 scratch, and the unit suite run twice under two hostile timezones expecting
 identical answers.
+
+---
+
+## C-037 — A lock on the kitchen door
+
+Since C-008 the write-up has carried the same admission: `/kitchen` was
+reachable by anyone who knew the path. Four server actions that advance,
+revert, cancel and abandon orders, a menu editor, an 86 board and a pause
+switch — all of it open. It was recorded as a deliberate scope line rather than
+an oversight, and it was also the sentence that made "deploy this somewhere"
+impossible to write.
+
+**One guard, at the routing layer.** The tempting version is a `requireStaff()`
+at the top of every server action, and there are fifteen of them. The version
+that ships is a single `middleware.ts` matching `/kitchen/:path*`, because a
+server action POSTs to the path it was rendered on — so protecting the route
+protects the writes, and the sixteenth action added next month cannot forget.
+The trade is recorded in the file: it is a *route* guard, so a kitchen action
+imported into a customer page would slip past it. Nothing does that today, and
+a test asserts the POST is refused.
+
+**The cookie is a digest of the passcode, not a session id.** There is no
+sessions table, no expiry sweep, and no second secret to keep in step with the
+first — and rotating `STAFF_PASSCODE` signs every device out, everywhere, with
+no deploy step beyond the variable. Both comparisons run in constant time over
+fixed-length digests, including the typed passcode, which is hashed before it
+is compared for exactly that reason.
+
+**Unset means locked.** A development default is how a known passcode reaches
+production, so there isn't one: with no `STAFF_PASSCODE`, the kitchen screens
+refuse everyone and the login page says why. A deployment that forgets the
+variable loses its queue screen rather than publishing it — which is the
+failure you want to have.
+
+**A GET redirects, a POST gets a 401.** Redirecting an unauthenticated POST
+would make the browser re-submit the server action's payload at the login page.
+The status code is the honest answer, and it surfaces in the app as the
+action's own error rather than as a mystery navigation.
+
+**Nine spec files needed a signed-in browser, and none of them mention it.**
+Global setup mints the cookie once — it can, because the cookie is derived from
+the passcode and needs no running server — and hands it to every context. The
+one file that must run signed *out* opts back out. That is the same lesson as
+C-025: a fixture nine specs each write their own copy of is a fixture with nine
+slightly different bugs in it.
+
+**What it does not do.** It answers "is this the kitchen?", not "which cook
+advanced this order?" The event log's actor is still the literal `staff`.
+Per-cook accounts are a different project, and the log is where they land.

@@ -10,12 +10,18 @@ conventions are in `CLAUDE.md`.
 ```bash
 npm install
 createdb countertop_dev && createdb countertop_test   # or: docker compose up -d
-cp .env.example .env.local                            # then fill in DATABASE_URL/DIRECT_URL
+cp .env.example .env.local                            # DATABASE_URL/DIRECT_URL + STAFF_PASSCODE
 npm run db:migrate:all
 ```
 
 `.env.test` overrides only the database and inherits the rest from `.env.local`
-(`dotenv -e .env.test -e .env.local`, first file wins).
+(`dotenv -e .env.test -e .env.local`, first file wins) — with one exception:
+`.env.test` needs its own `STAFF_PASSCODE`, because the e2e sweep signs into
+`/kitchen` with it.
+
+`STAFF_PASSCODE` gates every `/kitchen` screen (C-037). **Unset means locked,
+not open**: with no value the kitchen refuses everyone and the login page says
+so. Rotating it signs every device out.
 
 ## Running
 

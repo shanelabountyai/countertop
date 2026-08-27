@@ -28,6 +28,10 @@ env:
   DATABASE_URL: postgresql://postgres:postgres@localhost:5432/countertop_ci
   DIRECT_URL: postgresql://postgres:postgres@localhost:5432/countertop_ci
   SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/countertop_ci_shadow
+  # /kitchen fails closed without this (C-037), so an unset value here is a
+  # sweep that never gets past the login page. Not a secret: it gates a
+  # throwaway container's queue screen.
+  STAFF_PASSCODE: ci-runner
 
 jobs:
   gate:
