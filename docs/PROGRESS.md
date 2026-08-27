@@ -2451,3 +2451,5 @@ C-041 committed at b7addfd.
   C-041's entry said 13, which was already wrong; a number nobody re-counts
   drifts whether or not the table is refreshed. Untouched here for the same
   reason as C-041 — half-updating it makes it read as current.
+
+C-042 committed at 8fdf37d.
