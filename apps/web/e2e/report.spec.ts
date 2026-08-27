@@ -185,3 +185,41 @@ test('a ticket sent back counts both visits to preparing', async ({ page }) => {
     timeInState(page).getByRole('row').filter({ hasText: 'Ready for pickup' }),
   ).toContainText('2');
 });
+
+// C-042: "were we honest?" (P1-4).
+//
+// The arithmetic is proved in packages/core/orders/estimate.test.ts and the
+// pairing of quote to outcome in packages/db/report.test.ts. What is proved
+// HERE is that a quote snapshotted at checkout survives to the report screen,
+// and that the screen refuses to recommend a settings change off a handful of
+// orders.
+const accuracy = (page: Page) =>
+  page.getByRole('region', { name: 'Quote accuracy by queue depth' });
+
+test('a quoted order that reached Ready is graded on the report', async ({ page }) => {
+  await page.goto('/kitchen/report');
+
+  // Priya Shah is the one seeded order that got as far as `ready`.
+  await expect(stat(page, 'Quoted orders')).toContainText('1');
+  await expect(accuracy(page)).toBeVisible();
+
+  // One order is not evidence. The screen says so rather than moving a setting.
+  await expect(page.getByTestId('quote-suggestion')).toContainText('Not enough quoted orders');
+});
+
+test('food handed over well before the low end counts as a miss, not a win', async ({ page }) => {
+  await page.goto('/kitchen');
+  // Dana was placed two minutes ago and quoted at least ten. Walking her to
+  // the shelf now is the kitchen beating its own estimate by a mile — which is
+  // a customer who waited longer at the counter than they were told to.
+  for (const label of ['Accept', 'Start cooking', 'Food is ready']) {
+    await card(page, 'Dana Reyes').getByRole('button', { name: label, exact: true }).click();
+    await expect(
+      card(page, 'Dana Reyes').getByRole('button', { name: label, exact: true }),
+    ).toHaveCount(0);
+  }
+
+  await page.goto('/kitchen/report');
+  await expect(stat(page, 'Quoted orders')).toContainText('2');
+  await expect(stat(page, 'Early')).toContainText('1');
+});

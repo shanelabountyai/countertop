@@ -383,3 +383,42 @@ describe('menu integrity (C-022)', () => {
     await expect(seedSampleMenu()).resolves.toBeUndefined();
   });
 });
+
+describe('the quote snapshot (P1-4, C-042)', () => {
+  beforeEach(resetDatabase);
+
+  const quoted = (overrides: Record<string, unknown> = {}) =>
+    order({ quotedLowMinutes: 10, quotedHighMinutes: 20, quotedOpenWeight: 0, ...overrides });
+
+  it('accepts a whole quote, and an order that has none at all', async () => {
+    await expect(prisma.order.create({ data: quoted() })).resolves.toBeTruthy();
+    // Every order placed before this migration. NULL is the honest value for
+    // "we have no record of what this customer was told".
+    await expect(prisma.order.create({ data: order({ seq: 48 }) })).resolves.toBeTruthy();
+  });
+
+  it('refuses HALF a quote — a low end with nothing to grade it against', async () => {
+    await expect(
+      prisma.order.create({ data: order({ quotedLowMinutes: 10 }) }),
+    ).rejects.toThrow(/order_quote_is_whole_or_absent/);
+  });
+
+  it('refuses a quote that is a point rather than a range', async () => {
+    await expect(
+      prisma.order.create({ data: quoted({ quotedHighMinutes: 10 }) }),
+    ).rejects.toThrow(/order_quote_is_a_range/);
+  });
+
+  it('refuses a low end of zero, which reads as "now"', async () => {
+    await expect(
+      prisma.order.create({ data: quoted({ quotedLowMinutes: 0 }) }),
+    ).rejects.toThrow(/order_quote_low_is_positive/);
+  });
+
+  it('allows an empty queue and refuses a negative one', async () => {
+    await expect(prisma.order.create({ data: quoted({ quotedOpenWeight: 0 }) })).resolves.toBeTruthy();
+    await expect(
+      prisma.order.create({ data: quoted({ seq: 48, quotedOpenWeight: -1 }) }),
+    ).rejects.toThrow(/order_quote_open_weight_not_negative/);
+  });
+});

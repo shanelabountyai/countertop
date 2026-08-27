@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { readyEstimate, remainingEstimate, type EstimateState } from './estimate';
+import {
+  estimateAccuracy,
+  readyEstimate,
+  remainingEstimate,
+  type EstimateState,
+  type QuoteSample,
+} from './estimate';
 
 // Firebird Kitchen's defaults: 12 minutes for a ticket with nothing in front
 // of it, one more minute per unit of work already open (P1-7 — a burrito is 2,
@@ -84,5 +90,97 @@ describe('remainingEstimate', () => {
 
   it('ignores a clock skewed backwards rather than lengthening the wait', () => {
     expect(remainingEstimate(quoted, -5)).toEqual(quoted);
+  });
+});
+
+// --- P1-4: grading the promise (C-042) -------------------------------------
+
+// A quote of 15–25 min, which is what the default settings say for a queue of
+// four. `at` is what the kitchen actually took.
+const sample = (actualMinutes: number, quotedOpenWeight = 4): QuoteSample => ({
+  quotedLowMinutes: 15,
+  quotedHighMinutes: 25,
+  quotedOpenWeight,
+  actualMinutes,
+});
+
+/** n samples, all the same. Enough of them to clear MIN_SAMPLES. */
+const many = (actualMinutes: number, count = 12, quotedOpenWeight = 4): QuoteSample[] =>
+  Array.from({ length: count }, () => sample(actualMinutes, quotedOpenWeight));
+
+describe('estimateAccuracy (P1-4)', () => {
+  it('counts anywhere inside the window as on time — that is what a range is for', () => {
+    const accuracy = estimateAccuracy([sample(15), sample(20), sample(25)]);
+    expect(accuracy.all.onTime).toBe(3);
+    expect(accuracy.all.medianMissMinutes).toBe(0);
+  });
+
+  it('separates early from late, and counts early as a miss', () => {
+    const accuracy = estimateAccuracy([sample(6), sample(20), sample(40)]);
+    expect(accuracy.all).toMatchObject({ samples: 3, early: 1, onTime: 1, late: 1 });
+    // -9, 0, +15 → the median order landed inside the window.
+    expect(accuracy.all.medianMissMinutes).toBe(0);
+  });
+
+  it('measures the miss from the nearest EDGE, never from the centre', () => {
+    expect(estimateAccuracy([sample(31)]).all.medianMissMinutes).toBe(6);
+    expect(estimateAccuracy([sample(9)]).all.medianMissMinutes).toBe(-6);
+  });
+
+  it('says nothing at all with no samples', () => {
+    const accuracy = estimateAccuracy([]);
+    expect(accuracy.all).toMatchObject({ samples: 0, medianMissMinutes: null });
+    expect(accuracy.suggestion).toBeNull();
+  });
+
+  it('refuses to retune a restaurant off a handful of orders', () => {
+    // Every one of them 20 minutes late, and it still suggests nothing.
+    expect(estimateAccuracy(many(45, 9)).suggestion).toBeNull();
+    expect(estimateAccuracy(many(45, 10)).suggestion).not.toBeNull();
+  });
+
+  it('ignores a miss smaller than the rounding the estimate already does', () => {
+    // 27 against a 15–25 window: two minutes out, under one 5-minute step.
+    expect(estimateAccuracy(many(27)).suggestion).toBeNull();
+  });
+
+  it('blames the BASE when every queue depth misses the same way', () => {
+    const flat = [...many(45, 6, 0), ...many(45, 6, 40)];
+    expect(estimateAccuracy(flat).suggestion).toEqual({
+      setting: 'prepBaseMinutes',
+      direction: 'up',
+    });
+  });
+
+  it('blames the INCREMENT when only the busy half runs late', () => {
+    // Light queue lands inside the window; the busy half is half an hour out.
+    const uneven = [...many(20, 6, 0), ...many(55, 6, 40)];
+    const accuracy = estimateAccuracy(uneven);
+    expect(accuracy.lightQueue.medianMissMinutes).toBe(0);
+    expect(accuracy.busyQueue.medianMissMinutes).toBe(30);
+    expect(accuracy.suggestion).toEqual({
+      setting: 'prepPerWeightMinutes',
+      direction: 'up',
+    });
+  });
+
+  it('sends the setting DOWN when the food is consistently ready early', () => {
+    expect(estimateAccuracy(many(4)).suggestion).toEqual({
+      setting: 'prepBaseMinutes',
+      direction: 'down',
+    });
+  });
+
+  it('splits at the median open weight, not at the order it was handed in', () => {
+    // Handed over busiest-first: the split must still put 0 and 1 in the light
+    // half, because it sorts by the queue and not by the array.
+    const accuracy = estimateAccuracy([
+      sample(50, 40),
+      sample(50, 30),
+      sample(16, 1),
+      sample(16, 0),
+    ]);
+    expect(accuracy.lightQueue.medianMissMinutes).toBe(0);
+    expect(accuracy.busyQueue.medianMissMinutes).toBe(25);
   });
 });

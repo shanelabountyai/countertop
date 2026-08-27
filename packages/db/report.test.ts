@@ -2,7 +2,7 @@ import { instantMinutesAfter, salesReport, timeInState, type Cart } from '@count
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { placeOrder } from './placement';
-import { loadReportOrders, loadStatusTimelines } from './report';
+import { loadQuoteSamples, loadReportOrders, loadStatusTimelines } from './report';
 import { applyOrderAction } from './transitions';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
@@ -218,5 +218,79 @@ describe('loadStatusTimelines', () => {
 
     const timelines = await loadStatusTimelines(new Date(Date.UTC(2026, 6, 10, 0, 0, 0)));
     expect(timelines).toHaveLength(1);
+  });
+});
+
+describe('the quote samples (P1-4, C-042)', () => {
+  const min = (m: number) => instantMinutesAfter(AT, m);
+
+  /** Advance to `ready` at a chosen instant, so a sample's actual minutes are
+   *  a number this test picked rather than one the clock produced. */
+  async function readyAt(id: string, at: Date): Promise<void> {
+    for (const kind of ['advance', 'advance', 'advance'] as const) {
+      const result = await applyOrderAction(id, { kind, actor: 'staff' }, at);
+      if (!result.ok) throw new Error(result.failure.message);
+    }
+  }
+
+  beforeEach(async () => {
+    await resetDatabase();
+    await seedSampleMenu();
+    await seedSettings({ timezone: LA });
+    await seedStoreHours();
+  });
+
+  it('pairs the snapshotted quote with the minutes the kitchen actually took', async () => {
+    await readyAt(await place(), min(18));
+
+    const [sample] = await loadQuoteSamples(EPOCH);
+    expect(sample).toEqual({
+      quotedLowMinutes: 10,
+      quotedHighMinutes: 20,
+      quotedOpenWeight: 0,
+      actualMinutes: 18,
+    });
+  });
+
+  it('skips an order that has not reached ready — it is not evidence yet', async () => {
+    await place();
+    expect(await loadQuoteSamples(EPOCH)).toHaveLength(0);
+  });
+
+  // The C-004 logged revert, at the database grain: an order advanced by
+  // mistake was not ready the first time somebody said so, and grading the
+  // estimate against that instant would score the kitchen on a mis-tap.
+  it('takes the LAST ready, so a wrong advance that was undone does not count', async () => {
+    const id = await place();
+    await readyAt(id, min(4));
+    const undone = await applyOrderAction(
+      id,
+      { kind: 'revert', actor: 'staff', reason: 'wrong card' },
+      min(5),
+    );
+    if (!undone.ok) throw new Error(undone.failure.message);
+    const again = await applyOrderAction(id, { kind: 'advance', actor: 'staff' }, min(17));
+    if (!again.ok) throw new Error(again.failure.message);
+
+    expect((await loadQuoteSamples(EPOCH))[0]?.actualMinutes).toBe(17);
+  });
+
+  it('skips an order carrying no quote, rather than inventing one for it', async () => {
+    const id = await place();
+    await readyAt(id, min(18));
+    await prisma.order.update({
+      where: { id },
+      data: { quotedLowMinutes: null, quotedHighMinutes: null, quotedOpenWeight: null },
+    });
+
+    expect(await loadQuoteSamples(EPOCH)).toHaveLength(0);
+  });
+
+  it('excludes orders placed before the window, like the other two loaders', async () => {
+    const old = await place(1, new Date(Date.UTC(2026, 6, 1, 19, 30, 0)));
+    await readyAt(old, new Date(Date.UTC(2026, 6, 1, 19, 48, 0)));
+    await readyAt(await place(1, AT), min(18));
+
+    expect(await loadQuoteSamples(new Date(Date.UTC(2026, 6, 10, 0, 0, 0)))).toHaveLength(1);
   });
 });

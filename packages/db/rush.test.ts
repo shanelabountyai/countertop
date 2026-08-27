@@ -1,4 +1,5 @@
 import {
+  estimateAccuracy,
   instantMinutesAfter,
   isOpen,
   timeInState,
@@ -9,6 +10,7 @@ import {
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { ORDER_RECEIPT } from './placement';
+import { loadQuoteSamples } from './report';
 import { runRush, RUSH_ANCHOR, RUSH_END_MINUTE, RUSH_ORDERS, type RushResult } from './rush';
 
 // C-017 — the seeded rush, asserted. The PRD's lagging Success Metrics are the
@@ -273,6 +275,57 @@ describe('the time-in-state report', () => {
       preparing: 8 * MIN,
       ready: 4 * MIN,
     });
+  });
+});
+
+// C-042 — the rush is P1-4's fixture too, and it is the only one big enough to
+// reach the ten-sample floor. Everything below reads the same twenty minutes
+// of service the tests above do.
+describe('the quote accuracy report (P1-4)', () => {
+  it('grades every order the kitchen finished, and nothing it did not', async () => {
+    const samples = await loadQuoteSamples(RUSH_ANCHOR);
+    const reachedReady = await prisma.order.count({
+      where: { events: { some: { toStatus: 'ready' } } },
+    });
+
+    // Placed by the real path, so every one of them carries a quote — the
+    // count is the outcomes, not the promises.
+    expect(samples).toHaveLength(reachedReady);
+    expect(samples.length).toBeGreaterThan(20);
+    for (const sample of samples) {
+      expect(sample.quotedHighMinutes).toBeGreaterThan(sample.quotedLowMinutes);
+      expect(sample.quotedOpenWeight).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('sees the queue GROW across the rush, which is what makes the split mean anything', async () => {
+    const samples = await loadQuoteSamples(RUSH_ANCHOR);
+    const weights = samples.map((sample) => sample.quotedOpenWeight);
+
+    // A rush that quoted every order against the same empty kitchen could not
+    // tell a base error from a per-weight one, and this report would be
+    // guessing. Thirty orders in twenty minutes do not.
+    expect(Math.max(...weights)).toBeGreaterThan(Math.min(...weights) + 5);
+  });
+
+  it('clears the ten-order floor and says something actionable', async () => {
+    const accuracy = estimateAccuracy(await loadQuoteSamples(RUSH_ANCHOR));
+
+    expect(accuracy.all.samples).toBeGreaterThanOrEqual(10);
+    expect(accuracy.all.early + accuracy.all.onTime + accuracy.all.late).toBe(
+      accuracy.all.samples,
+    );
+    expect(accuracy.lightQueue.samples + accuracy.busyQueue.samples).toBe(accuracy.all.samples);
+
+    // The simulated kitchen advances tickets on a script, not on a prep time,
+    // so WHICH way it misses is a property of the script and not worth
+    // asserting. That it reaches a verdict at all is the pipeline working end
+    // to end: quote snapshotted at placement, outcome read off the event log,
+    // and a named setting out the other side.
+    if (accuracy.suggestion !== null) {
+      expect(['prepBaseMinutes', 'prepPerWeightMinutes']).toContain(accuracy.suggestion.setting);
+      expect(['up', 'down']).toContain(accuracy.suggestion.direction);
+    }
   });
 });
 

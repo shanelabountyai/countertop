@@ -9,7 +9,7 @@
 //
 // Customer names, phones and notes are not selected. A sales report has no
 // business holding them.
-import type { ReportableOrder, StatusEvent } from '@countertop/core';
+import { elapsedMinutes, type QuoteSample, type ReportableOrder, type StatusEvent } from '@countertop/core';
 import { prisma } from './index';
 
 /**
@@ -70,4 +70,60 @@ export async function loadStatusTimelines(since: Date): Promise<StatusEvent[][]>
     },
   });
   return orders.map((order) => order.events);
+}
+
+/**
+ * What each order was promised against what it got (P1-4, C-042).
+ *
+ * Two `where` clauses do the whole filtering, and both are honesty rather than
+ * optimisation: an order placed before C-042 has no quote to grade, and an
+ * order that never reached `ready` has no outcome to grade it against — a
+ * cancelled ticket and one still on the grill are not evidence that the
+ * estimate is wrong.
+ *
+ * The LAST `ready` event, not the first. An order advanced by mistake and sent
+ * back (the C-004 logged revert) was not ready the first time somebody said
+ * so; the correction is the truth, and the append-only log is the only place
+ * that still knows both happened.
+ */
+export async function loadQuoteSamples(since: Date): Promise<QuoteSample[]> {
+  const orders = await prisma.order.findMany({
+    where: {
+      placedAt: { gte: since },
+      quotedLowMinutes: { not: null },
+      events: { some: { toStatus: 'ready' } },
+    },
+    orderBy: { placedAt: 'asc' },
+    select: {
+      placedAt: true,
+      quotedLowMinutes: true,
+      quotedHighMinutes: true,
+      quotedOpenWeight: true,
+      events: { where: { toStatus: 'ready' }, orderBy: { at: 'desc' }, take: 1, select: { at: true } },
+    },
+  });
+
+  return orders.flatMap((order) => {
+    const readyAt = order.events[0]?.at;
+    // The three columns move together under a CHECK, so one non-null is all
+    // three — but the type is nullable and narrowing it here costs a line.
+    if (
+      readyAt === undefined ||
+      order.quotedLowMinutes === null ||
+      order.quotedHighMinutes === null ||
+      order.quotedOpenWeight === null
+    ) {
+      return [];
+    }
+    return [
+      {
+        quotedLowMinutes: order.quotedLowMinutes,
+        quotedHighMinutes: order.quotedHighMinutes,
+        quotedOpenWeight: order.quotedOpenWeight,
+        // The same floored-and-never-negative minutes the queue ages tickets
+        // by, so "18 min" on the kitchen card and "18 min" here are one rule.
+        actualMinutes: elapsedMinutes(order.placedAt, readyAt),
+      },
+    ];
+  });
 }

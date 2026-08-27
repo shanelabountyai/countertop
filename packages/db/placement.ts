@@ -14,6 +14,7 @@ import {
   checkClientTotal,
   normalizeIdentity,
   placementEvent,
+  readyEstimate,
   reviewCart,
   type Cart,
   type CartError,
@@ -204,6 +205,13 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
   const snapshot = buildOrderSnapshot(menu, cart, settings.taxRatePpm);
   const businessDay = businessDayOf(now, settings.timezone);
 
+  // What we are promising this customer (P1-4), off the SAME `settings` read
+  // the gate above used — so the quote stored on the order is the one the
+  // checkout screen showed, not a second reading of a queue that moved in
+  // between. `openWeight` here excludes this order, which is right: the wait
+  // is the work already in front of it.
+  const quote = readyEstimate(settings);
+
   // The server's number is the answer; the client's is evidence (P0-2).
   const mismatch =
     input.clientTotalCents === undefined
@@ -244,6 +252,9 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
           taxRatePpm: snapshot.taxRatePpm,
           totalCents: snapshot.totalCents,
           prepWeight: snapshot.prepWeight,
+          quotedLowMinutes: quote.lowMinutes,
+          quotedHighMinutes: quote.highMinutes,
+          quotedOpenWeight: settings.openWeight,
           paymentState: input.paidNow ? 'paid' : 'unpaid',
           statusToken: newStatusToken(),
           idempotencyKey,

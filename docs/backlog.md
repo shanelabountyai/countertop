@@ -67,6 +67,8 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 
 - [x] **C-041** — Prep-weight throttling & estimates *(P1-7)* — every menu item carries an integer prep weight, an order snapshots the sum of its lines' weight × quantity beside its money, and the P0-6 auto-pause threshold and the P0-7 estimate both read that sum instead of a row count. Ten bottled waters weigh 0; ten fajita plates weigh 40. Two settings renamed with their CHECKs (`maxOpenWeight` default 60, `prepPerWeightMinutes`), the menu editor grows a confirm-free prep-points field, and the snapshot regression test now re-weighs the item it mutates.
 
+- [x] **C-042** — Estimate tuning *(P1-4)* — an order snapshots the ready-time range it was quoted at checkout and the open prep weight that quote was computed against, so "were we honest?" is answerable from the orders themselves instead of from a recomputation that always scores full marks. `estimateAccuracy` in `packages/core` grades early / on-time / late off the median miss, splits the samples at the median queue depth, and names which of the two P0-7 settings to move. Early counts as a miss; under ten quoted orders it recommends nothing.
+
 ## Deferred by decision (not backlog)
 
 **A GitHub organization for the five projects** — deferred 2026-08-27, not
@@ -90,8 +92,9 @@ one-project-at-a-time convention.
   re-authorizing against the new owner. Transfers leave redirects, so old
   links keep working.
 
-P1-2 order-ahead slots, P1-3 SMS notifications, P1-4 estimate tuning, P1-7
-prep-weight throttling, and everything in the PRD's P2 list.
+P1-2 order-ahead slots, P1-3 SMS notifications, and everything in the PRD's P2
+list. (P1-4 and P1-7 were on this line until they shipped as C-042 and C-041 —
+this list is the one that goes stale, so check it against the ticks above.)
 
 **P1-5 needs no item: it shipped inside P0.** The status token is
 `randomBytes(24)` — 192 bits, above the ≥128 the requirement names — the order

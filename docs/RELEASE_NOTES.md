@@ -939,3 +939,30 @@ The staff screen for it deliberately has no confirm step. A price gets one
 because $1.50 typed as $15.00 is a valid price a customer pays; a prep point is
 kitchen workload nobody is charged for, and a second ceremony on every row
 would only teach people to tap through the one that matters.
+
+## C-042 — Were we honest?
+
+Every customer since C-013 has been shown a ready-time range at checkout, and
+every one of those promises was thrown away the moment it was made. The
+estimate recomputes on every render — right for someone watching the queue move
+in front of them, useless afterwards, because a report asking "were the quotes
+any good?" could only recompute the answer from today's settings and today's
+queue and score itself full marks.
+
+An order now saves what it was told, next to what it was charged and how heavy
+it was: the range, and the size of the queue it was measured against. That is
+the whole trick. Once the promise is a snapshot, grading it is subtraction.
+
+The report grew a section for it. How many quoted orders reached the shelf, the
+share that landed inside the range, and — the part that took the third column —
+whether the misses got worse as the kitchen got busier. Orders are split at the
+median queue depth: if both halves run late the base prep time is wrong, and if
+only the busy half does, the per-unit-of-work number is. The screen names the
+setting to move and which way, in the words the settings screen uses.
+
+Two refusals in it are the point. **Early is a miss.** Someone told
+"15–25 min" and handed a bag at six waited at the counter for nine minutes they
+were told to spend elsewhere, and a report that scored that as a win would tune
+the estimate in exactly the wrong direction. And **under ten quoted orders it
+recommends nothing at all** — "not enough to say yet" is a real answer, and a
+restaurant's first four tickets of the week must not be allowed to retune it.

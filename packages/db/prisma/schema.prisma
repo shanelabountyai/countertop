@@ -216,6 +216,18 @@ model Order {
   /// `menuItemId` would let re-weighting an item change how heavy a queue that
   /// has already been cooked was.
   prepWeight      Int
+  /// What this order was PROMISED at placement (P1-4), snapshotted like the
+  /// money and for the same reason: recomputing an old order's estimate from
+  /// today's settings grades this afternoon's arithmetic against itself and
+  /// always scores full marks. Nullable because orders placed before C-042
+  /// were never told anything — a backfill would be inventing a promise, and
+  /// "no record" is the honest value.
+  quotedLowMinutes  Int?
+  quotedHighMinutes Int?
+  /// The open prep weight the quote was computed against — the queue that was
+  /// in front of this order. Without it the report can prove the quotes are
+  /// wrong but not WHICH of the two P0-7 settings is wrong.
+  quotedOpenWeight  Int?
   paymentState    PaymentState  @default(unpaid)
   cancelReason    CancelReason?
   cancelNote      String?       @db.VarChar(140)

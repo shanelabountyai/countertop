@@ -9,9 +9,17 @@
 // reported under last month's menu, and an item deleted this morning still
 // appears in the history it earned.
 import Link from 'next/link';
-import { instantDaysBefore, isTerminal, salesReport, timeInStateReport } from '@countertop/core';
+import {
+  estimateAccuracy,
+  instantDaysBefore,
+  isTerminal,
+  salesReport,
+  timeInStateReport,
+  type AccuracyGroup,
+  type QuoteAdjustment,
+} from '@countertop/core';
 import { loadSettings } from '@countertop/db/menu';
-import { loadReportOrders, loadStatusTimelines } from '@countertop/db/report';
+import { loadQuoteSamples, loadReportOrders, loadStatusTimelines } from '@countertop/db/report';
 import { formatCents } from '@/lib/money';
 import { STATUS_LABEL } from '@/lib/status-labels';
 
@@ -51,6 +59,10 @@ export default async function ReportPage({
   // than from `statusChangedAt` — which holds one instant and cannot know that
   // a reverted ticket was on the grill twice.
   const timeInState = timeInStateReport(await loadStatusTimelines(since), now);
+  // P1-4. Graded against the quote each order CARRIES, not against a quote
+  // recomputed now — which is why this needs a snapshot column and not a
+  // cleverer query (C-042).
+  const accuracy = estimateAccuracy(await loadQuoteSamples(since));
 
   // Only the states an order can still be sitting in. The terminal three
   // always total zero by construction, and a row of "0.0 min" reads like a
@@ -219,8 +231,92 @@ export default async function ReportPage({
           />
         )}
       </Section>
+
+      {/* Outside the sales branch too, and for the same reason: the question
+          "were we honest?" is at its most useful during the service that is
+          getting it wrong. */}
+      <Section title="Were the quotes honest?">
+        <p className="text-lg text-neutral-700">
+          Every order below was told a ready-time range at checkout and that range was saved with
+          it. Anywhere inside the range counts as on time — that is what a range is for. Early is
+          a miss too: someone told &ldquo;15–25 min&rdquo; and handed a bag at six waited longer
+          than they had to. Orders placed before this was recorded, and orders that never reached
+          Ready, are not counted.
+        </p>
+        {accuracy.all.samples === 0 ? (
+          <p className="mt-3 text-lg">No quoted order has reached Ready in this window yet.</p>
+        ) : (
+          <>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Stat label="Quoted orders" value={String(accuracy.all.samples)} note="Reached Ready" />
+              <Stat
+                label="On time"
+                value={percent(accuracy.all.onTime / accuracy.all.samples)}
+                note={`${accuracy.all.onTime} of ${accuracy.all.samples} inside the range`}
+              />
+              <Stat label="Early" value={String(accuracy.all.early)} note="Ready before the low end" />
+              <Stat label="Late" value={String(accuracy.all.late)} note="Ready after the high end" />
+            </div>
+            <div className="mt-3">
+              <Table
+                headers={['Queue at checkout', 'Orders', 'On time', 'Median miss']}
+                label="Quote accuracy by queue depth"
+                rows={[
+                  accuracyRow('Lighter half', accuracy.lightQueue),
+                  accuracyRow('Busier half', accuracy.busyQueue),
+                ]}
+              />
+            </div>
+            <p className="mt-3 text-lg" data-testid="quote-suggestion">
+              {suggestionText(accuracy.suggestion, accuracy.all.samples)}
+            </p>
+          </>
+        )}
+      </Section>
+
     </main>
   );
+}
+
+/** One half of the split, as a table row. Split at the median queue depth, so
+ *  "did we get worse as it got busier?" is a comparison of two lines rather
+ *  than a chart nobody reads. */
+const accuracyRow = (label: string, group: AccuracyGroup): string[] => [
+  label,
+  String(group.samples),
+  String(group.onTime),
+  formatMiss(group.medianMissMinutes),
+];
+
+/** Signed minutes outside the quoted window, said the way a person would. Zero
+ *  is the common case and deserves the plain word, not "0.0 min out". */
+function formatMiss(minutes: number | null): string {
+  if (minutes === null) return '—';
+  if (minutes === 0) return 'inside the range';
+  const size = `${Math.abs(minutes).toFixed(minutes % 1 === 0 ? 0 : 1)} min`;
+  return minutes > 0 ? `${size} late` : `${size} early`;
+}
+
+/** The engine decides the FACT — which setting, which way — and this decides
+ *  the words. Two "change nothing" answers, deliberately distinguished: quotes
+ *  that hold up and quotes we have no evidence about are not the same news. */
+function suggestionText(suggestion: QuoteAdjustment | null, samples: number): string {
+  const SETTING_LABEL = {
+    prepBaseMinutes: 'Base prep time',
+    prepPerWeightMinutes: 'Minutes per unit of open work',
+  } as const;
+
+  if (suggestion === null) {
+    return samples < 10
+      ? 'Not enough quoted orders yet to say whether the ready-time settings need moving.'
+      : 'The quotes are holding up. Nothing to change on the settings screen.';
+  }
+  const direction = suggestion.direction === 'up' ? 'Raise' : 'Lower';
+  const because =
+    suggestion.setting === 'prepPerWeightMinutes'
+      ? 'the busier half of the window missed by more than the lighter half, so the queue is what the estimate is not pricing'
+      : 'both halves of the window missed the same way, so the queue is not the variable';
+  return `${direction} ${SETTING_LABEL[suggestion.setting]} on the settings screen — ${because}.`;
 }
 
 function Stat({ label, value, note }: { label: string; value: string; note?: string }) {

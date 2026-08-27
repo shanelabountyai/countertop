@@ -269,3 +269,56 @@ describe('the server is the price authority (P0-2)', () => {
     expect(order).toMatchObject({ taxRatePpm: 0, taxCents: 0, totalCents: 3240 });
   });
 });
+
+describe('the quote the customer was given (P1-4)', () => {
+  // Firebird's defaults: 12 minutes base, one per unit of open work. Nothing
+  // in front of the first order, so 12 rounds down to a 10–20 window.
+  it('snapshots the ready-time range and the queue it was computed against', async () => {
+    const order = placed(await place());
+    expect(order).toMatchObject({
+      quotedLowMinutes: 10,
+      quotedHighMinutes: 20,
+      quotedOpenWeight: 0,
+    });
+  });
+
+  it('quotes the SECOND order against the first one, which is now in front of it', async () => {
+    const first = placed(await place());
+    // The burrito weighs 2 and there are two of them.
+    expect(first.prepWeight).toBe(4);
+
+    const second = placed(await place());
+    expect(second).toMatchObject({
+      quotedOpenWeight: 4,
+      quotedLowMinutes: 15,
+      quotedHighMinutes: 25,
+    });
+  });
+
+  // The point of the column. The estimate is recomputed on every render of the
+  // status page, which is right for a customer watching the queue — but an
+  // order that has been placed was promised one thing, and a settings change
+  // an hour later must not rewrite what it was promised.
+  it('is not rewritten when the settings that produced it move', async () => {
+    const order = placed(await place());
+    await seedSettings({ prepBaseMinutes: 45, prepPerWeightMinutes: 6 });
+
+    const reread = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(reread).toMatchObject({ quotedLowMinutes: 10, quotedHighMinutes: 20 });
+  });
+
+  it('replays the ORIGINAL quote for a double-submit, not a fresh one', async () => {
+    const key = 'double-tap';
+    const first = placed(await place({ idempotencyKey: key }));
+    // Another order lands in between, so a recomputed quote would differ.
+    await place();
+    const replay = await place({ idempotencyKey: key });
+
+    expect(replay).toMatchObject({ ok: true, replayed: true });
+    expect(placed(replay)).toMatchObject({
+      quotedLowMinutes: first.quotedLowMinutes,
+      quotedHighMinutes: first.quotedHighMinutes,
+      quotedOpenWeight: first.quotedOpenWeight,
+    });
+  });
+});

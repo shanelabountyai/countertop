@@ -2353,3 +2353,101 @@ C-040 committed at 07ead94.
   enough for either extreme.
 
 C-041 committed at b7addfd.
+
+## C-042 — An order remembers what it was promised
+
+**Built:**
+- `Order.quotedLowMinutes`, `quotedHighMinutes`, `quotedOpenWeight` — three
+  NULLABLE integers, snapshotted at placement off the SAME `loadGateState`
+  read the checkout gate already made, so the quote stored on the order is the
+  one the checkout screen showed and not a second reading of a queue that moved
+  in between.
+- Four hand-written CHECKs: all-three-or-none (`num_nonnulls(...) IN (0, 3)`),
+  high strictly above low (it is a range, never a point), low above zero
+  ("0–10 min" reads as "now"), and a non-negative open weight.
+- `estimateAccuracy` in `packages/core/orders/estimate.ts` — pure, alongside
+  the function whose promises it grades. Counts early / on-time / late, takes
+  the MEDIAN signed minutes outside the window, splits the samples at the
+  median queue depth, and returns a `QuoteAdjustment` naming which of the two
+  P0-7 settings to move and which way.
+- `loadQuoteSamples(since)` in `packages/db/report.ts` — the third loader on
+  the report screen, filtering to orders that carry a quote AND reached
+  `ready`, pairing each with the LAST `ready` event off the append-only log.
+- A "Were the quotes honest?" section on `/kitchen/report`: four stat tiles, a
+  two-row light-half / busy-half table, and one sentence naming the setting to
+  move in the words the C-023 settings screen uses.
+- Tests: ten `estimateAccuracy` unit cases, four db placement cases (the quote
+  is snapshotted, the second order is quoted against the first, a settings
+  change does not rewrite it, a double-submit replays the ORIGINAL quote), five
+  constraint cases, five loader cases including the wrong-advance-then-undo,
+  and two e2e.
+
+**Decided:**
+- **The quote is a snapshot, and the third column is why.** Two columns prove
+  the estimate is wrong; three say which of the two settings is wrong.
+  `quotedOpenWeight` is the queue that was in front of the order, and without
+  it P1-4's actual headline — "adjust the increment" — is unanswerable, because
+  a flat bias and a queue-shaped bias look identical.
+- **Nullable, and deliberately not backfilled.** Every other snapshot column
+  could be reconstructed from rows that existed at the time; a promise cannot,
+  because the queue depth at 12:04 last Tuesday is gone. Inventing one would
+  make the report grade orders against a quote nobody ever saw — the exact
+  dishonesty the item exists to remove. NULL means "no record", and the loader
+  skips those rows.
+- **Early is a miss.** A customer told "15–25 min" and handed a bag at six
+  waited nine minutes at the counter they were told to spend elsewhere. Scoring
+  that as a win would tune the estimate in precisely the wrong direction, so
+  `early`, `onTime` and `late` are three counts and only the middle one is
+  good.
+- **The miss is measured from the nearest EDGE, and taken as a MEDIAN.** Inside
+  the range is zero — grading against the centre would score a correct quote as
+  a miss, which defeats the point of quoting a range. And one ticket that sat
+  on the pass for two hours because nobody tapped it is a data-entry story, not
+  a prep-time story; a mean would let it rewrite the setting.
+- **Under ten samples it recommends nothing.** "Not enough to say yet" is a
+  real answer and a different one from "the quotes are holding up" — the screen
+  prints them as different sentences. Same discipline as C-016's null no-show
+  rate.
+- **The LAST `ready`, not the first.** An order advanced by mistake and sent
+  back (the C-004 logged revert) was not ready the first time somebody said so.
+  The correction is the truth, and the append-only log is the only thing that
+  still knows both happened.
+- **The engine decides the fact, the page writes the words.** `QuoteAdjustment`
+  is `{setting, direction}` — no sentence in `packages/core`, so the wording
+  can change without touching a tested function.
+
+**Left behind:**
+- **No least-squares fit.** A two-parameter regression over (openWeight,
+  actual) would name both numbers at once instead of one, and the median-split
+  comparison is the lazy stand-in. Deliberate: thirty orders across a narrow
+  band of queue depths is not enough to fit two parameters against, and a
+  suggestion that swings every service is worse than none. Marked `ponytail:`
+  in `estimate.ts` with the fit as the named upgrade path.
+- **Nothing applies the suggestion.** The report names a setting and a
+  direction; a human types the number on the settings screen. An auto-tuning
+  loop that silently moved a customer-facing promise is exactly what C-023
+  exists to prevent, and it would also need a guard against tuning itself off
+  its own output.
+- **The suggestion has no magnitude.** "Raise the base prep time" does not say
+  by how much, because the honest number is the median miss and saying so would
+  read as arithmetic the screen had already done. The median miss IS on the
+  table two lines above it.
+- **The split is halves, not buckets.** Light-versus-busy is two rows; a
+  restaurant with a genuinely non-linear kitchen (fine below a threshold, falls
+  off a cliff above it) would want the curve, and this cannot show one.
+- **The status page still shows a live recomputed estimate**, not the quote the
+  order carries. That is deliberate — a customer watching a queue get busier
+  should see the window move — but it does mean the number on a customer's
+  screen and the number this report grades can differ, and nothing says so on
+  the page.
+- **The report screenshot is stale as of this commit.** `/kitchen/report` has
+  grown a section the C-040 capture does not show, and the portfolio page is
+  built on that capture. Not regenerated here — the screenshot sweep is its own
+  item (C-040 was one, C-031 before it) and half-refreshing one image out of
+  fourteen is how a set drifts.
+- **The write-up's By-the-Numbers table is stale again** — counted off the
+  database rather than off the last entry: 6 migrations and **20** CHECK
+  constraints, against the 4 and 11 the table still claims. Worth noting that
+  C-041's entry said 13, which was already wrong; a number nobody re-counts
+  drifts whether or not the table is refreshed. Untouched here for the same
+  reason as C-041 — half-updating it makes it read as current.
