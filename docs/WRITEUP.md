@@ -635,6 +635,36 @@ the episode is worth recording for is the shape of the evidence: an assertion
 failure is a defect, a hook timeout is a harness, and telling them apart before
 touching the code is what stopped a config change being made to a green suite.
 
+### One failed teardown wedged the runner for every run after it (C-043)
+
+The C-043 push went green through the full gate and the pre-push hook, and its
+self-hosted CI run then failed in eleven seconds — at the first step, before a
+single test. `dropdb: database "countertop_runner" is being accessed by other
+users. DETAIL: There are 16 other sessions using the database.`
+
+Those sessions were C-042's. That run's teardown had failed the same way the
+night before, and the reason it *stayed* failed is the ordering inside the
+step: it dropped the database first and freed the port second, under
+`bash -e`. The served Next.js app on port 3450 is what holds the Prisma pool,
+so the drop could not succeed while it was alive — and because the drop failed,
+the step aborted and never reached the `kill` that would have released it. A
+teardown that leaves behind exactly the condition that made it fail is not a
+flake; it is a latch. Every subsequent run failed identically, and would have
+kept failing, because each one's own teardown re-armed it.
+
+Two one-line fixes, and the ordering is the real one. The port is freed
+*before* the database is dropped, so the thing holding the connections is gone
+first; and both `dropdb` calls take `--force`, which terminates whatever is
+still attached, so a leaked pool costs the next run nothing instead of
+everything. The leaked `next-server` from C-042 was killed by hand once, which
+is the only time that should ever be necessary.
+
+Worth recording for the diagnosis rather than the fix: the failure arrived
+attached to C-043's commit and named a database, which reads as "the item broke
+CI". It was a day-old process on the runner's own machine, and the log line
+that settled it — sixteen sessions, on a database the run had not yet created —
+was in the first ten lines of the first step.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

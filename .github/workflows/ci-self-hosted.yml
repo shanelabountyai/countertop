@@ -55,9 +55,12 @@ jobs:
           printf 'DATABASE_URL=%s\nDIRECT_URL=%s\nSTAFF_PASSCODE=ci-runner\n' "$URL" "$URL" > .env.test
           printf 'DATABASE_URL=%s\nDIRECT_URL=%s\nPORT=%s\nSTAFF_PASSCODE=ci-runner\n' "$URL" "$URL" "$PORT" > .env.local
 
+      # --force (PG13+) terminates whatever is still attached. Without it a
+      # previous run's leaked connection pool makes THIS run fail before it
+      # starts, which is how one bad teardown blocks every run after it.
       - name: Build the runner's database from scratch
         run: |
-          dropdb --if-exists "$RUNNER_DB"
+          dropdb --force --if-exists "$RUNNER_DB"
           createdb "$RUNNER_DB"
           npm run db:migrate:test
 
@@ -89,8 +92,12 @@ jobs:
         env:
           CI: true
 
-      - name: Drop the runner's database and free the port
+      # The port BEFORE the database: the served app is what holds the pool,
+      # and this step runs under `bash -e`, so a dropdb that fails first aborts
+      # the step and the kill never happens — leaving the connections that made
+      # it fail. That is exactly how the runner wedged after C-042.
+      - name: Free the port and drop the runner's database
         if: always()
         run: |
-          dropdb --if-exists "$RUNNER_DB"
           PIDS=$(lsof -ti :$PORT || true); [ -z "$PIDS" ] || kill -9 $PIDS
+          dropdb --force --if-exists "$RUNNER_DB"
