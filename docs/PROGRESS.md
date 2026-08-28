@@ -2587,3 +2587,5 @@ workaround for the block, the thing the block was asking for.
 - **The write-up's By-the-Numbers table is still stale** — 6 migrations and 20
   CHECK constraints against the 4 and 11 it claims, called out at C-042 and
   again at C-043. This item added no migration and no constraint.
+
+C-044 committed at 0d492ee.
