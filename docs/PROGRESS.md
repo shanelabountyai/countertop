@@ -2633,3 +2633,5 @@ back. Visibility is what decides, so the comment has to name visibility.
 - **The C-044 entry above reads as if the repo is public.** It is left as
   written rather than rewritten, because it is an accurate record of the item;
   this addendum is the correction.
+
+C-044's addendum committed at a91f5f0.
