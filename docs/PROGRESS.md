@@ -2522,3 +2522,68 @@ C-042 committed at 8fdf37d.
   make it worse.
 
 C-043 committed at 6ae6186.
+
+## C-044 — The repo goes public, and CI comes back
+
+**What it built:** nothing, in the sense of application code. This item changed
+a repository setting and hardened one workflow file, and its whole value is
+that the gate now runs somewhere other than this laptop again.
+
+The billing block has stood since C-029: every `CI` run on a GitHub-hosted
+runner died in about four seconds without executing a step, and the C-036
+self-hosted runner has been the only working CI since. Public repositories get
+GitHub-hosted Actions minutes for free, so the flip is the direct fix — not a
+workaround for the block, the thing the block was asking for.
+
+**What it decided:**
+- **The history audit was re-run, not trusted.** C-042 audited it and the
+  memory of that audit is not evidence. Filename scan across every commit
+  reachable from every ref returns exactly one match, `.env.example`, names
+  only. A content scan for connection strings with passwords, `sk-`/`ghp_`/
+  `github_pat_`/`AKIA` prefixes and PEM private-key headers returns four
+  distinct hits, all deliberate: `postgres:postgres@localhost` in `ci.yml`
+  (a throwaway container GitHub destroys with the job) and
+  `u:p@ep-cool-name-123...neon.tech` in `local-guard.test.ts`, which is a
+  fixture asserting that a Neon host is refused. `STAFF_PASSCODE=ci-runner`
+  appears in the self-hosted workflow and is the disposable value gating a
+  queue screen on a throwaway database. A public repo makes every blob
+  readable forever; the audit costs two commands and the alternative is
+  rotating a credential after the fact.
+- **The self-hosted runner is deregistered, and its workflow is
+  `workflow_dispatch`-only.** This is the part C-044's backlog entry did not
+  anticipate. `runs-on: self-hosted` executes the checked-out repository's
+  code on the developer's Mac. On a private repo only trusted people can push
+  that code; on a public one, a fork-reachable trigger is a stranger's pull
+  request running arbitrary commands on this machine, which is why GitHub
+  documents self-hosted runners as unsafe for public repositories. Neither
+  existing trigger — `push` to `main`, `workflow_dispatch` — is fork-reachable,
+  so nothing was exploitable at any point. The hazard is not the current file,
+  it is the next edit to it.
+- **The workflow file survives the runner.** Retiring the runner as a
+  *dependency* is the goal; deleting the knowledge of how to run CI on this
+  machine is not. The file keeps its full recipe and gains a comment naming the
+  hazard in the imperative, because the failure mode is a future session adding
+  `pull_request` to it in good faith.
+- **`ci.yml` needed no change to go public.** Its `pull_request` trigger runs
+  on GitHub-hosted runners with a read-only token and no access to secrets,
+  which is exactly the arrangement that makes fork PRs safe.
+
+**Left behind:**
+- **The runner's absence is a comment, not a mechanism.** Nothing in the repo
+  prevents a future edit from adding `pull_request` to
+  `ci-self-hosted.yml` — the protection is that no runner would pick the job
+  up, which lasts precisely until someone re-registers one. A ruleset or a
+  workflow-lint would be the mechanism; a warning in a header is what this item
+  shipped.
+- **`ci.yml` has never completed a run.** It has been correct-on-paper since
+  C-029 and dying on billing ever since, so this item is the first time any of
+  it executes. Steps that never ran on Linux — the Playwright browser install,
+  the `psql` heredoc, the port-3400 e2e leg — are unproven there in a way the
+  macOS runner could not test.
+- **The self-hosted workflow is now unreachable in practice.** Dispatching it
+  with no runner registered queues the job rather than failing it. That is the
+  documented escape hatch behaving as designed, but the first person to use it
+  will wait on a spinner before realising a `gh` re-registration comes first.
+- **The write-up's By-the-Numbers table is still stale** — 6 migrations and 20
+  CHECK constraints against the 4 and 11 it claims, called out at C-042 and
+  again at C-043. This item added no migration and no constraint.

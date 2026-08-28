@@ -990,3 +990,39 @@ precisely the accident being prevented.
 The whole thing hangs off a single call, because every destructive path in the
 repo already funnelled through one TRUNCATE. One guard, nine test files, three
 scripts and an end-to-end suite behind it.
+
+## C-044 — The gate runs somewhere other than this laptop
+
+For nineteen items the automated gate has run on a Mac sitting on a desk. Not
+by design: GitHub-hosted runners have been billing-blocked since C-029, every
+run dying in four seconds without executing a step, and a runner installed on
+the developer's own machine was the only way to get a clean checkout tested by
+something other than the person who wrote the code.
+
+Public repositories get those minutes for free. So the repo is public, and the
+fix for the billing block turns out to be the same action as putting the work
+where it can be read.
+
+Before flipping it, the history was audited again rather than taken on trust —
+every commit, every ref, filenames and file contents both. One environment file
+has ever been committed and it carries variable names with no values. The four
+connection strings in the history are a throwaway container GitHub destroys
+with the job, and a fake hostname in a test that asserts hosted databases are
+refused. A public repository makes every version of every file readable
+permanently, which makes the audit cheap and the alternative expensive.
+
+The runner itself is now switched off, and that is the less obvious half. A
+self-hosted runner executes the repository's code on the machine it lives on.
+While the repo was private, only people who could already be trusted with that
+machine could put code there. Public changes who can propose code, and a
+workflow that a stranger's pull request can trigger is a stranger's commands
+running on a laptop. Nothing here was ever reachable that way — the runner only
+ever answered to pushes to the main branch — but the protection was a property
+of two lines in a file, and the next person to edit that file has no reason to
+know it. The runner is deregistered, the workflow is reduced to a manual
+trigger, and the reason is written in the file in the imperative, addressed to
+whoever opens it next.
+
+The recipe stays. Retiring something as a dependency is not the same as
+forgetting how it worked, and the day the billing block returns, the file that
+solved it last time is still there.

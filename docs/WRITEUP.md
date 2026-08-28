@@ -665,6 +665,53 @@ CI". It was a day-old process on the runner's own machine, and the log line
 that settled it — sixteen sessions, on a database the run had not yet created —
 was in the first ten lines of the first step.
 
+### Going public turned the CI runner into an attack surface (C-044)
+
+C-044 was scoped as a repository setting. The billing block that has kept
+GitHub-hosted CI dead since C-029 lifts for public repos, the history had been
+audited at C-042 and was clean, and the item read as: flip the switch, watch a
+run go green.
+
+The secret audit was the part everyone expects, and it found nothing — one
+`.env.example` with names and no values, four connection strings that are all
+either a container GitHub destroys with the job or a deliberately fake Neon
+hostname in the test that asserts hosted databases get refused. That is the
+check the convention asks for, and it passed.
+
+The thing the item did not ask about was the runner. `ci-self-hosted.yml` has
+`runs-on: [self-hosted, macOS]`, and it had been firing on every push for eight
+items. What that line means is: check out this repository and execute its code
+on the developer's own laptop. On a private repo that is fine by construction —
+the only people who can put code in the repository are people already trusted
+with the machine. Public breaks that equivalence. Anyone can fork a public repo
+and open a pull request, and a workflow that a pull request can trigger is a
+stranger choosing what commands run on a laptop that also holds four other
+projects' databases.
+
+Nothing here was ever exploitable. The workflow's triggers were `push` to
+`main` and `workflow_dispatch`, and neither is reachable from a fork — GitHub
+runs fork pull requests against the base repo's workflows without granting
+them the fork's triggers. So the honest description is not "a vulnerability was
+found", it is that the safety of the arrangement rested entirely on two lines
+in a file, and after the visibility flip those two lines are load-bearing in a
+way nobody reading the file would guess. The next session to add
+`pull_request:` to that workflow for a perfectly good reason would have been
+right about the reason and wrong about the consequence.
+
+The fix is deregistering the runner and reducing the workflow to
+`workflow_dispatch`, which is reachable only with write access. The recipe
+stays in the file, because retiring something as a dependency is not the same
+as deleting what it knew, and the header now names the hazard in the
+imperative — addressed to a future editor rather than describing the past.
+
+What is worth recording is the shape of the miss. A backlog item written three
+days earlier said "public repos get free minutes, history is clean, flip it",
+and both of those clauses were true. Neither was the question. A change of
+visibility is a change in *who can propose code*, and every mechanism that
+silently assumed the old answer had to be re-read under the new one — of which
+the runner was one, and the only one, but it was not in the item's text.
+
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required
