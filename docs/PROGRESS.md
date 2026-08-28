@@ -2589,3 +2589,47 @@ workaround for the block, the thing the block was asking for.
   again at C-043. This item added no migration and no constraint.
 
 C-044 committed at 0d492ee.
+
+### C-044 addendum — the flip was reverted the same day
+
+The repo was returned to **private** about half an hour after going public, by
+decision, and the runner was re-registered. What the item proved survives the
+revert; where it landed does not match what the entry above describes.
+
+**What the public window proved.** `ci.yml` has been correct-on-paper since
+C-029 and had never executed a step. While public it ran green twice, and both
+runs reconciled: e2e 105 passed + 14 skipped = 119 against `--list`, unit
+418/418 under `TZ=UTC` and `TZ=Pacific/Kiritimati`, zero failed steps. The
+first ran on Node 22 (`v22.23.2`), the second on Node 24 (`v24.19.0`) after
+`86ee14d` swapped `node-version` for `node-version-file: .nvmrc`. So the Linux
+leg, the `psql` heredoc, the Playwright install and the port-3400 e2e run are
+no longer unproven — the "left behind" note above saying they had never run is
+now answered.
+
+**What the revert costs.** Private re-arms the billing block, so `ci.yml` is
+dead again. It is not wrong, it is unpaid.
+
+**The runner is back, and its safety is conditional.** It was deregistered as
+the precondition for being public, which briefly left the repo with no CI at
+all. It is re-registered and `ci-self-hosted.yml` has its `push` trigger back,
+because `runs-on: self-hosted` is safe on a private repo by construction — only
+people already trusted with the machine can put code in the repo. The header
+now states the condition rather than the conclusion: the trigger comes off and
+the runner gets deregistered *if the repo is ever public again*. The earlier
+version of that comment said "this repo is public, never add a fork-reachable
+trigger", which would have been quietly wrong the moment visibility changed
+back. Visibility is what decides, so the comment has to name visibility.
+
+**Left behind by the revert:**
+- **C-045 has a prerequisite this addendum did not resolve.** Deploying to
+  Vercel and Neon does not require a public repo, but it does mean a hosted
+  database exists — and CI is currently the self-hosted runner only, on a
+  machine that also holds the local Postgres the C-043 guard protects.
+- **`.nvmrc` says 24, local Node is 26.3.1.** `86ee14d`'s stated goal was to
+  stop local and CI drifting apart, and it pinned CI to a third version instead
+  of either. `engines: ">=24"` permits 26, so nothing complains. CI is green on
+  24 and the laptop is green on 26; the drift the commit set out to close is
+  still open, now with a file that claims otherwise.
+- **The C-044 entry above reads as if the repo is public.** It is left as
+  written rather than rewritten, because it is an accurate record of the item;
+  this addendum is the correction.

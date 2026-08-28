@@ -1026,3 +1026,34 @@ whoever opens it next.
 The recipe stays. Retiring something as a dependency is not the same as
 forgetting how it worked, and the day the billing block returns, the file that
 solved it last time is still there.
+
+### C-044, revisited — the repo went back to private
+
+The repo was public for about half an hour and is private again, by decision.
+The paragraphs above describe a state that no longer holds.
+
+The half-hour was not wasted, because it answered a question that had been open
+since C-029. The Linux pipeline had been written, reviewed and never once run —
+every attempt died in four seconds on billing before executing a step. Given
+free minutes it ran green twice, on two different Node versions, with the
+end-to-end suite reconciling exactly. A pipeline that has never executed is a
+guess about what would happen; that one is now a measurement.
+
+What the revert costs is the ability to use it. The pipeline is not wrong, it
+is unpaid.
+
+The runner on the developer's machine is switched back on, and the reason is
+worth stating precisely, because it is the same reason it was switched off. A
+self-hosted runner executes the repository's code on the machine it lives on.
+On a private repo that is safe by construction — the only people who can put
+code in the repository are people already trusted with the machine. Public
+breaks that equivalence, which is why the runner came off before the flip. It
+goes back on for exactly the same reason it came off: visibility changed.
+
+So the warning left in the workflow file changed too. The first version said
+this repo is public, never add a trigger a fork can reach — true when written,
+and quietly wrong within the hour. The version there now names the condition
+instead of the conclusion: if this repo is ever made public again, remove the
+push trigger and deregister the runner. A comment that states a fact about the
+world has to say which fact it depends on, or it becomes confidently misleading
+the moment that fact moves.

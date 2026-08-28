@@ -711,6 +711,26 @@ visibility is a change in *who can propose code*, and every mechanism that
 silently assumed the old answer had to be re-read under the new one — of which
 the runner was one, and the only one, but it was not in the item's text.
 
+The repo was returned to private half an hour later, and the postscript is the
+better half of the lesson. The runner came back on, correctly — private makes
+it safe by exactly the construction that public breaks. But the comment written
+into the workflow an hour earlier said *this repo is public, never add a
+fork-reachable trigger*, and that sentence was already false. It described the
+world rather than the condition, so it aged into confident misdirection the
+moment the world moved, and the next reader would have had no way to tell.
+Rewritten, it names the dependency instead: if this repo is ever made public
+again, remove the push trigger and deregister the runner. The first version
+would have been wrong and unfalsifiable; the second is checkable against a
+setting anyone can read.
+
+The other thing the half hour bought was a measurement. `ci.yml` had been
+written at C-029 and had never executed a step — every run died in four seconds
+on billing. Given free minutes it went green twice, on Node 22 and then Node
+24, e2e reconciling 105 passed and 14 skipped against 119 listed. Nineteen
+items of "CI is correct, it just cannot run" turned out to be true, which was
+not knowable before and is not unknowable again just because the repo went
+back.
+
 
 ## Skills Learned / Functions Unlocked
 
