@@ -2520,3 +2520,5 @@ C-042 committed at 8fdf37d.
   CHECK constraints against the 4 and 11 it claims, unchanged since C-042 said
   the same thing. This item added no migration and no constraint, so it did not
   make it worse.
+
+C-043 committed at 6ae6186.
