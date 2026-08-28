@@ -35,7 +35,7 @@
     "demo:rush:live": "npm run demo:rush -- --until 12",
     "db:rush:test": "dotenv -e .env.test -- tsx packages/db/rush-demo.ts --until 12",
     "db:rush:test:full": "dotenv -e .env.test -- tsx packages/db/rush-demo.ts",
-    "db:reset:test": "dropdb --if-exists countertop_test && createdb countertop_test && npm run db:migrate:test",
+    "db:reset:test": "dotenv -e .env.test -- tsx packages/db/local-guard.ts \"db:reset:test\" && dropdb --if-exists countertop_test && createdb countertop_test && npm run db:migrate:test",
     "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
     "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true; npm run db:generate"
   },

@@ -2453,3 +2453,70 @@ C-041 committed at b7addfd.
   reason as C-041 — half-updating it makes it read as current.
 
 C-042 committed at 8fdf37d.
+
+## C-043 — The wipe refuses to leave this machine
+
+**Built:**
+- `packages/db/local-guard.ts` — `assertLocalDatabase(action, env)`, plus the
+  two small pure functions it is made of: `databaseHost(url)` (the authority,
+  or the socket directory libpq takes from `?host=`) and `isLocalHost(host)`.
+- One call site: `resetDatabase()` in `packages/db/testing/index.ts`. Every
+  destructive path in the repo — `db:seed:test`, `demo:rush`, `db:rush:test`,
+  the e2e `reseed()` (which shells out to `db:seed:test`), and all nine
+  packages/db test files — routes through that TRUNCATE, so the guard is one
+  call rather than one per caller.
+- A CLI entry point in the same file, for the one destructive script that
+  never touches Prisma: `db:reset:test` now runs
+  `dotenv -e .env.test -- tsx packages/db/local-guard.ts "db:reset:test"`
+  before its `dropdb`. It prints the refusal and exits 1 — the message, not a
+  stack trace, because that is an operator reading a refusal.
+- `COUNTERTOP_ALLOW_REMOTE_WIPE`, the one deliberate override. It takes the
+  HOST being wiped, not a boolean.
+- Eight unit cases, all pure — no database, which is the point: the guard has
+  to decide before anything connects. Local in four shapes, a Neon URL refused
+  by name, a remote `PGHOST` refused while `DATABASE_URL` is local, an
+  unparseable URL refused, and the override accepted for the exact host and
+  rejected as `1` or as some other host.
+
+**Decided:**
+- **The URL is the subject, never `NODE_ENV`.** An env var nobody set is not a
+  safety mechanism, and the variable that actually decides which rows get wiped
+  is the connection string. `NODE_ENV` is unset in exactly the situation this
+  guards against — someone running a script by hand at a terminal.
+- **`PGHOST` is checked too, separately.** `db:reset:test`'s `dropdb` and
+  `createdb` read `PGHOST` and never look at `DATABASE_URL`; the two settings
+  are independent and can disagree. Checking only the Prisma URL would have
+  left the one script that drops a whole database unguarded.
+- **The override names the host.** A boolean `=1` exported once in a shell
+  profile disarms the guard on every machine, in every repo, forever — which is
+  the failure mode the guard exists to prevent, arriving six months later. A
+  value that has to be re-typed per host cannot rot into a default.
+- **Unparseable refuses.** An empty or malformed `DATABASE_URL` is not
+  "probably local"; `databaseHost` returns `<unparseable>` and the guard says
+  no. Nothing that wipes tables should treat a missing connection string as
+  permission.
+- **A unix socket is local by construction.** `postgresql:///db?host=/tmp` has
+  no network to be remote over, so a host starting with `/` passes.
+
+**Left behind:**
+- **The migration scripts are not guarded.** `db:migrate:dev` and
+  `db:migrate:all` can reach a cloud database and are meant to — C-045 has to
+  migrate Neon deliberately. Applying a migration is not the failure mode this
+  item names; TRUNCATE is.
+- **The seed and rush print a stack trace, not a clean refusal.** They throw
+  from inside `resetDatabase()`, so Node's default handler renders it. The
+  message is the first line and reads fine; the tidy exit path exists only on
+  the CLI entry point, where there was no caller to carry the error.
+- **`db:reset:test` still hardcodes `countertop_test`** rather than dropping
+  the database `DATABASE_URL` names. Loading `.env.test` in front of it now
+  means the guard and the `dropdb` at least read the same file, but they are
+  still two statements of the same fact.
+- **Nothing stops a remote `DATABASE_URL` from being *read*.** This is a wipe
+  guard, not a connection policy. The standing rule that tests never point at a
+  remote database is still a rule, not a mechanism — a remote URL under
+  `npm test` gets caught by the first `resetDatabase()`, which is early, but it
+  is not the same as refusing to connect.
+- **The write-up's By-the-Numbers table is still stale** — 6 migrations and 20
+  CHECK constraints against the 4 and 11 it claims, unchanged since C-042 said
+  the same thing. This item added no migration and no constraint, so it did not
+  make it worse.

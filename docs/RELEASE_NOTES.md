@@ -966,3 +966,27 @@ were told to spend elsewhere, and a report that scored that as a win would tune
 the estimate in exactly the wrong direction. And **under ten quoted orders it
 recommends nothing at all** — "not enough to say yet" is a real answer, and a
 restaurant's first four tickets of the week must not be allowed to retune it.
+
+## C-043 — The wipe refuses to leave this machine
+
+Three scripts in this repo start by TRUNCATEing every table: the seed the test
+suite runs on, the reset that rebuilds the test database, and the rush demo.
+Until now that was safe for one reason — every database this repo could reach
+was on localhost. That is an accident of setup, not a safety mechanism, and the
+next item points the app at a hosted database with a real restaurant's orders
+in it.
+
+So the wipe now checks where it is pointed, and refuses if the answer is not
+this machine. The connection string is what it reads, not `NODE_ENV`: an
+environment variable nobody set cannot protect anything, and the string is the
+thing that actually decides which rows disappear. `dropdb` gets its own check,
+because it reads a different setting entirely and the two can disagree.
+
+There is one override, and it takes the name of the host being wiped rather
+than a yes. A blanket `=1` in a shell profile would switch the guard off on
+every machine, in every repo, forever — six months from now, silently, which is
+precisely the accident being prevented.
+
+The whole thing hangs off a single call, because every destructive path in the
+repo already funnelled through one TRUNCATE. One guard, nine test files, three
+scripts and an end-to-end suite behind it.

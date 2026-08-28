@@ -1,13 +1,19 @@
 // Test-only helpers. Not imported by apps/web.
 import { SAMPLE_MENU } from '@countertop/core';
 import { prisma } from '../index';
+import { assertLocalDatabase } from '../local-guard';
 
 /**
  * Wipes every table. TRUNCATE, not DELETE: the OrderEvent append-only trigger
  * refuses DELETE by design, and TRUNCATE fires TRUNCATE triggers rather than
  * row triggers. Nothing in the application issues one.
+ *
+ * Every destructive path in the repo — the seed, the rush demo, every
+ * packages/db test — routes through here, so C-043's remote guard is one
+ * call rather than one per caller.
  */
 export async function resetDatabase(): Promise<void> {
+  assertLocalDatabase('resetDatabase()');
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
       "OrderEvent", "OrderLineOption", "OrderLine", "Order",
