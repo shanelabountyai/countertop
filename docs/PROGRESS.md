@@ -2712,3 +2712,5 @@ entries; `ci.yml`'s "did postinstall run" assertion now checks
 - **The By-the-Numbers table is still stale** — 6 migrations and 20 CHECK
   constraints against the 4 and 11 it claims. Called out at C-042, C-043 and
   C-044; this item added neither, and did not fix the table either.
+
+C-045 committed at 82aadc6.
