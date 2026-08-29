@@ -2753,3 +2753,17 @@ items shipped, 99 commits, 16,914 TS/TSX lines across 108 files (41% tests),
 against the repo every time it's touched, that's just not automated.
 
 Committed at f35d8fc.
+
+## Housekeeping — .nvmrc actually pinned to what runs here
+
+`86ee14d`'s own commit message named the drift it meant to close — "local dev
+ran whatever nvm last selected (26.3.1 here, against CI's 20/22/24)" — and
+then pinned `.nvmrc` to 24 anyway, closing the gap on the wrong side. The
+laptop was still 26.3.1; only the number in the file changed.
+
+`.nvmrc` now reads `26`, matching what's actually installed here and on the
+self-hosted runner (same machine). `engines: ">=24"` is unchanged — it's a
+floor, not a pin, and 26 already satisfies it. `ci.yml`'s
+`node-version-file: .nvmrc` picks this up automatically; it hasn't run since
+the repo went private, so this is unverified there the same way the rest of
+C-044/C-045 is, until CI or the self-hosted dispatch actually executes it.
