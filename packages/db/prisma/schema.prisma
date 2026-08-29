@@ -41,7 +41,19 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/client"
+  // NO custom `output` (was `../generated/client` until C-045).
+  //
+  // A client generated outside node_modules is imported by RELATIVE PATH, and
+  // a relative path cannot be named in Next's `serverExternalPackages`. So
+  // Turbopack bundled the client, the bundled client set `isBundled = true`,
+  // and Prisma's engine lookup — which resolves the `.so` from the module's
+  // own directory — had no directory to resolve from. Every query on the
+  // deployment died with "could not locate the Query Engine", while every
+  // local build stayed green: nothing is bundled when `next dev` and the e2e
+  // production build both run beside the file.
+  //
+  // The default location makes the client `@prisma/client`, an ordinary
+  // package name, which apps/web/next.config.ts marks external.
 }
 
 datasource db {

@@ -1057,3 +1057,32 @@ instead of the conclusion: if this repo is ever made public again, remove the
 push trigger and deregister the runner. A comment that states a fact about the
 world has to say which fact it depends on, or it becomes confidently misleading
 the moment that fact moves.
+
+### C-045 — Countertop is deployed
+
+**https://countertop-mu.vercel.app**
+
+The app the rest of this document describes now runs on a URL. Next.js on
+Vercel, Postgres on Neon, the menu and a mid-service rush already loaded, so
+the link opens onto a restaurant in the middle of lunch rather than an empty
+shell asking to be set up.
+
+The customer side is open to anyone. Browse the menu, compose an item with its
+modifiers, watch the total recomputed on the server at every step. The kitchen
+side is behind a passcode, because a queue screen anyone can advance is not a
+demo of a queue screen.
+
+Two rules held through the deployment, and they are the ones worth stating.
+The test suite still runs against a Postgres on the developer's machine and has
+never been pointed at Neon — a cloud database is for deployed environments, not
+for `npm test`. And the passcode exists in exactly one place, Vercel's
+environment; it was never written into a config file, a default, or a fallback,
+because an unset passcode locks the kitchen rather than opening it.
+
+Deploying also found a defect that nothing local could have found. The database
+client was being bundled into the application, and a bundled client cannot
+locate the native engine it needs to run a query — so every page that reads
+data returned 500 while every local check stayed green. The fix was to stop
+bundling it. The full account is in the write-up; the short version is that a
+build passing on the machine that built it is not the same claim as a build
+that works where it ships.

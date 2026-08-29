@@ -10,7 +10,6 @@ export default tseslint.config(
       'apps/**',
       'packages/db/prisma/migrations/**',
       // Generated Prisma client — not ours to lint, and gitignored.
-      'packages/db/generated/**',
     ],
   },
   ...tseslint.configs.recommended,

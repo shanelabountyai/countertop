@@ -1,13 +1,14 @@
 node_modules/
 .next/
 .env
-.env.local
+# every local env file, including the gitignored .env.production.local that
+# holds the Neon URLs for `db:migrate:prod` (C-045).
+.env*.local
 .env.test
 *.tsbuildinfo
 test-results/
 playwright-report/
 .vercel/
-packages/db/generated/
 .claude/
 
 # Built portfolio page: 1.1MB of inlined screenshots, rebuilt by docs/portfolio/build.mjs

@@ -223,6 +223,9 @@ Recorded as they are made, with the ceiling each one has.
 - **Placement trusts that the cart cookie is this customer's cart** (C-006). There is no session identity beyond the httpOnly cookie itself, because a pickup order needs no account. The cart is never accepted as an argument — it is read from the cookie server-side — so the attack it forecloses is "post me a cart with a $0 burrito". What it does not foreclose is someone pasting their own cookie into another browser, which places their own order twice. That is a customer being odd, not a threat.
 - **`deepmerge-ts` high-severity advisory accepted, not fixed** (C-001). It arrives only through the Prisma **CLI** (`prisma` → `@prisma/config` → `deepmerge-ts`); the vulnerability is stack exhaustion when merging recursive object graphs, and the only graph merged here is our own committed config. No runtime path, and `npm audit fix` cannot resolve it without an upstream release. Revisit on the next Prisma bump.
 
+- **The deployed demo is a rush frozen at minute 12** (C-045). `rush-demo --until 12` was run once against Neon, anchored so the run *ended* at that moment, which is what makes the queue look like a service in progress rather than a museum. It does not re-anchor: the cards age from that instant forever, so a visitor next month sees the same twenty-two orders, hours old and every aging flag lit. Re-running the seed is a one-line command, and the honest upgrade — if this deployment is ever demoed cold — is a scheduled job that re-runs it. Deliberately not built: a cron to keep a portfolio demo looking fresh is more machinery than the demo is worth.
+- **The deployed database is on Neon's free tier, which scales to zero** (C-045). The first request after an idle period pays a cold start on the database as well as the lambda. Nothing in the app compensates — no retry, no warming ping — because a demo that is slow once is fine and a keep-alive job is a bill.
+- **The deployment's functions are pinned to `cle1`** (C-045, `apps/web/vercel.json`). Vercel's default region is `iad1` (us-east-1) and the Neon project is in us-east-2, which would put a cross-region hop on every query of every request. The pin is one line and costs nothing; the ceiling is that it is now two facts that must agree, and moving the database without moving the region will be slow rather than broken — the quietest kind of wrong.
 - **The composer is not the price authority, and says so twice** (C-007). It renders a live total and disables nothing on the strength of it: every add re-validates and re-prices on the server. The ceiling is that a customer on a stale tab can compose something that was orderable a minute ago — which the server refuses, and the cart flags. The general fix is C-009's polling cursor.
 - ~~**The cart offers Remove, not Edit** (C-007)~~ — **done in C-021.** An `Edit` link re-opens the composer pre-filled, and saving goes through `replaceLine`, which keeps the line where it sat. The line id travels in the URL and the composition never does: the server reads what is in that line from the cookie, because a composition in a query string is a composition the client wrote.
 
@@ -730,6 +733,48 @@ on billing. Given free minutes it went green twice, on Node 22 and then Node
 items of "CI is correct, it just cannot run" turned out to be true, which was
 not knowable before and is not unknowable again just because the repo went
 back.
+
+
+### The Prisma client could not find its own engine, but only when deployed (C-045)
+
+The first deploy of C-045 built cleanly, served the home page, and returned 500
+on every page that reads the database. `Prisma Client could not locate the
+Query Engine for runtime "rhel-openssl-3.0.x"`.
+
+The obvious readings were both wrong. The first is "the Linux engine was never
+generated" — but Vercel's build log showed `prisma generate` running, and on a
+Linux builder `native` *is* `rhel-openssl-3.0.x`, so the file existed. The
+second is "Next did not trace the binary into the lambda" — the documented fix
+is `outputFileTracingIncludes`, that was added, and the local trace manifest
+did list the engine. Redeploying changed nothing at all.
+
+The answer was one line in the build log, four lines below a warning nobody
+reads: `config.isBundled = true`. Turbopack had bundled the Prisma client into
+a Next chunk. A bundled client has no directory of its own, so the engine
+lookup — which resolves the `.so` relative to the module's own location — had
+nothing to resolve against, and fell back to guessing at paths that do not
+exist. Tracing the file in was never going to help; the file was probably
+there. The code looking for it had lost the ability to say where "there" is.
+
+Which made the fix a one-word question: why is Prisma being bundled at all?
+Next has `serverExternalPackages` for exactly this, and it takes package names.
+This repo generated its client to `packages/db/generated/client` and imported
+it by relative path — and a relative path has no package name to exclude. The
+custom output location, chosen so the generated client would sit beside the
+schema, was the thing that made the client unexcludable.
+
+So the output went back to Prisma's default. The client became `@prisma/client`
+— an ordinary package name — `serverExternalPackages` names it, Turbopack
+leaves it alone, and it loads its engine from its own directory like any other
+Node module. The `binaryTargets` and `outputFileTracingIncludes` added while
+chasing the symptom were both reverted, because neither was doing anything.
+
+The reason this cost three deploys is that it cannot fail locally, in either
+direction. `next dev` does not bundle server dependencies, and the e2e
+production build runs on the same machine that generated the engine, where the
+file is simply already sitting where any guess would find it. The whole gate
+was green through every one of those failed deploys, and would be green today
+if the fix had never been made.
 
 
 ## Skills Learned / Functions Unlocked

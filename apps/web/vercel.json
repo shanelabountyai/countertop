@@ -1,0 +1,5 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "comment": "C-045: cle1 is us-east-2, the same AWS region as the Neon endpoint. Vercel's default iad1 is us-east-1, which puts a cross-region hop on every query of every request.",
+  "regions": ["cle1"]
+}

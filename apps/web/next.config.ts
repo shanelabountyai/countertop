@@ -12,6 +12,13 @@ const nextConfig: NextConfig = {
   // extensionless TypeScript — so the extension bought nothing and cost the
   // production build.
   transpilePackages: ["@countertop/core", "@countertop/db"],
+
+  // C-045. Prisma must NOT be bundled: a bundled client cannot find its own
+  // query engine `.so` at runtime, which is a deploy-only failure (locally the
+  // file is simply already beside the build). Next's defaults already include
+  // this package; naming it here means the deployment does not depend on that
+  // staying true.
+  serverExternalPackages: ["@prisma/client"],
 };
 
 export default nextConfig;

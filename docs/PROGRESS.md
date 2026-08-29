@@ -2635,3 +2635,80 @@ back. Visibility is what decides, so the comment has to name visibility.
   this addendum is the correction.
 
 C-044's addendum committed at a91f5f0.
+
+## C-045 — Deployed
+
+**What it built:** the PRD's stated target. Next.js on Vercel, Postgres on
+Neon, a live URL — **https://countertop-mu.vercel.app** — with the menu and a
+mid-service rush already in it. Plus `scripts/deploy-smoke.mts`
+(`npm run smoke:prod`), an eight-check Playwright pass against the *deployment*
+rather than a local build, and `db:migrate:prod` / `db:status:prod`.
+
+**What it decided:**
+- **A standalone Neon account, not Vercel's marketplace resource.** The
+  marketplace route provisions and wires the connection strings in one command,
+  which is genuinely less work; it also puts the database in a Vercel-linked
+  org and couples its lifetime to the project. The database is the thing worth
+  keeping, so it lives where its owner can see it.
+- **`db:migrate:prod` exists; `db:seed:prod` deliberately does not.** The
+  migrate and status scripts are the same shape as their `:dev` and `:test`
+  siblings and read a gitignored `.env.production.local`. They are NOT added to
+  `db:migrate:all` — production stays a separate command, per the standing
+  rule. There is no committed script that wipes and re-seeds the deployed
+  database, because a one-liner that truncates production is a footgun with a
+  name and a tab-completion. The rush was seeded once, by hand, with
+  `COUNTERTOP_ALLOW_REMOTE_WIPE` naming the Neon host — the single deliberate
+  override C-043 built the guard around, used exactly once, for exactly this.
+- **`--until 12`, not a full rush.** A complete rush ends with every order in a
+  terminal state and an empty queue, which is the correct result and a useless
+  first impression. Stopping at minute 12 leaves twenty-two orders live across
+  `accepted`, `preparing` and `ready`, plus the 86 and the no-show.
+- **The functions are pinned to `cle1`** in `apps/web/vercel.json`, because
+  Vercel defaults to `iad1` (us-east-1) and the Neon project is us-east-2.
+- **The passcode was generated, not chosen.** It is set in Vercel as a
+  Sensitive variable and recorded in the gitignored `.env.production.local`,
+  which is the only local copy — Vercel cannot read a Sensitive value back out.
+- **The Prisma client moved to its default output location.** This was forced
+  by the deploy-only defect below, and it is the item's one real code change.
+
+**The defect, because it took three deploys:** every database-backed page
+returned 500 with `could not locate the Query Engine for runtime
+"rhel-openssl-3.0.x"`. Not a missing engine — Vercel builds on Linux, where
+`native` *is* that target. Not a tracing failure either; `binaryTargets` and
+`outputFileTracingIncludes` were both added, both did nothing, and both were
+reverted. The cause was `config.isBundled = true` in the build log: Turbopack
+bundled the Prisma client, and a bundled client has no directory to resolve its
+`.so` against. `serverExternalPackages` is the mechanism for keeping a package
+out of the bundle, and it takes package *names* — which a client generated to
+`packages/db/generated/client` and imported by relative path does not have. The
+custom output path, chosen so the client would sit beside its schema, is what
+made it unexcludable. Dropping it makes the client `@prisma/client`, an
+ordinary name, which the config excludes and Turbopack leaves alone.
+
+**What that touched:** `packages/db/index.ts` imports `@prisma/client`;
+`.gitignore` and `eslint.config.mjs` lost their now-dead `packages/db/generated`
+entries; `ci.yml`'s "did postinstall run" assertion now checks
+`node_modules/.prisma/client`.
+
+**Left behind:**
+- **CI did not run this item.** The repo is private, so `ci.yml` is still
+  billing-blocked; the self-hosted runner is what verified the push. The gate
+  ran locally in full.
+- **Nothing re-anchors the deployed rush.** The orders age from the instant
+  they were seeded and never refresh. Re-seeding is one command; a scheduled
+  job to keep a demo looking alive was judged more machinery than the demo is
+  worth.
+- **`smoke:prod` hardcodes the production URL as its default** and reads the
+  passcode from `.env.production.local`, so it runs on this machine and nowhere
+  else. It is not in `npm run gate` — the gate must not depend on a network or
+  on live data.
+- **The smoke is read-only.** It signs in and looks. Placing a real order
+  against the deployment would prove more and would also put test rows in the
+  only database a visitor sees.
+- **`.env.production.local` is now the single copy of the passcode.** Vercel
+  stores it as Sensitive and will not hand it back. Losing the file means
+  rotating the variable, which signs every device out — the documented
+  behaviour, not a surprise, but there is no second copy.
+- **The By-the-Numbers table is still stale** — 6 migrations and 20 CHECK
+  constraints against the 4 and 11 it claims. Called out at C-042, C-043 and
+  C-044; this item added neither, and did not fix the table either.

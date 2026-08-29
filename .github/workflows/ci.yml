@@ -78,7 +78,7 @@ jobs:
       # re-run: a gitignored generated artifact that exists locally and not
       # here is the single most common way this workflow fails.
       - name: Assert generated artifacts exist
-        run: test -d packages/db/generated/client || (echo "Prisma client missing - postinstall did not run" && exit 1)
+        run: test -d node_modules/.prisma/client || (echo "Prisma client missing - postinstall did not run" && exit 1)
 
       # The objects Prisma cannot express (C-003). Without this, a future
       # migration could drop the append-only trigger and every constraint test
