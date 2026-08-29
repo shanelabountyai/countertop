@@ -2767,3 +2767,5 @@ floor, not a pin, and 26 already satisfies it. `ci.yml`'s
 `node-version-file: .nvmrc` picks this up automatically; it hasn't run since
 the repo went private, so this is unverified there the same way the rest of
 C-044/C-045 is, until CI or the self-hosted dispatch actually executes it.
+
+Committed at c68d1fb.
