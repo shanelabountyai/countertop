@@ -56,6 +56,10 @@ test('an 86 option flags the carts holding it and blocks checkout, at the option
   await page.goto('/checkout');
   await expect(page.getByRole('button', { name: /Place order/ })).toBeDisabled();
   await expect(page.getByText('Fix or remove the flagged lines')).toBeVisible();
+  // Not just the bottom banner: the customer's last screen before paying has
+  // to say which line is the problem, the same as the cart page one step
+  // back — a generic banner over an unmarked line list leaves them guessing.
+  await expect(page.getByText('Guacamole is sold out.')).toBeVisible();
 });
 
 test('putting an option back on clears the flag it left in the cart', async ({ page }) => {

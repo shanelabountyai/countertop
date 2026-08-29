@@ -43,6 +43,39 @@ test('places an order end to end, and it lands on the kitchen queue', async ({ p
   await expect(card.getByText('Order note: Blue Honda out front')).toBeVisible();
 });
 
+test('a price that changed while an item sat in the cart is confirmed, never silently charged', async ({
+  page,
+}) => {
+  await addBurritoToCart(page);
+
+  await page.goto('/kitchen/menu');
+  await page.getByRole('textbox', { name: 'Price for Burrito', exact: true }).fill('12.50');
+  await page.getByRole('button', { name: 'Review price for Burrito', exact: true }).click();
+  await page.getByRole('button', { name: 'Save new price for Burrito', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Burrito is now priced at $12.50');
+
+  await page.goto('/cart');
+  await expect(page.getByText('Price changed: $10.95 → $12.50 each.')).toBeVisible();
+
+  // The customer's last screen before paying has to say which line moved,
+  // not just refuse the button — the same gap the sold-out flag had.
+  await page.goto('/checkout');
+  await expect(page.getByRole('button', { name: /Place order/ })).toBeDisabled();
+  await expect(page.getByText('Price changed: $10.95 → $12.50 each.')).toBeVisible();
+
+  // Confirming on the cart is what actually clears it — going back to
+  // checkout on its own must not.
+  await page.goto('/cart');
+  await page.getByRole('button', { name: 'I understand the new prices' }).click();
+  // Wait for the confirm to land before navigating away — a goto racing the
+  // action's write is the exact trap fixtures.ts exists to keep specs out of.
+  await expect(page.getByRole('button', { name: 'I understand the new prices' })).toHaveCount(0);
+  await page.goto('/checkout');
+  await expect(page.getByText('Price changed', { exact: false })).toHaveCount(0);
+  await expect(page.getByTestId('checkout-total')).toHaveText('$13.53');
+  await expect(page.getByRole('button', { name: /Place order/ })).toBeEnabled();
+});
+
 test('a name is required before an order can be placed', async ({ page }) => {
   await addBurritoToCart(page);
   await page.goto('/checkout');

@@ -45,7 +45,7 @@ export default async function CheckoutPage() {
         <section className="mt-6 rounded-lg border border-neutral-300 p-4">
           <h2 className="font-semibold">Your order</h2>
           <ul className="mt-2 flex flex-col gap-2">
-            {review.lines.map(({ line, priced }) => (
+            {review.lines.map(({ line, priced, problems, priceChange }) => (
               <li key={line.id} className="text-sm">
                 <div className="flex justify-between gap-4">
                   <span>
@@ -77,6 +77,20 @@ export default async function CheckoutPage() {
                 )}
                 {line.composition.note && (
                   <p className="mt-0.5 italic text-neutral-700">“{line.composition.note}”</p>
+                )}
+                {/* Same per-line flags the cart page shows — a line 86'd or
+                    repriced after the customer got here must say so right on
+                    this line, not just the generic banner below the form. */}
+                {problems.map((problem) => (
+                  <p key={problem.kind + problem.message} className="mt-0.5 font-medium text-red-700">
+                    {problem.message}
+                  </p>
+                ))}
+                {priceChange && (
+                  <p className="mt-0.5 font-medium text-amber-700">
+                    Price changed: {formatCents(priceChange.fromUnitPriceCents)} →{' '}
+                    {formatCents(priceChange.toUnitPriceCents)} each.
+                  </p>
                 )}
               </li>
             ))}
