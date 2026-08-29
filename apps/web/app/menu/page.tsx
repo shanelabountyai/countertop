@@ -4,6 +4,8 @@
 import Link from 'next/link';
 import { loadMenu } from '@countertop/db/menu';
 import { formatCents } from '@/lib/money';
+import { currentGate } from '@/lib/checkout-gate';
+import { GateNotice } from '../checkout/gate-notice';
 
 export const metadata = { title: 'Menu — Firebird Kitchen' };
 
@@ -13,7 +15,7 @@ export const metadata = { title: 'Menu — Firebird Kitchen' };
 export const dynamic = 'force-dynamic';
 
 export default async function MenuPage() {
-  const menu = await loadMenu();
+  const [menu, gate] = await Promise.all([loadMenu(), currentGate()]);
   const items = Object.values(menu.items);
 
   return (
@@ -24,6 +26,10 @@ export default async function MenuPage() {
           View cart
         </Link>
       </header>
+
+      {/* Same gate the cart re-asks before checkout (P0-6) — surfaced here too
+          so a customer finds out before building a cart, not after. */}
+      <GateNotice gate={gate} className="mb-8" />
 
       {menu.categories.map((category) => (
         <section key={category.id} className="mb-8">

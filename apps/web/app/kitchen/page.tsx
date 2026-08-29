@@ -92,28 +92,40 @@ export default async function KitchenPage({
       <NewOrderAlert count={unacknowledged} />
       <div className="flex flex-wrap items-baseline justify-between gap-4">
         <h1 className="text-3xl font-semibold">Kitchen queue</h1>
+        {/* ≥48px on every link here, not just the buttons: "Availability" is
+            the exact page a cook 86's an item from mid-rush (CLAUDE.md's own
+            trap list) — it is not the rarely-tapped exception "Sign out" is. */}
         <div className="flex flex-wrap items-center gap-4">
-          <Link href="/kitchen/availability" className="text-sm underline underline-offset-4">
+          <Link
+            href="/kitchen/availability"
+            className="flex min-h-12 items-center text-sm underline underline-offset-4"
+          >
             Availability
           </Link>
-          <Link href="/kitchen/menu" className="text-sm underline underline-offset-4">
+          <Link
+            href="/kitchen/menu"
+            className="flex min-h-12 items-center text-sm underline underline-offset-4"
+          >
             Edit menu
           </Link>
-          <Link href="/kitchen/settings" className="text-sm underline underline-offset-4">
+          <Link
+            href="/kitchen/settings"
+            className="flex min-h-12 items-center text-sm underline underline-offset-4"
+          >
             Settings
           </Link>
-          <Link href="/kitchen/report" className="text-sm underline underline-offset-4">
+          <Link
+            href="/kitchen/report"
+            className="flex min-h-12 items-center text-sm underline underline-offset-4"
+          >
             Sales
           </Link>
-          <Link href="/menu" className="text-sm underline underline-offset-4">
+          <Link
+            href="/menu"
+            className="flex min-h-12 items-center text-sm underline underline-offset-4"
+          >
             Customer menu
           </Link>
-          {/* The counterpart of the sign-in. A wall-mounted screen never taps
-              it; a manager's laptop in the office is why it exists (C-037).
-              ≥48px like every other BUTTON on this screen — the neighbours are
-              links and are not held to it, but rush.spec asserts the rule
-              across every visible button on a full queue, and it is right to:
-              "staff rarely tap this one" is how the exceptions start. */}
           <form action={signOut}>
             <button
               type="submit"

@@ -22,7 +22,12 @@ async function run(orderId: unknown, action: OrderAction): Promise<KitchenResult
   // `now` is read HERE and passed down. Nothing below this line reads a clock,
   // and nothing above it is the client's (CLAUDE.md time rules).
   const result = await applyOrderAction(orderId, action, new Date());
-  revalidatePath('/kitchen');
+  // Only on a real change — not on a refusal or a stale no-op. Revalidating
+  // unconditionally re-renders the whole queue as part of THIS action's own
+  // transition, which can move the order's card into a different status
+  // section and remount `<QueueControls>` before the caller ever gets to show
+  // the error it just set: the rejection was correct, but nobody saw why.
+  if (result.ok) revalidatePath('/kitchen');
   return result.ok ? { ok: true } : { ok: false, message: result.failure.message };
 }
 

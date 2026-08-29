@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { placeCartOrder, type CheckoutError, type OrderConfirmation } from './actions';
 import { formatCents } from '@/lib/money';
 import { PAYMENT_LABEL } from '@/lib/status-labels';
+import { describeSelection } from '@/lib/menu-labels';
 
 const MAX_NAME = 40;
 const MAX_PHONE = 32;
@@ -154,7 +155,35 @@ function Confirmation({ confirmation }: { confirmation: OrderConfirmation }) {
         {confirmation.orderNumber}
       </p>
       <p className="text-lg">under {confirmation.customerName}</p>
-      <dl className="mt-4 flex flex-col gap-1 tabular-nums">
+      {/* The receipt itself — the same negation styling as the status page,
+          so what the customer confirms here is what the kitchen makes. */}
+      <ul className="mt-4 flex flex-col gap-2">
+        {confirmation.lines.map((line, lineIndex) => (
+          <li key={lineIndex} className="text-sm">
+            <div className="flex justify-between gap-4">
+              <span className="font-medium text-neutral-900">
+                {line.quantity} × {line.itemName}
+              </span>
+              <span className="tabular-nums">{formatCents(line.lineTotalCents)}</span>
+            </div>
+            {line.options.length > 0 && (
+              <p className="mt-0.5 text-neutral-700">
+                {line.options.map((option, index) => {
+                  const { text, negated } = describeSelection(option.optionName, option.intensity);
+                  return (
+                    <span key={index}>
+                      {index > 0 && ', '}
+                      <span className={negated ? 'font-bold text-red-700' : ''}>{text}</span>
+                    </span>
+                  );
+                })}
+              </p>
+            )}
+            {line.note && <p className="mt-0.5 italic text-neutral-700">“{line.note}”</p>}
+          </li>
+        ))}
+      </ul>
+      <dl className="mt-4 flex flex-col gap-1 border-t border-neutral-300 pt-3 tabular-nums">
         <div className="flex justify-between">
           <dt>Subtotal</dt>
           <dd>{formatCents(confirmation.subtotalCents)}</dd>

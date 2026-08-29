@@ -282,7 +282,17 @@ export function Composer({
             min={1}
             max={DEFAULT_LIMITS.maxQuantity}
             value={quantity}
-            onChange={(event) => setQuantity(Number(event.target.value))}
+            onChange={(event) => {
+              // Clamped here, not just left to `validateComposition`: an
+              // unclamped 0/negative/huge quantity still flows into `priceLine`
+              // for the live preview below, which would show a nonsensical
+              // total (e.g. a negative price) before the customer ever taps
+              // submit. min/max above are HTML hints only — typed input isn't
+              // clamped by the browser.
+              const value = Number(event.target.value);
+              if (!Number.isInteger(value)) return;
+              setQuantity(Math.min(Math.max(value, 1), DEFAULT_LIMITS.maxQuantity));
+            }}
             className="min-h-12 w-24 rounded-md border border-neutral-300 px-3"
           />
         </label>

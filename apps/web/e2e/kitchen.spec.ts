@@ -76,6 +76,14 @@ test('item lines are legible at arm\'s length and every tap target clears 48px',
   const advance = await heightOf(dana.getByRole('button', { name: 'Accept' }));
   const others = heights.filter((height) => height !== advance);
   expect(advance).toBeGreaterThan(Math.max(...others));
+
+  // The header nav links carry the same bar (P0-11): "Availability" is the
+  // page a cook 86's an item from mid-rush, not a rarely-tapped exception.
+  const navLinks = await page
+    .locator('a', { hasText: /^(Availability|Edit menu|Settings|Sales|Customer menu)$/ })
+    .all();
+  expect(navLinks.length).toBe(5);
+  for (const link of navLinks) expect(await heightOf(link)).toBeGreaterThanOrEqual(48);
 });
 
 test('flags a late ticket and a no-show taking shape', async ({ page }) => {

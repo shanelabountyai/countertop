@@ -12,6 +12,7 @@ import { formatCents } from '@/lib/money';
 import { getCartReview } from '../cart/actions';
 import { CheckoutForm } from './checkout-form';
 import { GateNotice } from './gate-notice';
+import { describeSelection } from '@/lib/menu-labels';
 
 export const metadata = { title: 'Checkout — Firebird Kitchen' };
 
@@ -43,16 +44,40 @@ export default async function CheckoutPage() {
       {review.lines.length > 0 && (
         <section className="mt-6 rounded-lg border border-neutral-300 p-4">
           <h2 className="font-semibold">Your order</h2>
-          <ul className="mt-2 flex flex-col gap-1">
+          <ul className="mt-2 flex flex-col gap-2">
             {review.lines.map(({ line, priced }) => (
-              <li key={line.id} className="flex justify-between gap-4 text-sm">
-                <span>
-                  {line.composition.quantity} ×{' '}
-                  {menu.items[line.composition.itemId]?.name ?? line.composition.itemId}
-                </span>
-                <span className="tabular-nums">
-                  {priced ? formatCents(priced.lineTotalCents) : '—'}
-                </span>
+              <li key={line.id} className="text-sm">
+                <div className="flex justify-between gap-4">
+                  <span>
+                    {line.composition.quantity} ×{' '}
+                    {menu.items[line.composition.itemId]?.name ?? line.composition.itemId}
+                  </span>
+                  <span className="tabular-nums">
+                    {priced ? formatCents(priced.lineTotalCents) : '—'}
+                  </span>
+                </div>
+                {/* This is the customer's last screen before paying — a wrong
+                    "NO onions" has to be catchable here, not just on the cart
+                    page one step back and the status page one step forward. */}
+                {line.composition.selections.length > 0 && (
+                  <p className="mt-0.5 text-neutral-700">
+                    {line.composition.selections.map((selection, index) => {
+                      const group = menu.groups[selection.groupId];
+                      const option = group?.options.find((o) => o.id === selection.optionId);
+                      if (!option) return null;
+                      const { text, negated } = describeSelection(option.name, selection.intensity);
+                      return (
+                        <span key={`${selection.groupId}:${selection.optionId}`}>
+                          {index > 0 && ', '}
+                          <span className={negated ? 'font-bold text-red-700' : ''}>{text}</span>
+                        </span>
+                      );
+                    })}
+                  </p>
+                )}
+                {line.composition.note && (
+                  <p className="mt-0.5 italic text-neutral-700">“{line.composition.note}”</p>
+                )}
               </li>
             ))}
           </ul>
