@@ -2751,3 +2751,5 @@ items shipped, 99 commits, 16,914 TS/TSX lines across 108 files (41% tests),
 25 CHECK constraints, 12 recorded defects, build window 2026-08-25 →
 2026-08-29. No `left behind` this time — the table checks its own numbers
 against the repo every time it's touched, that's just not automated.
+
+Committed at f35d8fc.
