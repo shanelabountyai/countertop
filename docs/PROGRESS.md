@@ -2714,3 +2714,23 @@ entries; `ci.yml`'s "did postinstall run" assertion now checks
   C-044; this item added neither, and did not fix the table either.
 
 C-045 committed at 82aadc6.
+
+### C-045 addendum — why `regions: ["cle1"]`, and why the reason is not in the file
+
+`cle1` is us-east-2, the same AWS region as the Neon endpoint. Vercel's
+default is `iad1` (us-east-1), which puts a cross-region hop on every query of
+every request.
+
+That explanation was originally written into `apps/web/vercel.json` as a
+`"comment"` key, and it broke production: Vercel validates that file against a
+strict schema and **rejects unknown properties outright**. The deployment did
+not warn or ignore the key — it failed with
+
+    The `vercel.json` schema validation failed with the following message:
+    should NOT have additional property `comment`
+
+The preceding deploy had been green, so the only change was the file this
+repo's own convention says should explain itself. JSON has no comment syntax
+and Vercel's schema allows no substitute, so the note lives here instead —
+this is the one class of file in the repo where the reasoning cannot sit
+beside the code it explains.
