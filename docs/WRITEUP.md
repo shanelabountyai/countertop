@@ -885,21 +885,21 @@ opinion early, while the diff that caused it is still one file.
 
 | | |
 |---|---|
-| Requirements shipped | 29 — the PRD's 17 (C-001 → C-017), then 12 more worked off this document's own "left behind" lists |
-| Commits | 62, one pair per item: the work, then its SHA recorded in a follow-up |
-| TypeScript / TSX | 14,656 lines across 126 tracked files |
-| …of which tests | 5,874 lines — 40% of the codebase, and it has stayed 40% |
-| Domain engine (`packages/core`) | 2,754 lines, zero I/O, zero clock reads |
-| Database layer (`packages/db`) | 1,593 lines |
-| Web app (`apps/web`) | 4,139 lines |
-| Unit tests | 370, in 20 files, passing under `TZ=UTC` and `TZ=Pacific/Kiritimati` |
-| End-to-end specs | 86, in 10 files, against a production build, with axe on every screen |
-| Hand-written migrations | 4, carrying an append-only trigger and 11 CHECK constraints |
-| Menu fixture | 25 items, 8 modifier groups, 5 categories |
+| Requirements shipped | 45 — the PRD's 17 (C-001 → C-017), then 28 more worked off this document's own "left behind" lists |
+| Commits | 99 — mostly a work/SHA-record pair per item, plus the hotfixes and reverts the write-up itself accounts for |
+| TypeScript / TSX | 16,914 lines across 108 tracked files |
+| …of which tests | 6,980 lines — 41% of the codebase |
+| Domain engine (`packages/core`) | 5,713 lines, zero I/O, zero clock reads |
+| Database layer (`packages/db`) | 4,077 lines |
+| Web app (`apps/web`) | 7,106 lines |
+| Unit tests | 418, in 22 files, passing under `TZ=UTC` and `TZ=Pacific/Kiritimati` |
+| End-to-end specs | 119, in 14 files, against a production build, with axe on every screen |
+| Hand-written migrations | 7, carrying an append-only trigger and 25 CHECK constraints |
+| Menu fixture | 25 items, 7 modifier groups, 5 categories |
 | The seeded rush | 30 orders / 20 simulated minutes / 5 ugly cases / 0 stuck, lost or duplicated — replayed in under a second |
-| Documentation | ~3,400 lines across the PRD, PROGRESS, RELEASE_NOTES, backlog and this file |
-| Defects recorded | 11, each with how it was found and what would catch it earlier |
-| Build window | 2026-08-25 into 2026-08-26 |
+| Documentation | ~5,100 lines across the PRD, PROGRESS, RELEASE_NOTES, backlog and this file |
+| Defects recorded | 12, each with how it was found and what would catch it earlier |
+| Build window | 2026-08-25 into 2026-08-29 |
 
 ### What the twelve extra items were
 

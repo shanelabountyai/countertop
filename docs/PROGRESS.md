@@ -2734,3 +2734,20 @@ repo's own convention says should explain itself. JSON has no comment syntax
 and Vercel's schema allows no substitute, so the note lives here instead —
 this is the one class of file in the repo where the reasoning cannot sit
 beside the code it explains.
+
+## Housekeeping — C-044 ticked, the By-the-Numbers table caught up
+
+Two loose ends left after C-045, neither of which needed new code.
+
+C-044 was left `[~]` because its own text deferred the visibility decision
+to C-045. C-045 shipped with the repo private, which answers it — ticked to
+`[x]`, and the backlog line now says so instead of pointing forward at an
+item that has since landed.
+
+The By-the-Numbers table (called stale at C-042, C-043, C-044, and C-045
+itself) is recounted from the tree rather than incremented by guess: 45
+items shipped, 99 commits, 16,914 TS/TSX lines across 108 files (41% tests),
+418 unit tests in 22 files, 119 e2e tests in 14 files, 7 migrations carrying
+25 CHECK constraints, 12 recorded defects, build window 2026-08-25 →
+2026-08-29. No `left behind` this time — the table checks its own numbers
+against the repo every time it's touched, that's just not automated.
