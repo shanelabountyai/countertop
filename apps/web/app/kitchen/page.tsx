@@ -121,6 +121,12 @@ export default async function KitchenPage({
             Sales
           </Link>
           <Link
+            href="/kitchen/orders"
+            className="flex min-h-12 items-center text-sm underline underline-offset-4"
+          >
+            Order history
+          </Link>
+          <Link
             href="/menu"
             className="flex min-h-12 items-center text-sm underline underline-offset-4"
           >

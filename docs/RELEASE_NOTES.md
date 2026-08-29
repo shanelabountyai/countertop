@@ -1086,3 +1086,32 @@ data returned 500 while every local check stayed green. The fix was to stop
 bundling it. The full account is in the write-up; the short version is that a
 build passing on the machine that built it is not the same claim as a build
 that works where it ships.
+
+## C-046 — A receipt that outlives the queue
+
+The kitchen queue can find "Dana, or 047" — but only today's Dana. The moment
+an order is picked up, cancelled, or ages past the queue entirely, it is gone
+from staff's reach, and the only way back to it was the customer's own
+tracking link. A dispute a day later — "you charged me for extra cheese I
+never asked for" — had no receipt to point to on the restaurant's side of the
+counter.
+
+**Order history reaches every day, every status.** `/kitchen/orders` finds an
+order by name or number regardless of how long ago it was placed or what
+happened to it since, and opens onto the same receipt a customer sees — the
+same negation styling, the same subtotal-tax-total breakdown, read off the
+order's own snapshot rather than a menu that has since moved on.
+
+**A number alone can mean more than one order.** Today's order number resets
+every business day, so "#047" from a search box isn't the same promise
+"#047" on today's queue is — there may be a #047 from three different
+Tuesdays. Rather than guess which one a bare number means, a numeric search
+matches every order with that number and lists them by date, same as a name
+search would.
+
+**It went looking for a second feature and found the PRD already had an
+answer.** The same testing pass that turned up this gap also proposed a
+dedicated end-of-day summary screen — until a check against the PRD showed
+the leftover-flag sweep (C-039) already *is* the shipped, complete answer to
+closing out a day. Not built, on purpose: a second mechanism for a question
+already answered is not a feature, it's a fork.

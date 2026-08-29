@@ -2769,3 +2769,78 @@ the repo went private, so this is unverified there the same way the rest of
 C-044/C-045 is, until CI or the self-hosted dispatch actually executes it.
 
 Committed at c68d1fb.
+
+## C-046 — A receipt that outlives the queue
+
+Found by running exploratory e2e testing against the deployed app's shape: an
+admin-agent pass verified the snapshot rule by placing an order, then had no
+way to pull that order back up once it left the live queue — the only route
+back to it was the customer's own tracking link. `/kitchen` never grows a
+route for "what did we serve this person last week," and staff have no way to
+answer a dispute about a picked-up order without asking the customer to find
+their receipt link.
+
+The same pass turned up a second candidate — a dedicated end-of-day
+reconciliation screen — but that one was checked against the PRD before being
+built, and turned out to already be answered: P1-6 (C-039)'s leftover-flag
+sweep is documented as the complete, shipped mechanism, and a second one would
+compete with it rather than fill a gap. Skipped, not built.
+
+**Built:**
+- `packages/db/history.ts` — `searchOrderHistory(query)` and
+  `findOrderByIdForStaff(id)`, both built on `ORDER_RECEIPT` from
+  `placement.ts` (never a menu `include`, so a repriced or renamed menu row
+  still reads back exactly as it was on the day this order was placed). No
+  `QUEUE_STATUSES` filter anywhere in this file — the entire point is every
+  status, not just the open ones.
+- `historyWhere(query)`, the one function here with a decision in it, pulled
+  out on its own so it gets a test that never touches Postgres: a bare number
+  matches `seq` alone, not `seq` scoped to a business day. `seq` resets every
+  day (`packages/db/placement.ts`), so unlike the live queue's own
+  `matchesLookup` — which only ever has today's orders to disambiguate — a
+  number typed into history search can legitimately match more than one day's
+  `#047`. Returned as a list, dated, rather than silently picking one.
+- `apps/web/app/kitchen/orders/page.tsx` — the search list, a plain GET form
+  matching the queue's own lookup UX (`?q=`, works before hydration, "Show
+  all" clears it).
+- `apps/web/app/kitchen/orders/[id]/page.tsx` — the receipt itself. Read-only
+  by construction: no server action is imported into this file, so there is
+  nothing here to route-guard beyond the `/kitchen/:path*` middleware every
+  other staff page already gets for free. Renders the same
+  `describeSelection` negation styling as the status page and checkout.
+- `apps/web/lib/format-time.ts` — `formatPlacedAt`, an `Intl.DateTimeFormat`
+  read against the restaurant's own timezone (never the server's), next to
+  `formatCents` and the other display-only formatters. Nothing here reads a
+  clock or guesses an offset by hand.
+- A nav link ("Order history") on the kitchen queue header, and five e2e
+  tests: name search, number search, an empty-result state plus "Show all,"
+  reaching an order a `seedFinishedRush()` has already carried past
+  `picked_up` (asserted by absence of every OPEN-queue status label, so the
+  test would fail if this page secretly reused `loadQueue()`), and an
+  accessibility pass on both the list and the detail screen.
+
+**Decided:**
+- **Checked the PRD before writing code, for both candidates from the same
+  testing pass.** One (this item) was a genuine gap — never mentioned, in
+  scope or out. The other (a closeout screen) was already resolved by C-039
+  and would have been a second, competing answer to a question the PRD only
+  asks once. The Open Questions rule ("resolved means resolved, never
+  re-open") extends naturally to "shipped means shipped, don't reship."
+- **The internal `id`, not the customer's `statusToken`, keys the staff
+  route.** The token exists because a URL that leaves the building must not
+  be a key a stranger can enumerate; a staff-only page behind the same
+  middleware as every write action has no equivalent reason to hide its id.
+- **Capped at 50 results, unconditionally.** A bare search box against every
+  order this restaurant has ever taken is one empty query away from becoming
+  the report page's job by accident.
+
+**Left behind:**
+- **No pagination past the 50-result cap.** A restaurant old enough for a
+  common name to return more than fifty orders needs a narrower search
+  (a date range, most likely) before this stops being enough — not built,
+  because nothing in the seeded data or the rush demo is old enough to hit it.
+- **The detail page has no link back to a specific search.** "← Order
+  history" always lands on the unfiltered list, dropping whatever query led
+  there. A `?returnTo=` round-trip would fix it; the walk-up dispute this item
+  exists for is a single lookup, not a session of back-and-forth, so it was
+  judged not worth the extra parameter yet.
