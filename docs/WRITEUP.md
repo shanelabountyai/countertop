@@ -776,6 +776,66 @@ file is simply already sitting where any guess would find it. The whole gate
 was green through every one of those failed deploys, and would be green today
 if the fix had never been made.
 
+### Exploratory testing found six gaps the automated suite never covered (post-C-046)
+
+Three agents drove the live, deployed app black-box — one as a customer, one
+as kitchen staff, one as admin — alongside the existing Playwright suite. The
+suite was green throughout; nothing below is a regression it should have
+caught, because none of it was under test.
+
+- **The checkout gate only asked itself at checkout.** Manual pause,
+  auto-pause, and closed-today were invisible on `/menu` — only `/cart`
+  called `currentGate()`. A customer could build an entire order before
+  finding out it couldn't be placed. `/menu` now asks the same gate and
+  shows the same `GateNotice`.
+- **The screen right before paying dropped every modifier and negation.**
+  Checkout's review and the order-confirmation receipt rendered
+  `"1 x Burrito — $12.20"` — no options, no "NO onions" — even though the
+  cart page one screen earlier, and the status page one screen later, both
+  show them in full. Negations are this app's founding invariant, and this
+  is exactly the screen a wrong negation has to be caught on.
+- **A stale or rejected queue action gave staff no feedback.** Two tabs
+  racing on one order correctly protected the order's state, but `run()`
+  called `revalidatePath('/kitchen')` unconditionally — re-rendering the
+  whole queue inside the same transition, which could remount
+  `<QueueControls>` into a different status section before the just-set
+  error was ever visible. Now it revalidates only on an actual state
+  change.
+- **The kitchen header's own nav failed this app's tap-target rule.**
+  "Availability", "Edit menu", "Settings", "Sales", "Customer menu" measured
+  ~20px — under the 48px bar the queue's own cards are held to, and
+  "Availability" is the exact page used to 86 an item mid-rush, not a
+  rarely-tapped exception. Nothing had previously measured header `<a>`
+  elements, only `<button>`/`<summary>`; the regression check in
+  `kitchen.spec.ts` now does.
+- **The item composer let a bad quantity reach the price preview.** Typing
+  0, a negative number, or over the 20-item max flowed straight into the
+  live total — a negative or nonsensical price — before the server ever
+  refused it at submit. Clamped at the input instead.
+- **Checkout showed a flag existed but not which line it was on.** The
+  order-summary line rendered `{ line, priced }` from `reviewCart` but never
+  read that same line's `problems` (an 86'd option/item) or `priceChange` (a
+  reprice while the item sat in the cart) — both already computed, both
+  already rendered per-line on `/cart`. Checkout showed only a generic
+  bottom banner, so a customer with more than one line — or one who lands on
+  checkout directly — had to go back to the cart to find which line was the
+  problem. Same fix shape as the modifiers gap above: render what
+  `reviewCart` already computed, on the screen that's supposed to be the
+  last chance to catch it.
+
+Two other findings from the same pass were false leads, left unfixed: a
+"quantity 999 prices at $99,890.01" report turned out to be a different agent
+legitimately repricing the seeded item mid-test, not a pricing bug; and a
+settings-page checkbox measuring 20px alone is wrapped in a `min-h-12
+<label>` that is the real tap target.
+
+*What this says about coverage, not just these six bugs:* every one of them
+sat on a screen the automated suite already had tests for — checkout, the
+queue, the composer, the header — just not testing *this* path through it.
+Black-box exploratory passes and a green Playwright suite are finding
+different classes of gap, and the deployed app is what surfaced these; none
+of them needed the database seed changed to reproduce.
+
 
 ## Skills Learned / Functions Unlocked
 
