@@ -735,6 +735,41 @@ not knowable before and is not unknowable again just because the repo went
 back.
 
 
+### The exact hazard C-044 named came back, unattended (2026-08-31)
+
+The repo went public again at some point around 2026-08-29 — deliberately,
+this time, for the free GitHub-hosted minutes `ci.yml` had already proven it
+could use — and stayed public. `ci.yml` ran green on every push from then on;
+the memory note and C-044's own commit message both still say "repo private
+again," because the flip back to public was never recorded anywhere a future
+session would read before trusting the old state.
+
+What C-044 named as the actual load-bearing fact — visibility, not the
+repo setting alone — was checked against the description in the docs, not
+against the account. `gh repo view` said `PUBLIC`. `ci-self-hosted.yml` still
+had its `push:` trigger live and the runner was still running as a launchd
+service, both exactly as C-044's header comment says to undo "if this repo is
+ever made public again." For two days, that condition was true and the
+undo had not happened.
+
+Found by treating a stale memory note as a claim to verify rather than a fact
+to build on, the same instinct the docs themselves ask for. Fixed the same way
+C-044 did the first time: `svc.sh stop`/`uninstall`, `config.sh remove` against
+a fresh removal token, `push:` deleted from the workflow, `workflow_dispatch`
+left as the only trigger. The user's call this time was to keep the repo
+public rather than revert it — `ci.yml` is the real CI now, and the
+self-hosted recipe stays in the file, dormant, for if that ever changes back.
+
+The lesson isn't the runner twice. It's that "repo private again" was written
+down as a fact rather than a decision with a re-check attached, and a decision
+that can silently drift — someone flips a GitHub setting outside any commit —
+needs the thing that depends on it to check the setting itself, not the note
+that once described it. A dated correction here doesn't stop the next drift;
+it's the same class of unfalsifiable-over-time problem C-044 already
+diagnosed, just one layer up — this time in the record of the decision rather
+than in the workflow file.
+
+
 ### The Prisma client could not find its own engine, but only when deployed (C-045)
 
 The first deploy of C-045 built cleanly, served the home page, and returned 500

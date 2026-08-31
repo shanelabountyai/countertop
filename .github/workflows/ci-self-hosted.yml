@@ -1,28 +1,22 @@
 name: CI (self-hosted)
 
-# The working CI *while this repo is private*. GitHub-hosted runs are billing-
-# blocked on a private repo (~4s death, no step executes), which is why C-036
-# put a runner on the developer's Mac. C-044 made the repo public, proved
-# `ci.yml` green on Linux twice, and then the repo was returned to private the
-# same day — so this workflow is load-bearing again.
+# Reduced to workflow_dispatch-only and the runner deregistered — this repo
+# is public (again, as of 2026-08-31, this time by decision rather than the
+# accidental drift that was found and fixed), and `runs-on: self-hosted`
+# executes the checked-out repo's code on the developer's own Mac. While
+# private that was safe by construction: only people already trusted with
+# the machine could put code in the repo. Public breaks the equivalence —
+# GitHub documents self-hosted runners as unsafe for public repos for
+# exactly this reason. `ci.yml` (GitHub-hosted) is the real CI now; it runs
+# free on a public repo, which is the direct fix for the billing block this
+# workflow existed to route around (C-036).
 #
-# IF THIS REPO IS EVER MADE PUBLIC AGAIN, DELETE THE `push:` TRIGGER BELOW AND
-# DEREGISTER THE RUNNER — and never add `pull_request` or any other
-# fork-reachable trigger. `runs-on: self-hosted` executes the checked-out
-# repo's code on the developer's own Mac. While the repo is private that is
-# safe by construction: only people already trusted with that machine can put
-# code in the repo. Public breaks the equivalence — anyone can fork and propose
-# code, and a fork-triggered workflow is a stranger's commands running on that
-# laptop. GitHub documents self-hosted runners as unsafe for public repos for
-# exactly this reason. Visibility is the thing that decides, so it has to be
-# re-checked whenever visibility changes, not once.
+# The recipe below stays, in case the repo ever goes private again and needs
+# it — re-register the runner and restore the `push:` trigger only then, and
+# never add `pull_request` or any other fork-reachable trigger regardless of
+# visibility.
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
   workflow_dispatch:
 
 concurrency:
