@@ -2939,3 +2939,5 @@ from being drawn. The engine was right and the screen never asked it.
 - **A search that is a bare number still cannot be narrowed by date.** Noted
   at C-046 and still true; the escaping fix touched the same function without
   changing that.
+
+C-047 committed at 3d54de9.
