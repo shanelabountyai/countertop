@@ -66,10 +66,19 @@ test('closing one out clears it from the count', async ({ page }) => {
   await card(page, 'Priya Shah').getByRole('button', { name: 'No-show' }).click();
 
   await expect(page.getByText('3 orders are still open from an earlier day')).toBeVisible();
-  // `abandoned` is not a queue status, so the card leaves the screen entirely
-  // — the assertion is on the card, not on its badge, which would pass against
-  // a card that had merely lost its flag.
-  await expect(card(page, 'Priya Shah')).toBeHidden();
+  // `abandoned` is not a queue status, so the card leaves the QUEUE — the
+  // assertion is on the card, not on its badge, which would pass against a
+  // card that had merely lost its flag. It is off the screen entirely only
+  // once its five-second undo has run out: closing out a leftover is as
+  // mis-tappable as any other advance, so for that window it sits in the
+  // "Just finished" strip, which is the only place that undo can live (P0-4).
+  await expect(page.getByRole('heading', { name: 'Ready for pickup (0)' })).toBeVisible();
+  await expect(
+    page.locator('section:not([aria-label])').getByText('Priya Shah'),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('region', { name: 'Just finished' }).getByText('Priya Shah'),
+  ).toBeVisible();
 });
 
 test('the flagged queue has no accessibility violations', async ({ page }) => {

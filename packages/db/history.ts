@@ -17,6 +17,16 @@ import { ORDER_RECEIPT, type OrderReceipt } from './placement';
 const HISTORY_RESULT_LIMIT = 50;
 
 /**
+ * A search term as a LITERAL, not a pattern.
+ *
+ * `contains` compiles to SQL `LIKE`, and Prisma passes the term through
+ * unescaped — so a typed `%` searches for everything rather than for a percent
+ * sign, and every search box in the world eventually receives one. Backslash
+ * first, because it is the escape character being introduced.
+ */
+const likeLiteral = (term: string): string => term.replace(/[\\%_]/g, '\\$&');
+
+/**
  * Builds the `where` a history search runs — pulled out as its own function
  * because it is the one piece of this file with a decision in it (name vs.
  * order number), and a decision is what gets a test, not a query.
@@ -32,11 +42,12 @@ export function historyWhere(query: string): Prisma.OrderWhereInput {
   const trimmed = query.trim();
   if (trimmed === '') return {};
 
+  const name = { contains: likeLiteral(trimmed), mode: 'insensitive' } as const;
   const digits = trimmed.replace(/^#/, '');
   if (/^\d+$/.test(digits)) {
-    return { OR: [{ seq: Number(digits) }, { customerName: { contains: trimmed, mode: 'insensitive' } }] };
+    return { OR: [{ seq: Number(digits) }, { customerName: name }] };
   }
-  return { customerName: { contains: trimmed, mode: 'insensitive' } };
+  return { customerName: name };
 }
 
 /** Every order matching the search, newest first — every status, not just the

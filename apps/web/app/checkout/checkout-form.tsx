@@ -8,6 +8,7 @@
 // UX; the unique constraint behind the key is the mechanism (CLAUDE.md).
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { placeCartOrder, type CheckoutError, type OrderConfirmation } from './actions';
 import { formatCents } from '@/lib/money';
 import { PAYMENT_LABEL } from '@/lib/status-labels';
@@ -36,6 +37,7 @@ export function CheckoutForm({
   // Lazy initialiser, so it is generated once for the life of this attempt and
   // not regenerated on every keystroke's re-render.
   const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [errors, setErrors] = useState<CheckoutError[]>([]);
   const [confirmation, setConfirmation] = useState<OrderConfirmation | null>(null);
@@ -68,13 +70,35 @@ export function CheckoutForm({
         payNow: formData.get('payment') === 'now',
         clientTotalCents,
       });
-      if (result.ok) setConfirmation(result.confirmation);
-      else setErrors(result.errors);
+      if (result.ok) {
+        setConfirmation(result.confirmation);
+        return;
+      }
+      setErrors(result.errors);
+      // Every refusal here means the server disagrees with what this screen is
+      // showing — the cart emptied in another tab, an option was 86'd, a price
+      // moved, the gate shut. The summary, the estimate and the button above
+      // are rendered by the SERVER component around this form, so without this
+      // the customer reads "$11.85, place order" and "your cart is empty" at
+      // the same time and reasonably concludes the app is broken. Refreshing
+      // re-asks the same question that produced the screen.
+      router.refresh();
     });
   }
 
   return (
-    <form action={submit} className="mt-6 flex flex-col gap-4">
+    // `onSubmit`, not `action`: React resets a form after an action resolves,
+    // which on a REFUSAL throws away the name the customer just typed and
+    // makes fixing a flagged line cost a retype. Nothing is lost by not using
+    // `action` — the idempotency key is generated client-side, so this form
+    // has never worked without JavaScript. Native `required` still runs first.
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit(new FormData(event.currentTarget));
+      }}
+      className="mt-6 flex flex-col gap-4"
+    >
       <label className="flex flex-col gap-1">
         <span className="font-medium">
           Name for the order <span aria-hidden="true">*</span>

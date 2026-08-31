@@ -65,3 +65,15 @@ test('the history search and its receipt have no detectable accessibility violat
   const detailResults = await new AxeBuilder({ page }).include('main').analyze();
   expect(detailResults.violations).toEqual([]);
 });
+
+// These two are the only way back from a screen staff reach mid-shift, and
+// they were 17px tall — the queue's own cards are held to 48.
+test('the back links clear the same tap-target bar as the queue', async ({ page }) => {
+  await page.goto('/kitchen/orders');
+  const toQueue = await page.getByRole('link', { name: '← Queue' }).boundingBox();
+  expect(toQueue?.height ?? 0).toBeGreaterThanOrEqual(48);
+
+  await page.getByRole('link', { name: /#001/ }).click();
+  const toHistory = await page.getByRole('link', { name: '← Order history' }).boundingBox();
+  expect(toHistory?.height ?? 0).toBeGreaterThanOrEqual(48);
+});

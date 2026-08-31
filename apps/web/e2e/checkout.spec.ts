@@ -76,6 +76,29 @@ test('a price that changed while an item sat in the cart is confirmed, never sil
   await expect(page.getByRole('button', { name: /Place order/ })).toBeEnabled();
 });
 
+// The other stale tab: not the gate moving, the cart itself emptying under a
+// checkout screen that is still showing a total and an enabled button.
+test('a checkout whose cart emptied elsewhere stops showing an order to place', async ({
+  page,
+  context,
+}) => {
+  await addBurritoToCart(page);
+  await page.goto('/checkout');
+  await page.getByRole('textbox', { name: /Name for the order/ }).fill('Alex Rivera');
+
+  const otherTab = await context.newPage();
+  await otherTab.goto('/cart');
+  await otherTab.getByRole('button', { name: /Remove/ }).first().click();
+  await expect(otherTab.getByText('Nothing in it yet.')).toBeVisible();
+  await otherTab.close();
+
+  await page.getByRole('button', { name: /Place order/ }).click();
+
+  await expect(page.getByText(/cart is empty/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: /Place order/ })).toHaveCount(0);
+  await expect(page.getByTestId('order-number')).toHaveCount(0);
+});
+
 test('a name is required before an order can be placed', async ({ page }) => {
   await addBurritoToCart(page);
   await page.goto('/checkout');
@@ -126,7 +149,13 @@ test.describe('the manual pause (trigger 1)', () => {
 
     await page.getByRole('button', { name: /Place order/ }).click();
 
-    await expect(page.getByText('Fryer is down until 2.')).toBeVisible();
+    await expect(page.getByText('Fryer is down until 2.').first()).toBeVisible();
+    // And the screen catches up with the refusal instead of leaving a live
+    // button standing over a "we're closed" message: the refusal refreshes the
+    // server-rendered half of this page, which is where the notice and the
+    // button's disabled state both come from.
+    await expect(page.getByTestId('gate-notice')).toHaveAttribute('data-reason', 'manually_paused');
+    await expect(page.getByRole('button', { name: /Place order/ })).toBeDisabled();
     await expect(page.getByTestId('order-number')).toHaveCount(0);
     // And no row was written, which is the assertion that matters.
     await page.goto('/kitchen');

@@ -148,7 +148,7 @@ export function Composer({
     <main className="mx-auto max-w-2xl p-6">
       <Link
         href={editing ? '/cart' : '/menu'}
-        className="text-sm underline underline-offset-4"
+        className="inline-flex min-h-12 w-fit items-center text-sm underline underline-offset-4"
       >
         {editing ? '← Cart' : '← Menu'}
       </Link>

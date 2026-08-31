@@ -29,7 +29,7 @@ export default async function CheckoutPage() {
 
   return (
     <main className="mx-auto max-w-2xl p-6">
-      <Link href="/cart" className="text-sm underline underline-offset-4">
+      <Link href="/cart" className="inline-flex min-h-12 w-fit items-center text-sm underline underline-offset-4">
         ← Cart
       </Link>
       <h1 className="mt-4 text-3xl font-semibold">Checkout</h1>

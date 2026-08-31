@@ -19,7 +19,12 @@ import {
   undoRemainingMs,
 } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
-import { loadQueue, queueCursor, type QueueOrder } from '@countertop/db/queue';
+import {
+  loadQueue,
+  loadRecentlyFinished,
+  queueCursor,
+  type QueueOrder,
+} from '@countertop/db/queue';
 import { LiveUpdates } from '@/lib/live-updates';
 import { describeSelection } from '@/lib/menu-labels';
 import { PAYMENT_LABEL, STATUS_LABEL } from '@/lib/status-labels';
@@ -63,6 +68,13 @@ export default async function KitchenPage({
   // would go unseen until the next one.
   const cursor = await queueCursor();
   const orders = await loadQueue();
+  // The two states that leave the queue the instant they become undoable
+  // (P0-4). Without this the 5-second undo on "Picked up" and "No-show" is
+  // real in the engine and unreachable on the screen — the card carrying the
+  // button stops being drawn by the very tap that starts the countdown.
+  const justFinished = (await loadRecentlyFinished()).filter(
+    (order) => undoRemainingMs(order.status, order.events[0], now) > 0,
+  );
   // The SAME gate the customer's checkout asks. Staff see the live answer —
   // including an auto-pause nobody switched on — rather than the switch's
   // own position (P0-6).
@@ -98,37 +110,37 @@ export default async function KitchenPage({
         <div className="flex flex-wrap items-center gap-4">
           <Link
             href="/kitchen/availability"
-            className="flex min-h-12 items-center text-sm underline underline-offset-4"
+            className="flex min-h-12 min-w-12 items-center justify-center px-2 text-sm underline underline-offset-4"
           >
             Availability
           </Link>
           <Link
             href="/kitchen/menu"
-            className="flex min-h-12 items-center text-sm underline underline-offset-4"
+            className="flex min-h-12 min-w-12 items-center justify-center px-2 text-sm underline underline-offset-4"
           >
             Edit menu
           </Link>
           <Link
             href="/kitchen/settings"
-            className="flex min-h-12 items-center text-sm underline underline-offset-4"
+            className="flex min-h-12 min-w-12 items-center justify-center px-2 text-sm underline underline-offset-4"
           >
             Settings
           </Link>
           <Link
             href="/kitchen/report"
-            className="flex min-h-12 items-center text-sm underline underline-offset-4"
+            className="flex min-h-12 min-w-12 items-center justify-center px-2 text-sm underline underline-offset-4"
           >
             Sales
           </Link>
           <Link
             href="/kitchen/orders"
-            className="flex min-h-12 items-center text-sm underline underline-offset-4"
+            className="flex min-h-12 min-w-12 items-center justify-center px-2 text-sm underline underline-offset-4"
           >
             Order history
           </Link>
           <Link
             href="/menu"
-            className="flex min-h-12 items-center text-sm underline underline-offset-4"
+            className="flex min-h-12 min-w-12 items-center justify-center px-2 text-sm underline underline-offset-4"
           >
             Customer menu
           </Link>
@@ -188,6 +200,42 @@ export default async function KitchenPage({
           </Link>
         )}
       </form>
+
+      {/* The undo strip (P0-4). Above the groups because five seconds is the
+          whole window, and NOT filtered by the lookup box for the same reason
+          the alert count is not: a cook who has typed a name in is still the
+          person who just mis-tapped "Picked up". It shows only while the undo
+          is live, so it cannot become a second, competing list of finished
+          orders — that is `/kitchen/orders`. */}
+      {justFinished.length > 0 && (
+        <section
+          aria-label="Just finished"
+          className="mt-6 rounded-xl border-2 border-amber-600 bg-amber-50 p-4"
+        >
+          <h2 className="text-xl font-semibold text-amber-900">
+            Just finished — undo if that was a mistake
+          </h2>
+          <ul className="mt-3 grid gap-4 md:grid-cols-2">
+            {justFinished.map((order) => (
+              <li key={order.id} className="rounded-lg border border-amber-500 bg-white p-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="text-3xl font-bold tabular-nums">
+                    {formatOrderNumber(order.seq)}
+                  </h3>
+                  <p className="text-2xl font-semibold">{order.customerName}</p>
+                </div>
+                <p className="mt-1 text-lg text-neutral-700">{STATUS_LABEL[order.status]}</p>
+                <QueueControls
+                  orderId={order.id}
+                  status={order.status}
+                  paymentState={order.paymentState}
+                  undoMs={undoRemainingMs(order.status, order.events[0], now)}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {groups.map(({ status, orders: inGroup }) => (
         <section key={status} className="mt-8">

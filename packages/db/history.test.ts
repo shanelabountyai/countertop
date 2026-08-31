@@ -27,6 +27,21 @@ describe('historyWhere', () => {
     });
   });
 
+  it('searches for a LIKE metacharacter rather than with it', () => {
+    // `%` typed into the box was matching every order this restaurant has
+    // ever taken, which is the opposite of a search.
+    expect(historyWhere('%')).toEqual({
+      customerName: { contains: '\\%', mode: 'insensitive' },
+    });
+    expect(historyWhere('a_b')).toEqual({
+      customerName: { contains: 'a\\_b', mode: 'insensitive' },
+    });
+    // The escape character itself, or it escapes whatever follows it.
+    expect(historyWhere('a\\b')).toEqual({
+      customerName: { contains: 'a\\\\b', mode: 'insensitive' },
+    });
+  });
+
   it('trims surrounding whitespace before deciding', () => {
     expect(historyWhere('  047  ')).toEqual({
       OR: [{ seq: 47 }, { customerName: { contains: '047', mode: 'insensitive' } }],

@@ -27,7 +27,7 @@ export default async function OrderHistoryPage({
 
   return (
     <main className="mx-auto max-w-2xl p-6">
-      <Link href="/kitchen" className="text-sm underline underline-offset-4">
+      <Link href="/kitchen" className="inline-flex min-h-12 w-fit items-center text-sm underline underline-offset-4">
         ← Queue
       </Link>
       <h1 className="mt-4 text-3xl font-semibold">Order history</h1>

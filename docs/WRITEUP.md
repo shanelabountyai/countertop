@@ -871,6 +871,78 @@ Black-box exploratory passes and a green Playwright suite are finding
 different classes of gap, and the deployed app is what surfaced these; none
 of them needed the database seed changed to reproduce.
 
+### The engine was right and the screen never asked (C-047)
+
+A second exploratory pass, same method as the one before it. The most
+interesting thing it found is not a bug in the usual sense — nothing was
+mis-implemented, no test was wrong, and every line involved was deliberate.
+
+`STATUS_FACTS.picked_up.previous` is `'ready'`. The comment above it says
+"terminal, but still revertable: the fat-fingered advance needs its undo".
+`abandoned.previous` is `'ready'` for the same reason. `undoRemainingMs`
+computes a real five-second countdown for both, off the append-only event log
+rather than a client flag, specifically so that a card moving between sections
+or a page being reloaded cannot lose the undo the cook is reaching for. There
+is a unit test for that. There is a comment explaining why it is derived from
+the log. All of it is correct.
+
+And none of it was reachable, because `picked_up` and `abandoned` are
+`inQueue: false`, `loadQueue()` selects `QUEUE_STATUSES`, and the kitchen page
+renders what `loadQueue()` returns. The tap that starts the countdown is the
+same tap that stops the card being drawn. Marking the wrong order picked up
+was, until this session, permanently unrecoverable through any staff screen —
+the exact scenario the `previous` field exists for.
+
+What makes this worth writing down is how invisible it was to every check this
+project has. The engine's tests pass because the engine is right. The queue's
+tests pass because the queue does what it says. The e2e suite tests undo on
+`placed → accepted`, where the card stays in the queue and the button is
+there. Nothing tested the *seam*: a domain fact that is true and a screen that
+never asks the question. Two correct halves, and the defect lives in the space
+between them, where no unit test looks and no integration test had a reason
+to.
+
+The fix derives the list rather than naming it — `UNDOABLE_EXIT_STATUSES` is
+every status that leaves the queue while still having a `previous`, computed
+from `STATUS_FACTS` — so the next state with this shape joins the strip by
+existing. That is the same discipline as the rest of the status module, and it
+is the only reason this is a small change: the question "which states have an
+undo the queue cannot draw?" turns out to be answerable in one expression.
+
+**Three others from the same pass, each a screen not asking a question it had
+already computed:**
+
+- **Checkout refused an order without the screen catching up.** A cart emptied
+  in another tab, an 86, a reprice, the gate shutting — the server refused all
+  of them correctly, and the summary, the estimate and the enabled "Place
+  order — $11.85" button all stayed exactly as rendered, because they come
+  from the server component *around* the client form and nothing told it to
+  re-run. The customer read a complete order and "your cart is empty" at the
+  same time. One `router.refresh()` on refusal, which is the whole class, not
+  the one path. The same edit swapped `action` for `onSubmit`, because React
+  resets a form after an action resolves — which on a refusal threw away the
+  name they had just typed.
+- **A typed `%` in the staff history search matched every order ever taken.**
+  `contains` compiles to SQL `LIKE`, and Prisma passes the term through
+  unescaped. Verified against real Postgres in both directions rather than
+  reasoned about: 4 of 4 before, 0 of 4 after, with `Dana` still matching 1.
+- **Six back-links at 17px, in a codebase whose queue cards are held to 48.**
+  Plus the header nav, which had been fixed for *height* in the previous pass
+  and not for width — "Sales", the shortest label, was a 35px-wide target. A
+  rule that is checked in one dimension is a rule that is half enforced.
+
+*The cost of finding these:* three agents, of which one died partway through
+on an account rate limit, taking the whole admin/config lane with it. Menu
+editing, 86-propagation across its three surfaces, and the report's timezone
+bucketing got no black-box pass this session. They have dedicated e2e specs
+and those specs are green, which is exactly the assurance the four findings
+above also had.
+
+*And one cost paid to my own test:* the closeout spec asserted "`abandoned` is
+not a queue status, so the card leaves the screen entirely." True when
+written, and made deliberately false by this change. The alarm on the sweep
+caught it in the second minute; the assertion was rewritten to say what now
+matters — out of the queue, into the strip — rather than relaxed to pass.
 
 ## Skills Learned / Functions Unlocked
 

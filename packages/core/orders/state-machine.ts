@@ -196,6 +196,19 @@ export const TERMINAL_STATUSES = statusesWhere('terminal');
 export const ALERT_STATUSES = statusesWhere('alerts');
 /** P0-4: the kitchen queue's groupings, in display order. */
 export const QUEUE_STATUSES = statusesWhere('inQueue');
+/**
+ * P0-4: left the queue, but the last tap is still undoable.
+ *
+ * The fat-fingered advance's undo is only worth having if the cook can reach
+ * it, and these are exactly the states whose card the queue stops drawing at
+ * the moment it becomes undoable. Derived, not spelled out, so a new terminal
+ * state with a `previous` joins the "just finished" strip by existing rather
+ * than by someone remembering this file. `cancelled` is absent because it has
+ * no `previous` — un-cancelling would have to un-refund.
+ */
+export const UNDOABLE_EXIT_STATUSES = ORDER_STATUSES.filter(
+  (s) => !STATUS_FACTS[s].inQueue && STATUS_FACTS[s].previous !== null,
+);
 /** P1-1: the statuses a sales report counts as revenue. */
 export const SOLD_STATUSES = statusesInSalesRole('sold');
 /** P1-1: food made and never collected — the no-show rate's numerator. */

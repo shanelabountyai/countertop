@@ -1115,3 +1115,30 @@ dedicated end-of-day summary screen — until a check against the PRD showed
 the leftover-flag sweep (C-039) already *is* the shipped, complete answer to
 closing out a day. Not built, on purpose: a second mechanism for a question
 already answered is not a feature, it's a fork.
+
+## C-047 — The undo that had nowhere to live
+
+**The five-second undo now exists on the two taps that most need it.** A cook
+who marks the wrong order picked up, or closes out a customer as a no-show
+thirty seconds before they walk in, has always had an undo in the engine —
+and never on the screen. Both of those taps move an order off the queue, and
+the card that would have carried the undo button stopped being drawn by the
+very tap that started the countdown. There is now a "Just finished" strip
+above the queue, holding those orders for exactly as long as the undo is live.
+
+**Checkout stops contradicting itself.** If the cart emptied in another tab,
+an item sold out, or the restaurant paused while a checkout screen sat open,
+the server correctly refused the order — but the page around the form never
+updated, so the customer read a full order summary, a live "Place order —
+$11.85" button, and "your cart is empty" at the same time. The screen now
+re-asks the server whenever it is refused, and a refusal no longer wipes the
+name they just typed.
+
+**Search for a percent sign, get orders with a percent sign.** The staff
+history search passed what you typed straight into a SQL pattern match, so a
+literal `%` quietly matched every order the restaurant had ever taken.
+
+**Six back-links and a nav row that failed this project's own rule.** The
+queue's cards are held to 48px tap targets; the links out of order history,
+the cart, the menu and checkout were 17px tall, and the shortest header link
+was 35px wide.

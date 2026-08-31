@@ -7,8 +7,10 @@ import {
   OPEN_STATUSES,
   ORDER_STATUSES,
   placementEvent,
+  previousStatus,
   QUEUE_STATUSES,
   TERMINAL_STATUSES,
+  UNDOABLE_EXIT_STATUSES,
   type OrderAction,
   type OrderState,
   type OrderStatus,
@@ -165,6 +167,18 @@ describe('the status lists every reader derives from', () => {
 
   it('groups the kitchen queue over the four live states, in flow order', () => {
     expect(QUEUE_STATUSES).toEqual(['placed', 'accepted', 'preparing', 'ready']);
+  });
+
+  it('names the states whose undo the queue can no longer draw a card for', () => {
+    // Not a list to keep in step by hand: it is every status that leaves the
+    // queue while still having somewhere to go back to, and the kitchen's
+    // "Just finished" strip is rendered off exactly this. `cancelled` is out
+    // because it has no `previous` — un-cancelling would have to un-refund.
+    expect(UNDOABLE_EXIT_STATUSES).toEqual(['picked_up', 'abandoned']);
+    for (const status of UNDOABLE_EXIT_STATUSES) {
+      expect(QUEUE_STATUSES).not.toContain(status);
+      expect(previousStatus(status)).not.toBeNull();
+    }
   });
 
   it('never calls a status both open and terminal', () => {

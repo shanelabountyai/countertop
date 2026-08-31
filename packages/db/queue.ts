@@ -3,7 +3,7 @@
 // One query, and the statuses it asks for come from THE status module — not a
 // list spelled out here. That is the whole point of `QUEUE_STATUSES`: adding a
 // state changes the screen without changing this file.
-import { QUEUE_STATUSES } from '@countertop/core';
+import { QUEUE_STATUSES, UNDOABLE_EXIT_STATUSES } from '@countertop/core';
 import { Prisma, prisma } from './index';
 import { ORDER_RECEIPT } from './placement';
 
@@ -61,4 +61,32 @@ export function loadQueue(): Promise<QueueOrder[]> {
 export async function queueCursor(): Promise<string> {
   const tip = await prisma.orderEvent.aggregate({ _count: true, _max: { at: true } });
   return `${tip._count}.${tip._max.at?.getTime() ?? 0}`;
+}
+
+/**
+ * The orders that just left the queue and may still be inside their undo
+ * window (P0-4).
+ *
+ * A separate query rather than a wider `loadQueue`, deliberately: the queue's
+ * own list is what the leftover sweep, the un-acknowledged count and the
+ * groupings are all derived from, and none of them mean the same thing with
+ * finished orders mixed in.
+ *
+ * Ordered by `statusChangedAt` and capped rather than filtered by a cutoff
+ * instant, so this file does no date arithmetic at all — an order inside a
+ * five-second window is necessarily among the handful most recently moved.
+ * `undoRemainingMs` still decides truthfully off the newest event, because
+ * only a forward advance is undoable.
+ *
+ * Ceiling: ten. Eleven orders finished inside the same five seconds would cost
+ * the eleventh its undo, which one kitchen screen with one pair of hands
+ * cannot produce.
+ */
+export function loadRecentlyFinished(): Promise<QueueOrder[]> {
+  return prisma.order.findMany({
+    where: { status: { in: [...UNDOABLE_EXIT_STATUSES] } },
+    orderBy: { statusChangedAt: 'desc' },
+    take: 10,
+    ...QUEUE_ORDER,
+  });
 }

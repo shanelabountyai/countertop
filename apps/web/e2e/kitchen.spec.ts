@@ -83,7 +83,13 @@ test('item lines are legible at arm\'s length and every tap target clears 48px',
     .locator('a', { hasText: /^(Availability|Edit menu|Settings|Sales|Customer menu)$/ })
     .all();
   expect(navLinks.length).toBe(5);
-  for (const link of navLinks) expect(await heightOf(link)).toBeGreaterThanOrEqual(48);
+  // Both dimensions. A 48px-tall link 35px wide is still a 35px-wide target,
+  // and "Sales" is the shortest label on the header.
+  for (const link of navLinks) {
+    const box = await link.boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(48);
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(48);
+  }
 });
 
 test('flags a late ticket and a no-show taking shape', async ({ page }) => {
@@ -144,6 +150,29 @@ test.describe('taking action on a card', () => {
 
     await expect(page.getByRole('heading', { name: 'New (1)' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Accepted (1)' })).toBeVisible();
+  });
+
+  // The two advances that take a card OFF the queue. Their undo is real in the
+  // engine (`STATUS_FACTS.picked_up.previous`) and was unreachable on the
+  // screen until the "Just finished" strip existed: the tap that starts the
+  // five-second countdown was the same tap that stopped the card being drawn.
+  test('the advance that empties the queue still leaves its undo somewhere to live', async ({
+    page,
+  }) => {
+    await page.goto('/kitchen');
+    const strip = page.getByRole('region', { name: /Just finished/ });
+
+    await card(page, 'Priya Shah').getByRole('button', { name: 'Picked up' }).click();
+    await expect(page.getByRole('heading', { name: 'Ready for pickup (0)' })).toBeVisible();
+    await expect(strip.getByText('Priya Shah')).toBeVisible();
+    await strip.getByRole('button', { name: /^Undo/ }).click();
+    await expect(page.getByRole('heading', { name: 'Ready for pickup (1)' })).toBeVisible();
+
+    // Same hole, the other exit: a no-show closed out by mistake.
+    await card(page, 'Priya Shah').getByRole('button', { name: 'No-show' }).click();
+    await expect(page.getByRole('heading', { name: 'Ready for pickup (0)' })).toBeVisible();
+    await strip.getByRole('button', { name: /^Undo/ }).click();
+    await expect(page.getByRole('heading', { name: 'Ready for pickup (1)' })).toBeVisible();
   });
 
   test('cancelling asks for a reason, and a no-show is closed out as its own thing', async ({

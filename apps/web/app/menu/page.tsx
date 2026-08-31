@@ -22,7 +22,7 @@ export default async function MenuPage() {
     <main className="mx-auto max-w-2xl p-6">
       <header className="mb-8 flex items-baseline justify-between gap-4">
         <h1 className="text-3xl font-semibold">Firebird Kitchen</h1>
-        <Link href="/cart" className="text-sm underline underline-offset-4">
+        <Link href="/cart" className="inline-flex min-h-12 w-fit items-center text-sm underline underline-offset-4">
           View cart
         </Link>
       </header>

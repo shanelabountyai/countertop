@@ -2846,3 +2846,96 @@ compete with it rather than fill a gap. Skipped, not built.
   judged not worth the extra parameter yet.
 
 C-046 committed at 3252dda.
+
+## C-047 — The undo that had nowhere to live
+
+A second exploratory pass, run the same way C-046's was: three agents driving
+the running production build black-box — one as a customer, one as kitchen
+staff, one as the operator — alongside a green Playwright suite. The admin
+lane died partway through on an account rate limit, so the settings / menu
+editing / 86-propagation surfaces got only a partial pass (settings field
+validation, which it cleared with no findings, and no lasting mutations). That
+half is genuinely untested by this session and is written down as such rather
+than counted.
+
+The headline finding is not a typo-class bug. `STATUS_FACTS.picked_up.previous`
+is `'ready'` and `abandoned.previous` is `'ready'` — both deliberate, both
+commented ("the fat-fingered advance needs its undo"), both covered by unit
+tests, and `undoRemainingMs` computes a real countdown for them off the event
+log. None of it was reachable. `loadQueue()` selects `QUEUE_STATUSES`, and
+`picked_up`/`abandoned` are `inQueue: false`, so the tap that starts the
+five-second countdown is the same tap that stops the card carrying the button
+from being drawn. The engine was right and the screen never asked it.
+
+**Built:**
+- `UNDOABLE_EXIT_STATUSES` in the state machine — every status that leaves the
+  queue while still having a `previous`. Derived from `STATUS_FACTS`, not
+  spelled out, so a future terminal state joins the strip by existing.
+  `cancelled` is excluded by the same derivation, correctly: it has no
+  `previous`, because un-cancelling would have to un-refund.
+- `loadRecentlyFinished()` in `packages/db/queue.ts` — a separate query, not a
+  wider `loadQueue`, because the queue's list is what the leftover sweep, the
+  un-acknowledged count and the groupings are all derived from and none of
+  them mean the same thing with finished orders mixed in. Ordered by
+  `statusChangedAt` and capped at ten rather than filtered against a cutoff
+  instant, so it does no date arithmetic at all.
+- The "Just finished — undo if that was a mistake" strip on `/kitchen`, above
+  the status groups and deliberately not filtered by the lookup box: a cook
+  who has typed a name in is still the person who just mis-tapped. It renders
+  only while `undoRemainingMs` is non-zero, so it can never become a second,
+  competing list of finished orders — that is `/kitchen/orders`.
+- Checkout now catches up with its own refusal. Every error the server returns
+  there means the screen is stale — the cart emptied in another tab, an option
+  was 86'd, a price moved, the gate shut — and the summary, the estimate and
+  the button all come from the server component *around* the form, which never
+  re-rendered. A stale tab showed a full order summary, a live-looking "Place
+  order — $11.85" button, and "Your cart is empty" underneath it,
+  simultaneously.
+- The same form now submits through `onSubmit` rather than `action`, because
+  React resets a form after an action resolves — which on a *refusal* threw
+  away the name the customer had just typed and made fixing a flagged line
+  cost a retype. Nothing is lost: the idempotency key is generated
+  client-side, so this form has never worked without JavaScript.
+- Six back-links that were 17px tall in a codebase that holds its own queue
+  cards to 48, and the header nav links, which cleared 48 in height but not in
+  width — "Sales", the shortest label, was a 35px-wide target.
+- `historyWhere` escapes LIKE metacharacters. `contains` compiles to SQL
+  `LIKE` and Prisma passes the term through unescaped, so a typed `%` matched
+  every order the restaurant has ever taken. Verified against real Postgres
+  both ways: `%` matched 4 of 4 before, 0 of 4 after, and `Dana` still
+  matches 1.
+
+**Decided:**
+- **The strip reuses `QueueControls` whole rather than growing a compact
+  variant.** What a card offers is already derived from `STATUS_FACTS`, so a
+  finished order gets exactly the undo (and, while unpaid, the collect
+  control) and nothing else — no advance, no cancel, no no-show. A dedicated
+  component would have had to re-derive that, and a `compact` prop would have
+  been a flag standing in for a fact the status table already holds.
+- **`statusChangedAt` + `take: 10`, not a cutoff instant.** The obvious
+  version — `new Date(now.getTime() - UNDO_WINDOW_MS)` — is banned by this
+  repo's own time lint, which refuses any `new Date(…)` that is not
+  `Date.UTC`. The ban is over-broad on purpose and the right response was to
+  find the query that needs no arithmetic, not to add the codebase's second
+  lint exemption.
+- **The closeout test's assertion was rewritten, not relaxed.** It had said
+  "`abandoned` is not a queue status, so the card leaves the screen entirely",
+  which was true and is now deliberately false — closing out a leftover is as
+  mis-tappable as any other advance. It now asserts the card is out of the
+  *queue* and in the strip, which is the fact that actually matters.
+
+**Left behind:**
+- **An unpaid order that reaches `picked_up` can never be marked paid.** The
+  collect control only renders on a queue card, and the history receipt is
+  read-only by construction. The strip gives it a five-second window it did
+  not have, which is a mitigation and not a reconciliation path. The real fix
+  turns a deliberately read-only page into a write surface and deserves its
+  own item.
+- **The admin/config exploratory lane never finished.** Menu editing,
+  86-propagation across the three surfaces, the hours confirm flow and the
+  report's timezone bucketing were not exercised by a human-style pass this
+  session. All four have dedicated e2e specs; none of them had a black-box
+  pass, which is exactly the difference that found everything above.
+- **A search that is a bare number still cannot be narrowed by date.** Noted
+  at C-046 and still true; the escaping fix touched the same function without
+  changing that.
