@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { card, reseed } from './fixtures';
+import { card, pickUp, reseed } from './fixtures';
 
 // C-016: the sales report (P1-1).
 //
@@ -18,18 +18,6 @@ import { card, reseed } from './fixtures';
 test.beforeEach(() => {
   reseed();
 });
-
-/** Tap a card forward through the REAL buttons until it is picked up. Each
- *  label comes from the status module, so this walks the actual state machine
- *  rather than writing a status into the database. */
-async function pickUp(page: Page, name: string): Promise<void> {
-  for (const label of ['Accept', 'Start cooking', 'Food is ready', 'Picked up']) {
-    const button = card(page, name).getByRole('button', { name: label, exact: true });
-    if ((await button.count()) === 0) continue;
-    await button.click();
-    await expect(button).toHaveCount(0);
-  }
-}
 
 const stat = (page: Page, label: string) =>
   page.locator('div').filter({ hasText: new RegExp(`^${label}`) }).last();

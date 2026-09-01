@@ -2941,3 +2941,86 @@ from being drawn. The engine was right and the screen never asked it.
   changing that.
 
 C-047 committed at 3d54de9.
+
+## C-048 — Money owed outlives the queue card, and the lane that never ran
+
+Two things C-047 left behind, done together because the first is what the
+second was supposed to have found.
+
+**The unpaid order that could never be settled.** "Collected — mark paid"
+rendered only on a queue card, so an order handed over with the money not
+collected became permanently uncollectable the moment it left the queue —
+the till and the system disagreeing, with no screen able to reconcile them.
+C-047's undo strip gave it a five-second window, which is a mitigation and
+not a path.
+
+The fix is a predicate, not a button. `canCollectPayment(status,
+paymentState)` in the state machine answers "is there money to collect on
+this?" for three readers: the queue card, the history receipt, and the server
+action behind both. `unpaid` turns out to be necessary and not sufficient —
+on a `cancelled` or `abandoned` order it is the correct *permanent* answer,
+because nobody took the food, and collecting would invent revenue against a
+no-show that is the numerator of a rate the owner acts on. Derived from
+`salesRole`, so the question is asked of the one status module rather than
+re-decided per screen.
+
+That reading also caught a small wrongness C-047 itself introduced: an
+`abandoned` order sitting in the new "Just finished" strip was offering to
+collect, because `QueueControls` tested `paymentState === 'unpaid'` alone.
+The same predicate fixes both call sites, which is the point of having one.
+
+**The re-run admin lane.** C-047's third exploratory agent died on an account
+rate limit with its whole lane untested. Re-run here, alone on the app this
+time. It came back with one defect and a long list of things that are right,
+which is worth as much: 86'ing a shared modifier option was correctly "sold
+out" and not hidden on the menu, flagged in an open cart at both `/cart` and
+`/checkout`, refused server-side when the disabled button was re-enabled by
+hand, and invisible to an order already placed — checked on the queue card,
+the staff receipt AND the customer status page. A live reprice, a unicode
+group rename, the stale-confirm guard, close-before-open hours, negative and
+absurd prices, blank-vs-$0.00 on an intensity surcharge, all three gate
+triggers with no estimate ever shown while paused, and the report's
+zero-data path all behaved.
+
+**Built:**
+- `canCollectPayment` in `packages/core/orders/state-machine.ts`, and its
+  three readers moved onto it.
+- The collect control on `/kitchen/orders/[id]`. That page's header comment
+  changed from "read-only" to read-only *about the order* — it still has no
+  advance, no undo, nothing that moves an order through the state machine,
+  and the one write it now carries is guarded by the same middleware and
+  re-asked by the server action.
+- `collectPayment(formData)`, a form-shaped wrapper, so the receipt stays a
+  server component with no client JavaScript of its own.
+- `markOrderPaid` now refuses on the rule rather than only on `unpaid`, keeps
+  its `updateMany` guard for the two-people-tapping-at-once case, and
+  revalidates the `/kitchen` subtree rather than the one page.
+- Four more 21px back-links — availability, menu, settings, report — and a
+  loop that measures the back link on every staff screen. This class of miss
+  has now happened three times, each on a page whose own controls were fine.
+- `pickUp` moved from `report.spec.ts` into the shared fixtures on acquiring
+  its second caller.
+- The `actions.ts` header comment saying "there is no staff authentication in
+  P0" — false since C-037, and exactly the kind of comment this project's own
+  write-up has a lesson about.
+
+**Decided:**
+- **A plain form, not a client component.** The receipt has no client
+  JavaScript and the reconciliation it exists for is one button. The refusal
+  is swallowed rather than rendered, which is honest only because every
+  refusal it can produce is legible in the re-render — the control is gone if
+  it worked or if someone else got there first, and still there if it did
+  not apply. A client component with an error line is the upgrade if that
+  stops being true.
+- **The `cancelled`/`abandoned` exclusion is the interesting half.** The naive
+  fix — put the button wherever `paymentState === 'unpaid'` — would have
+  shipped a button that books revenue against a no-show.
+
+**Left behind:**
+- **The report's timezone bucketing still has no black-box pass.** Both
+  exploratory rounds declined it for the same honest reason: it needs the
+  server's wall clock moved, which destabilises a shared environment. CI runs
+  the unit suite under `TZ=UTC` and `TZ=Pacific/Kiritimati`, which is the
+  assurance that actually covers it.
+- **A history search that is a bare number still cannot be narrowed by date.**
+  Third session carrying this.

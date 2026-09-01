@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   acknowledge,
   ALERT_STATUSES,
+  canCollectPayment,
   applyTransition,
   MAX_CANCEL_NOTE_LENGTH,
   OPEN_STATUSES,
@@ -184,6 +185,32 @@ describe('the status lists every reader derives from', () => {
   it('never calls a status both open and terminal', () => {
     expect(OPEN_STATUSES.filter((s) => TERMINAL_STATUSES.includes(s))).toEqual([]);
     expect(QUEUE_STATUSES.filter((s) => TERMINAL_STATUSES.includes(s))).toEqual([]);
+  });
+});
+
+describe('money still to collect (P1-8)', () => {
+  it('is unpaid AND the customer has the food, or is going to', () => {
+    // in_flight: the counter collects before the bag leaves.
+    expect(canCollectPayment('placed', 'unpaid')).toBe(true);
+    expect(canCollectPayment('ready', 'unpaid')).toBe(true);
+    // sold: handed over without collecting. The case the queue card cannot
+    // serve, because it has already dropped this order.
+    expect(canCollectPayment('picked_up', 'unpaid')).toBe(true);
+  });
+
+  it('is never a state where nobody took the food', () => {
+    // `unpaid` on these is the correct permanent answer, not an outstanding
+    // debt — collecting would invent revenue for food that was never handed
+    // over, and a no-show is the numerator of a rate the owner acts on.
+    expect(canCollectPayment('abandoned', 'unpaid')).toBe(false);
+    expect(canCollectPayment('cancelled', 'unpaid')).toBe(false);
+  });
+
+  it('is never anything but unpaid — there is no un-pay, and a refund is a cancel', () => {
+    for (const status of ORDER_STATUSES) {
+      expect(canCollectPayment(status, 'paid')).toBe(false);
+      expect(canCollectPayment(status, 'refunded')).toBe(false);
+    }
   });
 });
 

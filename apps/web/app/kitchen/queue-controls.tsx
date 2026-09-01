@@ -8,6 +8,7 @@
 // and knuckle-taps are the input device.
 import { useEffect, useState, useTransition } from 'react';
 import {
+  canCollectPayment,
   CANCEL_REASONS,
   STATUS_FACTS,
   type CancelReason,
@@ -106,8 +107,10 @@ export function QueueControls({
           that lets the bag leave and this is the one that must happen first
           (P1-8). Not a blocker: the PRD says flag, and a cook who cannot hand
           over food because a screen disagrees about money will find a way
-          around the screen. */}
-      {paymentState === 'unpaid' && (
+          around the screen. Asked of the status module rather than of
+          `paymentState` alone, so a no-show sitting in the "Just finished"
+          strip does not offer to collect for food nobody took. */}
+      {canCollectPayment(status, paymentState) && (
         <button
           type="button"
           disabled={pending}

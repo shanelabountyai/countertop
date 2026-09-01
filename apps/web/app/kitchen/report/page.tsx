@@ -74,7 +74,7 @@ export default async function ReportPage({
 
   return (
     <main className="mx-auto max-w-4xl p-4 sm:p-6">
-      <Link href="/kitchen" className="text-lg underline underline-offset-4">
+      <Link href="/kitchen" className="inline-flex min-h-12 w-fit items-center text-lg underline underline-offset-4">
         ← Kitchen queue
       </Link>
       <h1 className="mt-4 text-3xl font-semibold">Sales</h1>

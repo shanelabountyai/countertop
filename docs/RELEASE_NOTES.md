@@ -1142,3 +1142,30 @@ literal `%` quietly matched every order the restaurant had ever taken.
 queue's cards are held to 48px tap targets; the links out of order history,
 the cart, the menu and checkout were 17px tall, and the shortest header link
 was 35px wide.
+
+## C-048 — Money owed outlives the queue card
+
+**An order handed over without paying can now be settled.** "Collected — mark
+paid" only ever lived on a live queue card, so the moment an unpaid order was
+handed to the customer it dropped off the queue and took the only way to
+collect on it with it. The till said one thing, the system said another, and
+no screen could reconcile them. The control is now on the order's receipt in
+staff history too, reachable for as long as the order exists.
+
+**And deliberately not on a no-show.** An order nobody came for is unpaid
+forever, correctly — offering to collect on it would book revenue for food
+that never left the counter, against the very orders the no-show rate is
+counted from. Both screens ask the same question of the same rule, and so
+does the server behind them.
+
+**Four more back-links that failed the 48px rule** — availability, menu,
+settings and sales, all 21px tall. Every staff screen's back link is now
+measured by a test, because this is the third time this has been found on a
+page whose own controls were fine.
+
+**And a second look at everything the operator touches.** An exploratory pass
+over menu editing, availability, settings and reporting confirmed the things
+that matter most are holding: 86'ing a shared option shows "sold out" rather
+than hiding it, flags an open cart, is refused server-side when the button is
+forced, and is invisible to orders already placed — on the kitchen card, the
+staff receipt and the customer's own tracking page alike.

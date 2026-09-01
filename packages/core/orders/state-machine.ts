@@ -214,6 +214,24 @@ export const SOLD_STATUSES = statusesInSalesRole('sold');
 /** P1-1: food made and never collected — the no-show rate's numerator. */
 export const NO_SHOW_STATUSES = statusesInSalesRole('no_show');
 
+/**
+ * Is there money still to collect on this order (P1-8)?
+ *
+ * ONE predicate, three readers — the queue card's collect button, the history
+ * receipt's, and the server action behind both — for the same reason the gate
+ * and the orderability check are each one function. Unpaid is necessary and
+ * not sufficient: on a `cancelled` or `abandoned` order, `unpaid` is the
+ * correct permanent answer, because nobody took the food. `sold` is the case
+ * the queue card structurally cannot serve — it has already dropped that
+ * order — which is how an unpaid order used to become uncollectable forever
+ * by being handed over.
+ */
+export function canCollectPayment(status: OrderStatus, paymentState: PaymentState): boolean {
+  if (paymentState !== 'unpaid') return false;
+  const role = STATUS_FACTS[status].salesRole;
+  return role === 'in_flight' || role === 'sold';
+}
+
 export const isOpen = (status: OrderStatus): boolean => STATUS_FACTS[status].open;
 export const isTerminal = (status: OrderStatus): boolean => STATUS_FACTS[status].terminal;
 export const needsAcknowledgment = (status: OrderStatus): boolean => STATUS_FACTS[status].alerts;

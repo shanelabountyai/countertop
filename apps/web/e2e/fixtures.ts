@@ -155,3 +155,20 @@ export async function backdateQueue(businessDay = '2020-01-01'): Promise<string>
   }
   return businessDay;
 }
+
+/**
+ * Tap a card forward through the REAL buttons until it is picked up.
+ *
+ * Each label comes from the status module, so this walks the actual state
+ * machine rather than writing a status into the database. Shared the moment it
+ * had a second caller: four separate defects in this repo came from a spec
+ * quietly reinventing a helper that already existed one file over.
+ */
+export async function pickUp(page: Page, name: string): Promise<void> {
+  for (const label of ['Accept', 'Start cooking', 'Food is ready', 'Picked up']) {
+    const button = card(page, name).getByRole('button', { name: label, exact: true });
+    if ((await button.count()) === 0) continue;
+    await button.click();
+    await expect(button).toHaveCount(0);
+  }
+}

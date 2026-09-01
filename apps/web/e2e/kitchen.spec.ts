@@ -92,6 +92,25 @@ test('item lines are legible at arm\'s length and every tap target clears 48px',
   }
 });
 
+// Every staff screen's way back, in one loop. This exact miss has now
+// happened three times — the header nav (height only), the two order-history
+// links, and these four — each time on a page whose own controls were fine,
+// because nothing had ever measured a `<Link>` that was not on the queue.
+test('every staff screen\'s back link is a real tap target', async ({ page }) => {
+  for (const path of [
+    '/kitchen/availability',
+    '/kitchen/menu',
+    '/kitchen/settings',
+    '/kitchen/report',
+    '/kitchen/orders',
+  ]) {
+    await page.goto(path);
+    const back = page.getByRole('link', { name: /^←/ }).first();
+    const box = await back.boundingBox();
+    expect(box?.height ?? 0, `back link on ${path}`).toBeGreaterThanOrEqual(48);
+  }
+});
+
 test('flags a late ticket and a no-show taking shape', async ({ page }) => {
   await page.goto('/kitchen');
   await expect(card(page, 'Morgan Ellis').getByText(/running late/)).toBeVisible();

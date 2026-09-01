@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { card, placeOrderFor, reseed } from './fixtures';
+import { card, pickUp, placeOrderFor, reseed } from './fixtures';
 
 // C-038: payment-state visibility (P1-8).
 //
@@ -59,6 +59,52 @@ test('the kitchen card flags the unpaid order, and collecting clears it', async 
   // at the counter must not still be showing money owed.
   await page.reload();
   await expect(card(page, 'Robin Vale').getByText(/Pay at pickup/)).toHaveCount(0);
+});
+
+// The collect control used to live ONLY on a queue card, so an order handed
+// over with the money not collected became permanently uncollectable the
+// moment it left the queue: the till and the system disagreeing, with no
+// screen able to reconcile them.
+test('an order handed over unpaid can still be collected, from its receipt', async ({ page }) => {
+  await placeOrderFor(page, 'Robin Vale', { payAtPickup: true });
+  await page.goto('/kitchen');
+  await pickUp(page, 'Robin Vale');
+
+  await page.goto('/kitchen/orders?q=Robin');
+  await page.getByRole('link', { name: /Robin Vale/ }).click();
+  await expect(page.getByText('Pay at pickup')).toBeVisible();
+
+  // Held to the same bar as the button it replaces on the queue card.
+  const collect = page.getByRole('button', { name: 'Collected — mark paid' });
+  expect((await collect.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
+  await collect.click();
+
+  await expect(collect).toHaveCount(0);
+  await expect(page.getByText('Paid', { exact: true })).toBeVisible();
+  // State, not a click that happened in this tab.
+  await page.reload();
+  await expect(page.getByText('Paid', { exact: true })).toBeVisible();
+});
+
+test('a no-show has nothing to collect — nobody took the food', async ({ page }) => {
+  await placeOrderFor(page, 'Robin Vale', { payAtPickup: true });
+  await page.goto('/kitchen');
+  for (const label of ['Accept', 'Start cooking', 'Food is ready']) {
+    await card(page, 'Robin Vale').getByRole('button', { name: label, exact: true }).click();
+  }
+  await card(page, 'Robin Vale').getByRole('button', { name: 'No-show', exact: true }).click();
+
+  // Not in the undo strip it briefly sits in...
+  const strip = page.getByRole('region', { name: 'Just finished' });
+  await expect(strip.getByText('Robin Vale')).toBeVisible();
+  await expect(strip.getByRole('button', { name: /mark paid/i })).toHaveCount(0);
+
+  // ...and not on the receipt either. `unpaid` is the correct permanent answer
+  // for food nobody came for.
+  await page.goto('/kitchen/orders?q=Robin');
+  await page.getByRole('link', { name: /Robin Vale/ }).click();
+  await expect(page.getByText('Pay at pickup')).toBeVisible();
+  await expect(page.getByRole('button', { name: /mark paid/i })).toHaveCount(0);
 });
 
 test('cancelling a paid order refunds it, and the customer is told', async ({ page }) => {

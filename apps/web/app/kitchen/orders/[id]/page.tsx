@@ -1,5 +1,14 @@
 // One order's full receipt, for staff (P0-8 rendered a second way, for a day
-// later). Read-only — no advance button, no undo, nothing that writes.
+// later). Read-only about the ORDER — no advance button, no undo, nothing that
+// moves it through the state machine.
+//
+// The one write here is collecting money that is still owed (P1-8). It earned
+// its place: the collect control otherwise lives only on a queue card, so an
+// unpaid order that was handed over became permanently uncollectable the
+// moment it left the queue — the till and the system disagreeing with no
+// screen able to reconcile them. Whether it renders is the status module's
+// answer, not this page's, and the server action asks the same question
+// again.
 //
 // Renders ONLY from the order's own snapshot (CLAUDE.md, the snapshot rule):
 // `findOrderByIdForStaff` never joins a menu table, so a receipt from a menu
@@ -7,13 +16,14 @@
 // day it was placed.
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { formatOrderNumber } from '@countertop/core';
+import { canCollectPayment, formatOrderNumber } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
 import { findOrderByIdForStaff } from '@countertop/db/history';
 import { formatCents } from '@/lib/money';
 import { formatPlacedAt } from '@/lib/format-time';
 import { describeSelection } from '@/lib/menu-labels';
 import { PAYMENT_LABEL, STATUS_LABEL } from '@/lib/status-labels';
+import { collectPayment } from '../../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,6 +99,18 @@ export default async function OrderHistoryDetailPage({
         </dl>
 
         <p className="mt-3 font-semibold">{PAYMENT_LABEL[order.paymentState]}</p>
+
+        {canCollectPayment(order.status, order.paymentState) && (
+          <form action={collectPayment} className="mt-3">
+            <input type="hidden" name="orderId" value={order.id} />
+            <button
+              type="submit"
+              className="min-h-12 w-full rounded-lg border-2 border-amber-700 bg-amber-100 px-4 text-lg font-bold text-amber-900"
+            >
+              Collected — mark paid
+            </button>
+          </form>
+        )}
       </section>
 
       {order.orderNote && (

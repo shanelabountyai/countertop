@@ -943,6 +943,63 @@ not a queue status, so the card leaves the screen entirely." True when
 written, and made deliberately false by this change. The alarm on the sweep
 caught it in the second minute; the assertion was rewritten to say what now
 matters — out of the queue, into the strip — rather than relaxed to pass.
+### `unpaid` is two different facts (C-048)
+
+The defect C-047 wrote down and did not fix: the collect control lived only on
+a queue card, so an order handed over without collecting became permanently
+uncollectable the moment it left the queue.
+
+The obvious fix is to put the same button on the staff receipt, and the
+obvious condition is the one the queue card already used —
+`paymentState === 'unpaid'`. That would have shipped a button offering to
+collect money on a no-show.
+
+`unpaid` on an order in flight, or one that was picked up, is a debt. `unpaid`
+on a `cancelled` or `abandoned` order is a *completed fact*: nobody took the
+food, nobody owes anything, and marking it paid would book revenue against
+exactly the orders the no-show rate is counted from. Same column, same value,
+opposite meaning — and which one it is is decided by the status, which is to
+say by the module this project has spent forty-odd items keeping as the single
+answer to questions like this. `canCollectPayment` reads `salesRole` and both
+screens and the server action ask it.
+
+Writing it that way immediately found a bug C-047 had itself introduced a day
+earlier. The new "Just finished" strip renders `QueueControls` for a finished
+order, `QueueControls` tested `paymentState === 'unpaid'` directly, and an
+abandoned order therefore sat in the strip offering to collect. One predicate,
+two call sites, and the second one was already wrong — which is the argument
+for the predicate, made by the codebase rather than by me.
+
+### What a clean exploratory pass is worth (C-048)
+
+C-047's admin lane died on a rate limit and its whole surface went untested.
+Re-run alone on the app, it returned one defect — four more 21px back-links —
+and a long list of things that are right.
+
+That list is the more useful half. 86'ing a shared modifier option showed
+"sold out" rather than hiding it, flagged an open cart on both `/cart` and
+`/checkout`, was refused server-side when the disabled button was re-enabled
+by hand, and was invisible to an order already placed — verified on the
+kitchen card, the staff receipt *and* the customer's status page. A live
+reprice, a unicode group rename with its shared-group warning, the
+stale-confirm guard, close-before-open hours, negative and absurd prices,
+blank-versus-$0.00 on an intensity surcharge, all three gate triggers with the
+estimate correctly absent while paused, and the report's zero-data path: all
+behaved. Those are this project's founding invariants, and nothing about a
+green unit suite proves them end to end through real screens.
+
+The one defect is the same one for the third time. The header nav was fixed
+for height and not width; the two order-history back links were 17px; these
+four were 21px. Every instance was on a page whose own buttons were fine,
+because until now nothing had ever measured a `<Link>` outside the queue. The
+fix that ends it is not a fifth edit — it is the loop that now walks every
+staff screen and measures the way back.
+
+*Also noted, honestly:* the report's timezone bucketing has been declined by
+both exploratory rounds for the same real reason — it needs the server's wall
+clock moved, which destabilises a shared environment. CI running the unit
+suite under `TZ=UTC` and `TZ=Pacific/Kiritimati` is the assurance that
+actually covers it, which is why that leg exists.
 
 ## Skills Learned / Functions Unlocked
 

@@ -3,10 +3,16 @@
 // The kitchen's write surface. Thin, like the cart's: every rule lives in the
 // state machine, and every argument here is untrusted input.
 //
-// There is no staff authentication in P0 — the queue screen is reachable by
-// anyone who knows the path. That is a deliberate scope line, not an
-// oversight, and it is recorded in the write-up.
-import { CANCEL_REASONS, type CancelReason, type OrderAction } from '@countertop/core';
+// Every action here is behind the `/kitchen/:path*` middleware (C-037), which
+// fails closed when `STAFF_PASSCODE` is unset. That is the only thing standing
+// between these writes and the internet, so nothing below may assume a caller
+// came from a screen this app rendered.
+import {
+  canCollectPayment,
+  CANCEL_REASONS,
+  type CancelReason,
+  type OrderAction,
+} from '@countertop/core';
 import { prisma } from '@countertop/db';
 import { applyOrderAction } from '@countertop/db/transitions';
 import { revalidatePath } from 'next/cache';
@@ -81,12 +87,50 @@ export async function markOrderPaid(orderId: unknown): Promise<KitchenResult> {
   if (typeof orderId !== 'string' || orderId === '') {
     return { ok: false, message: 'That order could not be read. Reload the queue.' };
   }
+
+  // The button is UX; this is the rule. Asked of the status module, so the
+  // queue card, the history receipt and a hand-rolled POST all get the same
+  // answer to "is there money to collect on this?".
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { status: true, paymentState: true },
+  });
+  if (!order) return { ok: false, message: 'That order could not be found.' };
+  if (!canCollectPayment(order.status, order.paymentState)) {
+    return {
+      ok: false,
+      message:
+        order.paymentState === 'unpaid'
+          ? 'Nobody took this order, so there is nothing to collect on it.'
+          : 'This order is already settled.',
+    };
+  }
+
+  // Still guarded on `unpaid` in the WHERE: the read above is not in the same
+  // transaction as the write, and two people tapping Collect at once is the
+  // ordinary case, not the exotic one.
   await prisma.order.updateMany({
     where: { id: orderId, paymentState: 'unpaid' },
     data: { paymentState: 'paid' },
   });
-  revalidatePath('/kitchen');
+  // The subtree, not the one page: this control now lives on the queue AND on
+  // the history receipt, and collecting from either has to move both.
+  revalidatePath('/kitchen', 'layout');
   return { ok: true };
+}
+
+/**
+ * The same action, form-shaped, for the history receipt (P1-8).
+ *
+ * That page is a server component with no client JavaScript of its own, and
+ * the reconciliation it exists for — an order handed over with the money not
+ * collected — is a plain one-button post. A refusal is swallowed here rather
+ * than rendered, which is honest only because every refusal this can produce
+ * is legible in the re-render: the control is gone if it succeeded or if
+ * someone else got there first, and still there if it did not apply.
+ */
+export async function collectPayment(formData: FormData): Promise<void> {
+  await markOrderPaid(formData.get('orderId'));
 }
 
 /**
