@@ -3401,3 +3401,5 @@ asking is not just shorter than re-deriving, it is the version that stays right.
 - **Nothing counts the lines.** "Eleven orders bounced" is countable from the
   log by whoever queries it; no screen in the product shows it. PRD 1's
   cancellations-by-reason row is the nearest thing and is a different source.
+
+C-084 committed at 9c6cda3.
