@@ -7,7 +7,7 @@
 //
 // A `Record<OrderStatus, …>`, so a new state cannot ship without a name — the
 // same trick `STATUS_FACTS` uses, applied to the words.
-import type { OrderStatus, PaymentState } from '@countertop/core';
+import type { EventActor, OrderEventKind, OrderStatus, PaymentState } from '@countertop/core';
 
 export const STATUS_LABEL: Record<OrderStatus, string> = {
   placed: 'New',
@@ -32,3 +32,57 @@ export const PAYMENT_LABEL: Record<PaymentState, string> = {
   paid: 'Paid',
   refunded: 'Refunded',
 };
+
+/**
+ * What one entry in an order's log says, in a sentence (C-086).
+ *
+ * A `switch` over the event kind with no default, so a sixth kind cannot ship
+ * without the compiler asking what it reads as — the same discipline
+ * `STATUS_LABEL` applies to the states.
+ *
+ * The payment's two flavours come off the ACTOR rather than off `detail`: the
+ * engine already records the customer's own tap at checkout as `customer` and
+ * a counter collection as `staff`, so the distinction is free and the query
+ * does not have to select a JSON column to render a sentence.
+ */
+export function describeEvent(entry: {
+  kind: OrderEventKind;
+  fromStatus: OrderStatus | null;
+  toStatus: OrderStatus | null;
+  actor: EventActor;
+}): string {
+  switch (entry.kind) {
+    case 'transition':
+      // The only transition with no `fromStatus` is the placement itself.
+      return entry.fromStatus === null
+        ? 'Order placed'
+        : `Moved to ${entry.toStatus === null ? 'a new state' : STATUS_LABEL[entry.toStatus]}`;
+    case 'revert':
+      return `Moved back to ${entry.toStatus === null ? 'a previous state' : STATUS_LABEL[entry.toStatus]}`;
+    case 'payment':
+      return entry.actor === 'customer' ? 'Paid at checkout' : 'Payment collected at the counter';
+    case 'refund':
+      return 'Refunded';
+    case 'total_mismatch':
+      return 'Total mismatch recorded';
+  }
+}
+
+/**
+ * Who did it, when the log knows.
+ *
+ * "Not recorded" is deliberately not blank and deliberately not a guess: every
+ * staff event written before C-086 is anonymous permanently, and a row that
+ * says so is more useful than one that quietly omits the column.
+ */
+export function describeActor(entry: { actor: EventActor; staffName: string | null }): string {
+  if (entry.staffName !== null) return entry.staffName;
+  switch (entry.actor) {
+    case 'customer':
+      return 'Customer';
+    case 'system':
+      return 'Automatic';
+    case 'staff':
+      return 'Staff — name not recorded';
+  }
+}

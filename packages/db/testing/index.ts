@@ -1,6 +1,7 @@
 // Test-only helpers. Not imported by apps/web.
 import { SAMPLE_MENU } from '@countertop/core';
 import { prisma } from '../index';
+import { staffPinDigest } from '../staff';
 import { assertLocalDatabase } from '../local-guard';
 
 /**
@@ -18,9 +19,36 @@ export async function resetDatabase(): Promise<void> {
     TRUNCATE TABLE
       "OrderEvent", "OrderLineOption", "OrderLine", "Order",
       "ItemModifierGroup", "ModifierOption", "ModifierGroup", "MenuItem",
-      "Category", "RestaurantSettings", "StoreHours"
+      "Category", "RestaurantSettings", "StoreHours", "StaffMember"
     RESTART IDENTITY CASCADE
   `);
+}
+
+/**
+ * The people behind the passcode (C-086).
+ *
+ * DEMO PINS, and the values are in the repo on purpose: this runs only against
+ * a local database (`resetDatabase` above asserts it, C-043) and a fixture
+ * whose credentials are a secret is a fixture nobody can debug. A real
+ * restaurant adds its own; there is no UI for that yet and the write-up says
+ * so.
+ */
+export async function seedStaff(now: Date = new Date(Date.UTC(2026, 6, 1))): Promise<void> {
+  await prisma.staffMember.createMany({
+    data: [
+      { id: 'staff-noor', name: 'Noor Haddad', pinDigest: staffPinDigest('1234'), createdAt: now },
+      { id: 'staff-theo', name: 'Theo Barnes', pinDigest: staffPinDigest('5678'), createdAt: now },
+      // Deactivated, so a test can prove somebody who has left cannot start a
+      // shift while their old rows keep their name.
+      {
+        id: 'staff-gone',
+        name: 'Wes Toma',
+        pinDigest: staffPinDigest('9012'),
+        active: false,
+        createdAt: now,
+      },
+    ],
+  });
 }
 
 /**

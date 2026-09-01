@@ -22,6 +22,10 @@ export type CollectPaymentResult = { ok: true } | { ok: false; message: string }
 export async function collectOrderPayment(
   orderId: string,
   now: Date,
+  /** Who took the money (C-086). Null where no shift is signed on — a cash
+   *  control with an anonymous record is exactly what PRD 6 P0-2 is for, and
+   *  an honest null says so better than a default would. */
+  staffId?: string | null,
 ): Promise<CollectPaymentResult> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -51,7 +55,7 @@ export async function collectOrderPayment(
     });
     if (guard.count === 0) return false;
     await tx.orderEvent.create({
-      data: { orderId, ...eventRow(paymentEvent(now, order.totalCents, 'counter')) },
+      data: { orderId, ...eventRow(paymentEvent(now, order.totalCents, 'counter'), staffId) },
     });
     return true;
   });

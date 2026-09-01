@@ -34,7 +34,26 @@ import { prisma } from './index';
 import { loadMenu } from './menu';
 import { derivedIdempotencyKey, placeOrder } from './placement';
 import { applyOrderAction } from './transitions';
-import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
+import {
+  resetDatabase,
+  seedSampleMenu,
+  seedSettings,
+  seedStaff,
+  seedStoreHours,
+} from './testing/index';
+
+/**
+ * Two cooks working the rush (C-086).
+ *
+ * A demo where every event is unattributed would show the column and not the
+ * feature. Alternating by order — deterministically, like the paid/unpaid mix
+ * — puts both names through the log, which is also what makes "two people, two
+ * identities" assertable against a real service rather than against a fixture
+ * built to prove it.
+ */
+const COOKS = ['staff-noor', 'staff-theo'] as const;
+const cookFor = (label: string): string =>
+  COOKS[[...label].reduce((sum, char) => sum + char.charCodeAt(0), 0) % COOKS.length]!;
 
 /** Noon in Los Angeles on a fixed date, so the whole rush — including its
  *  45-minute tail — falls inside one business day and one report hour whatever
@@ -504,7 +523,9 @@ async function move(
             } as const)
           : ({ kind: 'abandon', actor: 'staff' } as const);
 
-  const result = await applyOrderAction(orderId, action, now);
+  // Whoever is on shift for this ticket. A script has no cookie, so the rush
+  // passes the id directly — the same argument the screens fill from theirs.
+  const result = await applyOrderAction(orderId, action, now, cookFor(label));
   if (!result.ok) {
     throw new Error(`${label} could not ${step.step} at minute ${step.at}: ${result.failure.message}`);
   }
@@ -537,6 +558,7 @@ export async function runRush(
   // twenty-eight orders and calling it thirty.
   await seedSettings();
   await seedStoreHours();
+  await seedStaff(anchor);
 
   const attempts: RushAttempt[] = [];
   const orderIds = new Map<string, string>();

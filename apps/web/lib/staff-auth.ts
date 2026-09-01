@@ -13,6 +13,13 @@
 // `crypto.subtle` rather than `node:crypto` because this module is imported by
 // BOTH the edge middleware and a Node server action; only one of them has the
 // Node builtin, and both have the Web Crypto global.
+//
+// FOR THE SAME REASON, nothing about who is on shift lives here (C-086). That
+// code needs the database and `node:crypto`, and C-086 briefly put a wrapper
+// for it in this file — which pulled both into the middleware bundle and took
+// the whole /kitchen route down with `Native module not found: node:crypto`.
+// The comment above had already said why. `lib/shift.ts` is the Node-only home
+// for it; this module stays edge-safe and knows only the passcode.
 
 export const STAFF_COOKIE = 'ct_staff';
 

@@ -422,3 +422,48 @@ describe('the quote snapshot (P1-4, C-042)', () => {
     ).rejects.toThrow(/order_quote_open_weight_not_negative/);
   });
 });
+
+// C-086. A name on a row is only worth having if the row cannot hold a blank
+// one and two people cannot share the four digits that resolve to them.
+describe('the staff list (PRD 6 P0-2)', () => {
+  beforeEach(resetDatabase);
+
+  const member = (overrides: Record<string, unknown> = {}) => ({
+    name: 'Noor Haddad',
+    pinDigest: 'a'.repeat(64),
+    createdAt: AT,
+    ...overrides,
+  });
+
+  it('refuses a blank name, which reads as unattributed while being the opposite', async () => {
+    await expect(prisma.staffMember.create({ data: member({ name: '   ' }) })).rejects.toThrow(
+      /staff_member_name_not_blank/,
+    );
+  });
+
+  it('refuses anything in the digest column that is not a hex SHA-256', async () => {
+    // The constraint that stops a future writer storing the PIN itself here
+    // "just for now": four digits would pass any length check.
+    for (const bad of ['1234', 'A'.repeat(64), 'a'.repeat(63), `${'a'.repeat(63)}g`]) {
+      await expect(
+        prisma.staffMember.create({ data: member({ pinDigest: bad }) }),
+      ).rejects.toThrow(/staff_member_pin_digest_is_sha256_hex/);
+    }
+  });
+
+  it('refuses two people sharing a PIN', async () => {
+    // The CONSTRAINT is the mechanism: a second person cannot be given 1234 by
+    // mistake, because every event either of them wrote would be ambiguous.
+    await prisma.staffMember.create({ data: member() });
+    await expect(
+      prisma.staffMember.create({ data: member({ name: 'Theo Barnes' }) }),
+    ).rejects.toThrow(/pinDigest/);
+  });
+
+  it('refuses two people sharing a name', async () => {
+    await prisma.staffMember.create({ data: member() });
+    await expect(
+      prisma.staffMember.create({ data: member({ pinDigest: 'b'.repeat(64) }) }),
+    ).rejects.toThrow(/name/);
+  });
+});

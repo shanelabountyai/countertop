@@ -1161,6 +1161,50 @@ gate are all the same instruction: when something already computes the answer,
 ask it. A re-derivation that agrees today is a re-derivation that disagrees
 after the next change, and it will disagree silently.
 
+### The warning was in the file I was editing (C-086)
+
+A two-line wrapper for the shift cookie went into `apps/web/lib/staff-auth.ts`.
+It imported `node:crypto` and, through the staff lookup, the Prisma client.
+That file is imported by the **edge middleware**, so both went into the edge
+bundle and every `/kitchen` route died with `Failed to load external module
+node:crypto: Native module not found`.
+
+The file's own header comment, four lines above where the import went, reads:
+
+> `crypto.subtle` rather than `node:crypto` because this module is imported by
+> BOTH the edge middleware and a Node server action; only one of them has the
+> Node builtin, and both have the Web Crypto global.
+
+The warning was already written, by me, in the file being edited, about the
+exact failure. It did not fire, because a comment explaining an existing choice
+does not read as a constraint on a new one — it reads as background. The
+`crypto.subtle` line above it looked like a decision that had been made, not a
+rule that was still being enforced.
+
+Three things this changes.
+
+**The alarm did its job and the sweep did not finish.** The failure monitor
+fired on e2e spec 1 of 141, naming `auth.spec.ts`, and the run was killed
+rather than left to grind through three minutes of specs that were all going to
+fail for one reason. That is the whole argument for alarming on the first
+failure rather than reading a summary.
+
+**The gate's build step was not what caught it.** `npm run build:test` passed:
+the edge bundle is built lazily enough that the failure only appears when a
+request reaches the middleware. The e2e leg caught it — which is the case
+C-024 added the build step for, arriving from the other direction, and worth
+recording because it means the build step is not a superset of e2e any more
+than e2e is a superset of the build.
+
+**The fix is structural, not a note.** The shift surface moved to
+`lib/shift.ts`, which nothing on the edge imports, so the mistake is no longer
+available to make: there is no `node:crypto` in `staff-auth.ts` to be tempted
+by. And the incident is now written into that header underneath the original
+warning, because a warning with evidence attached reads differently from a
+warning without. The general version, which this project keeps relearning: a
+comment that says what the code does is background, and a comment that says
+what happened when somebody ignored it is a fence.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

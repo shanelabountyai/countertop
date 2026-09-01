@@ -18,11 +18,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { canCollectPayment, formatOrderNumber } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
-import { findOrderByIdForStaff } from '@countertop/db/history';
+import { findOrderByIdForStaff, loadOrderActivity } from '@countertop/db/history';
 import { formatCents } from '@/lib/money';
 import { formatPlacedAt } from '@/lib/format-time';
 import { describeSelection } from '@/lib/menu-labels';
-import { PAYMENT_LABEL, STATUS_LABEL } from '@/lib/status-labels';
+import { describeActor, describeEvent, PAYMENT_LABEL, STATUS_LABEL } from '@/lib/status-labels';
 import { collectPayment } from '../../actions';
 
 export const dynamic = 'force-dynamic';
@@ -33,7 +33,11 @@ export default async function OrderHistoryDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [gateState, order] = await Promise.all([loadGateState(new Date()), findOrderByIdForStaff(id)]);
+  const [gateState, order, activity] = await Promise.all([
+    loadGateState(new Date()),
+    findOrderByIdForStaff(id),
+    loadOrderActivity(id),
+  ]);
   if (!order) notFound();
 
   return (
@@ -116,6 +120,33 @@ export default async function OrderHistoryDetailPage({
       {order.orderNote && (
         <p className="mt-4 text-sm italic text-neutral-700">“{order.orderNote}”</p>
       )}
+
+      {/* The append-only log, finally read by somebody (C-086). It has been
+          written since C-003 and looked at only by the report's tally and by
+          tests — so putting a name on every row and rendering it nowhere would
+          have shipped the column and not the feature. The disputed order is
+          the one this page exists for, and "who moved it, and when" is the
+          question a dispute is actually about. */}
+      <section className="mt-6 rounded-lg border border-neutral-300 p-4">
+        <h2 className="font-semibold">Activity</h2>
+        <ol className="mt-3 flex flex-col gap-2" data-testid="order-activity">
+          {activity.map((entry, index) => (
+            <li
+              key={`${entry.at.toISOString()}-${index}`}
+              className="flex flex-wrap items-baseline gap-x-2 border-b border-neutral-200 pb-2 last:border-b-0"
+            >
+              <span className="text-sm tabular-nums text-neutral-600">
+                {formatPlacedAt(entry.at, gateState.timezone)}
+              </span>
+              <span className="text-lg">{describeEvent(entry)}</span>
+              <span className="text-sm text-neutral-700">· {describeActor(entry)}</span>
+              {entry.reason && (
+                <span className="text-sm italic text-neutral-600">“{entry.reason}”</span>
+              )}
+            </li>
+          ))}
+        </ol>
+      </section>
     </main>
   );
 }

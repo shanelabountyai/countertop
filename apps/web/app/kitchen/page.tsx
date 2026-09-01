@@ -31,7 +31,9 @@ import { PAYMENT_LABEL, STATUS_LABEL } from '@/lib/status-labels';
 import { formatCents } from '@/lib/money';
 import { signOut } from './login/actions';
 import { NewOrderAlert } from './new-order-alert';
+import { currentShift } from '@/lib/shift';
 import { PauseSwitch } from './pause-switch';
+import { ShiftControl } from './shift-control';
 import { QueueControls } from './queue-controls';
 
 export const metadata = { title: 'Kitchen — Firebird Kitchen' };
@@ -68,6 +70,11 @@ export default async function KitchenPage({
   // would go unseen until the next one.
   const cursor = await queueCursor();
   const orders = await loadQueue();
+  // Who this tablet is stamping rows as (C-086). Read from the cookie in one
+  // place; the server actions read it again for themselves rather than taking
+  // it off the screen, because a staff id that travels through a request is
+  // one anybody can type.
+  const onShift = await currentShift();
   // The two states that leave the queue the instant they become undoable
   // (P0-4). Without this the 5-second undo on "Picked up" and "No-show" is
   // real in the engine and unreachable on the screen — the card carrying the
@@ -153,6 +160,13 @@ export default async function KitchenPage({
             </button>
           </form>
         </div>
+      </div>
+
+      {/* Who is on shift (C-086). Above the pause switch because it is the
+          thing to set once when someone takes over the pass, and below the
+          queue itself because the queue is what the screen is for. */}
+      <div className="mt-6">
+        <ShiftControl name={onShift?.name ?? null} />
       </div>
 
       <PauseSwitch gate={gate} paused={gateState.paused} />

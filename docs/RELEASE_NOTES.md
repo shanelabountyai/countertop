@@ -1281,3 +1281,23 @@ which are two different things to reconcile and used to look identical.
 **Two people tapping "Collected" at once is still one payment.** The record and
 the order's payment state move together or not at all, so a busy counter cannot
 book the same money twice.
+
+## C-086 — The order history now says who
+
+**Every action on an order was recorded as "staff".** Which one, nobody knew.
+The log could say an order was moved back at 7:14, or that cash was collected
+on it, and not who did either — on a screen three people share all shift.
+
+**Whoever takes the pass now types a four-digit PIN once**, and their name goes
+on everything they do until they end the shift. Not once per tap: a busy Friday
+would make that a control people work around, and a log everyone works around
+is worse than an empty one.
+
+**The receipt shows the whole story.** Open any order and there is now an
+Activity list — every step, when it happened, and who did it. Orders from
+before today honestly say the name was not recorded, rather than guessing.
+
+**Someone who leaves keeps their name on the work they did.** They can't start
+a shift any more, and nothing they ever did loses its attribution.
+
+*Not included: there is no screen for adding staff or changing a PIN yet.*

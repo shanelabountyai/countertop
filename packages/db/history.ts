@@ -8,6 +8,11 @@
 //
 // Same shape as everything else that reads back a placed order: `ORDER_RECEIPT`,
 // never a menu `include` (CLAUDE.md, the snapshot rule).
+import type {
+  EventActor,
+  OrderEventKind,
+  OrderStatus,
+} from '@countertop/core';
 import { Prisma, prisma } from './index';
 import { ORDER_RECEIPT, type OrderReceipt } from './placement';
 
@@ -88,4 +93,48 @@ export function searchOrderHistory(query: string, day = ''): Promise<OrderReceip
  *  which exists because a URL that leaves the building must not be a key). */
 export function findOrderByIdForStaff(id: string): Promise<OrderReceipt | null> {
   return prisma.order.findUnique({ where: { id }, ...ORDER_RECEIPT });
+}
+
+/**
+ * One order's activity log, for the staff receipt (C-086).
+ *
+ * The append-only log has had no reader on any screen since C-003 — it is
+ * read by the report's time-in-state tally and by tests, and by nothing a
+ * person looks at. Adding a name to every row and then rendering it nowhere
+ * would have shipped the column and not the feature, which is the pattern
+ * this backlog has already had to come back and fix three times (the operator
+ * settings, the intensity surcharge, payment state).
+ *
+ * `staff` is a join to a NAME, and the snapshot rule does not object: a person
+ * is not a menu row, nobody's name is part of the money, and a cook who
+ * changes their display name should change on every row they wrote. That is
+ * the opposite of a price, which must never move under a placed order.
+ */
+export type ActivityEntry = {
+  at: Date;
+  kind: OrderEventKind;
+  fromStatus: OrderStatus | null;
+  toStatus: OrderStatus | null;
+  actor: EventActor;
+  reason: string | null;
+  /** Null where the actor was not staff, and null on every event written
+   *  before C-086 — an honest "we did not record this". */
+  staffName: string | null;
+};
+
+export async function loadOrderActivity(orderId: string): Promise<ActivityEntry[]> {
+  const events = await prisma.orderEvent.findMany({
+    where: { orderId },
+    orderBy: { at: 'asc' },
+    select: {
+      at: true,
+      kind: true,
+      fromStatus: true,
+      toStatus: true,
+      actor: true,
+      reason: true,
+      staff: { select: { name: true } },
+    },
+  });
+  return events.map(({ staff, ...event }) => ({ ...event, staffName: staff?.name ?? null }));
 }

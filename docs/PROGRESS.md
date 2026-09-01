@@ -3480,3 +3480,103 @@ and the money PRD that comes next has to reconcile against something.
   came in between 5 and 9" — is PRD 1's date-range work, not this.
 
 C-085 committed at 8a74af1.
+
+## C-086 — A name on the row (PRD 6 P0-2)
+
+The last of the three items the 2026-09-01 decisions pulled ahead of the
+ranked PRDs, and the one that could not have waited: every event written
+`actor: 'staff'` meanwhile is anonymous **permanently**. No backfill can
+invent the names later, which is why decision #3 put identity in front of the
+money PRD rather than letting comps ship first.
+
+**What was wrong.** Since C-004 every staff-written event says `actor: 'staff'`
+and nothing else. The append-only log can say a revert happened and cannot say
+who did it — and since C-038 it guards a cash button. Both the operator and the
+systems reviewer reached that independently, from opposite ends.
+
+**Built:**
+- One hand-written migration. `StaffMember` (unique name, unique PIN digest,
+  a CHECK for a non-blank name and a CHECK that the digest column holds a hex
+  SHA-256 and nothing else) plus a nullable `OrderEvent.staffId`,
+  `onDelete: Restrict`, with its own index — Postgres does not index a foreign
+  key for you and `Restrict` scans it on every attempted delete.
+- **Nothing backfilled.** Existing rows keep a null. Assigning them to
+  anybody — the first staff member, the owner, a synthetic "legacy" row —
+  would put a person's name on writes they may never have made, and a log that
+  lies once is a log nobody can cite.
+- `actor` is untouched and keeps its meaning: what KIND of actor. `staffId`
+  answers WHICH ONE. `eventRow` stamps only drafts the engine attributes to
+  staff, so the system's `refund` does not inherit the cook's name off the
+  cancel that triggered it — she did not write that row, the engine did.
+- **One PIN per shift, not per tap.** Thirty orders in twenty minutes makes the
+  per-tap version something staff route around within a day, and a control
+  everyone routes around leaves the log confidently wrong rather than honestly
+  empty. `startShift` / `endShift`, a keyed cookie, and the sign-on bar on the
+  queue screen itself.
+- The cookie's stamp is keyed on `STAFF_PASSCODE`, so rotating the passcode
+  ends every shift as well as every session — the right blast radius, and no
+  second secret to keep in step with the first. What it prevents is the one
+  forgery that matters inside the boundary: a cook editing their own cookie to
+  put a colleague's name on a revert.
+- **The append-only log finally has a reader.** An "Activity" section on the
+  staff receipt — instants, what happened, and who. Writing a name onto every
+  row and rendering it nowhere would have shipped the column and not the
+  feature, which is the pattern this backlog has already had to come back and
+  fix three times (the operator settings, the intensity surcharge, payment
+  state).
+- The rush stamps two cooks, alternating deterministically like its paid/unpaid
+  mix, so the capstone demo shows attribution rather than a column.
+- 19 new tests: the PRD's own (two PINs, two advances, two identities), the
+  unattributed row, the refund that must not be stamped, `Restrict` refusing a
+  delete, four CHECK assertions, the four cookie-forgery cases, and a six-test
+  e2e covering the handover, a refused PIN, tap targets and axe.
+
+**Decided:**
+- **A stamp, not a credential, and the code says so in three places.** Four
+  digits is 10,000 possibilities and the salt is a constant, so anyone holding
+  the table can recover every PIN. That is acceptable *only* because the
+  passcode is the boundary, whoever can type a PIN is already through it, and
+  anyone with the table already has every order. The digest keeps the digits
+  out of a casual `SELECT *`; it is not a defence, and pretending otherwise in
+  a comment would be worse than the weakness.
+- **`active` is a flag, never a delete.** Somebody who leaves cannot start a
+  shift and their name stays on every row they wrote. `staffByPin` refuses
+  them; `staffById` still resolves them.
+- **One message for "no such PIN" and "that person left".** Whether a person
+  exists is not something a keypad should teach whoever is typing at it.
+- **The staff id never travels through a request.** Every write reads it from
+  the cookie itself, in one place. A staff id in a form field is a staff id
+  anybody can type, which is the opposite of accountability.
+- **The crypto lives in `packages/db`, not in the app's auth module**, because
+  `apps/web` has no unit suite and this is the guard against the forgery the
+  item exists to prevent. C-084 had just finished teaching that a rule living
+  only in an untested file is a rule that drifts.
+
+**Found while building:**
+- **The edge middleware does not have `node:crypto`** — and `staff-auth.ts`
+  says so in its own header, which I read and then broke anyway. Putting a
+  two-line shift-cookie wrapper in that file pulled `node:crypto` and the
+  Prisma client into the middleware bundle and took every `/kitchen` route down
+  with `Native module not found`. The failure alarm caught it on the first e2e
+  spec and the sweep was killed rather than left to finish. Fixed by moving the
+  whole shift surface into `lib/shift.ts`, which nothing on the edge imports,
+  and the incident is now written into `staff-auth.ts`'s header underneath the
+  warning that had already been there — a warning with evidence reads
+  differently from a warning without.
+- `events.map(eventRow)` was point-free, and `eventRow` gained a second
+  parameter, so `map` started handing it the index as a staff id. The compiler
+  caught it. Point-free is exactly as safe as the arity it was written against.
+
+**Left behind:**
+- **No UI for managing staff.** Members come from the seed; there is no add,
+  rename, deactivate or change-PIN screen. Same shape as C-015's "the editor
+  edits but cannot author", and the same answer: a restaurant does this in SQL
+  until somebody asks for the form.
+- **No per-person view.** "What did Noor do on Friday" is answerable from the
+  database — the index is there for it — and from no screen.
+- **The `refund` event stays unattributed**, which is right today (the engine
+  wrote it) and probably wrong once PRD 3 makes refunds a staff action with an
+  amount somebody chooses.
+- **Nothing stamps a menu edit, a settings change or a pause.** Those are
+  writes with consequences and no event log at all — a different item, and it
+  needs an event table that is not `OrderEvent`.

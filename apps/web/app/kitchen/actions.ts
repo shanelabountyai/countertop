@@ -16,6 +16,14 @@ import {
 } from '@countertop/core';
 import { prisma } from '@countertop/db';
 import { collectOrderPayment } from '@countertop/db/payment';
+import { isStaffPin, staffByPin } from '@countertop/db/staff';
+import { cookies } from 'next/headers';
+import {
+  currentShiftId,
+  ON_SHIFT_COOKIE,
+  ON_SHIFT_COOKIE_MAX_AGE,
+  shiftCookieValue,
+} from '@/lib/shift';
 import { applyOrderAction } from '@countertop/db/transitions';
 import { revalidatePath } from 'next/cache';
 import { revalidateMenuSurfaces } from '@/lib/revalidate-menu';
@@ -48,7 +56,12 @@ async function run(orderId: unknown, action: OrderAction): Promise<KitchenResult
 
   // `now` is read HERE and passed down. Nothing below this line reads a clock,
   // and nothing above it is the client's (CLAUDE.md time rules).
-  const result = await applyOrderAction(orderId, action, new Date());
+  //
+  // The same for WHO (C-086): every movement action on this screen routes
+  // through this one function, so the shift is read once, here, and never
+  // taken from the request. A staff id in a form field is a staff id anybody
+  // can type, which is the opposite of accountability.
+  const result = await applyOrderAction(orderId, action, new Date(), await currentShiftId());
   // Only on a real change — not on a refusal or a stale no-op. Revalidating
   // unconditionally re-renders the whole queue as part of THIS action's own
   // transition, which can move the order's card into a different status
@@ -135,8 +148,10 @@ export async function markOrderPaid(orderId: unknown): Promise<KitchenResult> {
     return { ok: false, message: 'That order could not be read. Reload the queue.' };
   }
 
-  // `now` is read HERE and passed down, like every other write on this screen.
-  const result = await collectOrderPayment(orderId, new Date());
+  // `now` and WHO, read here and passed down, like every other write on this
+  // screen. A cash control is the one that most needs a name on it — which is
+  // the operator's own argument for this whole item.
+  const result = await collectOrderPayment(orderId, new Date(), await currentShiftId());
   if (!result.ok) return result;
   // The subtree, not the one page: this control lives on the queue AND on the
   // history receipt, and collecting from either has to move both.
@@ -156,6 +171,45 @@ export async function markOrderPaid(orderId: unknown): Promise<KitchenResult> {
  */
 export async function collectPayment(formData: FormData): Promise<void> {
   await markOrderPaid(formData.get('orderId'));
+}
+
+/**
+ * Start a shift on this tablet (C-086).
+ *
+ * A PIN once per shift, not once per tap: thirty orders in twenty minutes
+ * rules out the alternative, and a control staff route around is a control
+ * that records nothing. The PIN is a stamp, not a second sign-in — the
+ * passcode is still the only thing keeping this screen off the internet.
+ */
+export async function startShift(pin: unknown): Promise<KitchenResult> {
+  if (typeof pin !== 'string' || !isStaffPin(pin)) {
+    return { ok: false, message: 'A PIN is four digits.' };
+  }
+
+  const staff = await staffByPin(pin);
+  // One message for "no such PIN" and for "that person is deactivated". The
+  // difference is not something a keypad should teach whoever is typing at it.
+  if (!staff) return { ok: false, message: 'That PIN did not match anybody on the list.' };
+
+  (await cookies()).set(ON_SHIFT_COOKIE, shiftCookieValue(staff.id), {
+    httpOnly: true,
+    sameSite: 'lax',
+    // The passcode cookie's own rule: secure in production, settable over the
+    // plain-HTTP dev server.
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: ON_SHIFT_COOKIE_MAX_AGE,
+  });
+  revalidatePath('/kitchen', 'layout');
+  return { ok: true };
+}
+
+/** End it. Deliberately not a sign-out: the passcode session is untouched, so
+ *  the queue stays on the wall and the next person starts their own shift. */
+export async function endShift(): Promise<KitchenResult> {
+  (await cookies()).delete(ON_SHIFT_COOKIE);
+  revalidatePath('/kitchen', 'layout');
+  return { ok: true };
 }
 
 /**

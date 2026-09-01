@@ -126,12 +126,19 @@ function uniqueViolationTarget(error: unknown): string | null {
 /** One `OrderEvent` row from an engine draft. Exported because every writer of
  *  the append-only log — placement here, the queue's transitions in
  *  `transitions.ts` — must spell a row the same way. */
-export const eventRow = (draft: OrderEventDraft) => ({
+export const eventRow = (draft: OrderEventDraft, staffId?: string | null) => ({
   at: draft.at,
   kind: draft.kind,
   fromStatus: draft.fromStatus,
   toStatus: draft.toStatus,
   actor: draft.actor,
+  // WHICH staff member, where `actor` says what KIND (C-086). Stamped ONLY on
+  // an event the engine attributes to staff: the customer's placement and the
+  // system's refund are not somebody's tap, and putting the cook who cancelled
+  // an order onto the refund the engine wrote would be a name on a row that
+  // person did not write. The refund's actor is the seam where that gets
+  // revisited, and PRD 3 is where it belongs.
+  staffId: draft.actor === 'staff' ? (staffId ?? null) : null,
   reason: draft.reason,
   ...(draft.detail === undefined ? {} : { detail: draft.detail as Prisma.InputJsonObject }),
 });
@@ -330,7 +337,11 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
               options: { create: line.options },
             })),
           },
-          events: { create: events.map(eventRow) },
+          // Not point-free: `eventRow` takes a second argument now (C-086's
+          // staff id) and `map` would hand it the index. Every event written
+          // here is the customer's own — a placement, its charge, its
+          // mismatch — so none of them is stamped anyway.
+          events: { create: events.map((draft) => eventRow(draft)) },
         },
         ...ORDER_RECEIPT,
       });

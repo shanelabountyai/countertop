@@ -21,7 +21,13 @@ import { prisma } from './index';
 import { loadMenu } from './menu';
 import { derivedIdempotencyKey, placeOrder } from './placement';
 import { applyOrderAction } from './transitions';
-import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
+import {
+  resetDatabase,
+  seedSampleMenu,
+  seedSettings,
+  seedStaff,
+  seedStoreHours,
+} from './testing/index';
 
 // Relative instants through the shared helper (C-017 pulled it into
 // packages/core once this file, the rush and two fixtures each had a copy).
@@ -169,6 +175,7 @@ async function main(): Promise<void> {
   await seedSampleMenu();
   await seedSettings();
   await seedStoreHours();
+  await seedStaff();
   await seedOrders();
 }
 
