@@ -3580,3 +3580,5 @@ systems reviewer reached that independently, from opposite ends.
 - **Nothing stamps a menu edit, a settings change or a pause.** Those are
   writes with consequences and no event log at all — a different item, and it
   needs an event table that is not `OrderEvent`.
+
+C-086 committed at 4cfbe2a.
