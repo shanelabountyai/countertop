@@ -3221,3 +3221,5 @@ strongest signal in the second-pass set.
   caveat in the same session — is written into the WRITEUP and enforced by
   nobody. A checklist item in CLAUDE.md is the cheap version; it is not
   added here because one instance is not yet a pattern.
+
+C-051 committed at 2615098.
