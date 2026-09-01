@@ -10,8 +10,10 @@
 import {
   canCollectPayment,
   CANCEL_REASONS,
+  ORDER_STATUSES,
   type CancelReason,
   type OrderAction,
+  type OrderStatus,
 } from '@countertop/core';
 import { prisma } from '@countertop/db';
 import { applyOrderAction } from '@countertop/db/transitions';
@@ -19,6 +21,25 @@ import { revalidatePath } from 'next/cache';
 import { revalidateMenuSurfaces } from '@/lib/revalidate-menu';
 
 export type KitchenResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * The target a card was RENDERED against, as untrusted input.
+ *
+ * Both movement actions carry one. The state machine has had an
+ * `unexpected_target` refusal since C-004 built exactly for the stale-screen
+ * double-tap — and until now neither caller passed a `to`, so the guard could
+ * not fire from a screen. The database's compare-and-set catches two taps
+ * racing on the SAME read; it re-reads current status first, so a tap from a
+ * card five seconds behind advanced from wherever the order had since got to.
+ * Two screens and a five-second poll turned "Start cooking" into "Picked up".
+ *
+ * `undefined` stays legal: the seed, the rush and the db tests drive the
+ * engine without a screen and have no rendered state to name.
+ */
+const readTarget = (to: unknown): OrderStatus | undefined | 'invalid' => {
+  if (to === undefined || to === null || to === '') return undefined;
+  return ORDER_STATUSES.includes(to as OrderStatus) ? (to as OrderStatus) : 'invalid';
+};
 
 async function run(orderId: unknown, action: OrderAction): Promise<KitchenResult> {
   if (typeof orderId !== 'string' || orderId === '') {
@@ -37,15 +58,41 @@ async function run(orderId: unknown, action: OrderAction): Promise<KitchenResult
   return result.ok ? { ok: true } : { ok: false, message: result.failure.message };
 }
 
-/** The forward tap. On a `placed` order this IS the acknowledgment (P0-12). */
-export async function advanceOrder(orderId: string): Promise<KitchenResult> {
-  return run(orderId, { kind: 'advance', actor: 'staff' });
+/**
+ * The forward tap. On a `placed` order this IS the acknowledgment (P0-12).
+ *
+ * `to` is the status the card was showing as next when it was drawn. A card
+ * that has fallen behind names a target the order has already passed, and the
+ * engine refuses it by reason instead of advancing from wherever the order got
+ * to in the meantime.
+ */
+export async function advanceOrder(orderId: string, to?: unknown): Promise<KitchenResult> {
+  const target = readTarget(to);
+  if (target === 'invalid') {
+    return { ok: false, message: 'That order could not be read. Reload the queue.' };
+  }
+  return run(orderId, { kind: 'advance', actor: 'staff', ...(target ? { to: target } : {}) });
 }
 
 /** The explicit, logged backward move — and the 5-second undo, which is the
- *  same action with a louder button (P0-4). */
-export async function revertOrder(orderId: string, reason?: string): Promise<KitchenResult> {
-  return run(orderId, { kind: 'revert', actor: 'staff', ...(reason ? { reason } : {}) });
+ *  same action with a louder button (P0-4). Carries the same rendered target
+ *  as the forward tap, for the same reason: "Move back" on a stale card must
+ *  not walk an order back from a state the tapper never saw. */
+export async function revertOrder(
+  orderId: string,
+  reason?: string,
+  to?: unknown,
+): Promise<KitchenResult> {
+  const target = readTarget(to);
+  if (target === 'invalid') {
+    return { ok: false, message: 'That order could not be read. Reload the queue.' };
+  }
+  return run(orderId, {
+    kind: 'revert',
+    actor: 'staff',
+    ...(reason ? { reason } : {}),
+    ...(target ? { to: target } : {}),
+  });
 }
 
 export async function cancelOrder(

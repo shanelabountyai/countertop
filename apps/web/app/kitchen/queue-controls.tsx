@@ -92,11 +92,17 @@ export function QueueControls({
 
   return (
     <div className="mt-4 flex flex-col gap-2">
+      {/* Every movement button hands the server the target this card was DRAWN
+          against, never letting it advance from whatever it finds. A card five
+          seconds behind names a state the order has already left, and the
+          engine's `unexpected_target` refusal — which existed since C-004 and
+          had never once fired from a screen — turns it into a message instead
+          of a skipped state. */}
       {facts.next && (
         <button
           type="button"
           disabled={pending}
-          onClick={() => act(() => advanceOrder(orderId))}
+          onClick={() => act(() => advanceOrder(orderId, facts.next))}
           className="min-h-16 w-full rounded-lg bg-neutral-900 px-6 text-xl font-bold text-white disabled:opacity-60"
         >
           {ADVANCE_LABEL[status]}
@@ -125,7 +131,7 @@ export function QueueControls({
         <button
           type="button"
           disabled={pending}
-          onClick={() => act(() => revertOrder(orderId, 'undo'))}
+          onClick={() => act(() => revertOrder(orderId, 'undo', previous))}
           className="min-h-12 w-full rounded-lg border-2 border-amber-600 bg-amber-50 px-4 text-lg font-semibold text-amber-900"
         >
           Undo — back to {previous.replace('_', ' ')}
@@ -137,7 +143,7 @@ export function QueueControls({
           <button
             type="button"
             disabled={pending}
-            onClick={() => act(() => revertOrder(orderId))}
+            onClick={() => act(() => revertOrder(orderId, undefined, previous))}
             className="min-h-12 rounded-lg border border-neutral-400 px-4"
           >
             Move back

@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { STAFF_AUTH_FILE } from './auth-file';
 import { card, reseed } from './fixtures';
 
 // C-008: the kitchen queue (P0-4, P0-11).
@@ -192,6 +193,46 @@ test.describe('taking action on a card', () => {
     await expect(page.getByRole('heading', { name: 'Ready for pickup (0)' })).toBeVisible();
     await strip.getByRole('button', { name: /^Undo/ }).click();
     await expect(page.getByRole('heading', { name: 'Ready for pickup (1)' })).toBeVisible();
+  });
+
+  // Two screens open on the same board is the ordinary case in a kitchen, not
+  // the exotic one, and the poll is five seconds wide. Until this test existed
+  // the card sent no target, so a tap from a stale screen advanced the order
+  // from wherever it had got to in the meantime: "Start cooking" on a screen
+  // five seconds behind marked an order picked up, and the bag sat on the pass
+  // while the customer was told it had been collected. The engine has had the
+  // `unexpected_target` refusal since C-004; the screen had never asked for it.
+  test('a tap from a screen that has fallen behind is refused, not applied', async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({ storageState: STAFF_AUTH_FILE });
+    const stale = await context.newPage();
+    const live = await context.newPage();
+    // Freeze the stale screen: block its poll so it keeps the board it drew.
+    // Without this the test races the five-second cursor and proves nothing.
+    await stale.route('**/api/updates**', (route) => route.abort());
+
+    await stale.goto('/kitchen');
+    await live.goto('/kitchen');
+    const accept = card(stale, 'Dana Reyes').getByRole('button', { name: 'Accept' });
+    await expect(accept).toBeVisible();
+
+    // The other screen moves her on. The stale card still says "Accept".
+    await card(live, 'Dana Reyes').getByRole('button', { name: 'Accept' }).click();
+    await expect(live.getByRole('heading', { name: 'Accepted (2)' })).toBeVisible();
+
+    await accept.click();
+
+    // Refused BY REASON — the message names both states — and, the part that
+    // matters, she did not skip to `preparing`.
+    await expect(
+      card(stale, 'Dana Reyes').getByText(/is accepted; the next state is preparing/),
+    ).toBeVisible();
+    await live.reload();
+    await expect(live.getByRole('heading', { name: 'Accepted (2)' })).toBeVisible();
+    await expect(live.getByRole('heading', { name: 'Preparing (1)' })).toBeVisible();
+
+    await context.close();
   });
 
   test('cancelling asks for a reason, and a no-show is closed out as its own thing', async ({

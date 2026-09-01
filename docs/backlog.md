@@ -81,6 +81,14 @@ npm run gate    # lint, typecheck, build, e2e, unit — in that order
 
 - [x] **C-049** — The day a number belongs to — the last thing C-046 left behind, named as carried in three consecutive PROGRESS entries. `historyWhere` matches a bare number by `seq` alone because `seq` resets daily, so "#047" returns one row per day the restaurant served 47 orders — a dated list, honestly, but capped at 50 and newest-first, which puts an old order off the end. `historyWhere(query, day)` adds `{ businessDay: day }` BESIDE the term (Prisma ANDs top-level fields, so the day narrows the `seq`/name `OR` rather than joining it), fed by a native `<input type="date">` whose submitted "YYYY-MM-DD" is the `businessDay` column verbatim — string equality, no parsing, and no timezone arithmetic in the path at all. A malformed day is ignored rather than refused: only a hand-edited URL produces one, and the date input renders blank for it. No migration.
 
+### Defects from the second-pass evaluation (2026-09-01)
+
+Three bugs in shipped behaviour, found by three independent evaluators and verified in the code. Sequenced ahead of every PRD in `docs/prds/`. See `docs/prds/INDEX.md`.
+
+- [x] **C-050** — *(defect D1)* The tap that meant one thing and did another — `applyTransition`'s `unexpected_target` refusal has existed since C-004 for exactly the stale-screen double-tap, and neither real caller passed a `to`, so it could never fire from a screen. Two screens on one board plus a five-second poll made "Start cooking" mark an order picked up. Both directions fixed, not just the forward one: `advanceOrder(orderId, to)` and `revertOrder(orderId, reason, to)` take the status the card was drawn against, guarded as untrusted input by one `readTarget`. C-047's lesson word for word — the engine was right and the screen never asked. The regression test was verified by reverting the fix and watching it fail. No migration.
+- [ ] **C-051** — *(defect D2)* The sales report never reads `paymentState`, so revenue counts food nobody paid for — C-016's "charged, not collected" defence stopped holding at C-038/C-048. Per the 2026-09-01 decision: net sales keeps counting it, and the report gains `Collected`, `Outstanding`, and the list of who owes what. No migration.
+- [ ] **C-052** — *(defect D3)* The placement replay accepts any non-empty idempotency key and returns a full `ORDER_RECEIPT` including `statusToken`. Not a live break — the browser uses `crypto.randomUUID()` — but no entropy is enforced on a key that doubles as a read handle for a secret, and the seed and rush scripts already use `seed-order-0`. Reject non-UUID keys at the action boundary; regenerate the scripts' keys. The real fix, binding the replay to the placing session, is PRD 6 E-1. No migration.
+
 ## Deferred by decision (not backlog)
 
 **A GitHub organization for the five projects** — deferred 2026-08-27, not

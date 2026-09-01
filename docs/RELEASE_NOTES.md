@@ -1187,3 +1187,21 @@ service, every status, in one list. "Show all" clears both.
 It uses the phone and laptop's own built-in date picker, and matches against
 the day the restaurant assigned the order at the counter — not a UTC date
 that rolls over mid-dinner-service.
+
+## C-050 — The tap that meant one thing and did another
+
+**A button on a stale screen could skip a step.** With two screens open on
+the same queue — the ordinary setup in a kitchen — a tap on a card that had
+fallen behind advanced the order from wherever it had got to, not from where
+the person tapping could see. "Start cooking" on a five-second-old screen
+could mark an order picked up: the food still on the pass, the system saying
+it was collected, and the customer at the counter told the same.
+
+Every movement button now names the step it meant. If the order has already
+moved, the tap is refused with a message naming both states, and nothing
+happens to the order.
+
+The rule this enforces was written a year of commits ago and had never once
+been reached from a screen — the kitchen's buttons had simply never told the
+system which step they meant. Both directions are fixed, not just the
+forward one: "Move back" had the same hole.

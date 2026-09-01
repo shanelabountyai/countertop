@@ -3075,3 +3075,61 @@ item is small.
   exists.
 
 C-049 committed at 786000e.
+
+## C-050 — The tap that meant one thing and did another (defect D1)
+
+The first of three defects the second-pass evaluation found. Not a backlog
+item: a bug in shipped behaviour, and the highest-severity one in the set.
+
+**What was wrong.** `applyTransition` has carried an `unexpected_target`
+refusal since C-004, with a comment saying exactly what it is for — "two
+cooks tapping the same card: the second tap names a target that is already
+behind, and is refused rather than skipping a state." It fires on
+`action.to !== undefined && action.to !== to`. Neither real caller passed a
+`to`. The guard could not fire from a screen, in either direction, and never
+had.
+
+The database's compare-and-set (`updateMany where: { id, status }`) is not
+the same protection. It catches two taps racing on the SAME read; it re-reads
+current status first, so a tap from a card five seconds behind advanced the
+order from wherever it had since got to. Two screens open on one board — the
+ordinary case in a kitchen, not the exotic one — and a five-second poll made
+the button labelled "Start cooking" mark an order picked up. The bag sits on
+the pass while the customer is told at the counter that it was collected.
+
+**Why it was found by an evaluator and not by a test.** The state machine's
+own suite asserts the refusal thoroughly, by reason, and passes: the engine
+was always right. What no test asserted was that the *screen* asks for it.
+That is C-047's lesson repeating word for word — the engine was right and the
+screen never asked — and it is now a test that fails if the target is ever
+dropped again, verified by reverting the fix and watching it fail before it
+was kept.
+
+**Built:**
+- `readTarget`, one guard in `kitchen/actions.ts`, treating the rendered
+  status as what the file's own header already says every argument is:
+  untrusted input. `undefined` stays legal, because the seed, the rush and
+  the db tests drive the engine with no screen and have no rendered state to
+  name.
+- `advanceOrder(orderId, to)` **and `revertOrder(orderId, reason, to)`**. The
+  ticket was about the forward tap; the backward one had the identical hole
+  and the identical guard waiting for it, so fixing one and not the other
+  would have left "Move back" walking an order back from a state the tapper
+  never saw.
+- The card passes `facts.next` and `previous` — the values it already had in
+  hand to draw the button labels with. No new prop, no new query.
+- One e2e test with two real pages, the stale one's poll blocked with
+  `page.route()` so the assertion is deterministic rather than racing the
+  five-second cursor.
+
+**Decided:**
+- **No revalidate on refusal.** C-047 established that revalidating on a
+  rejection remounts `<QueueControls>` and destroys the error before anyone
+  reads it. That decision stands: the refusal message names both states
+  ("This order is accepted; the next state is preparing, not accepted"), and
+  the poll brings the board current within five seconds on its own. Showing
+  the reason beats silently correcting the screen.
+- **The rendered target, not a version number.** A generic optimistic-
+  concurrency token would work and would be a bigger change; the status the
+  card drew is already the exact fact in dispute, and the engine already
+  refuses on it.

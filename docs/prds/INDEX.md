@@ -73,7 +73,22 @@ The WRITEUP defends "revenue is what was charged, not collected" as a deliberate
 | 5 | [`prd-the-customer-who-is-not-in-the-room.md`](prd-the-customer-who-is-not-in-the-room.md) | address / phone / hours on every customer screen; a status page that admits it is late; a last-call warning; menu descriptions and category nav; the "Skip" pill; focus to the error; a way back to your own order; cart quantity | DX (8 findings), with SYS 7 on the phone field | M — 7 sessions, one three-column migration | One lens, eight findings, nearly all S. It ranks on volume and cheapness: this is the only surface where a customer decides whether to order here at all, and it is the least designed one in the product. It also completes the master PRD's resolved answer "call the restaurant" by making the restaurant callable. |
 | 6 | [`prd-who-did-it-and-what-leaves.md`](prd-who-did-it-and-what-leaves.md) | structured logging and error reporting; staff PINs stamping the event log; a payment event; retention and "forget this customer"; an ordered replayable event feed (P1); the multi-location widening plan (P1) | OPS + SYS (OPS 10 · SYS 5, 6, 7, 8, 9, 12) | L — 7 sessions, two hand-written migrations | Ranked last because most of it insures against futures — a second client, a subpoena, a printer — rather than this Friday. **Except its first item**, which is the cheapest high-value session in the entire set: today, when an order goes missing at 7:10pm, the product cannot distinguish "never placed" from "placed and eaten", because it writes no log line anywhere. Pull C-084 forward. |
 
-**Sequencing that is not the ranking:** D1, D2, D3 first, in that order. Then `C-084` (logging) out of PRD 6, because every other PRD's defects will be diagnosed with it. Then the ranking above.
+**Sequencing that is not the ranking:** D1, D2, D3 first, in that order. Then `C-084` (logging) out of PRD 6, because every other PRD's defects will be diagnosed with it. Then **staff identity** (PRD 6 P0-2), pulled forward by the decision below. Then the ranking above.
+
+---
+
+## Decisions taken — 2026-09-01
+
+Four contradictions between evaluators, resolved. Recorded here and in each PRD's Open Questions. **Not re-opened**; a later session that wants to revisit one needs a reason that did not exist today.
+
+| # | Question | Decision | Why |
+|---|---|---|---|
+| 1 | Does an unpaid `picked_up` order count into net sales? | **Count it, show the gap.** Net sales keeps its meaning; the report gains `Collected`, `Outstanding`, and the list of who owes what. | The smallest truthful change. It makes the gap visible without retroactively redefining what every past report's headline meant, which the cash-basis alternative would do. *(PRD 1 P0-2, and defect D2's shape.)* |
+| 2 | Reconcile against the processor's settlement or the till? | **Neither yet.** Ship the outstanding list and stop. | Neither source exists in the system today, and a half-reconciliation is worse than an honest "the drawer is out of scope". A nightly drawer-count is also the chore staff skip on the bad night it would have mattered. **Trigger to revisit: the outstanding list stops explaining the variance.** |
+| 3 | Can comps ship before staff identity? | **No — identity first.** PRD 6 P0-2 moves ahead of PRD 3. | The one thing here that cannot be retrofitted: every event written `actor: 'staff'` meanwhile is anonymous permanently and no backfill can invent a name. The typed-name middle option was rejected on this repo's own discipline — the constraint is the mechanism, and a typed name is the disabled-submit-button of accountability. **This reorders the set.** |
+| 4 | Keep collecting the customer's phone number? | **Keep it, label it, give it a deletion path.** | The "unused PII" premise was wrong on inspection: `kitchen/orders/[id]/page.tsx:53` reads it onto the staff receipt so a customer whose order was wrong can be called. One real reader passes the use-it-or-stop-asking test. The actual defect is the missing retention limit and the form that never says why it asks. |
+
+**What decision 3 changes about the ranking:** PRD 6 is no longer last in execution order even though its value ÷ cost still ranks it there. Its first two items — `C-084` structured logging and `C-085`-onward staff identity — are now prerequisites, not insurance.
 
 ---
 
