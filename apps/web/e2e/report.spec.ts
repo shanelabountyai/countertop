@@ -211,3 +211,31 @@ test('food handed over well before the low end counts as a miss, not a win', asy
   await expect(stat(page, 'Quoted orders')).toContainText('2');
   await expect(stat(page, 'Early')).toContainText('1');
 });
+
+// C-051 / defect D2. The report counted revenue on food nobody paid for, and
+// no screen in the product reconciled the till against it. The seeded orders
+// are all pay-at-pickup, so picking one up is exactly the case.
+test('an order handed over unpaid is money owed, by name, not just revenue', async ({ page }) => {
+  await page.goto('/kitchen');
+  // Morgan pays at the counter; Dana walks off owing.
+  await card(page, 'Morgan Ellis').getByRole('button', { name: 'Collected — mark paid' }).click();
+  await expect(
+    card(page, 'Morgan Ellis').getByRole('button', { name: /mark paid/i }),
+  ).toHaveCount(0);
+  await pickUp(page, 'Morgan Ellis');
+  await pickUp(page, 'Dana Reyes');
+
+  await page.goto('/kitchen/report');
+
+  // Revenue still counts both — the split explains the headline, it does not
+  // restate it (decision 2026-09-01 #1).
+  await expect(stat(page, 'Orders sold')).toContainText('2');
+  await expect(stat(page, 'Outstanding')).toContainText('50.0% of orders sold');
+
+  // And the chase list names the person to ask, which a count cannot.
+  const owed = page
+    .getByRole('table')
+    .filter({ has: page.getByRole('columnheader', { name: 'Owed' }) });
+  await expect(owed.getByRole('row').filter({ hasText: 'Dana Reyes' })).toBeVisible();
+  await expect(owed.getByRole('row').filter({ hasText: 'Morgan Ellis' })).toHaveCount(0);
+});

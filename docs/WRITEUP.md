@@ -273,7 +273,7 @@ Recorded as they are made, with the ceiling each one has.
 
 - **A renamed item reports as two rows** (C-016). The report groups by the name the order was placed under, because that is the only name it HAS without joining a menu table — and joining one would restate last month's sales under this month's menu, which is the whole thing the snapshot rule forbids. So "Burrito" renamed to "Classic Burrito" splits its own history at the moment of the rename, and no screen explains why. The fix that does not break the rule is to group by the `menuItemId` correlation column and display the most recent snapshot name for it, which merges the rows without reading a menu row — but it makes "which name wins" a decision the report has to defend, and the schema comment is emphatic that those ids are correlation only. Left split, and stated on the page's own terms: every name shown is the name it was sold under.
 - **Every report is a full scan of its window** (C-016). `loadReportOrders` pulls each order, line and option in the range and the engine folds them in memory. At one restaurant's volume — a few hundred orders a week — this is a single indexed range read and a few milliseconds of arithmetic, and it buys the property that matters most: the buckets are computed by the same pure function the tests drive, not by SQL that a `date_trunc` in the wrong timezone could quietly get wrong. It is the wrong shape at a chain, and the upgrade is a materialised daily rollup written at the `picked_up` transition, not a better query.
-- **Revenue is what was charged, not what was collected** (C-016). `paymentState` exists on the order and the report does not read it, so an unpaid pickup counts as revenue in full. P1-8 is where payment state becomes visible to staff at all; until then the report's "revenue" is the sum of the totals on the receipts, which is an honest number for a shop that takes payment at the counter and a misleading one the moment prepay lands.
+- **Revenue is still what was charged — but the report now says what was collected beside it** (C-016, corrected C-051). The original caveat said `paymentState` exists and the report does not read it, so an unpaid pickup counts as revenue in full. That was defensible at C-016, when no staff screen could even see a payment state; it stopped being defensible at C-038 and C-048, which made pay-at-pickup a common state and gave the shop a durable record of who did not pay while the report went on ignoring it. It was a defect by then, not a simplification, and it is written up as one below. What ships now: revenue keeps its meaning — changing it would restate every past report's headline — and the screen splits it into collected, outstanding and refunded, with the outstanding orders listed by day, number, name and amount. **The remaining ceiling is real and deliberate**: this reconciles the report against itself, not against a till or a processor's settlement, because neither exists in the system and a half-reconciliation is worse than an honest "the drawer is out of scope". Trigger to revisit: the outstanding list stops explaining the variance.
 - **The oldest day in a window is usually partial** (C-016). The window is an instant range — `now` minus 24 hours × N — because turning "the last 30 days in Los Angeles" into a pair of instants is the local → instant conversion that `business-day.ts` refuses to make, a DST boundary having two answers or none. So the query is generous and the bucketing is exact, and the earliest local day shown is a fragment of one. The screen says so in a line rather than letting a half day read as a bad day; the alternative is a local-midnight boundary computed by search, which is a real technique and considerably more machinery than this earns.
 - **`instantDaysBefore` is the codebase's only lint exemption** (C-016). The `no-restricted-syntax` ban on `new Date(<expr>)` is blanket by design — its own comment says anything other than `new Date(Date.UTC(...))` stays banned, so that a future test file cannot quietly reintroduce a parse. Subtracting milliseconds from an instant is genuinely safe and the rule cannot see the difference, so the operation went where the rule's own message points: one named function in the restaurant-timezone module, with the exemption scoped to a single line and the reason written beside it. The precedent to resist is a second one.
 
@@ -1002,6 +1002,75 @@ both exploratory rounds for the same real reason — it needs the server's wall
 clock moved, which destabilises a shared environment. CI running the unit
 suite under `TZ=UTC` and `TZ=Pacific/Kiritimati` is the assurance that
 actually covers it, which is why that leg exists.
+
+### The refusal that no screen ever asked for (C-050)
+
+Second-pass evaluation, defect D1, and the same sentence as C-047 with
+different nouns.
+
+`applyTransition` has carried an `unexpected_target` refusal since C-004, with
+a comment naming exactly the case it is for: two cooks tapping the same card,
+the second tap naming a target that is already behind. It fires on
+`action.to !== undefined && action.to !== to`. Neither real caller ever passed
+a `to`. The guard could not fire from a screen and never had.
+
+The database's compare-and-set looked like the same protection and is not. It
+catches two taps racing on the *same* read; it re-reads current status first,
+so a tap from a card five seconds stale advanced the order from wherever it
+had since got to. Two screens on one board is the ordinary kitchen setup, and
+a five-second poll made the button labelled "Start cooking" mark an order
+picked up — bag on the pass, customer told at the counter it was collected.
+
+The state machine's own suite asserts the refusal thoroughly, by reason, and
+passed throughout: the engine was always right. Nothing asserted that the
+*screen* asks for it. Both directions were fixed, not just the ticket's
+forward one — "Move back" had the identical hole and the identical guard
+waiting for it — and the regression test was verified by reverting the fix and
+watching it fail.
+
+### The defence that expired two items after it was written (C-051)
+
+Second-pass evaluation, defect D2, and the only one in the set that was
+recorded in this file as a deliberate simplification rather than missed.
+
+The sales report summed the totals of every order whose status counted as
+`sold`, and never read `paymentState`. C-016 defended that in writing: revenue
+is what was charged, not what was collected, honest for a shop that takes
+payment at the counter. C-038 made pay-at-pickup a real and common state —
+about a third of the seeded rush — and C-048 established that an order can be
+handed over and stay `unpaid` indefinitely, which is the entire reason the
+mark-paid control had to be added to the staff receipt. Two items, and the
+defence stopped holding. The report went on ignoring a column the product now
+maintained specifically to record who had not paid.
+
+The failure is quiet, which is why it survived: nothing crashes and no test
+goes red. Sunday night the screen says $478.55 for Friday, the till says
+$431, and no screen in the product reconciles the two. Six unpaid pickups on
+a busy Friday is normal.
+
+What makes this one worth writing down is not the code — the fix is a `select`
+and a switch — it is that **a recorded simplification has an expiry date and
+nothing checks it**. The caveat was written honestly, was true when written,
+and became a defect through work done elsewhere. Two independent evaluators
+found it; the repo's own caveat list, which describes it accurately, did not,
+because a caveat list is read as history rather than re-audited against what
+shipped since. The cheap habit that would have caught it: when an item makes a
+state common that a caveat assumed rare, re-read the caveat in the same
+session. C-038 and C-048 both touched `paymentState` and neither looked at
+what read it.
+
+The shape of the fix was a decision, not a discovery. Net sales keeps counting
+uncollected food, because the alternative — cash-basis revenue — retroactively
+redefines what every past report's headline meant, to fix a gap that a second
+number states directly. Collected, outstanding and refunded are three buckets
+that sum to revenue and never net into each other, and the outstanding one is
+a *list* — day, number, name, amount — because a count of six is not something
+anybody can act on and a name is.
+
+One thing deliberately not done: the split covers exactly the orders revenue
+covers. Money taken for an order nobody collected is a till question, and the
+till is out of scope by decision until the outstanding list stops explaining
+the variance.
 
 ## Skills Learned / Functions Unlocked
 

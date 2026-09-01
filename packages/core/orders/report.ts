@@ -12,13 +12,18 @@
 // joined MenuItem for a name would restate last month's sales under this
 // month's menu, and a deleted item would vanish from its own history.
 import { restaurantClock } from './business-day';
-import { salesRoleOf, type OrderStatus } from './state-machine';
+import { salesRoleOf, type OrderStatus, type PaymentState } from './state-machine';
 
 /** What a report needs off an order. A subset of the snapshot, so a database
  *  row satisfies it structurally and no mapping layer can drift. */
 export type ReportableOrder = {
   status: OrderStatus;
   placedAt: Date;
+  /** The human-callable number. Only ever read for the outstanding list — a
+   *  chase list is useless without something to say at the counter. */
+  seq: number;
+  customerName: string;
+  paymentState: PaymentState;
   subtotalCents: number;
   taxCents: number;
   totalCents: number;
@@ -79,6 +84,42 @@ export type AttachRate = {
   rate: number;
 };
 
+/** One line of the chase list. Enough to walk to the till and ask. */
+export type OutstandingOrder = {
+  /** "YYYY-MM-DD" in the restaurant's calendar — the same clock reading the
+   *  day bucket used, never the `businessDay` column read a second way. */
+  day: string;
+  seq: number;
+  customerName: string;
+  totalCents: number;
+};
+
+/**
+ * What of the counted revenue is actually in the drawer (D2).
+ *
+ * Scoped to the orders that count as SALES, deliberately: the defect is that
+ * revenue counted food nobody paid for, so the split has to cover exactly the
+ * set revenue covers. Money taken for an order nobody collected is a till
+ * question, and the till is out of scope by decision (2026-09-01 #2).
+ *
+ * The three buckets sum to the window's revenue. `refunded` is its own bucket
+ * and never nets into the other two — today it is structurally empty, because
+ * the only refund the engine writes accompanies a `cancel` and a cancelled
+ * order is not a sale, but a refund that survives a pickup must not land in
+ * "collected" the day someone adds one.
+ */
+export type PaymentSplit = {
+  collectedCents: number;
+  outstandingCents: number;
+  refundedCents: number;
+  /** Chronological, like `days` — a chase list is worked oldest first. */
+  outstanding: OutstandingOrder[];
+  /** Unpaid pickups as a share of orders sold, so "six on a Friday" compares
+   *  against a Tuesday. Null when nothing sold: 0% over no orders is a lie,
+   *  the same reason `NoShowRate.rate` is nullable. */
+  unpaidRate: number | null;
+};
+
 export type NoShowRate = {
   sold: number;
   noShow: number;
@@ -94,6 +135,7 @@ export type SalesReport = {
   topItems: TopItem[];
   attachRates: AttachRate[];
   noShow: NoShowRate;
+  payment: PaymentSplit;
   /** Counted, never booked: orders the kitchen has not finished with. Shown so
    *  a midday report explains its own missing money instead of quietly
    *  under-reporting. */
@@ -118,9 +160,13 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
   const hours = new Map<number, HourBucket>();
   const items = new Map<string, TopItem>();
   const attached = new Map<string, number>();
+  const outstanding: OutstandingOrder[] = [];
   let sold = 0;
   let noShow = 0;
   let inFlight = 0;
+  let collectedCents = 0;
+  let outstandingCents = 0;
+  let refundedCents = 0;
 
   for (const order of orders) {
     const role = salesRoleOf(order.status);
@@ -141,6 +187,32 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     const clock = restaurantClock(order.placedAt, timezone);
     const hour = Math.floor(clock.minuteOfDay / 60);
     const units = order.lines.reduce((sum, line) => sum + line.quantity, 0);
+
+    // Booked as revenue above; here is whether the money arrived. Exhaustive
+    // over `PaymentState` rather than "paid, else outstanding" — a fourth
+    // state must not become money owed by default.
+    switch (order.paymentState) {
+      case 'paid':
+        collectedCents += order.totalCents;
+        break;
+      case 'refunded':
+        refundedCents += order.totalCents;
+        break;
+      case 'unpaid':
+        outstandingCents += order.totalCents;
+        outstanding.push({
+          day: clock.day,
+          seq: order.seq,
+          customerName: order.customerName,
+          totalCents: order.totalCents,
+        });
+        break;
+      default:
+        // Unreachable by construction; here so the COMPILER finds this reader
+        // when a fourth payment state ships, rather than silently letting it
+        // count as neither collected nor owed.
+        throw new Error(`unhandled payment state: ${String(order.paymentState satisfies never)}`);
+    }
 
     const day = days.get(clock.day) ?? {
       day: clock.day,
@@ -205,6 +277,13 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
         a.optionName.localeCompare(b.optionName),
     ),
     noShow: { sold, noShow, rate: sold + noShow === 0 ? null : noShow / (sold + noShow) },
+    payment: {
+      collectedCents,
+      outstandingCents,
+      refundedCents,
+      outstanding,
+      unpaidRate: sold === 0 ? null : outstanding.length / sold,
+    },
     inFlight,
   };
 }

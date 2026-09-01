@@ -1205,3 +1205,21 @@ The rule this enforces was written a year of commits ago and had never once
 been reached from a screen — the kitchen's buttons had simply never told the
 system which step they meant. Both directions are fixed, not just the
 forward one: "Move back" had the same hole.
+
+## C-051 — Sales counted food nobody paid for
+
+**The report said one number and the till said another.** Orders can be handed
+over unpaid — that is what "pay at pickup" means, and about a third of a busy
+service goes out that way. Sales counted every one of them at full price and
+said nothing about it, so Sunday night the screen read $478.55 for Friday, the
+drawer held $431, and no screen in the product explained the gap.
+
+**Sales now shows what actually came in.** Revenue still means what it always
+meant — every order a customer took, paid or not, because changing it would
+restate every past report. Beside it: **Collected**, **Outstanding**, and, when
+there is one, **Refunded**. The three add up to revenue and never quietly
+cancel each other out.
+
+**And it names who to ask.** Every order handed over unpaid is listed with its
+day, its number, the customer's name and the amount owed — a list you can work,
+not a count of six.

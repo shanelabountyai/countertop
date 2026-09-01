@@ -141,6 +141,15 @@ async function main(): Promise<void> {
     `  no-show rate ${report.noShow.rate === null ? '—' : `${Math.round(report.noShow.rate * 100)}%`} ` +
       `(${report.noShow.noShow} of ${report.noShow.sold + report.noShow.noShow} finished)`,
   );
+  // What of that revenue actually came in (C-051). The rush hands over
+  // pay-at-pickup orders, so this line is never decorative.
+  if (report.payment.outstandingCents > 0) {
+    console.log(
+      `  ${money(report.payment.collectedCents)} collected, ` +
+        `${money(report.payment.outstandingCents)} still owed on ` +
+        `${plural(report.payment.outstanding.length, 'order')}`,
+    );
+  }
   // Counted, never booked. A midday report that did not say this would look
   // like a restaurant that sold nothing (C-016).
   if (report.inFlight > 0) {

@@ -11,6 +11,7 @@
 import Link from 'next/link';
 import {
   estimateAccuracy,
+  formatOrderNumber,
   instantDaysBefore,
   isTerminal,
   salesReport,
@@ -110,7 +111,11 @@ export default async function ReportPage({
 
       <section className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Orders sold" value={String(report.noShow.sold)} />
-        <Stat label="Revenue" value={formatCents(revenueCents)} />
+        <Stat
+          label="Revenue"
+          value={formatCents(revenueCents)}
+          note="Charged, not collected"
+        />
         <Stat
           label="No-show rate"
           value={report.noShow.rate === null ? '—' : percent(report.noShow.rate)}
@@ -127,12 +132,70 @@ export default async function ReportPage({
         />
       </section>
 
+      {report.payment.outstanding.length > 0 && (
+        <p className="mt-4 rounded-lg border-2 border-amber-500 bg-amber-50 p-4 text-lg">
+          <strong>{formatCents(report.payment.outstandingCents)}</strong> of that revenue was
+          never collected — {report.payment.outstanding.length}{' '}
+          {report.payment.outstanding.length === 1 ? 'order' : 'orders'} handed over unpaid. They
+          are listed below.
+        </p>
+      )}
+
       {report.days.length === 0 ? (
         <p className="mt-10 rounded-lg border-2 border-neutral-300 p-6 text-lg">
           No orders were picked up in this window. {report.inFlight > 0 && 'Some are still open.'}
         </p>
       ) : (
         <>
+          {/* First, because it is the one number on this page that can be
+              wrong in the till's favour and nowhere else on the screen
+              reconciles it (D2). */}
+          <Section title="Collected versus charged">
+            <p className="text-lg text-neutral-700">
+              Revenue counts every order a customer took, paid or not — that is what it has always
+              meant, and changing it would restate every past report. This is how much of it
+              actually came in.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <Stat label="Collected" value={formatCents(report.payment.collectedCents)} />
+              <Stat
+                label="Outstanding"
+                value={formatCents(report.payment.outstandingCents)}
+                note={
+                  report.payment.unpaidRate === null
+                    ? undefined
+                    : `${percent(report.payment.unpaidRate)} of orders sold`
+                }
+              />
+              {/* Shown only when there is one. A refund never nets into either
+                  of the other two, so a row of $0.00 would be arithmetic
+                  rather than a measurement. */}
+              {report.payment.refundedCents > 0 && (
+                <Stat
+                  label="Refunded"
+                  value={formatCents(report.payment.refundedCents)}
+                  note="Counted in neither of the other two"
+                />
+              )}
+            </div>
+            {report.payment.outstanding.length === 0 ? (
+              <p className="mt-3 text-lg">Everything sold in this window was paid for.</p>
+            ) : (
+              <div className="mt-3">
+                <Table
+                  headers={['Day', 'Order', 'Name', 'Owed']}
+                  label="Orders handed over unpaid"
+                  rows={report.payment.outstanding.map((order) => [
+                    order.day,
+                    formatOrderNumber(order.seq),
+                    order.customerName,
+                    formatCents(order.totalCents),
+                  ])}
+                />
+              </div>
+            )}
+          </Section>
+
           <Section title="By day">
             <Table
               headers={['Day', 'Orders', 'Items', 'Subtotal', 'Tax', 'Total']}

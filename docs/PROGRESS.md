@@ -3135,3 +3135,89 @@ was kept.
   refuses on it.
 
 C-050 committed at 42edee1.
+
+## C-051 — The defence that expired two items after it was written (defect D2)
+
+The second of the three defects. Not a backlog item and not a missed case
+either: this one was written down, in `docs/WRITEUP.md`, as a deliberate
+simplification with a reason — and the reason stopped being true.
+
+**What was wrong.** `salesReport` sums the totals of every order whose
+`salesRole` is `sold` and has never read `paymentState`. C-016 defended that
+in the caveat list: *"revenue is what was charged, not what was collected"*,
+honest for a shop that takes payment at the counter. C-038 made pay-at-pickup
+a real and common state — about a third of the seeded rush — and C-048
+established that an order can be handed over and stay `unpaid` indefinitely,
+which is the entire reason the mark-paid control had to be added to the staff
+receipt. Two items later the shop had a durable record of who had not paid,
+and the report ignored it. Sunday night the screen says $478.55 for Friday,
+the till says $431, and nothing in the product reconciles the two.
+
+**Why the caveat list did not catch it.** Because a caveat list is read as
+history. It described the behaviour accurately the whole time; what nobody
+re-read was whether its *premise* still held after two items had gone to
+work on the same column. Both C-038 and C-048 touched `paymentState` and
+neither looked at what read it. Two independent evaluators found it from
+opposite lenses (the GM's shift and the systems audit), which is the
+strongest signal in the second-pass set.
+
+**Built:**
+- `PaymentSplit` on `SalesReport`: `collectedCents`, `outstandingCents`,
+  `refundedCents`, the `outstanding` list, and `unpaidRate`. The three
+  buckets sum to the window's revenue and none of them nets into another.
+  Accumulated in the existing `sold` branch of the one loop — no second pass
+  over the orders, no second query.
+- The `switch` over `PaymentState` is exhaustive with a `satisfies never`
+  default. Not decoration: "paid, else owed" would silently make a fourth
+  payment state into money somebody owes, and this is the money path.
+- `loadReportOrders` selects three more columns — `paymentState`, `seq`,
+  `customerName`. The header comment that said names are never selected is
+  corrected rather than quietly falsified: a chase list that says "$14.30 is
+  owed" with nobody to ask is not a chase list. They are snapshot columns
+  like everything else in that select; no menu table joined the query.
+- A "Collected versus charged" section on `/kitchen/report`, first among the
+  sales sections, plus an amber line under the stat row when anything is
+  outstanding and a "Charged, not collected" note on the Revenue stat itself.
+  The refunded stat renders only when non-zero — a $0.00 row is arithmetic,
+  not a measurement, the same rule the hour bars already follow.
+- Tests at all three grains: the engine's arithmetic (delta equals the unpaid
+  order's total to the cent, the chase list is chronological, a refund lands
+  in neither other bucket), the loader's shape against a real placement, and
+  one e2e that pays one seeded order at the counter, walks both to picked up,
+  and asserts the report names Dana and not Morgan.
+- One line in the rush demo, so the capstone prints what it collected.
+
+**Decided:**
+- **Net sales keeps counting uncollected food** (2026-09-01 decision #1, not
+  re-opened). Cash-basis revenue would retroactively redefine what every past
+  report's headline meant, to fix a gap that a second number states directly.
+- **The split covers exactly the set revenue covers.** Money taken for an
+  order nobody collected is a till question, and the till is out of scope by
+  decision #2 until the outstanding list stops explaining the variance. Said
+  in a comment on the type, so the next person does not read the scope as an
+  oversight.
+- **The day comes from the same clock reading the day bucket used**, not from
+  a second read of the `businessDay` column. One reading per order was
+  already the rule here for DST reasons; a chase list is not the place to
+  start a second way of deciding what day it is.
+- **`refunded` gets its bucket even though it is structurally empty today.**
+  The only refund the engine writes accompanies a `cancel`, and a cancelled
+  order is not a sale — so the bucket totals zero and the screen hides it.
+  It exists so that a refund which survives a pickup cannot land in
+  "collected" the day somebody adds one.
+
+**Left behind:**
+- **C-050 had no `Defects Found` entry in the write-up.** The repo's own rule
+  is that defects go there as they happen. Written now, from the PROGRESS
+  entry, alongside this item's.
+- **No reconciliation against a till or a processor.** Named above as a
+  decision, repeated here because it is the thing someone will look for.
+- **The rest of PRD 1** — gross versus net versus tax on the headline, a
+  "Today" bounded on the business day, p90 and ran-late, cancellations by
+  reason, date range and CSV. This item is that PRD's prerequisite defect
+  fix, not its first feature.
+- **Nothing re-audits an expiring caveat.** The habit this defect argues for —
+  when an item makes a state common that a caveat assumed rare, re-read the
+  caveat in the same session — is written into the WRITEUP and enforced by
+  nobody. A checklist item in CLAUDE.md is the cheap version; it is not
+  added here because one instance is not yet a pattern.

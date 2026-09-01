@@ -31,14 +31,24 @@ const opt = (
 const utc = (year: number, month: number, day: number, hour: number, minute = 0): Date =>
   new Date(Date.UTC(year, month - 1, day, hour, minute));
 
+let seq = 0;
+
 const order = (
   at: Date,
   lines: ReportableLine[],
   status: ReportableOrder['status'] = 'picked_up',
   money = { subtotalCents: 0, taxCents: 0, totalCents: 0 },
+  payment: ReportableOrder['paymentState'] = 'paid',
 ): ReportableOrder => ({
   status,
   placedAt: at,
+  // A running number, so the fixtures that do not care about the chase list
+  // still produce distinguishable rows in it. `paid` is the default for the
+  // same reason: every test written before C-051 is about revenue, and an
+  // unpaid default would put all of them on the outstanding list.
+  seq: (seq += 1),
+  customerName: 'Dana',
+  paymentState: payment,
   ...money,
   lines,
 });
@@ -134,6 +144,13 @@ describe('salesReport — what each status counts toward', () => {
       topItems: [],
       attachRates: [],
       noShow: { sold: 0, noShow: 0, rate: null },
+      payment: {
+        collectedCents: 0,
+        outstandingCents: 0,
+        refundedCents: 0,
+        outstanding: [],
+        unpaidRate: null,
+      },
       inFlight: 0,
     });
   });
@@ -265,5 +282,77 @@ describe('salesReport — the rankings and the money', () => {
     );
     expect(report.attachRates).toHaveLength(2);
     expect(report.attachRates.every((rate) => rate.withOption === 1)).toBe(true);
+  });
+});
+
+describe('salesReport — collected versus charged (defect D2, C-051)', () => {
+  const AT = utc(2026, 7, 14, 19);
+  const money = (totalCents: number) => ({ subtotalCents: totalCents, taxCents: 0, totalCents });
+
+  it('separates the money that came in from the money that was booked', () => {
+    const paid = order(AT, [line('Burrito', 1, 1095)], 'picked_up', money(1195), 'paid');
+    const unpaid = order(AT, [line('Bowl', 1, 1430)], 'picked_up', money(1430), 'unpaid');
+    const report = salesReport([paid, unpaid], LA);
+
+    const charged = report.days[0]?.totalCents ?? 0;
+    expect(charged).toBe(2625);
+    expect(report.payment.collectedCents).toBe(1195);
+    expect(report.payment.collectedCents).not.toBe(charged);
+    // To the cent. This delta is the whole defect: before C-051 the screen
+    // said 2625 and the drawer held 1195, and nothing reconciled the two.
+    expect(charged - report.payment.collectedCents).toBe(1430);
+    expect(report.payment.outstandingCents).toBe(1430);
+    expect(report.payment.outstanding).toEqual([
+      { day: '2026-07-14', seq: unpaid.seq, customerName: 'Dana', totalCents: 1430 },
+    ]);
+    expect(report.payment.unpaidRate).toBe(1 / 2);
+  });
+
+  it('does not chase an unpaid order nobody was handed', () => {
+    // Cancelled, abandoned and still-cooking orders are `unpaid` too, and none
+    // of them is money anybody owes. The split covers exactly the set revenue
+    // covers — the defect was revenue counting uncollected money, not the
+    // product forgetting to bill a no-show.
+    const report = salesReport(
+      [
+        order(AT, [line('Burrito', 1, 1095)], 'cancelled', money(1195), 'unpaid'),
+        order(AT, [line('Burrito', 1, 1095)], 'abandoned', money(1195), 'unpaid'),
+        order(AT, [line('Burrito', 1, 1095)], 'preparing', money(1195), 'unpaid'),
+      ],
+      LA,
+    );
+
+    expect(report.payment.outstanding).toEqual([]);
+    expect(report.payment.outstandingCents).toBe(0);
+    expect(report.payment.unpaidRate).toBeNull();
+  });
+
+  it('keeps a refund in its own bucket instead of netting it into either', () => {
+    const report = salesReport(
+      [order(AT, [line('Burrito', 1, 1095)], 'picked_up', money(1195), 'refunded')],
+      LA,
+    );
+
+    expect(report.payment.collectedCents).toBe(0);
+    expect(report.payment.outstandingCents).toBe(0);
+    expect(report.payment.refundedCents).toBe(1195);
+    // Still booked as revenue: the split explains the headline, it never
+    // restates it (decision 2026-09-01 #1).
+    expect(report.days[0]?.totalCents).toBe(1195);
+  });
+
+  it('lists the chase list chronologically, oldest first', () => {
+    const report = salesReport(
+      [
+        order(utc(2026, 7, 14, 19), [line('Burrito', 1, 1)], 'picked_up', money(100), 'unpaid'),
+        order(utc(2026, 7, 15, 19), [line('Burrito', 1, 1)], 'picked_up', money(200), 'unpaid'),
+      ],
+      LA,
+    );
+
+    expect(report.payment.outstanding.map((o) => [o.day, o.totalCents])).toEqual([
+      ['2026-07-14', 100],
+      ['2026-07-15', 200],
+    ]);
   });
 });

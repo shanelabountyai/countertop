@@ -7,8 +7,10 @@
 // are not selected either — the report has no use for them, and not selecting
 // them is how it stays true that they are never read for display.
 //
-// Customer names, phones and notes are not selected. A sales report has no
-// business holding them.
+// Phones and notes are not selected. A sales report has no business holding
+// them. `customerName` and `seq` ARE selected, and only since C-051: the
+// outstanding list is a chase list, and "$14.30 is owed" with nobody to ask
+// is not one. They are snapshot columns like the rest of this select.
 import { elapsedMinutes, type QuoteSample, type ReportableOrder, type StatusEvent } from '@countertop/core';
 import { prisma } from './index';
 
@@ -31,6 +33,9 @@ export function loadReportOrders(since: Date): Promise<ReportableOrder[]> {
     select: {
       status: true,
       placedAt: true,
+      seq: true,
+      customerName: true,
+      paymentState: true,
       subtotalCents: true,
       taxCents: true,
       totalCents: true,

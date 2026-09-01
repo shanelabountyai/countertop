@@ -40,10 +40,15 @@ const cart = (quantity: number): Cart => ({
 });
 
 let keyCounter = 0;
-async function place(quantity = 1, at: Date = AT): Promise<string> {
+async function place(
+  quantity = 1,
+  at: Date = AT,
+  who: { name?: string; paidNow?: boolean } = {},
+): Promise<string> {
   const result = await placeOrder({
     cart: cart(quantity),
-    customerName: 'Dana',
+    customerName: who.name ?? 'Dana',
+    ...(who.paidNow && { paidNow: true }),
     idempotencyKey: `report-${(keyCounter += 1)}`,
     now: at,
   });
@@ -163,6 +168,27 @@ describe('the sales report, against the database', () => {
       LA,
     );
     expect(report.days.map((day) => day.day)).toEqual(['2026-07-14']);
+  });
+
+  // C-051 / defect D2. The engine's arithmetic is proved in packages/core; what
+  // is proved here is that the loader hands it the real `paymentState`, `seq`
+  // and name — the three columns it did not select before, and the ones a
+  // chase list is useless without.
+  it('separates collected from charged, and names who still owes', async () => {
+    await advanceTo(await place(1, AT, { name: 'Pia', paidNow: true }), 'picked_up');
+    await advanceTo(await place(1, AT, { name: 'Ozzy' }), 'picked_up');
+
+    const report = await reportSince();
+    const charged = report.days[0]?.totalCents ?? 0;
+
+    // Two identical burritos: 1456 each, 2912 charged, half of it collected.
+    expect(charged).toBe(2912);
+    expect(report.payment.collectedCents).toBe(1456);
+    expect(charged - report.payment.collectedCents).toBe(report.payment.outstandingCents);
+    expect(report.payment.outstanding).toEqual([
+      { day: '2026-07-14', seq: 2, customerName: 'Ozzy', totalCents: 1456 },
+    ]);
+    expect(report.payment.unpaidRate).toBe(1 / 2);
   });
 });
 
