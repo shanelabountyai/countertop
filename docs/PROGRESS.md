@@ -3478,3 +3478,5 @@ and the money PRD that comes next has to reconcile against something.
 - **Nothing reconciles yet.** C-051 gave the report `Collected` and
   `Outstanding`; this gives every collection an instant. Joining the two — "what
   came in between 5 and 9" — is PRD 1's date-range work, not this.
+
+C-085 committed at 8a74af1.
