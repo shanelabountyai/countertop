@@ -3073,3 +3073,5 @@ item is small.
 - **One date, not a range.** The question this answers is "which day's #047",
   and the answer is a day. A range is a report, and the report already
   exists.
+
+C-049 committed at 786000e.
