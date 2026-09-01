@@ -3300,3 +3300,5 @@ from that moment the read side of the replay is a leak.
   directly.
 - **No log line behind the refusal.** The whole reason the new error kind
   carries the name is that nothing writes it anywhere yet. C-084.
+
+C-052 committed at 75931a5.
