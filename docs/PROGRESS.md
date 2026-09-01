@@ -3024,3 +3024,5 @@ zero-data path all behaved.
   assurance that actually covers it.
 - **A history search that is a bare number still cannot be narrowed by date.**
   Third session carrying this.
+
+C-048 committed at fd06d98.
