@@ -8,6 +8,7 @@
 // client that could hand the server its own cart could hand it a $0 one.
 import {
   formatOrderNumber,
+  isIdempotencyKey,
   type CartReview,
   type Intensity,
   type PaymentState,
@@ -44,9 +45,30 @@ export type OrderConfirmation = {
   }[];
 };
 
-/** Placement's own refusals, plus the one only a request can commit: arriving
- *  in a shape our form never produces. Same kind the cart actions use. */
-export type CheckoutError = PlacementError | { kind: 'malformed_request'; message: string };
+/** Placement's own refusals, plus the two only a request can commit: arriving
+ *  in a shape our form never produces, and naming a key that cannot have come
+ *  from a browser. Same kind the cart actions use. */
+export type CheckoutError =
+  | PlacementError
+  | { kind: 'malformed_request'; message: string }
+  | { kind: 'idempotency_key_invalid'; message: string };
+
+/** C-052 / defect D3. Its own kind rather than folding into `malformed_request`
+ *  because this is the one refusal aimed at a PROGRAMMER — the customer's
+ *  browser cannot produce it — and until C-084 puts a log line behind it, the
+ *  kind is the only name it has. The message stays customer-safe anyway: the
+ *  screen renders it, and "must be a UUID" is a sentence nobody at a counter
+ *  should ever have to read. */
+const BAD_KEY: CheckoutResult = {
+  ok: false,
+  errors: [
+    {
+      kind: 'idempotency_key_invalid',
+      message: 'That order could not be read. Try again.',
+    },
+  ],
+  review: null,
+};
 
 export type CheckoutResult =
   | { ok: true; confirmation: OrderConfirmation }
@@ -108,7 +130,13 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
   if (!isRecord(raw)) return MALFORMED;
 
   const { idempotencyKey, clientTotalCents, payNow } = raw;
-  if (typeof idempotencyKey !== 'string' || idempotencyKey === '') return MALFORMED;
+  if (typeof idempotencyKey !== 'string') return MALFORMED;
+  // The boundary the whole defect turns on. `placeOrder` replays a hit on this
+  // key into a full receipt including `statusToken`, so an attacker-chosen key
+  // is an attacker-chosen read. Checked HERE, at the only entry point a
+  // request can reach — the seed, the rush and the db tests are trusted
+  // callers driving the same function with no request behind them.
+  if (!isIdempotencyKey(idempotencyKey)) return BAD_KEY;
   if (clientTotalCents !== undefined && typeof clientTotalCents !== 'number') return MALFORMED;
   // The mock provider (P1-8). A real one is a call that can fail, and the
   // failure — not the radio button — is what would decide the state; this is

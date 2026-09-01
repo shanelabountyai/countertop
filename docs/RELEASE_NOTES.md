@@ -1223,3 +1223,23 @@ cancel each other out.
 **And it names who to ask.** Every order handed over unpaid is listed with its
 day, its number, the customer's name and the amount owed — a list you can work,
 not a count of six.
+
+## C-052 — An order key had to be unguessable, and nothing checked
+
+**Placing an order carries a key, and the key can read the order back.** That
+is what makes a double-tap safe: the second submit presents the same key and
+gets the same order rather than making a new one. It also means presenting a
+key returns the whole order — the customer's name, phone, totals and the
+private link to their status page.
+
+**The browser has always used an unguessable one.** The server never insisted.
+Any text would do, and this project's own demo data used keys like
+`seed-order-0`. Nothing was exposed in practice, because there is only one
+client and it does the right thing — but the first extra client to number its
+own orders `kiosk-2-0047` would have made every one of them readable by
+counting.
+
+**The server now insists.** An order key must be a UUID or the order is
+refused, and the demo data was regenerated to match. The stronger fix — tying
+the replay to the session that placed the order, so a stolen key is no use
+either — is on the list and named.

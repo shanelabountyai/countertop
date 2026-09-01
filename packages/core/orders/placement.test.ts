@@ -4,6 +4,7 @@ import { SAMPLE_MENU, menuWith } from '../menu/sample-menu';
 import { priceOrder } from '../pricing/pricing';
 import {
   buildOrderSnapshot,
+  isIdempotencyKey,
   MAX_CUSTOMER_NAME_LENGTH,
   normalizeIdentity,
 } from './placement';
@@ -262,5 +263,57 @@ describe('order identity (P0-8)', () => {
       'phone_too_long',
       'order_note_too_long',
     ]);
+  });
+});
+
+// C-052 / defect D3. The idempotency key is a read handle, not only a write
+// guard: `placeOrder` looks it up first and replays the whole receipt on a
+// hit, `statusToken` included. The server used to accept any non-empty string.
+describe('isIdempotencyKey', () => {
+  it('accepts what a browser actually generates', () => {
+    // Not a literal: the real generator, ten times, is the only fixture that
+    // cannot drift away from what the client sends.
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect(isIdempotencyKey(crypto.randomUUID())).toBe(true);
+    }
+  });
+
+  it('accepts an upper-cased UUID — a shouting client is not the threat', () => {
+    expect(isIdempotencyKey('9F2B4C1D-3E5A-4B7C-8D9E-0A1B2C3D4E5F')).toBe(true);
+  });
+
+  it('refuses the keys this repo itself was writing', () => {
+    // Both of these were real, in seed.ts and rush.ts, until this item.
+    expect(isIdempotencyKey('seed-order-0')).toBe(false);
+    expect(isIdempotencyKey('rush-Dana-11')).toBe(false);
+  });
+
+  it('refuses the key a well-meaning integrator writes', () => {
+    // The whole reason this is a defect and not a hypothetical: the second
+    // client numbers its own attempts, and from that moment every order it
+    // placed is reachable by counting.
+    expect(isIdempotencyKey('kiosk-2-0047')).toBe(false);
+  });
+
+  it('refuses 36 characters of nothing', () => {
+    // Right shape, no entropy. This is why the variant nibble is checked and
+    // not just the dashes.
+    expect(isIdempotencyKey('00000000-0000-0000-0000-000000000000')).toBe(false);
+  });
+
+  it('refuses the near misses', () => {
+    for (const value of [
+      '',
+      '   ',
+      '9f2b4c1d3e5a4b7c8d9e0a1b2c3d4e5f', // unhyphenated
+      '9f2b4c1d-3e5a-4b7c-8d9e-0a1b2c3d4e5', // one short
+      '9f2b4c1d-3e5a-4b7c-8d9e-0a1b2c3d4e5f0', // one long
+      '9f2b4c1d-3e5a-0b7c-8d9e-0a1b2c3d4e5f', // version 0
+      '9f2b4c1d-3e5a-4b7c-0d9e-0a1b2c3d4e5f', // wrong variant
+      'gf2b4c1d-3e5a-4b7c-8d9e-0a1b2c3d4e5f', // not hex
+      ' 9f2b4c1d-3e5a-4b7c-8d9e-0a1b2c3d4e5f', // leading space
+    ]) {
+      expect(isIdempotencyKey(value), value).toBe(false);
+    }
   });
 });

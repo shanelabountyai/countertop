@@ -32,7 +32,7 @@ import {
 } from '@countertop/core';
 import { prisma } from './index';
 import { loadMenu } from './menu';
-import { placeOrder } from './placement';
+import { derivedIdempotencyKey, placeOrder } from './placement';
 import { applyOrderAction } from './transitions';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
@@ -417,7 +417,8 @@ const at = (anchor: Date, minute: number): Date => instantMinutesAfter(anchor, m
 
 /** Every order's idempotency key, derived so a retry gets a NEW one — it is a
  *  different order, not a resubmission — and the double-submit gets the same. */
-const keyFor = (order: RushOrder): string => `rush-${order.label}-${order.minute}`;
+const keyFor = (order: RushOrder): string =>
+  derivedIdempotencyKey(`rush-${order.label}-${order.minute}`);
 
 async function buildCart(order: RushOrder): Promise<Cart> {
   // The menu as it was when the customer composed, which for exactly one

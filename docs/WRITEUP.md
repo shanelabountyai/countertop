@@ -1072,6 +1072,53 @@ covers. Money taken for an order nobody collected is a till question, and the
 till is out of scope by decision until the outstanding list stops explaining
 the variance.
 
+### A write guard that was also a read handle (C-052)
+
+Second-pass evaluation, defect D3, and the only one of the three the evaluator
+was careful to grade down: a boundary defect, not a live break.
+
+The idempotency key exists so a double-tap makes one order. `placeOrder` looks
+it up before anything else and, on a hit, replays the stored order — which is
+what makes the retry return the *same answer* rather than merely not
+duplicating. That replay goes through `ORDER_RECEIPT`, which is every scalar
+column: name, phone, totals, and `statusToken`, the customer's private link.
+
+So the key is two things at once. As a write guard, any unique string works.
+As a read handle, it has to be unguessable — and the server enforced nothing:
+any non-empty string was accepted. The only thing making it safe was that the
+one client generates `crypto.randomUUID()`, and this repo's own seed and rush
+scripts did not, writing `seed-order-0` and `rush-Dana-11` into a table the
+deployed demo still holds.
+
+Nothing was exposed. What makes it worth fixing before it is exploitable is
+the *shape* of how it would become exploitable: not an attack, but an
+integrator. A kiosk, a QR flow or a POS bridge whose author reads
+"idempotency key" as "your own unique reference" and writes `kiosk-2-0047`.
+Every order that client places is then readable by counting, and nobody
+involved did anything wrong.
+
+Two things about the fix are worth keeping.
+
+**The check is at the boundary, and grepping the callers is what settles
+where that is.** `placeOrder` has four kinds of caller — the action, the seed,
+the rush, and seven db test files — and exactly one of them is behind a
+request. Pushing the check down would have converted 21 trusted call sites and
+turned every readable test key into an opaque UUID, for no boundary that the
+action does not already cover. The lazy fix and the correct fix agree here,
+which is usually the sign the boundary is in the right place.
+
+**A format check is a floor, not a proof, and the code says so where someone
+would otherwise mistake it for the fix.** It cannot tell a random v4 from a
+hand-typed one, and it does nothing against someone holding a real key. The
+actual answer is binding the replay to the session that placed the order, and
+it is named in the comment as a separate item rather than implied by silence.
+
+The scripts kept deterministic keys — the rush's key is load-bearing logic, a
+retry must differ and a double-submit must match — so they derive a UUID from
+a name, with the version nibble saying `5` rather than `4`. Claiming a derived
+value is random would be a lie told to a regex, and the one person it would
+mislead is whoever audits the table later.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

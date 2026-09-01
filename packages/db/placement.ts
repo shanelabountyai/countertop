@@ -7,7 +7,7 @@
 // module. This file's own job is the three things only a database can do —
 // take the next order number without racing, refuse a second order for the
 // same idempotency key, and write the snapshot and its event atomically.
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   buildOrderSnapshot,
   businessDayOf,
@@ -120,6 +120,38 @@ export const eventRow = (draft: OrderEventDraft) => ({
 
 export const findOrderByIdempotencyKey = (idempotencyKey: string): Promise<OrderReceipt | null> =>
   prisma.order.findUnique({ where: { idempotencyKey }, ...ORDER_RECEIPT });
+
+/**
+ * A UUID derived from a name, for the scripts (C-052, defect D3).
+ *
+ * The seed and the rush cannot use `randomUUID()`: the rush's key is load-
+ * bearing logic — a retry must get a NEW key because it is a different order,
+ * and the double-submit must get the SAME one — and a seed that writes
+ * different keys every run stops being a fixture. They wrote `seed-order-0`
+ * and `rush-Dana-11` instead, which is a guessable read handle on a real
+ * database, and the deployed demo has a table full of them.
+ *
+ * Name-based, like a UUIDv5, so the same name always yields the same UUID and
+ * two different names never collide in practice. SHA-256 rather than the
+ * RFC's SHA-1 because it costs nothing here and is one less thing to defend;
+ * the version nibble still says 5, which is the truthful one — this value is
+ * derived from a name, not random, and pretending it is a v4 would be a lie
+ * told to a regex.
+ *
+ * This is NOT a way to make a public key safe. It is how a trusted script
+ * writes rows that look like every other row.
+ */
+export function derivedIdempotencyKey(name: string): string {
+  const hex = createHash('sha256').update(`countertop:idempotency:${name}`).digest('hex');
+  const variant = ((parseInt(hex.slice(16, 17), 16) & 0x3) | 0x8).toString(16);
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `5${hex.slice(13, 16)}`,
+    `${variant}${hex.slice(17, 20)}`,
+    hex.slice(20, 32),
+  ].join('-');
+}
 
 /**
  * The customer's status page (C-014, P0-5, P0-8).

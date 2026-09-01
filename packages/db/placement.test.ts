@@ -1,7 +1,12 @@
-import type { Cart } from '@countertop/core';
+import { isIdempotencyKey, type Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
-import { placeOrder, type PlacementInput, type PlacementResult } from './placement';
+import {
+  derivedIdempotencyKey,
+  placeOrder,
+  type PlacementInput,
+  type PlacementResult,
+} from './placement';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
 // 8pm on the 4th of July in Los Angeles. Deliberately an instant that is
@@ -320,5 +325,52 @@ describe('the quote the customer was given (P1-4)', () => {
       quotedHighMinutes: first.quotedHighMinutes,
       quotedOpenWeight: first.quotedOpenWeight,
     });
+  });
+});
+
+// C-052 / defect D3. The seed and the rush cannot call `randomUUID()` — the
+// rush's key is load-bearing (a retry must differ, a double-submit must match)
+// and a seed that writes different keys every run is not a fixture. So they
+// derive one from a name, and what they write has to be indistinguishable in
+// form from what a browser writes, or the boundary check that closed the
+// defect would refuse the scripts' own rows on the way back in.
+describe('derivedIdempotencyKey', () => {
+  it('produces something the action boundary would accept', () => {
+    expect(isIdempotencyKey(derivedIdempotencyKey('seed-order-0'))).toBe(true);
+    expect(isIdempotencyKey(derivedIdempotencyKey('rush-Dana-11'))).toBe(true);
+    // Including the awkward names: unicode, empty, and very long.
+    expect(isIdempotencyKey(derivedIdempotencyKey(''))).toBe(true);
+    expect(isIdempotencyKey(derivedIdempotencyKey('café — ñ — 🌯'))).toBe(true);
+    expect(isIdempotencyKey(derivedIdempotencyKey('x'.repeat(5_000)))).toBe(true);
+  });
+
+  it('is stable, which is the entire reason it is not random', () => {
+    expect(derivedIdempotencyKey('seed-order-0')).toBe(derivedIdempotencyKey('seed-order-0'));
+  });
+
+  it('separates names that differ by one character', () => {
+    const keys = new Set(
+      ['rush-Dana-11', 'rush-Dana-12', 'rush-Dan-11', 'seed-order-0', 'seed-order-1'].map(
+        derivedIdempotencyKey,
+      ),
+    );
+    expect(keys.size).toBe(5);
+  });
+
+  it('says name-based in the version nibble rather than claiming to be random', () => {
+    // Position 14 is the version. A `4` here would be a lie told to a regex:
+    // this value is derived, not random, and the difference is exactly what an
+    // auditor reading a row later would want to know.
+    expect(derivedIdempotencyKey('seed-order-0')[14]).toBe('5');
+  });
+
+  it('still round-trips through a real placement and its replay', async () => {
+    const key = derivedIdempotencyKey('seed-order-0');
+    const first = await place({ idempotencyKey: key });
+    const second = await place({ idempotencyKey: key });
+
+    expect(first).toMatchObject({ ok: true, replayed: false });
+    expect(second).toMatchObject({ ok: true, replayed: true });
+    expect(placed(second)).toEqual(placed(first));
   });
 });

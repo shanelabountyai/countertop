@@ -3223,3 +3223,80 @@ strongest signal in the second-pass set.
   added here because one instance is not yet a pattern.
 
 C-051 committed at 2615098.
+
+## C-052 — A read handle with no entropy floor (defect D3)
+
+The last of the three second-pass defects, and the one the evaluator was
+careful to call a boundary defect rather than a live break.
+
+**What was wrong.** `placeCartOrder` accepted any non-empty string as an
+idempotency key. `placeOrder` looks that key up *first*, before the menu is
+even read, and replays a hit through `ORDER_RECEIPT` — which is every scalar
+column on the order: `statusToken`, `customerName`, `customerPhone`, totals.
+So presenting a key was enough to receive a complete order and a permanent,
+non-expiring status link to it. The server enforced no format, no entropy and
+no session binding on a value that doubles as a read handle for a secret.
+
+**Honest exploitability, unchanged from the evaluator's write-up.** This was
+not a practical break. The real client is `crypto.randomUUID()` — 122 bits —
+and that was the only thing making it safe. What was real: the seed and the
+rush wrote `seed-order-0` and `rush-Dana-11`, and the *deployed* demo has a
+table full of them. The day a second client exists — a kiosk, a QR flow, a POS
+bridge, a retry wrapper — a well-meaning integrator writes `kiosk-2-0047` and
+from that moment the read side of the replay is a leak.
+
+**Built:**
+- `isIdempotencyKey` in `packages/core/orders/placement.ts`. Canonical
+  8-4-4-4-12, case-insensitive, version nibble 1-8 and the RFC variant. The
+  variant is checked and not just the dashes, because
+  `00000000-0000-0000-0000-000000000000` is 36 characters of nothing and
+  passes a shape-only test.
+- One call at the action boundary, replacing the old `key === ''` check, with
+  its own `idempotency_key_invalid` refusal kind. Its own kind rather than
+  folding into `malformed_request` because this is the one refusal aimed at a
+  *programmer* — the customer's browser cannot produce it — and until C-084
+  puts a log line behind it, the kind is the only name it has. The message
+  stays customer-safe: the screen renders it, and "must be a UUID" is a
+  sentence nobody at a counter should have to read.
+- `derivedIdempotencyKey` in `packages/db/placement.ts`, and the seed and the
+  rush now use it. Name-based like a UUIDv5, so the same name always yields
+  the same UUID, with the version nibble saying `5` — the truthful one. This
+  value is derived, not random, and claiming `4` would be a lie told to a
+  regex.
+- Tests at three grains: the predicate against the real generator ten times
+  over and against every near miss, including both keys this repo itself was
+  writing; the derived key round-tripping through a real placement and its
+  replay; and one e2e that overrides `crypto.randomUUID` in the page before
+  navigation, so the test is a *second client*, not a hand-built POST.
+
+**Decided:**
+- **The check is at the action boundary, not inside `placeOrder`.** Grepping
+  the callers is what settles it: the action is the only one behind a request.
+  The seed, the rush and seven db test files drive `placeOrder` directly with
+  readable keys and are trusted. Pushing the check down would have converted
+  21 call sites and made every test key an opaque UUID, for no boundary that
+  is not already covered.
+- **The scripts' keys were regenerated anyway**, even though the boundary
+  check alone closes the hole — nothing can present `seed-order-0` through the
+  only public entry point any more. Defence in depth, and it means the
+  deployed demo stops holding a table of guessable handles.
+- **A format check is a floor, not a proof**, and the code says so in the
+  place someone would otherwise mistake it for the fix. It cannot tell a
+  random v4 from a hand-typed one and it does not stop replay by someone who
+  has a real key. The actual answer is binding the replay to the session that
+  placed the order — PRD 6 E-1, a separate item, and named in the comment.
+
+**Left behind:**
+- **The real fix, E-1.** Session binding. This item is the mitigation the PRD
+  asked for and says so.
+- **The deployed database still holds the old `seed-order-*` rows.** Re-seeding
+  production is a destructive script against a live URL and is not something to
+  do as a side effect of a defect fix. The boundary check means those keys are
+  unusable through the app regardless; the rows go when the demo is next
+  re-seeded deliberately.
+- **`idempotency_key_required` in `placeOrder` is now unreachable from the
+  app** — the boundary refuses an empty key before placement sees it. Kept,
+  because it is the guard for the trusted callers and its test still drives it
+  directly.
+- **No log line behind the refusal.** The whole reason the new error kind
+  carries the name is that nothing writes it anywhere yet. C-084.

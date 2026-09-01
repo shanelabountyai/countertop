@@ -225,3 +225,27 @@ test.describe('the ready-time estimate (P0-7)', () => {
     await expect(page.getByTestId('ready-estimate')).toHaveCount(0);
   });
 });
+
+// C-052 / defect D3. The idempotency key is a read handle, not only a write
+// guard: placement looks it up FIRST and replays a hit into a whole receipt,
+// `statusToken` included. Nothing but the browser's `crypto.randomUUID()` was
+// making that safe, and this repo's own scripts wrote `seed-order-0`.
+test('a client that invents its own order key is refused, and writes nothing', async ({ page }) => {
+  // The second client the defect is actually about — a kiosk numbering its own
+  // attempts, written by somebody meaning well. From the moment it ships, every
+  // order it placed is reachable by counting.
+  await page.addInitScript(() => {
+    Object.defineProperty(crypto, 'randomUUID', { value: () => 'kiosk-2-0047' });
+  });
+
+  await addBurritoToCart(page);
+  await page.goto('/checkout');
+  await page.getByRole('textbox', { name: /Name for the order/ }).fill('Wren Adler');
+  await page.getByRole('button', { name: /Place order/ }).click();
+
+  await expect(page.getByText('That order could not be read. Try again.')).toBeVisible();
+  await expect(page.getByTestId('order-number')).toHaveCount(0);
+  // And no row was written, which is the assertion that matters.
+  await page.goto('/kitchen');
+  await expect(page.getByText('Wren Adler')).toHaveCount(0);
+});

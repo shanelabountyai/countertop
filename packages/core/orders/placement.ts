@@ -104,6 +104,34 @@ export function normalizeIdentity(raw: {
 }
 
 /**
+ * Is this string a UUID (C-052, defect D3)?
+ *
+ * The idempotency key is not only a write guard — `placeOrder` looks it up
+ * FIRST and replays the whole receipt on a hit, `statusToken` included. So
+ * presenting a key is presenting a read handle to somebody's order, and the
+ * only thing that has ever made that safe is the browser generating it with
+ * `crypto.randomUUID()`. The server enforced nothing: any non-empty string
+ * was accepted, and this repo's own seed and rush scripts wrote keys like
+ * `seed-order-0`. The day a second client exists — a kiosk, a QR flow, a POS
+ * bridge — a well-meaning integrator writes `kiosk-2-0047` and the replay is
+ * a leak from that moment.
+ *
+ * The canonical 8-4-4-4-12, case-insensitive because a client that upper-cases
+ * a valid UUID is not the threat, with the version nibble 1-8 and the RFC
+ * variant. Strict about the variant deliberately: `00000000-0000-0000-0000-
+ * 000000000000` is 36 characters of nothing and would pass a shape-only check.
+ *
+ * A FORMAT CHECK IS A FLOOR, NOT A PROOF. It cannot tell a random v4 from a
+ * hand-typed one, and it does not stop someone who has a real key from
+ * replaying it. The actual answer is binding the replay to the session that
+ * placed the order, which is PRD 6 E-1 and a separate item.
+ */
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export const isIdempotencyKey = (value: string): boolean => UUID.test(value);
+
+/**
  * The order number as everyone says it out loud: "#047" (P0-8).
  *
  * Padded to three digits so a queue of #9 and #47 reads as a column rather

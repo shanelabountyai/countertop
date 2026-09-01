@@ -19,7 +19,7 @@ import {
 } from '@countertop/core';
 import { prisma } from './index';
 import { loadMenu } from './menu';
-import { placeOrder } from './placement';
+import { derivedIdempotencyKey, placeOrder } from './placement';
 import { applyOrderAction } from './transitions';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
@@ -142,7 +142,7 @@ async function seedOrders(): Promise<void> {
 
     const placed = await placeOrder({
       cart,
-      idempotencyKey: `seed-order-${index}`,
+      idempotencyKey: derivedIdempotencyKey(`seed-order-${index}`),
       now: minutesAgo(seed.placedMinutesAgo),
       customerName: seed.customerName,
       orderNote: seed.orderNote ?? null,
