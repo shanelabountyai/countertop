@@ -3403,3 +3403,78 @@ asking is not just shorter than re-deriving, it is the version that stays right.
   cancellations-by-reason row is the nearest thing and is a different source.
 
 C-084 committed at 9c6cda3.
+
+## C-085 — A payment is something that happened (PRD 6 P0-3)
+
+The `ponytail:` comment on `markOrderPaid` has named this ceiling since the day
+it was written: *"the column is the record; there is no `payment` event, so a
+counter-collected order carries no instant. A real provider makes this a logged
+event with a provider reference, and that is where the timestamp lands — the
+`refund` kind is the shape to copy."* This item copies it.
+
+**What was wrong.** `paymentState` has been on the order since C-003 and
+reachable since C-038, but flipping it recorded nothing else. No instant, no
+actor, no amount — the systems review's complaint word for word. "When did we
+take that money?" had no answer at all for an order collected at the counter,
+and the money PRD that comes next has to reconcile against something.
+
+**Built:**
+- A fifth `OrderEventKind`, `payment`, and `paymentEvent(now, amountCents,
+  where)` in the state machine — deliberately the mirror of the `refund` draft
+  `applyTransition` already pushes on a cancelled paid order. Same amount, same
+  shape, opposite direction.
+- `where: 'checkout' | 'counter'` is the thing the column could never say.
+  Both are the restaurant taking money, but they reconcile against different
+  things, and a payment event that cannot tell the drawer from the processor is
+  one nobody can use. The actor follows: the customer's own tap at checkout,
+  staff at the counter.
+- `packages/db/payment.ts` — `collectOrderPayment`. The rule, the column and
+  the event moved out of the server action and into a database module, because
+  a column and its event have to move in ONE transaction and that is something
+  only a database module can promise. It also means this write finally has a
+  test of its own; it never did, which is how the ceiling survived two items.
+- **The event only if the column actually moved.** `updateMany` matching zero
+  rows is the compare-and-set, the same one the queue's transitions use. Two
+  people tapping Collect at once is the ordinary case at a counter and it is
+  ONE payment — a second event would be a second payment in every report that
+  ever reads the log. There is a test that fires both concurrently.
+- **Checkout writes one too.** The bullet only asks for `collectPayment`, but
+  about two thirds of a service pays at checkout, and recording only the
+  counter half would have made "every payment has a time" false for most
+  orders.
+- One hand-written migration, one statement: Postgres will not let a value
+  added by `ALTER TYPE … ADD VALUE` be *used* later in the same transaction and
+  Prisma runs each migration in one, so adding the value and writing a row that
+  uses it cannot share a file. Nothing to backfill anyway — every payment taken
+  before today genuinely has no recorded instant, and inventing one would be a
+  lie about money.
+
+**Found while building:**
+- `time-in-state.ts` documented that `refund` carries a null `toStatus`. It
+  does not — the engine gives it the `cancelled` it accompanied. Found by
+  asserting the property the comment promised for the new kind. Harmless today
+  (the span it opens is zero-length because it shares an instant with the
+  transition it follows, and `visited` is a `Set` so the duplicate cannot
+  inflate an entry count) but inconsistent. **The comment is corrected; the
+  behaviour is not**, because changing an existing money event under an
+  unrelated item is how a small inconsistency becomes a silent report change.
+  PRD 3's payment rework settles the money events together.
+- The rush's ugly-case-2 assertion counted seven events and now sees eight.
+  Updated to assert the payment explicitly and to walk the statuses with the
+  money event stepped over — which is the more precise test it should always
+  have been.
+- The lint ban on `new Date(<expr>)` caught `new Date(DINNER.getTime() + …)` in
+  a new test. The ban is blanket by design and it was right: `instantMinutesAfter`
+  exists for exactly this.
+
+**Left behind:**
+- **No screen shows the instant.** Paid/unpaid is already on both the queue
+  card and the receipt; what is new is *when*, and nothing renders it. PRD 3
+  builds the payment surface and this is the substrate it needs. Recorded
+  rather than half-built.
+- **`refund`'s `toStatus`**, above.
+- **No provider reference.** `provider: 'mock'` is honest about there being no
+  processor. A real one puts its charge id here, which is the seam PRD 3 shapes.
+- **Nothing reconciles yet.** C-051 gave the report `Collected` and
+  `Outstanding`; this gives every collection an instant. Joining the two — "what
+  came in between 5 and 9" — is PRD 1's date-range work, not this.

@@ -8,7 +8,6 @@
 // between these writes and the internet, so nothing below may assume a caller
 // came from a screen this app rendered.
 import {
-  canCollectPayment,
   CANCEL_REASONS,
   ORDER_STATUSES,
   type CancelReason,
@@ -16,6 +15,7 @@ import {
   type OrderStatus,
 } from '@countertop/core';
 import { prisma } from '@countertop/db';
+import { collectOrderPayment } from '@countertop/db/payment';
 import { applyOrderAction } from '@countertop/db/transitions';
 import { revalidatePath } from 'next/cache';
 import { revalidateMenuSurfaces } from '@/lib/revalidate-menu';
@@ -125,43 +125,21 @@ export async function abandonOrder(orderId: string): Promise<KitchenResult> {
  * REFUNDED order as paid. Zero rows matched is not an error — it is the answer
  * "someone already handled this", and the queue re-renders with the truth.
  *
- * ponytail: the column is the record; there is no `payment` event, so a
- * counter-collected order carries no instant. A real provider makes this a
- * logged event with a provider reference, and that is where the timestamp
- * lands — the `refund` kind is the shape to copy.
+ * The rule, the column and the event all live in `packages/db/payment.ts`
+ * (C-085) — a column and its event have to move in one transaction, which is
+ * something only a database module can promise. This is the boundary: it
+ * reads the clock once, checks the argument, and revalidates.
  */
 export async function markOrderPaid(orderId: unknown): Promise<KitchenResult> {
   if (typeof orderId !== 'string' || orderId === '') {
     return { ok: false, message: 'That order could not be read. Reload the queue.' };
   }
 
-  // The button is UX; this is the rule. Asked of the status module, so the
-  // queue card, the history receipt and a hand-rolled POST all get the same
-  // answer to "is there money to collect on this?".
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    select: { status: true, paymentState: true },
-  });
-  if (!order) return { ok: false, message: 'That order could not be found.' };
-  if (!canCollectPayment(order.status, order.paymentState)) {
-    return {
-      ok: false,
-      message:
-        order.paymentState === 'unpaid'
-          ? 'Nobody took this order, so there is nothing to collect on it.'
-          : 'This order is already settled.',
-    };
-  }
-
-  // Still guarded on `unpaid` in the WHERE: the read above is not in the same
-  // transaction as the write, and two people tapping Collect at once is the
-  // ordinary case, not the exotic one.
-  await prisma.order.updateMany({
-    where: { id: orderId, paymentState: 'unpaid' },
-    data: { paymentState: 'paid' },
-  });
-  // The subtree, not the one page: this control now lives on the queue AND on
-  // the history receipt, and collecting from either has to move both.
+  // `now` is read HERE and passed down, like every other write on this screen.
+  const result = await collectOrderPayment(orderId, new Date());
+  if (!result.ok) return result;
+  // The subtree, not the one page: this control lives on the queue AND on the
+  // history receipt, and collecting from either has to move both.
   revalidatePath('/kitchen', 'layout');
   return { ok: true };
 }

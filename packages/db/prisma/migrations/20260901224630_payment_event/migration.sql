@@ -1,0 +1,21 @@
+-- ---------------------------------------------------------------------------
+-- PRD 6 P0-3 (C-085): a payment is something that HAPPENED, not a column that
+-- is simply true.
+--
+-- `paymentState` has been on the order since C-003 and reachable since C-038,
+-- but flipping it recorded no instant, no actor and no amount — so "when did
+-- we take that money?" had no answer for an order collected at the counter,
+-- and the `ponytail:` comment on `markOrderPaid` has named that ceiling since
+-- the day it was written. `refund` already exists and is exactly the right
+-- shape; this is its mirror.
+--
+-- ONE STATEMENT, and it is the whole migration on purpose. Postgres will not
+-- let a value added by `ALTER TYPE ... ADD VALUE` be USED later in the same
+-- transaction, and Prisma runs each migration file in one. Adding the value
+-- and writing a row that uses it therefore cannot share a migration — which is
+-- fine here, because there is nothing to backfill: every payment taken before
+-- today genuinely has no recorded instant, and inventing one would be a lie
+-- about money. Orders keep their `paid` column and gain no event, which reads
+-- as "we did not record this" rather than as a payment at migration time.
+-- ---------------------------------------------------------------------------
+ALTER TYPE "OrderEventKind" ADD VALUE 'payment';

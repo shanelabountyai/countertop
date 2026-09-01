@@ -25,6 +25,7 @@
     "./history": "./history.ts",
     "./report": "./report.ts",
     "./gate": "./gate.ts",
-    "./transitions": "./transitions.ts"
+    "./transitions": "./transitions.ts",
+    "./payment": "./payment.ts"
   }
 }

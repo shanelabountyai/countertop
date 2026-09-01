@@ -15,8 +15,20 @@ import { isTerminal, ORDER_STATUSES, type OrderStatus } from './state-machine';
  *  satisfies it structurally, so nothing has to map. */
 export type StatusEvent = {
   at: Date;
-  /** Null on events that did not move the order — `total_mismatch`, `refund`.
-   *  They are skipped: they mark the timeline, they do not divide it. */
+  /**
+   * Null on events that did not move the order — `total_mismatch` and
+   * `payment`. They are skipped: they mark the timeline, they do not divide
+   * it.
+   *
+   * `refund` is the odd one out and this comment used to claim otherwise: the
+   * engine gives it the `cancelled` it accompanied. That is harmless today —
+   * the span it opens is zero-length because it shares an instant with the
+   * transition it follows, and `visited` is a Set so the duplicate cannot
+   * inflate an entry count — but it is inconsistent with the two kinds above,
+   * and C-085 noticed it only by asserting the property this comment
+   * promised. Left as it is rather than changed under an unrelated item;
+   * PRD 3's payment rework is where the money events get settled together.
+   */
   toStatus: OrderStatus | null;
 };
 

@@ -1266,3 +1266,18 @@ key, and neither of those is a person.
 deletes something out from under an order mid-checkout, the customer gets
 "Something went wrong placing that order. Try again." instead of a broken page,
 and the shop gets a log line naming exactly what was missing.
+
+## C-085 — Money now has a time on it
+
+**"When did we take that?" had no answer.** An order was paid or it wasn't —
+a yes or no, with nothing recorded about when the money actually arrived or
+how much of it. A refund already left a proper record; the payment it reversed
+did not.
+
+**Every payment is now an entry in the order's history**, with its instant, its
+amount, and whether it was taken at checkout or handed over at the counter —
+which are two different things to reconcile and used to look identical.
+
+**Two people tapping "Collected" at once is still one payment.** The record and
+the order's payment state move together or not at all, so a busy counter cannot
+book the same money twice.

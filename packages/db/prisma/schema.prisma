@@ -115,6 +115,10 @@ enum OrderEventKind {
   total_mismatch
   /// P0-4: the mock provider's refund record for a cancelled paid order.
   refund
+  /// PRD 6 P0-3 (C-085): money arriving, with its instant and its amount. The
+  /// mirror of `refund`. Before it, an order collected at the counter had a
+  /// `paymentState` of `paid` and nothing anywhere saying when.
+  payment
 }
 
 // ---------------------------------------------------------------------------

@@ -27,7 +27,17 @@ export type CancelReason = (typeof CANCEL_REASONS)[number];
 export const EVENT_ACTORS = ['customer', 'staff', 'system'] as const;
 export type EventActor = (typeof EVENT_ACTORS)[number];
 
-export const ORDER_EVENT_KINDS = ['transition', 'revert', 'total_mismatch', 'refund'] as const;
+export const ORDER_EVENT_KINDS = [
+  'transition',
+  'revert',
+  'total_mismatch',
+  'refund',
+  /** Money arriving (C-085). The mirror of `refund`, and added for the same
+   *  reason that one exists: a payment is something that HAPPENED, at a time,
+   *  for an amount — not a column that is simply true. Until this kind, an
+   *  order collected at the counter carried no instant at all. */
+  'payment',
+] as const;
 export type OrderEventKind = (typeof ORDER_EVENT_KINDS)[number];
 
 export const PAYMENT_STATES = ['unpaid', 'paid', 'refunded'] as const;
@@ -316,6 +326,42 @@ export function placementEvent(now: Date): OrderEventDraft {
     toStatus: 'placed',
     actor: 'customer',
     reason: null,
+  };
+}
+
+/**
+ * Money arriving, as an event (C-085, PRD 6 P0-3).
+ *
+ * Deliberately the mirror of the `refund` draft `applyTransition` pushes on a
+ * cancelled paid order: same amount, same shape, opposite direction. A payment
+ * used to be a column flipping from `unpaid` to `paid` with no instant, no
+ * actor and no amount, which is the systems review's complaint word for word —
+ * and it meant "when did we take that money?" had no answer at all for an
+ * order collected at the counter.
+ *
+ * `where` is the thing the column could never say. Both are staff-adjacent —
+ * the mock provider at checkout is still the restaurant taking money — but
+ * they reconcile against different things, and a payment event that cannot
+ * tell the drawer from the processor is a payment event nobody can use.
+ *
+ * NOT a status change: `fromStatus` and `toStatus` are null, so the
+ * time-in-state tally steps over it exactly as it steps over `refund`.
+ */
+export function paymentEvent(
+  now: Date,
+  amountCents: number,
+  where: 'checkout' | 'counter',
+): OrderEventDraft {
+  return {
+    at: now,
+    kind: 'payment',
+    fromStatus: null,
+    toStatus: null,
+    // The customer pays; the staff collect. At checkout the customer's own tap
+    // took the money, at the counter somebody handed it over a till.
+    actor: where === 'checkout' ? 'customer' : 'staff',
+    reason: null,
+    detail: { amountCents, where, provider: 'mock' },
   };
 }
 

@@ -14,6 +14,7 @@ import {
   checkClientTotal,
   totalTampering,
   normalizeIdentity,
+  paymentEvent,
   placementEvent,
   readyEstimate,
   reviewCart,
@@ -269,6 +270,12 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
       ? null
       : checkClientTotal(snapshot.totalCents, input.clientTotalCents);
   const events: OrderEventDraft[] = [placementEvent(now)];
+  // The charge the mock provider took at checkout (C-085). The column alone
+  // used to be the whole record, which meant half of all payments — the ones
+  // taken here rather than at the counter — had no instant either. Recording
+  // only the counter half would have made "every payment has a time" a claim
+  // that is false for most orders.
+  if (input.paidNow) events.push(paymentEvent(now, snapshot.totalCents, 'checkout'));
   if (mismatch) {
     events.push({
       at: now,

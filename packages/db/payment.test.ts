@@ -4,9 +4,10 @@
 // until this item nothing wrote either, so `paid` and `refunded` were states
 // the database could hold and the app could never reach. These are the three
 // writes that make them reachable.
-import type { Cart } from '@countertop/core';
+import { instantMinutesAfter, type Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
+import { collectOrderPayment } from './payment';
 import { placeOrder, type PlacementInput } from './placement';
 import { applyOrderAction } from './transitions';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
@@ -98,5 +99,136 @@ describe('payment state (P1-8)', () => {
 
     expect(await paymentStateOf(order.id)).toBe('unpaid');
     expect(await prisma.orderEvent.count({ where: { orderId: order.id, kind: 'refund' } })).toBe(0);
+  });
+});
+
+// C-085 / PRD 6 P0-3. `paymentState` has been reachable since C-038, but
+// flipping it recorded no instant, no actor and no amount — the `ponytail:`
+// comment on `markOrderPaid` named that ceiling the day it was written. "When
+// did we take that money?" had no answer at all for a counter collection.
+describe('a payment is something that happened (PRD 6 P0-3)', () => {
+  /** Walk to `ready`, the state a counter collection actually happens in. */
+  const toReady = async (id: string) => {
+    for (let step = 0; step < 3; step += 1) {
+      const result = await applyOrderAction(id, { kind: 'advance', actor: 'staff' }, DINNER);
+      if (!result.ok) throw new Error(`advance refused: ${result.failure.message}`);
+    }
+  };
+
+  const paymentsOn = (orderId: string) =>
+    prisma.orderEvent.findMany({ where: { orderId, kind: 'payment' }, orderBy: { at: 'asc' } });
+
+  it('records the counter collection with its instant, its amount and where it happened', async () => {
+    const order = await place();
+    await toReady(order.id);
+
+    // `instantMinutesAfter`, not `new Date(DINNER.getTime() + …)`: the
+    // repo-wide ban on `new Date(<expr>)` is blanket by design, and the
+    // restaurant-timezone module is where instant arithmetic lives.
+    const collectedAt = instantMinutesAfter(DINNER, 11);
+    expect(await collectOrderPayment(order.id, collectedAt)).toEqual({ ok: true });
+    expect(await paymentStateOf(order.id)).toBe('paid');
+
+    const [payment, ...rest] = await paymentsOn(order.id);
+    expect(rest).toEqual([]);
+    expect(payment).toMatchObject({
+      at: collectedAt,
+      actor: 'staff',
+      // Not a status change, so the time-in-state tally steps over it exactly
+      // as it steps over a refund.
+      fromStatus: null,
+      toStatus: null,
+      detail: { amountCents: order.totalCents, where: 'counter', provider: 'mock' },
+    });
+  });
+
+  it('records the charge taken at checkout too, as the customer', async () => {
+    // Recording only the counter half would have made "every payment has a
+    // time" false for most orders — about two thirds of a service pays here.
+    const order = await place({ paidNow: true });
+    const [payment] = await paymentsOn(order.id);
+    expect(payment).toMatchObject({
+      at: DINNER,
+      actor: 'customer',
+      detail: { amountCents: order.totalCents, where: 'checkout' },
+    });
+  });
+
+  it('writes nothing for a pay-at-pickup order until somebody collects', async () => {
+    const order = await place();
+    expect(await paymentsOn(order.id)).toEqual([]);
+  });
+
+  it('is one payment when two people tap Collect at once', async () => {
+    const order = await place();
+    await toReady(order.id);
+
+    const [first, second] = await Promise.all([
+      collectOrderPayment(order.id, DINNER),
+      collectOrderPayment(order.id, DINNER),
+    ]);
+
+    // One of them collected and one was told it is settled — but the assertion
+    // that matters is that the log holds ONE payment. A second event here
+    // would be a second payment in every report that ever reads the log.
+    expect([first.ok, second.ok].filter(Boolean)).toHaveLength(1);
+    expect(await paymentsOn(order.id)).toHaveLength(1);
+  });
+
+  it('refuses a no-show and records nothing — nobody took the food', async () => {
+    const order = await place();
+    await toReady(order.id);
+    await applyOrderAction(order.id, { kind: 'abandon', actor: 'staff' }, DINNER);
+
+    const result = await collectOrderPayment(order.id, DINNER);
+    expect(result).toEqual({
+      ok: false,
+      message: 'Nobody took this order, so there is nothing to collect on it.',
+    });
+    expect(await paymentsOn(order.id)).toEqual([]);
+    expect(await paymentStateOf(order.id)).toBe('unpaid');
+  });
+
+  it('is queryable by the business day the order belongs to', async () => {
+    // The event carries an instant; the DAY is the order's, in the
+    // restaurant's calendar. Asking the other way round — bucketing the
+    // instant here — is the timezone mistake `business-day.ts` refuses to
+    // make, and a payment taken at 11:40pm belongs to the service it was for.
+    const order = await place({ paidNow: true });
+    const sameDay = await prisma.orderEvent.findMany({
+      where: { kind: 'payment', order: { businessDay: order.businessDay } },
+    });
+    expect(sameDay).toHaveLength(1);
+    expect(
+      await prisma.orderEvent.count({
+        where: { kind: 'payment', order: { businessDay: '1999-01-01' } },
+      }),
+    ).toBe(0);
+  });
+
+  it('leaves both money events on a refunded order, and the payment divides nothing', async () => {
+    // The integration risk of a new event kind: a paid order that is cancelled
+    // now carries a `payment` AND a `refund`, and the timeline has to step
+    // over the new one. It does — `toStatus` is null, which is what makes
+    // `timeInState` skip it.
+    //
+    // `refund` is deliberately NOT asserted null here: the engine gives it the
+    // `cancelled` it accompanied, which contradicted `time-in-state.ts`'s own
+    // comment until this item corrected it. Harmless (a zero-length span, and
+    // a Set-deduplicated visit) and left for PRD 3 to settle with the rest of
+    // the money events rather than changed under this one.
+    const order = await place({ paidNow: true });
+    await applyOrderAction(
+      order.id,
+      { kind: 'cancel', actor: 'staff', reason: 'out_of_item' },
+      DINNER,
+    );
+
+    const money = await prisma.orderEvent.findMany({
+      where: { orderId: order.id, kind: { in: ['payment', 'refund'] } },
+      orderBy: { at: 'asc' },
+    });
+    expect(money.map((event) => event.kind)).toEqual(['payment', 'refund']);
+    expect(money.find((event) => event.kind === 'payment')?.toStatus).toBeNull();
   });
 });

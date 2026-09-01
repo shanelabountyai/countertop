@@ -163,10 +163,14 @@ describe('ugly case 2 — a cook advances the wrong card', () => {
       reason: 'advanced the wrong card',
     });
 
-    // Placement + five moves + the revert. The mistake is still in the
-    // history, which is the whole point of an append-only log.
-    expect(events).toHaveLength(7);
-    expect(events.map((e) => e.toStatus)).toEqual([
+    // Placement + five moves + the revert, and — since C-085 — the payment
+    // Rae's checkout took. The mistake is still in the history, which is the
+    // whole point of an append-only log.
+    expect(events).toHaveLength(8);
+    expect(events.filter((e) => e.kind === 'payment')).toHaveLength(1);
+    // The status walk, with the money event stepped over: it did not move the
+    // order, so it does not belong in the sequence of states the order was in.
+    expect(events.filter((e) => e.toStatus !== null).map((e) => e.toStatus)).toEqual([
       'placed',
       'accepted',
       'preparing',
