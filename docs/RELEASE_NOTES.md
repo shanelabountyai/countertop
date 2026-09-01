@@ -1169,3 +1169,21 @@ that matter most are holding: 86'ing a shared option shows "sold out" rather
 than hiding it, flags an open cart, is refused server-side when the button is
 forced, and is invisible to orders already placed — on the kitchen card, the
 staff receipt and the customer's own tracking page alike.
+
+## C-049 — The day a number belongs to
+
+**Order numbers repeat, and now the search knows which day you mean.** Order
+numbers start again at #001 every morning, so searching staff history for
+"047" has always returned every #047 the restaurant has ever served — dated
+and listed, deliberately, rather than guessing at one. That is the right
+answer to the question and only half the lookup: after a few months of
+service, the order the customer is standing there asking about is somewhere
+down a list of fifty.
+
+**Pick the day.** The history search now takes a date beside the name-or-
+number box: "#047, on the 30th" is one order. A date on its own is a day's
+service, every status, in one list. "Show all" clears both.
+
+It uses the phone and laptop's own built-in date picker, and matches against
+the day the restaurant assigned the order at the counter — not a UTC date
+that rolls over mid-dinner-service.

@@ -3026,3 +3026,50 @@ zero-data path all behaved.
   Third session carrying this.
 
 C-048 committed at fd06d98.
+
+## C-049 — The day a number belongs to
+
+The last thing carried forward from C-046, named as left behind in three
+consecutive PROGRESS entries: a history search that is a bare number could
+not be narrowed by date.
+
+**Why it was a real gap and not a nicety.** `historyWhere` matches a bare
+number by `seq` ALONE, deliberately — `seq` resets every business day, so
+"#047" is not a unique key across history the way it is on today's queue.
+C-046 chose to show a dated LIST rather than silently pick a day, which is
+the honest answer to an ambiguous key but only half a lookup: on a restaurant
+with a few months of service behind it, "#001" is one row per day it opened,
+capped at 50, newest first — and the order the customer is asking about is
+the one that fell off the end.
+
+**A native date input, and string equality.** `businessDay` is
+`String @db.Char(10)` holding "YYYY-MM-DD" in the restaurant's timezone
+(schema.prisma, where `@db.Date` is banned), and that is exactly what
+`<input type="date">` submits. So the whole filter is `{ businessDay: day }`
+— no picker library, no parsing, and, more to the point, no timezone
+arithmetic anywhere in the path. A day boundary is the one thing this project
+has the most rules about; the column having already decided it is why this
+item is small.
+
+**Built:**
+- `historyWhere(query, day)` — the day sits BESIDE the term, not inside it.
+  Prisma ANDs top-level fields, so a day narrows the `seq`/name `OR` instead
+  of joining it, which is the difference between "#001 or that day" and
+  "#001 on that day".
+- `businessDayFilter`, which is where the trust boundary is: anything that is
+  not `YYYY-MM-DD` is ignored rather than refused.
+- The date field on `/kitchen/orders`, `Show all` clearing both halves, and a
+  four-branch empty state so "no orders on 2026-08-30" reads as a sentence.
+- Four unit tests and one e2e that backdates the seeded queue, places a fresh
+  order today, and proves two different #001s exist and that the day picks
+  one.
+
+**Decided:**
+- **Ignore a malformed day, don't refuse the search.** The only way to
+  produce one is by hand-editing the URL; the date input renders blank for a
+  value it cannot parse, so unfiltered results beside a blank date box is the
+  state the screen would show anyway. An error page for a query string nobody
+  typed is worse.
+- **One date, not a range.** The question this answers is "which day's #047",
+  and the answer is a day. A range is a report, and the report already
+  exists.

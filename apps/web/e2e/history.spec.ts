@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { reseed, seedFinishedRush } from './fixtures';
+import { backdateQueue, placeOrderFor, reseed, seedFinishedRush } from './fixtures';
 
 // Staff order history (post-queue receipt lookup): every status, any day —
 // the other half of P0-11's lookup, which is scoped to today's open orders.
@@ -52,6 +52,31 @@ test('reaches an order that has already left the live queue', async ({ page }) =
   for (const openStatus of ['New', 'Accepted', 'Preparing', 'Ready for pickup']) {
     expect(text).not.toContain(openStatus);
   }
+});
+
+// The reason the search shows a dated LIST for a bare number rather than one
+// order: `seq` resets every business day, so #001 exists on every day the
+// restaurant opened. Picking the day is how you get from that list to the order.
+test('a number that recurs across days is narrowed by picking one', async ({ page }) => {
+  const earlier = await backdateQueue();
+  await placeOrderFor(page, 'Wren Alvarez');
+
+  // Both are #001 — one on the backdated day, one today.
+  await page.goto('/kitchen/orders?q=001');
+  await expect(page.getByRole('link', { name: /Dana Reyes/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Wren Alvarez/ })).toBeVisible();
+
+  await page.goto(`/kitchen/orders?q=001&day=${earlier}`);
+  await expect(page.getByRole('link', { name: /Dana Reyes/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Wren Alvarez/ })).toHaveCount(0);
+
+  // And the day alone, with no term, is a day's service.
+  await page.goto(`/kitchen/orders?day=${earlier}`);
+  await expect(page.getByRole('link', { name: /Dana Reyes/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Wren Alvarez/ })).toHaveCount(0);
+
+  await page.goto('/kitchen/orders?q=Dana&day=1999-01-01');
+  await expect(page.getByText('Nothing matches "Dana" on 1999-01-01.')).toBeVisible();
 });
 
 test('the history search and its receipt have no detectable accessibility violations', async ({

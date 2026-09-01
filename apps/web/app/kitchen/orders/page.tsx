@@ -20,10 +20,26 @@ export const dynamic = 'force-dynamic';
 export default async function OrderHistoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; day?: string }>;
 }) {
-  const query = (await searchParams).q ?? '';
-  const [gateState, orders] = await Promise.all([loadGateState(new Date()), searchOrderHistory(query)]);
+  const { q, day: dayParam } = await searchParams;
+  const query = q ?? '';
+  const day = dayParam ?? '';
+  const [gateState, orders] = await Promise.all([
+    loadGateState(new Date()),
+    searchOrderHistory(query, day),
+  ]);
+
+  // `seq` recurs every business day, so a bare number legitimately matches
+  // several orders — the day is how you get from that list to the one order.
+  const nothingMatches =
+    query === '' && day === ''
+      ? 'No orders yet.'
+      : query === ''
+        ? `No orders on ${day}.`
+        : day === ''
+          ? `Nothing matches "${query}".`
+          : `Nothing matches "${query}" on ${day}.`;
 
   return (
     <main className="mx-auto max-w-2xl p-6">
@@ -46,13 +62,24 @@ export default async function OrderHistoryPage({
             className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
           />
         </label>
+        <label className="flex flex-col gap-1">
+          {/* A native date input: the value it submits is "YYYY-MM-DD", which
+              is the `businessDay` column verbatim. No picker, no parsing. */}
+          <span className="text-sm font-medium">On day</span>
+          <input
+            type="date"
+            name="day"
+            defaultValue={day}
+            className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+          />
+        </label>
         <button
           type="submit"
           className="mt-6 min-h-12 rounded-lg border border-neutral-400 px-6 font-semibold"
         >
           Find
         </button>
-        {query !== '' && (
+        {(query !== '' || day !== '') && (
           <Link
             href="/kitchen/orders"
             className="mt-6 flex min-h-12 items-center rounded-lg px-4 underline underline-offset-4"
@@ -64,7 +91,7 @@ export default async function OrderHistoryPage({
 
       {orders.length === 0 ? (
         <p className="mt-8 text-neutral-600">
-          {query === '' ? 'No orders yet.' : `Nothing matches "${query}".`}
+          {nothingMatches}
         </p>
       ) : (
         <ul className="mt-6 flex flex-col gap-2">
