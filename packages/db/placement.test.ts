@@ -256,6 +256,38 @@ describe('the server is the price authority (P0-2)', () => {
     ).toBe(0);
   });
 
+  // C-084 / PRD 6 P0-1. The half of the mismatch that used to vanish: it was
+  // computed inside the write path, so a request that tampered with the total
+  // AND failed validation returned before anything looked at the client's
+  // number. There is no order row to hang an event on, so the evidence comes
+  // back on the result and the boundary logs it.
+  it('still reports a tampered total on a placement that ALSO failed validation', async () => {
+    const result = await place({ clientTotalCents: 1, customerName: '' });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.errors.map((error) => error.kind)).toContain(
+      'name_required',
+    );
+    expect(result.ok === false && result.mismatch).toEqual({
+      serverTotalCents: 3507,
+      clientTotalCents: 1,
+    });
+    // And nothing was written: the evidence is a log line, not a row, because
+    // a refused placement has no order for an event to belong to.
+    expect(await prisma.order.count()).toBe(0);
+  });
+
+  it('reports no tampering on a refusal where the totals differ honestly', async () => {
+    // The burrito is 86'd, so the server prices only what still prices and the
+    // customer's screen is legitimately showing a bigger number. Calling that
+    // a mismatch would fill the log with noise, and a noisy log is unread.
+    await prisma.menuItem.update({ where: { id: 'burrito' }, data: { available: false } });
+    const result = await place({ clientTotalCents: 3507 });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.mismatch).toBeNull();
+  });
+
   it('charges today\'s price, not the price the cart remembered', async () => {
     // A reprice the customer HAS confirmed: the cart's baseline says 1720
     // because they clicked through the old -> new prompt.

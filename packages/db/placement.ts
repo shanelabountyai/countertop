@@ -12,6 +12,7 @@ import {
   buildOrderSnapshot,
   businessDayOf,
   checkClientTotal,
+  totalTampering,
   normalizeIdentity,
   placementEvent,
   readyEstimate,
@@ -24,6 +25,7 @@ import {
   type GateReason,
   type IdentityViolation,
   type OrderEventDraft,
+  type TotalMismatch,
 } from '@countertop/core';
 import { Prisma, prisma } from './index';
 import { loadGateState } from './gate';
@@ -80,7 +82,22 @@ export type PlacementInput = {
 
 export type PlacementResult =
   | { ok: true; order: OrderReceipt; replayed: boolean }
-  | { ok: false; errors: PlacementError[]; review: CartReview };
+  | {
+      ok: false;
+      errors: PlacementError[];
+      review: CartReview;
+      /**
+       * P0-2's evidence on the path that used to swallow it (C-084).
+       *
+       * The mismatch is computed inside the write path below, which means a
+       * request that tampered with the total AND failed validation returned
+       * from here before anything looked at the client's number — recorded
+       * nowhere at all. Returned rather than logged here because this function
+       * has four callers and only one of them is behind a request; the
+       * boundary decides what reaches a log.
+       */
+      mismatch: TotalMismatch | null;
+    };
 
 /**
  * How many order numbers to try before giving up. Each retry means another
@@ -225,7 +242,9 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
     });
   }
 
-  if (errors.length > 0 || !identity.ok) return { ok: false, errors, review };
+  if (errors.length > 0 || !identity.ok) {
+    return { ok: false, errors, review, mismatch: totalTampering(review, input.clientTotalCents) };
+  }
 
   // ponytail: the re-check above and the write below are not one transaction,
   // so an 86 landing in the milliseconds between them is snapshotted anyway.

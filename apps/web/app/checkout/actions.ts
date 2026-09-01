@@ -15,6 +15,7 @@ import {
 } from '@countertop/core';
 import { placeOrder, type OrderReceipt, type PlacementError } from '@countertop/db/placement';
 import { clearCart, readCart } from '@/lib/cart-session';
+import { logPlacement } from '@/lib/log';
 
 /** What the confirmation screen renders. No UUID: customers and staff use the
  *  order number and the name (P0-8), and an id that never leaves the server
@@ -51,7 +52,8 @@ export type OrderConfirmation = {
 export type CheckoutError =
   | PlacementError
   | { kind: 'malformed_request'; message: string }
-  | { kind: 'idempotency_key_invalid'; message: string };
+  | { kind: 'idempotency_key_invalid'; message: string }
+  | { kind: 'placement_failed'; message: string };
 
 /** C-052 / defect D3. Its own kind rather than folding into `malformed_request`
  *  because this is the one refusal aimed at a PROGRAMMER — the customer's
@@ -150,20 +152,69 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
     return MALFORMED;
   }
 
-  const result = await placeOrder({
-    cart: await readCart(),
-    customerName,
-    customerPhone,
-    orderNote,
-    idempotencyKey,
-    // The one clock read in the whole placement path, at its outermost edge:
-    // the engine and the writer both take `now` as a parameter.
-    now: new Date(),
-    ...(clientTotalCents === undefined ? {} : { clientTotalCents }),
-    ...(payNow === undefined ? {} : { paidNow: payNow }),
-  });
+  // The one clock read in the whole placement path, at its outermost edge:
+  // the engine, the writer and the log line all take `now` as a parameter.
+  const now = new Date();
 
-  if (!result.ok) return result;
+  let result;
+  try {
+    result = await placeOrder({
+      cart: await readCart(),
+      customerName,
+      customerPhone,
+      orderNote,
+      idempotencyKey,
+      now,
+      ...(clientTotalCents === undefined ? {} : { clientTotalCents }),
+      ...(payNow === undefined ? {} : { paidNow: payNow }),
+    });
+  } catch (thrown) {
+    // `priceLine` throws on an unknown id rather than pricing it as zero
+    // (C-002's deliberate choice), and until C-084 that throw had no handler
+    // and no log — it became a 500 and a customer looking at a blank screen.
+    // Caught HERE and not deeper: the engine's job is to refuse, and a
+    // boundary's job is to be the only place that decides what a request gets
+    // back when the refusal was not one the engine has a name for.
+    const error = thrown instanceof Error ? thrown : new Error(String(thrown));
+    logPlacement({
+      at: now,
+      idempotencyKey,
+      outcome: { result: 'threw', errorName: error.name, message: error.message },
+    });
+    return {
+      ok: false,
+      errors: [
+        {
+          kind: 'placement_failed',
+          message: 'Something went wrong placing that order. Try again.',
+        },
+      ],
+      review: null,
+    };
+  }
+
+  if (!result.ok) {
+    logPlacement({
+      at: now,
+      idempotencyKey,
+      outcome: {
+        result: 'refused',
+        errorKinds: result.errors.map((error) => error.kind),
+        // The gate's trigger, so a pause is a countable number of bounced
+        // orders rather than somebody's memory of a bad afternoon.
+        gateReason:
+          result.errors.find((error) => error.kind === 'ordering_closed')?.reason ?? null,
+      },
+      mismatch: result.mismatch,
+    });
+    return result;
+  }
+
+  logPlacement({
+    at: now,
+    idempotencyKey,
+    outcome: { result: 'placed', orderId: result.order.id, replayed: result.replayed },
+  });
 
   // The cart's job is done. Clearing it after the write, not before, means a
   // failed placement leaves the customer their food.

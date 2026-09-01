@@ -37,5 +37,11 @@ export default defineConfig({
     // A cold production build blows past the 120s default, which is sized for
     // a dev server's near-instant start.
     timeout: 300_000,
+    // Playwright pipes the server's stderr by default and IGNORES its stdout,
+    // which meant C-084's placement log lines were invisible during a sweep —
+    // an observability feature with no local evidence it ever fired. One JSON
+    // line per checkout attempt is a cheap price for a sweep that shows what
+    // the server actually recorded.
+    stdout: 'pipe',
   },
 });

@@ -274,6 +274,7 @@ Recorded as they are made, with the ceiling each one has.
 - **A renamed item reports as two rows** (C-016). The report groups by the name the order was placed under, because that is the only name it HAS without joining a menu table — and joining one would restate last month's sales under this month's menu, which is the whole thing the snapshot rule forbids. So "Burrito" renamed to "Classic Burrito" splits its own history at the moment of the rename, and no screen explains why. The fix that does not break the rule is to group by the `menuItemId` correlation column and display the most recent snapshot name for it, which merges the rows without reading a menu row — but it makes "which name wins" a decision the report has to defend, and the schema comment is emphatic that those ids are correlation only. Left split, and stated on the page's own terms: every name shown is the name it was sold under.
 - **Every report is a full scan of its window** (C-016). `loadReportOrders` pulls each order, line and option in the range and the engine folds them in memory. At one restaurant's volume — a few hundred orders a week — this is a single indexed range read and a few milliseconds of arithmetic, and it buys the property that matters most: the buckets are computed by the same pure function the tests drive, not by SQL that a `date_trunc` in the wrong timezone could quietly get wrong. It is the wrong shape at a chain, and the upgrade is a materialised daily rollup written at the `picked_up` transition, not a better query.
 - **Revenue is still what was charged — but the report now says what was collected beside it** (C-016, corrected C-051). The original caveat said `paymentState` exists and the report does not read it, so an unpaid pickup counts as revenue in full. That was defensible at C-016, when no staff screen could even see a payment state; it stopped being defensible at C-038 and C-048, which made pay-at-pickup a common state and gave the shop a durable record of who did not pay while the report went on ignoring it. It was a defect by then, not a simplification, and it is written up as one below. What ships now: revenue keeps its meaning — changing it would restate every past report's headline — and the screen splits it into collected, outstanding and refunded, with the outstanding orders listed by day, number, name and amount. **The remaining ceiling is real and deliberate**: this reconciles the report against itself, not against a till or a processor's settlement, because neither exists in the system and a half-reconciliation is worse than an honest "the drawer is out of scope". Trigger to revisit: the outstanding list stops explaining the variance.
+- **Only placement is logged, and nothing counts the lines** (C-084). Every checkout attempt now writes one structured JSON line — placed, refused with every refusal kind and the `GateReason` where the gate was one of them, or threw — correlated by idempotency key and order id, with no customer name, phone or status token anywhere in it by construction. What is *not* logged is everything else: transitions, payment collection, the menu editor's saves. Placement is where the "was this order ever placed?" question starts, which is why P0-1 names it, but a queue action that goes wrong is still invisible. And nothing in the product counts the lines — "the pause bounced eleven orders" is answerable by querying the deployment's log, not by opening a screen. The nearest in-product thing is PRD 1's cancellations-by-reason row, which reads the database and is a different source. Deliberate: a metrics surface over a log is a second product, and the log had to exist before anything could aggregate it.
 - **The oldest day in a window is usually partial** (C-016). The window is an instant range — `now` minus 24 hours × N — because turning "the last 30 days in Los Angeles" into a pair of instants is the local → instant conversion that `business-day.ts` refuses to make, a DST boundary having two answers or none. So the query is generous and the bucketing is exact, and the earliest local day shown is a fragment of one. The screen says so in a line rather than letting a half day read as a bad day; the alternative is a local-midnight boundary computed by search, which is a real technique and considerably more machinery than this earns.
 - **`instantDaysBefore` is the codebase's only lint exemption** (C-016). The `no-restricted-syntax` ban on `new Date(<expr>)` is blanket by design — its own comment says anything other than `new Date(Date.UTC(...))` stays banned, so that a future test file cannot quietly reintroduce a parse. Subtracting milliseconds from an instant is genuinely safe and the rule cannot see the difference, so the operation went where the rule's own message points: one named function in the restaurant-timezone module, with the exemption scoped to a single line and the reason written beside it. The precedent to resist is a second one.
 
@@ -1118,6 +1119,46 @@ retry must differ and a double-submit must match — so they derive a UUID from
 a name, with the version nibble saying `5` rather than `4`. Claiming a derived
 value is random would be a lie told to a regex, and the one person it would
 mislead is whoever audits the table later.
+
+### The observability item that could not observe itself (C-084)
+
+Not a shipped defect — this one was caught between writing the code and
+committing it — but the way it was caught is the point.
+
+C-084 adds one structured log line per checkout attempt. The gate went green:
+464 unit tests, 121 e2e specs, nothing red. And there was no evidence
+whatsoever that a single log line had ever been produced, because **Playwright
+pipes the web server's stderr by default and ignores its stdout**. An
+observability feature had passed a full sweep without the sweep ever seeing
+what it observes.
+
+`stdout: 'pipe'` in `playwright.config.ts` costs one line and one JSON line per
+placement. The first run with it on returned seventeen real lines — and one
+that was wrong:
+
+```json
+{"result":"refused","refusals":["empty_cart"],"clientTotalCents":1185,"serverTotalCents":0}
+```
+
+That is the spec where the cart empties in another tab. The customer's screen
+honestly still showed $11.85; the server now prices nothing. Reporting it as a
+tampered total is exactly the noise the function exists to suppress, and a log
+full of noise is a log nobody reads — which would have quietly undone the whole
+item.
+
+The cause is worth more than the fix. `totalTampering` decides "did the client
+claim a different number for a cart the server prices cleanly?", and it spelled
+that condition out itself: `!needsFix && !needsPriceConfirmation`. The cart
+already answers the same question, in a field with a name —
+`placeable: lines.length > 0 && !needsFix && !needsPriceConfirmation` — and the
+hand-rolled copy dropped the first clause. One `if (!review.placeable)` replaced
+two conditions and fixed the bug at the same time.
+
+This is the codebase's own recurring lesson arriving somewhere new. The
+snapshot rule, the one status module, the one orderability function and the one
+gate are all the same instruction: when something already computes the answer,
+ask it. A re-derivation that agrees today is a re-derivation that disagrees
+after the next change, and it will disagree silently.
 
 ## Skills Learned / Functions Unlocked
 

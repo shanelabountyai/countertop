@@ -3302,3 +3302,102 @@ from that moment the read side of the replay is a leak.
   carries the name is that nothing writes it anywhere yet. C-084.
 
 C-052 committed at 75931a5.
+
+## C-084 — When it fails, there is something to look at (PRD 6 P0-1)
+
+Pulled forward out of the lowest-ranked PRD, because the INDEX's sequencing
+note is right: every other PRD's defects will be diagnosed with this, and
+today, when an order goes missing at 7:10pm, the product cannot distinguish
+"never placed" from "placed and eaten". It writes no line anywhere.
+
+**Built:**
+- `packages/core/orders/observability.ts` — `placementLogLine`, pure. The sink
+  is three lines in `apps/web/lib/log.ts`; everything that *decides* what a
+  line says lives where it can be tested. A sink cannot be unit-tested, and a
+  rule that only lives in an untested file is a rule that drifts.
+- **No PII, structurally.** `PlacementLogInput` has no field for a customer
+  name, a phone or a status token, so a caller cannot put one in by accident.
+  Correlation is by idempotency key and order id — the two identifiers a
+  support question is answerable from, neither of which is a person. There is
+  a test that serialises every outcome and asserts the absence anyway, to
+  notice if somebody widens the type.
+- **The one free-text channel is allow-listed, not trusted.** A thrown error's
+  message passes through only when it matches the engine's own unknown-id and
+  subtotal guards, where the id *is* the diagnostic. Anything else — a Prisma
+  error quoting the row it choked on — logs its class and `messageWithheld`.
+  A withheld message is a worse log line; a leaked phone number is a defect.
+- **Three outcomes, exhaustively:** `placed` (with `orderId` and `replayed`,
+  so a double-tap's two lines are distinguishable), `refused` (every refusal
+  kind at once, plus the `GateReason` when the gate was one of them, so "the
+  pause bounced eleven orders" is countable), and `threw`.
+- **`priceLine`'s throw finally has a handler.** It refuses an unknown id
+  rather than pricing it as zero — C-002's deliberate choice — and until now
+  that throw had no catch and no log: a 500 and a customer looking at a blank
+  screen. Caught at the boundary, logged, and answered with a named
+  `placement_failed` refusal.
+- **The `total_mismatch` defect, fixed.** The mismatch was computed *inside*
+  the write path, so a request that tampered with the total AND failed
+  validation returned before anything looked at the client's number — recorded
+  nowhere at all. `totalTampering` now runs before the early return and the
+  evidence comes back on the failure result.
+
+**Decided:**
+- **No logging dependency.** The deployment target parses JSON lines off
+  stdout into structured, queryable logs, which is exactly what P0-1 means by
+  "the platform's own". A logging library here would buy transports nothing in
+  this product sends to.
+- **`totalTampering` is silent when the totals differ honestly.** A cart with
+  an 86'd line prices only what still prices; a cart whose price moved is a
+  customer looking at an older number for a good reason. Both would produce a
+  "mismatch" that is noise, and a noisy log is an unread log. What is left —
+  a client claiming a different number for a composition the server prices
+  cleanly — is the thing worth seeing. There is a db test driving the 86 case
+  against a real cart to prove the suppression is real and not asserted.
+- **The evidence is returned, not logged, by `placeOrder`.** That function has
+  four callers and only one is behind a request. The boundary decides what
+  reaches a log; the seed and the rush stay quiet.
+- **Logged at the action, not inside `placeOrder`**, for the same reason —
+  and because the boundary is the only place that can catch a throw and still
+  answer the request.
+
+**Found while building, by going looking for the evidence:**
+
+Playwright pipes the web server's stderr by default and **ignores its stdout**,
+so the first green gate produced exactly zero placement log lines — an
+observability item with no local proof it ever fired. `stdout: 'pipe'` in
+`playwright.config.ts` fixed the visibility, and the very first sweep with it
+on returned seventeen real lines and one wrong one:
+
+```
+{"result":"refused","refusals":["empty_cart"],"clientTotalCents":1185,"serverTotalCents":0}
+```
+
+That is the "cart emptied in another tab" spec. The customer's screen honestly
+still showed $11.85 and the server now prices nothing; calling it a tampered
+total is precisely the noise `totalTampering` was written to suppress. The
+cause was that the function **re-derived** "is this cart cleanly priced?"
+instead of asking — `CartReview.placeable` is already
+`lines.length > 0 && !needsFix && !needsPriceConfirmation`, and the hand-rolled
+version dropped the first clause. The fix is smaller than the bug: one
+`if (!review.placeable) return null`. Same lesson as the snapshot rule and the
+status module, in a new place: when the answer already exists as a named field,
+asking is not just shorter than re-deriving, it is the version that stays right.
+
+**Left behind:**
+- **The boundary wiring is not covered end to end.** The pure builder has 15
+  tests and the failure-path mismatch has two db tests, but nothing asserts
+  that a line actually reaches stdout — Playwright cannot read the web
+  server's output, and the throw path is deliberately near-unreachable
+  (`reviewCart` refuses a bad cart before `buildOrderSnapshot` can throw on
+  it). Recorded as untested rather than counted, the C-047 rule.
+- **Only placement is logged.** Transitions, payment collection and the menu
+  editor's saves write nothing. P0-1 names placement because that is where the
+  missing-order question starts, but the queue's own actions are the obvious
+  second item.
+- **No log line has a request id or a session.** The idempotency key
+  correlates one checkout attempt; it cannot join two attempts by the same
+  person. That is PRD 6 E-1's territory (binding the replay to a session) and
+  arrives with it.
+- **Nothing counts the lines.** "Eleven orders bounced" is countable from the
+  log by whoever queries it; no screen in the product shows it. PRD 1's
+  cancellations-by-reason row is the nearest thing and is a different source.

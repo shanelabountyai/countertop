@@ -1243,3 +1243,26 @@ counting.
 refused, and the demo data was regenerated to match. The stronger fix — tying
 the replay to the session that placed the order, so a stolen key is no use
 either — is on the list and named.
+
+## C-084 — When an order goes missing, there is now something to look at
+
+**The product used to keep no record of a failed order.** A customer says they
+ordered at 7:10 and there is nothing on the queue. Was the order never placed,
+or was it placed and already handed to somebody else? Until now the only
+honest answer was "we can't tell" — nothing was written down anywhere unless
+the order succeeded.
+
+**Every checkout attempt now leaves one line.** Placed, refused, or crashed —
+with the reason, and with the key that ties a customer's retry to their first
+attempt. When ordering is paused, each bounced order is a line, so "the pause
+turned away eleven people during the fryer outage" is a number rather than a
+guess.
+
+**The lines never contain a customer.** No name, no phone number, no order
+link — a support question is answered from the order number and the attempt
+key, and neither of those is a person.
+
+**One crash that used to be a blank screen is now a sentence.** If the kitchen
+deletes something out from under an order mid-checkout, the customer gets
+"Something went wrong placing that order. Try again." instead of a broken page,
+and the shop gets a log line naming exactly what was missing.
