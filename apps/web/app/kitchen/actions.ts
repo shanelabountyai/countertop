@@ -23,6 +23,7 @@ import {
 import { prisma } from '@countertop/db';
 import { adjustOrder } from '@countertop/db/adjustment';
 import { redeemReward } from '@countertop/db/loyalty';
+import { forgetOrderCustomer } from '@countertop/db/retention';
 import { remakeOrder } from '@countertop/db/remake';
 import { collectOrderPayment } from '@countertop/db/payment';
 import { isStaffPin, staffByPin } from '@countertop/db/staff';
@@ -233,6 +234,35 @@ export async function redeemRewardForm(formData: FormData): Promise<void> {
 
   // The subtree, for the same reason the adjustment revalidates it: a
   // redemption is an adjustment, so the queue card's "still owed" moved too.
+  revalidatePath('/kitchen', 'layout');
+  redirect(back);
+}
+
+/**
+ * Forget this customer, on one order (PRD 6 P0-4, C-091).
+ *
+ * IRREVERSIBLE, so the confirm is a URL (`?forget=1`) exactly like the menu
+ * editor's price confirm — it survives a reload, it works with JavaScript off,
+ * and it cannot be a `window.confirm` on a server component. This action is
+ * the second step; arriving here means the panel was submitted, not that a
+ * link was followed.
+ *
+ * The order id is the only input and there is nothing to validate about it:
+ * every order is forgettable in every state, deliberately. "Take my details
+ * off your system" does not wait for a ticket to reach the pass — which is
+ * also why the subtree is revalidated: a still-open order's queue card carries
+ * the name that just went away.
+ */
+export async function forgetCustomerForm(formData: FormData): Promise<void> {
+  const orderId = formData.get('orderId');
+  if (typeof orderId !== 'string' || orderId === '') {
+    return redirect('/kitchen/orders');
+  }
+  const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
+
+  const result = await forgetOrderCustomer(orderId);
+  if (!result.ok) return redirect('/kitchen/orders');
+
   revalidatePath('/kitchen', 'layout');
   redirect(back);
 }

@@ -30,6 +30,7 @@
     "./adjustment": "./adjustment.ts",
     "./remake": "./remake.ts",
     "./staff": "./staff.ts",
-    "./loyalty": "./loyalty.ts"
+    "./loyalty": "./loyalty.ts",
+    "./retention": "./retention.ts"
   }
 }

@@ -79,6 +79,42 @@ test('a number that recurs across days is narrowed by picking one', async ({ pag
   await expect(page.getByText('Nothing matches "Dana" on 1999-01-01.')).toBeVisible();
 });
 
+// "Forget this customer" (PRD 6 P0-4, C-091). The only irreversible control in
+// the product, so the confirm step is asserted as hard as the forget itself —
+// a stray tap on a receipt must not destroy a customer's details.
+test('forgets one customer from the receipt, and keeps the order', async ({ page }) => {
+  await page.goto('/kitchen/orders?q=Dana');
+  await page.getByRole('link', { name: /#001/ }).click();
+  // Dana's line note is on the card and is about to go with the rest.
+  await expect(page.getByText('Wrap it tight, it is going in a bike bag')).toBeVisible();
+
+  // Step one is a confirm, and "Keep it" really keeps it. `exact` because the
+  // confirm panel names her too — "This removes Dana Reyes's name…" — and a
+  // substring locator matching the warning as well as the receipt would pass
+  // this assertion for the wrong reason and fail the one below for the right
+  // one.
+  const name = page.getByText('Dana Reyes', { exact: true });
+  await page.getByTestId('forget-customer').click();
+  await expect(page.getByTestId('forget-confirm')).toBeVisible();
+  await page.getByRole('link', { name: 'Keep it' }).click();
+  await expect(page.getByTestId('forget-customer')).toBeVisible();
+  await expect(name).toBeVisible();
+
+  await page.getByTestId('forget-customer').click();
+  await page.getByRole('button', { name: 'Forget them' }).click();
+
+  await expect(page.getByTestId('already-forgotten')).toBeVisible();
+  await expect(name).toHaveCount(0);
+  await expect(page.getByText('Wrap it tight, it is going in a bike bag')).toHaveCount(0);
+  // The order is still an order: its number, its money and its activity stay.
+  await expect(page.getByTestId('history-order-number')).toHaveText('#001');
+  await expect(page.getByTestId('order-activity')).toBeVisible();
+
+  // And she is no longer findable by the name that was taken off.
+  await page.goto('/kitchen/orders?q=Dana');
+  await expect(page.getByText('Nothing matches "Dana".')).toBeVisible();
+});
+
 test('the history search and its receipt have no detectable accessibility violations', async ({
   page,
 }) => {
@@ -89,6 +125,12 @@ test('the history search and its receipt have no detectable accessibility violat
   await page.getByRole('link', { name: /#001/ }).click();
   const detailResults = await new AxeBuilder({ page }).include('main').analyze();
   expect(detailResults.violations).toEqual([]);
+
+  // The forget confirm too: red on red-tinted white is where contrast goes
+  // wrong, and it is the one panel a person must be able to read carefully.
+  await page.getByTestId('forget-customer').click();
+  const confirmResults = await new AxeBuilder({ page }).include('main').analyze();
+  expect(confirmResults.violations).toEqual([]);
 });
 
 // These two are the only way back from a screen staff reach mid-shift, and

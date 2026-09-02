@@ -9,3 +9,4 @@ export * from './time-in-state';
 export * from './observability';
 export * from './payment';
 export * from './adjustment';
+export * from './retention';

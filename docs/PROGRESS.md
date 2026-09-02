@@ -4347,10 +4347,9 @@ refusal that names the adjustment path).
   prerequisite and it is what makes the durable customer data defensible.
 
 **Order of the loyalty run:** ~~C-100 ledger~~ → ~~C-101 enrolment~~ →
-~~C-102 earning~~ → ~~C-103 counter panel~~ (all four done) →
-**C-104 redeeming is next** →
-**C-091 retention + forget** → C-105 expiry + forget → C-106 the program's own
-screen.
+~~C-102 earning~~ → ~~C-103 counter panel~~ → ~~C-104 redeeming~~ →
+~~C-091 retention + forget~~ (all six done) →
+**C-105 expiry + forget is next** → C-106 the program's own screen.
 
 **What C-104 inherits, and must not re-decide:**
 - **`planRedemption` already exists in `packages/core/loyalty/ledger.ts`** and
@@ -4516,5 +4515,121 @@ log. The money mechanism is PRD 3's, unchanged and unextended.
   unique per order gets its own; do not widen either into a plain unique index
   on `orderId`, because an order legitimately carries an `earn` and a `redeem`
   at once and there is a test that says so.
+
+---
+
+## C-091 — The customer can be forgotten (PRD 6 P0-4)
+
+The item every loyalty session since C-100 has been writing an IOU against. The
+product had no way to remove a person from itself: a name, a phone number and
+two kinds of free text sat on every order forever, and decision 10 had just
+made "forever" mean at least a year on purpose. This closes it — a documented
+window, a job that enforces it, and a button for the customer who asks today.
+
+**Built:**
+- `RestaurantSettings.retentionDays`, default 365, with a
+  `retention_days_positive` CHECK. Hand-written migration
+  (`20260902180000_retention_window`).
+- `packages/core/orders/retention.ts` — `FORGOTTEN_CUSTOMER_NAME` and
+  `retentionCutoff(now, retentionDays)`. Pure, `now` as a parameter, built
+  through `Date.UTC` with an overflowing day because that is the only
+  construction the time lint allows and `instantMinutesAfter` already uses it.
+- `packages/db/retention.ts` — `sweepRetention(now)` and
+  `forgetOrderCustomer(orderId)`, both routed through ONE private
+  `forgetOrders(where)`. The job and the button differ only in which orders
+  they select.
+- `packages/db/retention-sweep.ts` and `npm run db:retention` /
+  `db:retention:prod`. It narrates; the sweep and its test can never be running
+  different code, same split as `rush-demo.ts`.
+- `docs/RETENTION.md` — the procedure, what the window is for, what a forget
+  deliberately does not do, and what to do when the email arrives. Linked from
+  the README, because P0-4 makes the writing-down a requirement rather than a
+  courtesy.
+- The **Forget this customer** section on `/kitchen/orders/[id]`, last on the
+  page, behind a `?forget=1` URL confirm, plus `forgetCustomerForm`.
+- Tests: twelve in `packages/db/retention.test.ts` — the byte-identical sales
+  report across a sweep, all four fields stripped, an in-window order untouched,
+  the order's own number/money/events unmoved, `searchOrderHistory` no longer
+  finding the name, the honest zero on a second run, the window read from
+  settings rather than a constant, the CHECK, and four on the per-order forget.
+  Three in `packages/core/orders/retention.test.ts`. Two e2e in
+  `history.spec.ts`, one of them the confirm-and-cancel path.
+
+**Decided:**
+- **FOUR columns, not the PRD's three.** `Order.customerName`,
+  `customerPhone`, `orderNote` — and `OrderLine.note`. The PRD names the first
+  three; the fourth is the same class of data typed into a different box ("cut
+  in half please", and "for Dana's birthday" one order later), and a forget
+  that leaves half the free text behind is a forget that is a lie. It costs a
+  transaction over two tables, and the lines are scrubbed FIRST because both
+  statements select on "still has identity" and doing the orders first would
+  leave every line note stranded.
+- **A placeholder, `(forgotten)`, not a null.** `customerName` is `NOT NULL`
+  and every receipt, queue card and chase-list row renders it unguarded, so
+  nulling the column trades a retention feature for a crash on eleven screens —
+  the PRD's own data-model table reaches the same conclusion. The parentheses
+  are load-bearing: it has to read as a state, not as somebody called Forgotten.
+- **The sweep is a command, not a cron.** A scheduled job that destroys data
+  wants a secret, an endpoint and a way to see that it ran, which is a feature
+  rather than a line of config. `docs/RETENTION.md` says out loud that until it
+  is scheduled, running it is a calendar task and not a guarantee.
+- **Nothing is written to the event log.** An `OrderEvent` kind for this would
+  be a new enum value, a widened CHECK, and one row per order per night for the
+  life of the restaurant. The consequence — *who* pressed the button is not
+  recorded — is real and is in `docs/RETENTION.md` rather than hidden.
+- **The `loyaltyExpiryDays <= retentionDays` CHECK is still not here.** Both
+  columns finally exist, so it is possible for the first time — and it is
+  C-105's, landing with the expiry sweep that gives it something to protect.
+  The migration says so where a reader will find it.
+- **No settings screen for the window.** P0-4 asks for a documented window, not
+  an editable one, and the CHECK is in place for the day somebody adds the
+  control. Changing it is SQL.
+- **Every order is forgettable in every state.** "Take my details off your
+  system" does not wait for a ticket to reach the pass, so the control has no
+  status guard — unlike every other write on that screen.
+
+**Left behind:**
+- **The forget is not attributable.** No event, no staff name, no instant. The
+  one destructive control in the product leaves no record that it was used.
+  Recorded above and in `docs/RETENTION.md`; the fix is an event kind, which is
+  a migration and a widened CHECK.
+- **The sweep runs when somebody runs it.** Nothing schedules it and nothing
+  alerts if it has not run in a month. The window is a policy the repo
+  documents and a person enforces.
+- **`(forgotten)` on the chase list.** An order still owing money whose
+  customer has been forgotten stays on the report's outstanding list with a
+  placeholder where the name was — correct (the money is still owed) and
+  useless (there is nobody to ring). The honest alternatives are both worse:
+  dropping it hides money, and keeping the name defeats the forget.
+- **A customer forgotten on one order is not forgotten on their others.** The
+  button is per-order because the product has no customer index to act on — by
+  design since C-100. Finding every order is the search box and a person, which
+  is exactly what `docs/RETENTION.md`'s procedure says to do.
+- **Loyalty is untouched.** `LoyaltyMember` still holds the digest, the last
+  four and a display name after every one of that person's orders has been
+  forgotten. That is C-105 and it is the next item.
+- **The punch-card panel vanishes from a forgotten receipt**, because C-103's
+  lookup keys on `order.customerPhone` and there is no longer one. Correct — the
+  link between that order and a named member is exactly what was removed — but
+  it means the counter can no longer see, from the order, that this customer
+  was a member. The balance is unharmed and reachable the moment they say their
+  number at the till.
+
+**What C-105 inherits:**
+- **`retentionDays` exists, so the CHECK can finally land.** It is 365 and
+  `loyaltyExpiryDays` is 365, so `loyaltyExpiryDays <= retentionDays` holds on
+  every seeded and default row today — adding it will not fail an existing
+  database, and the migration should still be written as if it might.
+- **`forgetOrders` is the one write, and it is private on purpose.** The
+  member delete is a different table with a different rule (a real `DELETE`
+  through the Cascade, not a scrub), so C-105 adds a sibling rather than a
+  parameter — the two are not the same operation wearing different filters.
+- **The byte-identical assertion already exists and already passes**
+  (`packages/db/retention.test.ts`). P0-5's version extends the fixture with an
+  earn and a redeem; the assertion itself does not change, and the
+  `adjustment` on `OrderEvent` surviving is what proves the financial fact was
+  never on the loyalty side.
+- **`seedSettings` takes `retentionDays`**, so a spec can shrink the window
+  instead of backdating an order by a year.
 
 ---

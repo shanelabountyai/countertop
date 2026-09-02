@@ -1565,3 +1565,28 @@ after tax, which means the tax is still on the full amount. That is honest and
 it is written down: taking it off before tax is a bigger change to how every
 receipt adds up, and it comes with the version where you spend points yourself
 at checkout.
+
+## C-091 — Being forgotten
+
+**"Take my details off your system."** Now there is an answer, and it takes one
+tap. On the staff receipt: *Forget this customer* — a confirm, then the name,
+the phone number and every note on that order are gone.
+
+**The order stays an order.** #047 is still #047. The money is still the money.
+The activity log still says who accepted it and when it went out. What leaves
+is who it was, not what happened — which is exactly the line a restaurant's
+records should be drawn on.
+
+**And it happens on its own.** Anything older than a year is stripped the same
+way by a job the shop runs. A year is not an arbitrary number: it is how long a
+punch card lasts, and it is the only reason this product keeps a name for more
+than a few days. The window and the punch card are tied together on purpose.
+
+**Not one number moves.** Every report reads exactly the same before and after
+— same sales, same top items, same busiest hour. That is asserted by a test
+that compares the whole report byte for byte, because a privacy feature that
+quietly rewrites last month's revenue is a worse problem than the one it solved.
+
+**It is written down.** `docs/RETENTION.md` says what is kept, for how long,
+how to remove it, and what a forget deliberately does not do. A capability
+nobody can find is one nobody uses when the email arrives.

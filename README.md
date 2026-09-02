@@ -41,6 +41,13 @@ the default in `apps/web/package.json` and `playwright.config.ts`, not an
 environment variable — a forgotten `PORT=` must not be able to hijack a
 neighbouring project's server.
 
+## Data retention
+
+A customer's name, phone and notes are removed from orders past
+`RestaurantSettings.retentionDays` (default 365) by `npm run db:retention`, and
+from one order on demand from the staff receipt. The procedure, what the window
+is for, and what a forget deliberately does not do: **[docs/RETENTION.md](docs/RETENTION.md)**.
+
 ## The gate
 
 Nothing is done until all four pass:

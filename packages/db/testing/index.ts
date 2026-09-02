@@ -132,6 +132,8 @@ type SettingsOverrides = {
   rewardThresholdPoints?: number;
   rewardValueCents?: number;
   loyaltyExpiryDays?: number;
+  // Retention (PRD 6 P0-4, C-091).
+  retentionDays?: number;
 };
 
 /**
@@ -168,6 +170,7 @@ export async function seedSettings(overrides: SettingsOverrides = {}): Promise<v
       rewardThresholdPoints: overrides.rewardThresholdPoints ?? 100,
       rewardValueCents: overrides.rewardValueCents ?? 1000,
       loyaltyExpiryDays: overrides.loyaltyExpiryDays ?? 365,
+      retentionDays: overrides.retentionDays ?? 365,
     },
   });
 }

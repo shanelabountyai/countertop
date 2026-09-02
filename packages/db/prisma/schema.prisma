@@ -476,10 +476,25 @@ model RestaurantSettings {
   /// Editable, which is not the same as changeable — moving these once
   /// customers hold balances devalues those balances visibly.
   rewardValueCents      Int     @default(1000)
-  /// Decision 10: 365 days of INACTIVITY. P0-5's
-  /// `loyaltyExpiryDays <= retentionDays` CHECK lands with C-091, which is
-  /// where `retentionDays` first exists.
+  /// Decision 10: 365 days of INACTIVITY. `retentionDays` below now exists
+  /// (C-091); the `loyaltyExpiryDays <= retentionDays` CHECK that PRD 7 P0-5
+  /// requires lands with the expiry sweep itself (C-105), which is the item
+  /// that has a reason to enforce it.
   loyaltyExpiryDays     Int     @default(365)
+
+  // --- Retention (PRD 6 P0-4, C-091) ---
+
+  /// How long a customer's IDENTITY is kept after they order: their name,
+  /// phone and note. Days, from `placedAt`, and 365 because decision 10 made
+  /// the loyalty program this product's retention driver — a punch card that
+  /// expires after a year of inactivity needs the purchase history behind it
+  /// for at least that long, and nothing else here needs it for more than a
+  /// few days.
+  ///
+  /// It bounds NOTHING else. `seq`, the money, the lines, the option names and
+  /// every event are what was sold, and the sweep leaves all of them exactly
+  /// as they are so no report moves (`packages/db/retention.ts`).
+  retentionDays         Int     @default(365)
 }
 
 /// A loyalty member is a PHONE NUMBER (PRD 7 P0-1). No account, no password,

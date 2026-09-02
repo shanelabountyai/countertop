@@ -35,6 +35,8 @@
     "db:status:test": "dotenv -e .env.test -- npm run migrate:status -w packages/db",
     "db:status": "npm run db:status:test && npm run db:status:dev",
     "db:seed:test": "dotenv -e .env.test -- tsx packages/db/seed.ts",
+    "db:retention": "dotenv -e .env.local -- tsx packages/db/retention-sweep.ts",
+    "db:retention:prod": "dotenv -e .env.production.local -- tsx packages/db/retention-sweep.ts",
     "demo:rush": "dotenv -e .env.local -- tsx packages/db/rush-demo.ts",
     "demo:rush:live": "npm run demo:rush -- --until 12",
     "db:rush:test": "dotenv -e .env.test -- tsx packages/db/rush-demo.ts --until 12",

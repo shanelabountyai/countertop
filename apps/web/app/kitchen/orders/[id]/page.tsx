@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
   ADJUSTMENT_REASONS,
+  FORGOTTEN_CUSTOMER_NAME,
   adjustableRemainingCents,
   canCollectPayment,
   formatOrderNumber,
@@ -42,7 +43,13 @@ import {
   PAYMENT_LABEL,
   STATUS_LABEL,
 } from '@/lib/status-labels';
-import { adjustOrderForm, collectPayment, redeemRewardForm, remakeOrderForm } from '../../actions';
+import {
+  adjustOrderForm,
+  collectPayment,
+  forgetCustomerForm,
+  redeemRewardForm,
+  remakeOrderForm,
+} from '../../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,10 +58,10 @@ export default async function OrderHistoryDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ adjustError?: string; redeemError?: string }>;
+  searchParams: Promise<{ adjustError?: string; redeemError?: string; forget?: string }>;
 }) {
   const { id } = await params;
-  const { adjustError, redeemError } = await searchParams;
+  const { adjustError, redeemError, forget } = await searchParams;
   const [gateState, order, activity, remakes] = await Promise.all([
     loadGateState(new Date()),
     findOrderByIdForStaff(id),
@@ -482,6 +489,64 @@ export default async function OrderHistoryDetailPage({
             </li>
           ))}
         </ol>
+      </section>
+
+      {/* "Forget this customer" (PRD 6 P0-4, C-091). LAST on the page and
+          behind a confirm, because it is the only irreversible control in this
+          product: nothing else here destroys anything, and the receipt is read
+          at arm's length with greasy gloves.
+
+          The confirm is a URL, like the menu editor's price confirm (C-015) —
+          it survives a reload, it needs no client JavaScript, and a server
+          component cannot call `window.confirm`. */}
+      <section className="mt-6 rounded-lg border border-neutral-300 p-4">
+        <h2 className="font-semibold">Forget this customer</h2>
+        {order.customerName === FORGOTTEN_CUSTOMER_NAME ? (
+          <p className="mt-1 text-sm text-neutral-600" data-testid="already-forgotten">
+            Already done. The name, phone and notes are gone; the order number,
+            the money and the activity below are exactly as they were.
+          </p>
+        ) : forget === '1' ? (
+          <form action={forgetCustomerForm} className="mt-3 flex flex-col gap-3">
+            <input type="hidden" name="orderId" value={order.id} />
+            <p className="rounded-lg border border-red-700 bg-red-50 p-3 text-sm font-semibold text-red-900">
+              This removes {order.customerName}&rsquo;s name, phone number and every note
+              on this order. It cannot be undone. {formatOrderNumber(order.seq)}, the
+              money and the activity log all stay.
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                type="submit"
+                data-testid="forget-confirm"
+                className="min-h-12 flex-1 rounded-lg border-2 border-red-700 bg-red-700 px-4 text-lg font-bold text-white"
+              >
+                Forget them
+              </button>
+              <Link
+                href={`/kitchen/orders/${order.id}`}
+                className="flex min-h-12 flex-1 items-center justify-center rounded-lg border-2 border-neutral-900 px-4 text-lg font-bold"
+              >
+                Keep it
+              </Link>
+            </div>
+          </form>
+        ) : (
+          <>
+            <p className="mt-1 text-sm text-neutral-600">
+              For the customer who asks. Removes the name, phone number and notes
+              from this order and nothing else &mdash; every report reads the same
+              afterwards. Everything older than the retention window goes on its
+              own (<code>npm run db:retention</code>, see docs/RETENTION.md).
+            </p>
+            <Link
+              href={`/kitchen/orders/${order.id}?forget=1`}
+              data-testid="forget-customer"
+              className="mt-3 inline-flex min-h-12 items-center rounded-lg border-2 border-neutral-900 px-4 text-lg font-bold"
+            >
+              Forget this customer
+            </Link>
+          </>
+        )}
       </section>
     </main>
   );

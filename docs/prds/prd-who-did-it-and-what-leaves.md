@@ -55,10 +55,10 @@ The same hole answers three other questions with silence: who advanced `#010` tw
 - [ ] Test: mark an order paid, assert an event exists with an instant, and that the instant is queryable by business day
 
 **P0-4: The customer can be forgotten** *(SYS 7)*
-- [ ] A documented retention window with a job that nulls `customerName`, `customerPhone` and `orderNote` on orders past it, leaving `seq`, money, lines and events intact so every report is unaffected
-- [ ] A staff-invocable "forget this customer" doing the same for one order, from the staff receipt
-- [ ] The procedure is written down in the repo, because an undocumented capability is one nobody uses when the email arrives
-- [ ] Test: run the sweep against a seeded old order and assert the report totals are **byte-identical** while the name is gone; assert `searchOrderHistory` no longer finds it by name
+- [x] A documented retention window with a job that nulls `customerName`, `customerPhone` and `orderNote` on orders past it, leaving `seq`, money, lines and events intact so every report is unaffected. **Shipped at C-091 with a FOURTH column, `OrderLine.note`** — the same free-text box one level down, and a forget that leaves it behind is a forget that reads complete on the header and is not
+- [x] A staff-invocable "forget this customer" doing the same for one order, from the staff receipt. Behind a URL confirm, and it shares ONE write with the sweep so the two cannot drift
+- [x] The procedure is written down in the repo, because an undocumented capability is one nobody uses when the email arrives. `docs/RETENTION.md`, linked from the README
+- [x] Test: run the sweep against a seeded old order and assert the report totals are **byte-identical** while the name is gone; assert `searchOrderHistory` no longer finds it by name
 
 ### Nice-to-Have (P1)
 
