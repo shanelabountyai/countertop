@@ -4165,4 +4165,4 @@ PRDs are updated. The number is bookkeeping; the dependency is not.
 shadcn; light-mode-only tokens). C-087 left the body background unset and two
 palette tokens unused because of it.
 
-C-100 is this entry; its SHA is recorded in the follow-up commit.
+C-100 committed at 40ce2e2.
