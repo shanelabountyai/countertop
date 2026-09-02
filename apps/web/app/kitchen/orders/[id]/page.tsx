@@ -25,7 +25,7 @@ import {
   paymentTotals,
 } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
-import { findOrderByIdForStaff, loadOrderActivity } from '@countertop/db/history';
+import { findOrderByIdForStaff, loadOrderActivity, loadRemakesOf } from '@countertop/db/history';
 import { formatCents } from '@/lib/money';
 import { formatPlacedAt } from '@/lib/format-time';
 import { describeSelection } from '@/lib/menu-labels';
@@ -37,7 +37,7 @@ import {
   PAYMENT_LABEL,
   STATUS_LABEL,
 } from '@/lib/status-labels';
-import { adjustOrderForm, collectPayment } from '../../actions';
+import { adjustOrderForm, collectPayment, remakeOrderForm } from '../../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,10 +50,11 @@ export default async function OrderHistoryDetailPage({
 }) {
   const { id } = await params;
   const { adjustError } = await searchParams;
-  const [gateState, order, activity] = await Promise.all([
+  const [gateState, order, activity, remakes] = await Promise.all([
     loadGateState(new Date()),
     findOrderByIdForStaff(id),
     loadOrderActivity(id),
+    loadRemakesOf(id),
   ]);
   if (!order) notFound();
 
@@ -80,6 +81,24 @@ export default async function OrderHistoryDetailPage({
         {order.customerPhone && <span className="text-neutral-600"> · {order.customerPhone}</span>}
       </p>
       <p className="text-sm text-neutral-600">{formatPlacedAt(order.placedAt, gateState.timezone)}</p>
+
+      {/* The link, both ways (C-066). It is stored once — on the remake's own
+          event, naming the original — and read from each end here. Loud,
+          because a remake ticket that looks like an ordinary order is one the
+          line charges for. */}
+      {remakes.length > 0 && (
+        <p className="mt-3 rounded-lg border-2 border-neutral-900 p-3 font-semibold" data-testid="remade-as">
+          Remade as{' '}
+          {remakes.map((remake, index) => (
+            <span key={remake.id}>
+              {index > 0 && ', '}
+              <Link href={`/kitchen/orders/${remake.id}`} className="underline underline-offset-4">
+                {formatOrderNumber(remake.seq)}
+              </Link>
+            </span>
+          ))}
+        </p>
+      )}
 
       <section className="mt-6 rounded-lg border border-neutral-300 p-4">
         <h2 className="font-semibold">What was ordered</h2>
@@ -255,6 +274,60 @@ export default async function OrderHistoryDetailPage({
         </section>
       )}
 
+      {/* Its own section and its own FORM (C-066), for two reasons that both
+          bite. A remake creates a whole new order, so it must stay reachable
+          on an order that has already been comped — which is the PRD's own
+          scenario: Ivy gets her money back AND a new torta, and the adjust
+          section above disappears once there is nothing left to adjust. And a
+          form's implicit submission fires its first submit button, so sharing
+          one form would make Enter in the note field mint a kitchen ticket. */}
+      <section className="mt-6 rounded-lg border border-neutral-300 p-4">
+        <h2 className="font-semibold">Remake it</h2>
+        <p className="mt-1 text-sm text-neutral-600">
+          Puts a new ticket on the line — same food, its own number, nothing
+          charged. The note below goes on that ticket, above the customer&rsquo;s own.
+          The original keeps its money exactly as it is.
+        </p>
+
+        <form action={remakeOrderForm} className="mt-3 flex flex-col gap-3">
+          <input type="hidden" name="orderId" value={order.id} />
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-medium">What went wrong</span>
+            <select
+              name="reason"
+              required
+              defaultValue=""
+              className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+            >
+              <option value="" disabled>
+                Pick one
+              </option>
+              {ADJUSTMENT_REASONS.map((reason) => (
+                <option key={reason} value={reason}>
+                  {ADJUSTMENT_REASON_LABEL[reason]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-medium">Note for the line</span>
+            <input
+              type="text"
+              name="note"
+              maxLength={140}
+              placeholder="Onions off. Cut in half."
+              className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+            />
+          </label>
+          <button
+            type="submit"
+            className="min-h-12 rounded-lg border-2 border-neutral-900 bg-neutral-900 px-4 text-lg font-bold text-white"
+          >
+            Remake it
+          </button>
+        </form>
+      </section>
+
       {order.orderNote && (
         <p className="mt-4 text-sm italic text-neutral-700">“{order.orderNote}”</p>
       )}
@@ -277,6 +350,14 @@ export default async function OrderHistoryDetailPage({
                 {formatPlacedAt(entry.at, gateState.timezone)}
               </span>
               <span className="text-lg">{describeEvent(entry)}</span>
+              {entry.relatedOrder && (
+                <Link
+                  href={`/kitchen/orders/${entry.relatedOrder.id}`}
+                  className="text-lg font-semibold underline underline-offset-4"
+                >
+                  {formatOrderNumber(entry.relatedOrder.seq)}
+                </Link>
+              )}
               {entry.amountCents !== null && (
                 <span className="text-lg font-semibold tabular-nums">
                   {formatCents(entry.amountCents)}

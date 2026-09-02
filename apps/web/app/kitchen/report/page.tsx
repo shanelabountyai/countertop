@@ -132,6 +132,20 @@ export default async function ReportPage({
         />
       </section>
 
+      {/* "We remade six tickets Friday" (PRD 3 P0-3, C-066) — a number the
+          shop could not produce, because the only record was somebody telling
+          the GM at close. Its own row rather than a fifth stat tile: it is not
+          a sales figure, and the note has to say why it is missing from the
+          ones above. */}
+      {report.remakes > 0 && (
+        <p className="mt-4 rounded-lg border-2 border-neutral-400 p-4 text-lg">
+          <strong data-testid="report-remakes">{report.remakes}</strong>{' '}
+          {report.remakes === 1 ? 'order was' : 'orders were'} remade. Deliberately not counted
+          above — the food left the building once and was paid for once, so counting the
+          replacement again would overstate both sales and the items on it.
+        </p>
+      )}
+
       {report.payment.outstanding.length > 0 && (
         <p className="mt-4 rounded-lg border-2 border-amber-500 bg-amber-50 p-4 text-lg">
           <strong>{formatCents(report.payment.outstandingCents)}</strong> of that revenue was
@@ -382,11 +396,23 @@ function suggestionText(suggestion: QuoteAdjustment | null, samples: number): st
   return `${direction} ${SETTING_LABEL[suggestion.setting]} on the settings screen — ${because}.`;
 }
 
-function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
+function Stat({
+  label,
+  value,
+  note,
+  testId,
+}: {
+  label: string;
+  value: string;
+  note?: string;
+  testId?: string;
+}) {
   return (
     <div className="rounded-lg border-2 border-neutral-300 p-3">
       <p className="text-base text-neutral-700">{label}</p>
-      <p className="text-3xl font-bold tabular-nums">{value}</p>
+      <p className="text-3xl font-bold tabular-nums" {...(testId && { 'data-testid': testId })}>
+        {value}
+      </p>
       {note && <p className="mt-1 text-base text-neutral-600">{note}</p>}
     </div>
   );

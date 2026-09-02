@@ -165,6 +165,7 @@ describe('salesReport — what each status counts toward', () => {
         unpaidRate: null,
       },
       inFlight: 0,
+      remakes: 0,
     });
   });
 });

@@ -42,6 +42,11 @@ export const ORDER_EVENT_KINDS = [
    *  from it. The counter has always done this; until now it did it off-system,
    *  and the till and the report disagreed by an amount nobody wrote down. */
   'adjustment',
+  /** This order replaces another one (PRD 3 P0-3, C-066). Decision 7 of
+   *  2026-09-02: a remake is a REAL second order with its own number and its
+   *  own ticket, so the link is what ties the two together. Carries no
+   *  amount — the money is the full comp written beside it. */
+  'remake',
 ] as const;
 export type OrderEventKind = (typeof ORDER_EVENT_KINDS)[number];
 
@@ -309,6 +314,15 @@ export type OrderEventDraft = {
   amountCents?: number;
   /** The processor's own reference, for the day there is a processor. */
   providerRef?: string;
+  /**
+   * Another ORDER this event points at (PRD 3 P0-3, C-066).
+   *
+   * Set only on `remake` today, and only in one direction: the remake's own
+   * event names the order it replaces. The original finds its remake by
+   * reverse lookup, because storing the link on both orders would be one fact
+   * in two places and two places can disagree.
+   */
+  relatedOrderId?: string;
   detail?: Record<string, unknown>;
 };
 
@@ -396,6 +410,36 @@ export function paymentEvent(
     // and dropping it would make an old event and a new one different shapes
     // for no gain. The COLUMN is what anything sums.
     detail: { amountCents, where, provider: 'mock' },
+  };
+}
+
+/**
+ * The link that says this order replaces another (PRD 3 P0-3, C-066).
+ *
+ * NOT a status change and NOT money: `fromStatus`/`toStatus` are null so the
+ * time-in-state tally steps over it, and there is no `amountCents` because the
+ * money is the full comp the same transaction writes beside it. Two facts, two
+ * rows — "we cooked this again" and "we charged nothing for it" are separate
+ * sentences, and folding them into one row would make the second invisible to
+ * a balance that only sums money kinds.
+ *
+ * `reason` carries the same preset an adjustment does, so "why did we remake
+ * things on Friday" is the same `GROUP BY` as "why did we comp things".
+ */
+export function remakeEvent(
+  now: Date,
+  /** The order being replaced. */
+  relatedOrderId: string,
+  reason: string,
+): OrderEventDraft {
+  return {
+    at: now,
+    kind: 'remake',
+    fromStatus: null,
+    toStatus: null,
+    actor: 'staff',
+    reason,
+    relatedOrderId,
   };
 }
 

@@ -126,6 +126,14 @@ enum OrderEventKind {
   /// the obvious "subtract it from the total" version is refused because it
   /// mutates a write-once column.
   adjustment
+  /// PRD 3 P0-3 (C-066): this order replaces the one named by
+  /// `relatedOrderId`. Decision 7 of 2026-09-02 — a remake is a REAL second
+  /// order with its own number and its own ticket, because the kitchen has to
+  /// cook something and a remake nobody is told to make is the transcription
+  /// failure this product exists to kill. Carries NO amount: the money is the
+  /// full comp written beside it, so this kind stays on the "must not" side of
+  /// `order_event_amount_matches_kind` without that constraint changing.
+  remake
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +269,11 @@ model Order {
   idempotencyKey  String        @unique
   lines           OrderLine[]
   events          OrderEvent[]
+  /// Events on OTHER orders that point at this one (C-066). In practice: the
+  /// `remake` event on the order that replaced this one. `Restrict` on the far
+  /// side, so the link between a wrong order and its remake cannot be tidied
+  /// away — it is the only record that either happened.
+  remadeBy        OrderEvent[] @relation("OrderRemake")
 
   /// Two concurrent placements contend HERE, on the constraint — never on a
   /// check-then-write. The loser catches the violation and retries at seq+1.
@@ -354,6 +367,14 @@ model OrderEvent {
   /// record that no call was made — and here now because adding it later means
   /// a migration over a table that only grows.
   providerRef String?        @db.VarChar(128)
+  /// The order this event points AT (C-066). Non-null only on `remake` today.
+  ///
+  /// ONE DIRECTION: the remake's own event names the original, and the
+  /// original's receipt finds its remake by reverse lookup off the index
+  /// below. Recording it on both orders would be one fact stored twice, and
+  /// two copies of a fact are two things that can disagree.
+  relatedOrderId String?
+  relatedOrder   Order?       @relation("OrderRemake", fields: [relatedOrderId], references: [id], onDelete: Restrict)
   detail     Json?
 
   @@index([orderId, at])
@@ -361,6 +382,10 @@ model OrderEvent {
   /// column on every attempted delete. It is also what "what did Sam do on
   /// Friday?" reads.
   @@index([staffId])
+  /// Postgres does not index a foreign key for you, and `Restrict` scans this
+  /// on every attempted delete. It is also the reverse lookup a receipt does
+  /// to find the order that replaced it.
+  @@index([relatedOrderId])
 }
 
 /// A name to put on a row (PRD 6 P0-2). NOT an account.

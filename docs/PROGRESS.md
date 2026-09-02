@@ -3918,50 +3918,146 @@ byte-identical — and 5 e2e including axe.
   fixing the cancel side would change a string four specs assert on, under an
   item about money.
 
+## C-066 — The remake link (PRD 3 P0-3, the rest)
+
+6:52pm. Ivy is back at the counter with `#012` — a torta she ordered with
+onions **off**, and a note saying "cut it in half please", and she got neither.
+Bea remakes it. Before this the system offered nothing: the till loses $13.75
+with no record, the report counts one torta sold at full price, the attach rate
+records "Onions — attached" on an order that said NO onions, and the only trace
+is Bea telling the GM at close.
+
+**The fork, and why it was not even.** The PRD left this as an open Builder
+question and named the tension exactly: *"the kitchen needs a ticket; the
+report needs a link."* Decision 7 of 2026-09-02 — **a real second order**. The
+two needs do not pull evenly. Either shape gives the report its number; only
+one gives the kitchen something to cook, and a remake nobody is told to make is
+precisely the transcription failure this product exists to kill. Taking the
+kitchen's side costs an order-creation path. Taking the report's side costs the
+feature.
+
+**Built:**
+- A new order with its own `(businessDay, seq)`, `placed`, alerting, ageing —
+  a ticket like any other, because that is the entire point.
+- **The lines are copied from the original's snapshot, never re-priced.** Two
+  reasons and both are the snapshot rule: it has to be the same food (the
+  negation and the customer note are the scenario), and it has to be the same
+  money, so the comp beside it cancels exactly what was charged. There is a
+  test that reprices and renames the menu item first.
+- **Comped in full at creation**, reusing C-065's `adjustmentEvent` — the one
+  function that validates and constructs together. Without it the counter is
+  shown "$11.85 due" on a ticket nobody will ever be charged for.
+- **The report exclusion, which is the load-bearing half.** A remake is `sold`
+  by every rule the report otherwise applies — it is a real order that really
+  got picked up — so it is taken out *before* the status roles are consulted.
+  Left in, it books a second sale, doubles the top-item units, and records an
+  onions attach on the remake of an order that said NO onions.
+- `remakes` on `/kitchen/report`, in its own row rather than a fifth stat tile,
+  with copy saying why it is deliberately not in the totals above.
+- **One migration file.** C-065 needed two because a value added by
+  `ALTER TYPE … ADD VALUE` cannot be *used* in the same transaction — and
+  nothing here uses it. No CHECK changes either: a remake carries no amount, so
+  it stays on the "must not" side of `order_event_amount_matches_kind` for
+  free.
+- **The link is stored once, in one direction** — on the remake's own event,
+  naming the original. The original's receipt finds it by reverse lookup off
+  the new index. One fact in two places is two things that can disagree.
+
+**Decided:**
+- **The seq-retry loop was extracted, not copied.** A remake became the second
+  thing needing an order number, and the mechanism CLAUDE.md names is that
+  concurrent placements contend on the *constraint*, never on a
+  check-then-write. A second hand-written copy of that loop is the obvious
+  place for it to be got subtly wrong. One loop, two callers.
+- **Its own section and its own form on the receipt.** Two reasons, both real:
+  a remake must stay reachable on an order that has already been comped — the
+  PRD's own scenario is Ivy getting her money back AND a new torta, and the
+  adjust section vanishes once nothing is left to adjust — and a form's
+  implicit submission fires its first submit button, so sharing one form would
+  have made Enter in the note field mint a kitchen ticket.
+- **The quote columns stay null on a remake.** Nobody promised Ivy eight
+  minutes. Copying the original's quote would feed a stale promise into
+  C-042's accuracy grading as though it had been made tonight, and the schema
+  already calls null "no record".
+- **The placement event's actor is `staff`, not `customer`.** Bea put this
+  ticket on the line. It is the one place a remake's placement honestly differs
+  from a real one.
+
+**A defect its own test found.** The first version of the concurrency test
+failed, and the reason was not the test: two taps genuinely in flight both
+derive the same idempotency key, and the extracted retry loop's recovery
+handler was not passed on the remake path — so the loser **threw** instead of
+reading the winner's order. Written sequentially the test would have passed and
+shipped the bug, because two sequential calls are two deliberate remakes and
+are *supposed* to make two tickets. Concurrency is what distinguished them.
+
+**Left behind:**
+- **Nothing reverses a remake.** A remake minted on the wrong order is a real
+  ticket and a real comp, and the recourse is the same as for an adjustment:
+  cancel the ticket, and the log says who made it. The reversing-adjustment
+  work I said in C-065 belonged here did **not** land — this item was already
+  a migration, a new order path, a report change and an extraction, and
+  bolting a fourth concept on would have made all four worse. It moves to
+  C-067's neighbourhood with the rest of the "we tried and it failed" work.
+- **A remake's comp is invisible to the future comps line.** The report skips
+  remake orders entirely, so when PRD 3 P1-3 lands the comps line, the comps
+  written *by* remakes will not appear in it. That is the right default —
+  a remake is not a comp decision, it is a cooking decision — but it is a
+  choice, and P1-3 should restate it rather than rediscover it.
+- **A remake does not inherit the original's payment.** If Ivy had paid, her
+  original stays paid and the remake is comped; nobody is charged twice and
+  nobody is refunded. Money owed *back* on a comped-and-paid original is still
+  C-067's problem, unchanged by this item.
+
 ---
 
 # Carried forward — read this first in a new session
 
-State at the end of the 2026-09-01/02 session, so the next one does not have to
-reconstruct it.
+State at the end of the 2026-09-02 session.
 
 **Pushed and CI-green:** C-051, C-052, C-084, C-085, C-086, C-063, C-064,
-C-087, plus the loyalty PRD. **C-065 is this entry**, gated green (552 unit,
-134 passed + 14 skipped = 148 e2e, reconciled against the 143 baseline plus its
-own five new tests) and committed with it.
+C-087, C-065. **C-066 is this entry.**
 
-**PRD 3 continues at C-066** — the remake link: `OrderEvent.relatedOrderId`,
-the kitchen ticket for the remake, and "we remade six tickets Friday" as a
-number. C-065 deliberately left `remake` out of `ADJUSTMENT_KINDS` so the kind
-and its link arrive together. **C-066 is also where the reversing adjustment
-belongs** — undoing a comp typed onto the wrong order needs an event that
-points at another event, which is the same machinery, and building a second
-version of it separately would guarantee the two disagreed.
+**PRD 3 has two items left:** C-067 (a refund that can fail — and the home for
+the reversing adjustment C-065 and C-066 both deferred) and C-068 (the cancel
+refusal that names the adjustment path).
 
-**Then C-067** (a refund that can fail) and **C-068** (the cancel refusal that
-names the adjustment path). C-067 is where "we comped an order the customer had
-already paid for" stops reading as a zero balance and starts being a refund
-owed — see the WRITEUP caveat.
+**THE PROJECT'S NEXT RUN IS THE LOYALTY PROGRAM.** The owner instructed it on
+2026-09-02 and four decisions were taken and recorded in
+`docs/prds/INDEX.md` (decisions 7-10) and in `docs/prds/prd-loyalty.md`:
 
-**Two live traps recorded from C-065, both cheap to re-trip:**
-- `ALTER TYPE … ADD VALUE` cannot be USED in the transaction that adds it, and
-  Prisma runs each migration file in one. A CHECK naming a new enum value is
-  the next FILE, never the next statement. C-085 hit it first; C-065 paid
-  nothing for it.
-- A money bound stated as "larger than the order total" is a CUMULATIVE bound,
-  not a per-amount one. The single-amount reading is what the PRD text leads
-  you to and it lets two $10 comps land on a $13.75 order.
+- **Decision 8 — the master PRD's loyalty Non-Goal is LIFTED.** The loyalty
+  PRD's own recommendation was to shelve it; that was read and overruled,
+  which is the owner's call. Recorded as such rather than softened: this is
+  the one PRD in the set with zero lens consensus.
+- **Decision 9 — the economics: 1 point per dollar of subtotal, 100 points,
+  $10 off.** 10% back. Editable in `RestaurantSettings`, which is not the same
+  as changeable — moving it once balances are held devalues them visibly.
+- **Decision 10 — expiry is 365 days of inactivity**, and the P0-5 CHECK
+  therefore widens `retentionDays` to 365. **The cost is that loyalty now
+  drives this product's PII retention policy** — nothing else needs a named
+  person's history for a year.
+- **PRD 6 P0-4 (retention + the forget path) is being built as part of the
+  run**, ahead of loyalty's expiry item, because it is loyalty's hard
+  prerequisite and it is what makes the durable customer data defensible.
 
-**The brand work stopped at the customer's menu screen (C-087).** The staff
-screens are still neutral greys; the sheet's own kitchen-header example is
-where that continues, and it is a redesign of the highest-consequence screen
-rather than an asset drop. **Do not soften the `NO ONIONS` treatment.**
+**Order of the loyalty run:** C-100 ledger → C-101 enrolment → C-102 earning →
+C-103 counter panel → C-104 redeeming → **C-091 retention + forget** → C-105
+expiry + forget → C-106 the program's own screen.
 
-**Two things still waiting on the owner:** the loyalty PRD's first Open
-Question (lift the master PRD's loyalty Non-Goal, or shelve it — the PRD's own
-recommendation is not to build it yet), and the two calls in
-`docs/DESIGN_BRIEF.md` (no shadcn; light-mode-only tokens). The second blocks
-something concrete: C-087 left the body background unset and two palette tokens
-unused because of it.
+**Numbering correction:** PRD 6's forget item was written as `C-087`; the brand
+item shipped under that number first, so the forget item is now **C-091**. Both
+PRDs are updated. The number is bookkeeping; the dependency is not.
 
-C-065 committed at 3551cf0.
+**Two traps this session re-proved, both cheap to re-trip:**
+- `ALTER TYPE … ADD VALUE` cannot be USED in the transaction that adds it.
+  C-065 needed two migration files; C-066 needed one, because nothing used the
+  new value. Check which case you are in before splitting.
+- **A money bound stated as "larger than the order total" is cumulative.** The
+  per-amount reading lets two $10 comps land on a $13.75 order.
+
+**Still waiting on the owner:** the two calls in `docs/DESIGN_BRIEF.md` (no
+shadcn; light-mode-only tokens). C-087 left the body background unset and two
+palette tokens unused because of it.
+
+C-066 committed at PENDING.

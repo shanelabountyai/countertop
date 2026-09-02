@@ -28,7 +28,7 @@ The builder-side problem this project targets: **menu variant modeling** (sizes 
 - **Real payment processing** — mock provider behind an interface, same convention as BoxLoop. "Pay at pickup" is also a valid v1 flow.
 - **Table reservations / dine-in service** — adjacent business, different feature family (that's scheduling, already covered by Bookable).
 - **POS/printer integration** — hardware integration is config, not logic.
-- **Loyalty/rewards** — entitlement systems are the fitness-studio project's lesson.
+- ~~**Loyalty/rewards** — entitlement systems are the fitness-studio project's lesson.~~ **LIFTED 2026-09-02 by the owner** (decision 8, `docs/prds/INDEX.md`), promoting the P2 item below. `docs/prds/prd-loyalty.md` is the PRD and its own recommendation was to leave this closed; that was read and overruled, which is the owner's call. The Non-Goal's original reason still holds and is now a *boundary* rather than a bar: the program stops at ONE integer per member, and a second entitlement dimension — tiers, birthdays, streaks — is where the fitness-studio lesson genuinely begins.
 - **Multi-restaurant marketplace** — that's project #4. One restaurant, one menu.
 
 ## Personas

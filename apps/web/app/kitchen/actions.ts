@@ -22,6 +22,7 @@ import {
 } from '@countertop/core';
 import { prisma } from '@countertop/db';
 import { adjustOrder } from '@countertop/db/adjustment';
+import { remakeOrder } from '@countertop/db/remake';
 import { collectOrderPayment } from '@countertop/db/payment';
 import { isStaffPin, staffByPin } from '@countertop/db/staff';
 import { cookies } from 'next/headers';
@@ -276,6 +277,56 @@ export async function adjustOrderForm(formData: FormData): Promise<void> {
   // well as what this receipt says, because both ask `orderBalance`.
   revalidatePath('/kitchen', 'layout');
   redirect(back);
+}
+
+/**
+ * Cook it again, on the house (PRD 3 P0-3, C-066).
+ *
+ * Decision 7 of 2026-09-02: this creates a REAL second order — its own number,
+ * its own ticket, its own place in the queue — linked back to the one it
+ * replaces and comped in full. The kitchen needs something to cook, and a
+ * remake nobody is told to make is the transcription failure the whole product
+ * exists to kill.
+ *
+ * Lands the operator on the NEW order rather than leaving them on the old one:
+ * the next thing that happens is a ticket going to the line, and the number to
+ * call out is the new one.
+ */
+export async function remakeOrderForm(formData: FormData): Promise<void> {
+  const orderId = formData.get('orderId');
+  if (typeof orderId !== 'string' || orderId === '') {
+    return redirect('/kitchen/orders');
+  }
+  const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
+
+  const reason = formData.get('reason');
+  if (typeof reason !== 'string' || !ADJUSTMENT_REASONS.includes(reason as AdjustmentReason)) {
+    return redirect(`${back}?adjustError=${encodeURIComponent('Pick a reason.')}`);
+  }
+
+  const note = formData.get('note');
+  const result = await remakeOrder(
+    orderId,
+    reason as AdjustmentReason,
+    new Date(),
+    typeof note === 'string' && note !== '' ? note : undefined,
+    await currentShiftId(),
+  );
+
+  if (!result.ok) {
+    return redirect(
+      `${back}?adjustError=${encodeURIComponent(
+        ECHOABLE_REFUSALS.includes(result.reason as AdjustmentRefusalReason)
+          ? result.message
+          : 'That order could not be remade.',
+      )}`,
+    );
+  }
+
+  // The whole subtree: a remake puts a new card on the queue AND changes what
+  // both receipts say.
+  revalidatePath('/kitchen', 'layout');
+  redirect(`/kitchen/orders/${result.order.id}`);
 }
 
 /**

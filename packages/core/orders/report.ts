@@ -147,6 +147,19 @@ export type SalesReport = {
    *  a midday report explains its own missing money instead of quietly
    *  under-reporting. */
   inFlight: number;
+  /**
+   * "We remade six tickets Friday" (PRD 3 P0-3, C-066) — the number the shop
+   * had no way to produce, because the only record was somebody telling the GM
+   * at close.
+   *
+   * These orders are counted HERE and NOWHERE ELSE. That exclusion is the
+   * load-bearing half of decision 7: a remake is a real order with a real
+   * ticket, so left alone it would book a second sale at full price, add its
+   * units to the top-item counts, and record an onions attach on the remake of
+   * an order that said NO onions — which is the exact fiction this PRD's
+   * opening scenario is about.
+   */
+  remakes: number;
 };
 
 /** The attach map's key. `JSON.stringify` of the tuple, so no delimiter has to
@@ -171,11 +184,21 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
   let sold = 0;
   let noShow = 0;
   let inFlight = 0;
+  let remakes = 0;
   let collectedCents = 0;
   let outstandingCents = 0;
   let refundedCents = 0;
 
   for (const order of orders) {
+    // BEFORE the status roles, deliberately. A remake is `sold` by every rule
+    // this function otherwise applies — it is a real order that really got
+    // picked up — and that is precisely why it has to be taken out first. The
+    // food left the building once and was paid for once; counting the
+    // replacement again is how Monday's numbers become fiction.
+    if (order.events.some((event) => event.kind === 'remake')) {
+      remakes += 1;
+      continue;
+    }
     const role = salesRoleOf(order.status);
     if (role === 'cancelled') continue;
     if (role === 'in_flight') {
@@ -289,5 +312,6 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
       unpaidRate: sold === 0 ? null : outstanding.length / sold,
     },
     inFlight,
+    remakes,
   };
 }

@@ -71,6 +71,11 @@ export function describeEvent(entry: {
       return 'Refunded';
     case 'total_mismatch':
       return 'Total mismatch recorded';
+    case 'remake':
+      // The number it replaces is rendered beside this as a link, off the
+      // event's `relatedOrderId` — a sentence naming an order the reader
+      // cannot click is a sentence that sends them to the search box.
+      return 'Remade from';
     case 'adjustment':
       // Deliberately not "Comped" or "Discounted": the amount is rendered
       // beside this on the receipt, and the log entry has to read the same for
@@ -131,6 +136,6 @@ export function describeEventReason(entry: {
   reason: string | null;
 }): string | null {
   if (entry.reason === null) return null;
-  if (entry.kind !== 'adjustment') return entry.reason;
+  if (entry.kind !== 'adjustment' && entry.kind !== 'remake') return entry.reason;
   return ADJUSTMENT_REASON_LABEL[entry.reason as AdjustmentReason] ?? entry.reason;
 }

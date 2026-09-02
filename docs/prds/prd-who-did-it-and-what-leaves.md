@@ -131,7 +131,7 @@ The append-only trigger on `OrderEvent` must survive every one of these. A new n
 - **C-084 — When it fails, there is something to look at** — P0-1, the structured placement and gate logging with the idempotency key as the correlation id, the `priceLine` throw handler, the `total_mismatch` persistence fix, and the no-PII assertion. Cheapest and highest-value item in this document; it should not wait for the rest.
 - **C-085 — A payment leaves a timestamped record** — P0-3, if `prd-money-that-reconciles.md`'s C-063 has not already landed it. The *when* before the *who*.
 - **C-086 — A name on the row** — P0-2, `StaffMember`, PINs, the identity column on `OrderEvent`, no backfill.
-- **C-087 — The customer can be forgotten** — P0-4, the retention sweep and the per-order forget, with the byte-identical report assertion as the gate.
+- **C-091 — The customer can be forgotten** — P0-4, the retention sweep and the per-order forget, with the byte-identical report assertion as the gate. *(Renumbered from C-087 on 2026-09-02: the brand item shipped under that number first. The number is bookkeeping; the dependency is not — `prd-loyalty.md` P0-5 is blocked on this item whatever it is called.)*
 - **C-088 — The replay is bound to its session** — E-1, after defect D3's format check has landed.
 - **C-089 — An ordered, replayable event feed** — P1-1, `seq BIGSERIAL` and `GET /api/events?after=N`, gated on its Open Question.
 - **C-090 — The widening plan, written into the schema** — P1-3, plus E-2's one-line correction to the `MAX_SEQ_ATTEMPTS` comment and its test. A documentation session with two small code changes riding along.

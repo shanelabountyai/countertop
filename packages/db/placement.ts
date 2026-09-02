@@ -115,8 +115,12 @@ export type PlacementResult =
 const MAX_SEQ_ATTEMPTS = 25;
 
 /** ≥128 bits, so order numbers cannot be walked into someone else's status
- *  page (P0-8, hardened in P1-5). 24 bytes = 192 bits. */
-const newStatusToken = (): string => randomBytes(24).toString('base64url');
+ *  page (P0-8, hardened in P1-5). 24 bytes = 192 bits.
+ *
+ *  Exported at C-066: a remake is a real order and its customer watches it on
+ *  a real status link, so it needs a real token. One generator, because "how
+ *  many bits is a status token" must have exactly one answer. */
+export const newStatusToken = (): string => randomBytes(24).toString('base64url');
 
 /** The unique constraint a P2002 names, or null if it was some other error. */
 function uniqueViolationTarget(error: unknown): string | null {
@@ -126,6 +130,62 @@ function uniqueViolationTarget(error: unknown): string | null {
   // `target` is the field list for a Prisma-generated index and the index name
   // for a hand-written one; both spell the column, so match on the text.
   return JSON.stringify(error.meta?.target ?? '');
+}
+
+/**
+ * Take the next order number for a business day, contending on the UNIQUE
+ * CONSTRAINT rather than on a check-then-write (CLAUDE.md's database rule).
+ *
+ * Extracted at C-066, when a remake became a second thing that needs an order
+ * number. It is deliberately not left inline and copied: the whole point of
+ * the rule is that nothing reads the maximum and then trusts it, and a second
+ * hand-written copy of a retry loop is the obvious place for that to be got
+ * subtly wrong. One loop, two callers — the same discipline as the one status
+ * module and the one orderability function.
+ *
+ * `create` is handed a candidate number and does the insert. A collision on
+ * `seq` or `statusToken` is the retry this exists to force; the maximum is
+ * re-read on every attempt, because a retry only happens when somebody else
+ * took the number and a cached maximum would collide again.
+ *
+ * `recover` is for a unique violation that is NOT a number collision and is
+ * not an error either — placement's idempotency replay is the only one. It
+ * returns a value to stop with, or null to rethrow.
+ */
+export async function takingNextOrderNumber<T>(
+  businessDay: string,
+  create: (seq: number) => Promise<T>,
+  recover?: (target: string) => Promise<T | null>,
+): Promise<T> {
+  for (let attempt = 0; attempt < MAX_SEQ_ATTEMPTS; attempt += 1) {
+    // Read the maximum fresh on every attempt: a retry only happens because
+    // someone else took the number, so a cached maximum would collide again.
+    const highest = await prisma.order.aggregate({
+      where: { businessDay },
+      _max: { seq: true },
+    });
+
+    try {
+      return await create((highest._max.seq ?? 0) + 1);
+    } catch (error) {
+      const target = uniqueViolationTarget(error);
+      if (target === null) throw error;
+
+      if (recover) {
+        const recovered = await recover(target);
+        if (recovered !== null) return recovered;
+      }
+
+      // A seq or a statusToken collision: take the next number and a new
+      // token. This is the retry the unique constraint exists to force —
+      // never a check-then-write, which has a window between the two.
+      if (!target.includes('seq') && !target.includes('statusToken')) throw error;
+    }
+  }
+
+  throw new Error(
+    `Could not take an order number for ${businessDay} in ${MAX_SEQ_ATTEMPTS} attempts`,
+  );
 }
 
 /** One `OrderEvent` row from an engine draft. Exported because every writer of
@@ -141,6 +201,8 @@ export const eventRow = (draft: OrderEventDraft, staffId?: string | null) => ({
   // events carry an amount and nothing else may.
   amountCents: draft.amountCents ?? null,
   providerRef: draft.providerRef ?? null,
+  // The order this event points at (C-066). Null on everything but a `remake`.
+  relatedOrderId: draft.relatedOrderId ?? null,
   // WHICH staff member, where `actor` says what KIND (C-086). Stamped ONLY on
   // an event the engine attributes to staff: the customer's placement and the
   // system's refund are not somebody's tap, and putting the cook who cancelled
@@ -304,19 +366,13 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
     });
   }
 
-  for (let attempt = 0; attempt < MAX_SEQ_ATTEMPTS; attempt += 1) {
-    // Read the maximum fresh on every attempt: a retry only happens because
-    // someone else took the number, so a cached maximum would collide again.
-    const highest = await prisma.order.aggregate({
-      where: { businessDay },
-      _max: { seq: true },
-    });
-
-    try {
+  return takingNextOrderNumber(
+    businessDay,
+    async (seq) => {
       const order = await prisma.order.create({
         data: {
           businessDay,
-          seq: (highest._max.seq ?? 0) + 1,
+          seq,
           ...identity.identity,
           status: 'placed',
           placedAt: now,
@@ -354,27 +410,15 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
         },
         ...ORDER_RECEIPT,
       });
-      return { ok: true, order, replayed: false };
-    } catch (error) {
-      const target = uniqueViolationTarget(error);
-      if (target === null) throw error;
-
-      // Two double-taps racing: the loser reads the winner's order and returns
-      // it, which is the same answer the fast path gives.
-      if (target.includes('idempotencyKey')) {
-        const winner = await findOrderByIdempotencyKey(idempotencyKey);
-        if (winner) return { ok: true, order: winner, replayed: true };
-        throw error;
-      }
-
-      // A seq or a statusToken collision: take the next number and a new
-      // token. This is the retry the unique constraint exists to force —
-      // never a check-then-write, which has a window between the two.
-      if (!target.includes('seq') && !target.includes('statusToken')) throw error;
-    }
-  }
-
-  throw new Error(
-    `Could not take an order number for ${businessDay} in ${MAX_SEQ_ATTEMPTS} attempts`,
+      return { ok: true, order, replayed: false } as PlacementResult;
+    },
+    // Two double-taps racing: the loser reads the winner's order and returns
+    // it, which is the same answer the fast path gives. Null means "not this
+    // constraint" and lets the retry loop go on doing its job.
+    async (target) => {
+      if (!target.includes('idempotencyKey')) return null;
+      const winner = await findOrderByIdempotencyKey(idempotencyKey);
+      return winner ? ({ ok: true, order: winner, replayed: true } as PlacementResult) : null;
+    },
   );
 }

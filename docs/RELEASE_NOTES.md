@@ -1386,3 +1386,32 @@ It doesn't show the reason or the note; those are the shop's.
 
 **Every adjustment is signed.** Who made the call and when, on the order's
 history, next to the amount.
+
+## C-066 — A remake is now a real ticket, not a favour someone remembers
+
+**Ivy is back at the counter at 6:52.** Her torta was meant to have no onions
+and be cut in half, and it was neither. Before this, the system had nothing to
+offer: the order was cooked, so it could not be cancelled, and the only way to
+put it right was to sort it out off the books.
+
+**"Remake it" now puts a real ticket on the line.** Its own order number, its
+own place in the queue, ageing like any other — the same food, at the same
+price it was sold at, even if the menu has been repriced since.
+
+**What went wrong goes on the ticket.** The note the counter types appears on
+the kitchen card above the customer's own instructions, so the cook sees the
+correction rather than being told about it.
+
+**Nothing is charged for it**, and nobody at the counter is shown a total to
+collect. The original order keeps its money exactly as it was — if it was paid,
+it stays paid.
+
+**Both orders point at each other.** Open the original and it says which order
+replaced it; open the remake and it says which one it replaces. Either is one
+tap from the other.
+
+**And Monday's numbers stay true.** A remake is not counted as a second sale,
+its food is not added to the item counts, and it cannot put an "onions"
+attachment on the remake of an order that asked for none. The report says how
+many were remade, on its own line, and says why that number is not in the
+totals above.

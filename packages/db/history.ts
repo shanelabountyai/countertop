@@ -125,6 +125,11 @@ export type ActivityEntry = {
   /** Null where the actor was not staff, and null on every event written
    *  before C-086 — an honest "we did not record this". */
   staffName: string | null;
+  /** The order this event points at (C-066): on a `remake`, the one it
+   *  replaces. The NUMBER as well as the id, because "Remade from #012" is
+   *  what a person reads and a receipt that names an order nobody can click
+   *  sends them back to the search box. */
+  relatedOrder: { id: string; seq: number } | null;
 };
 
 export async function loadOrderActivity(orderId: string): Promise<ActivityEntry[]> {
@@ -140,7 +145,28 @@ export async function loadOrderActivity(orderId: string): Promise<ActivityEntry[
       reason: true,
       amountCents: true,
       staff: { select: { name: true } },
+      relatedOrder: { select: { id: true, seq: true } },
     },
   });
   return events.map(({ staff, ...event }) => ({ ...event, staffName: staff?.name ?? null }));
+}
+
+/**
+ * The orders that REPLACED this one (C-066).
+ *
+ * The reverse of the link. It is stored in one direction only — on the
+ * remake's own event, naming the original — because one fact in two places is
+ * two things that can disagree; this is the query that pays for that choice,
+ * and it costs an index lookup on `OrderEvent.relatedOrderId`.
+ *
+ * A list rather than one row: a remake can itself go out wrong, and the second
+ * remake is a third order. The receipt shows them all, in order.
+ */
+export async function loadRemakesOf(orderId: string): Promise<{ id: string; seq: number }[]> {
+  const events = await prisma.orderEvent.findMany({
+    where: { kind: 'remake', relatedOrderId: orderId },
+    orderBy: { at: 'asc' },
+    select: { order: { select: { id: true, seq: true } } },
+  });
+  return events.map((event) => event.order);
 }
