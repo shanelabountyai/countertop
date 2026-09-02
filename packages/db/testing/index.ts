@@ -17,6 +17,7 @@ export async function resetDatabase(): Promise<void> {
   assertLocalDatabase('resetDatabase()');
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
+      "LoyaltyEvent", "LoyaltyMember",
       "OrderEvent", "OrderLineOption", "OrderLine", "Order",
       "ItemModifierGroup", "ModifierOption", "ModifierGroup", "MenuItem",
       "Category", "RestaurantSettings", "StoreHours", "StaffMember"
@@ -123,6 +124,14 @@ type SettingsOverrides = {
   cutoffMinutes?: number;
   prepBaseMinutes?: number;
   prepPerWeightMinutes?: number;
+  // Loyalty (PRD 7, C-100). Off by default everywhere, which is P0-1's
+  // requirement and not merely a safe default: the seeded rush and every
+  // existing spec must pass with the program switched off.
+  loyaltyEnabled?: boolean;
+  pointsPerDollar?: number;
+  rewardThresholdPoints?: number;
+  rewardValueCents?: number;
+  loyaltyExpiryDays?: number;
 };
 
 /**
@@ -154,6 +163,11 @@ export async function seedSettings(overrides: SettingsOverrides = {}): Promise<v
       cutoffMinutes: overrides.cutoffMinutes ?? 0,
       prepBaseMinutes: overrides.prepBaseMinutes ?? 12,
       prepPerWeightMinutes: overrides.prepPerWeightMinutes ?? 1,
+      loyaltyEnabled: overrides.loyaltyEnabled ?? false,
+      pointsPerDollar: overrides.pointsPerDollar ?? 1,
+      rewardThresholdPoints: overrides.rewardThresholdPoints ?? 100,
+      rewardValueCents: overrides.rewardValueCents ?? 1000,
+      loyaltyExpiryDays: overrides.loyaltyExpiryDays ?? 365,
     },
   });
 }

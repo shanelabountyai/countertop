@@ -4009,6 +4009,94 @@ are *supposed* to make two tickets. Concurrency is what distinguished them.
   nobody is refunded. Money owed *back* on a comped-and-paid original is still
   C-067's problem, unchanged by this item.
 
+## C-100 — The loyalty ledger (PRD 7 P0-1 schema, P0-2)
+
+The first item of a PRD that exists because the owner said so, and that is
+recorded rather than smoothed over. **Decision 8 of 2026-09-02** lifted the
+master PRD's loyalty Non-Goal; `prd-loyalty.md`'s own recommendation was to
+shelve it, on the grounds that no evaluator asked for loyalty and lens
+consensus is the ranking signal this whole PRD set is built on. That
+recommendation was read and overruled, which is the owner's call and not the
+builder's. What survives of the Non-Goal is a **boundary**: one integer per
+member, and a second entitlement dimension — tiers, birthdays, streaks — is
+where the objection it encoded genuinely begins.
+
+**Built:**
+- `LoyaltyMember`, `LoyaltyEvent`, `LoyaltyEventKind`, and five columns on
+  `RestaurantSettings`. One hand-written migration.
+- **The phone is never stored.** `phoneDigest` is an HMAC-SHA256 of the
+  normalised number under a pepper held in the **environment**, not in the
+  database, so a dump of these tables is not a customer list.
+  `Order.customerPhone` still holds it in clear and is untouched — a different
+  fact with a different retention story, and PRD 6's forget path is what
+  deletes it.
+- **The pepper is an env secret where `StaffMember`'s PIN salt is a constant**,
+  and the schema says why. A four-digit PIN behind a shared passcode is already
+  only worth so much; a ten-digit phone number has a small enough keyspace that
+  an unpeppered digest is decorative — anybody holding the table could
+  enumerate every number in the country.
+- **Four CHECKs and a trigger**, each a mechanism the application is then
+  allowed to be careless about:
+  - the sign tied to the kind as a single `CASE`, so a fifth kind cannot ship
+    without that expression being edited — C-063's equivalence trick applied to
+    a different column. **`ELSE false` is what makes that true**, and it was
+    missing on the first pass: a `CASE` with no `ELSE` returns NULL for an
+    unmatched kind and a CHECK passes on NULL, so the constraint would have
+    admitted a fifth kind with any sign at all while reading as enforced. Found
+    by reading the migration before the commit; written up in `WRITEUP.md`;
+  - money non-null exactly on `redeem`, and never negative;
+  - `phoneLast4` exactly four digits, because a partial write leaving it short
+    is a counter lookup that matches everybody;
+  - the settings numbers all positive.
+- **The partial unique index on `(orderId) WHERE kind = 'earn'` — P0-3's whole
+  mechanism, landed here rather than with the earn that uses it.** The state
+  machine permits reverts, so `ready → picked_up` can happen twice on one
+  order; the constraint is the mechanism and the code path's care is UX.
+  Partial, so a redemption on the same order is unaffected.
+- The pure balance function in `packages/core/loyalty`, plus `pointsForOrder`,
+  `hasReward`, `pointsToNextReward` and `planRedemption` — all pure, no clock,
+  no database.
+
+**Decided:**
+- **`points` is SIGNED, where `OrderEvent.amountCents` is not**, and the
+  asymmetry is deliberate rather than an inconsistency. A ledger's direction is
+  its sign because the balance is a plain sum and nothing has to know the
+  kinds. Money's direction has to be its KIND, because a balance that trusted a
+  sign could not tell a refund from a negative payment — they would sum
+  identically. Both files say so, so the next reader does not "fix" one to
+  match the other.
+- **The append-only trigger blocks UPDATE and deliberately permits DELETE.**
+  `OrderEvent`'s blocks both, and that difference is the design: P0-5's forget
+  is a real delete and the member Cascade is how it reaches these rows.
+  Blocking DELETE here would make "forget this customer" either impossible or
+  a lie, and a loyalty balance is an entitlement held for the customer's
+  benefit, not a financial record.
+- **Two Cascades, two Restricts, asymmetric on purpose.** A member's ledger
+  dies with the member; an order and a staff member outlive every row pointing
+  at them.
+- **`Order` gains no column and no foreign key**, which P0-6 states as a
+  requirement rather than an omission. A member FK on the order would make the
+  forget either cascade — changing a report count — or restrict, blocking it.
+  The link runs one way: `LoyaltyEvent.orderId → Order`.
+- **`loyaltyEnabled` defaults false, and that is load-bearing.** With the
+  program off, no ledger row is written and the seeded rush passes unchanged.
+- **The reward is applied AFTER tax**, and `planRedemption`'s comment carries
+  the price of that rather than hiding it: the customer pays tax on food they
+  did not pay for. The honest version needs a snapshotted `Order.discountCents`
+  and `subtotal − discount` as the tax base, because `priceOrder` defines
+  `subtotalCents` as exactly the sum of the lines. That is P1-1 and it moves
+  with SMS verification or not at all. The copy therefore says "$10 off your
+  total" and never "a free burrito".
+
+**Left behind:**
+- **The `loyaltyExpiryDays <= retentionDays` CHECK P0-5 requires is not here.**
+  `retentionDays` does not exist until C-091. Adding half of a constraint now
+  would be a guarantee that reads as enforced and is not, so the column ships
+  with its default and the CHECK arrives with the column it depends on.
+- **Nothing writes a ledger row yet.** Enrolment is C-101, earning is C-102,
+  redemption is C-104. Every test here inserts events directly, which is the
+  same shape C-063 left behind and for the same reason.
+
 ---
 
 # Carried forward — read this first in a new session
@@ -4016,7 +4104,7 @@ are *supposed* to make two tickets. Concurrency is what distinguished them.
 State at the end of the 2026-09-02 session.
 
 **Pushed and CI-green:** C-051, C-052, C-084, C-085, C-086, C-063, C-064,
-C-087, C-065. **C-066 is this entry.**
+C-087, C-065, C-066. **C-100 is this entry.**
 
 **PRD 3 has two items left:** C-067 (a refund that can fail — and the home for
 the reversing adjustment C-065 and C-066 both deferred) and C-068 (the cancel
@@ -4041,15 +4129,32 @@ refusal that names the adjustment path).
   run**, ahead of loyalty's expiry item, because it is loyalty's hard
   prerequisite and it is what makes the durable customer data defensible.
 
-**Order of the loyalty run:** C-100 ledger → C-101 enrolment → C-102 earning →
-C-103 counter panel → C-104 redeeming → **C-091 retention + forget** → C-105
-expiry + forget → C-106 the program's own screen.
+**Order of the loyalty run:** ~~C-100 ledger~~ (done) → **C-101 enrolment is
+next** → C-102 earning → C-103 counter panel → C-104 redeeming → **C-091
+retention + forget** → C-105 expiry + forget → C-106 the program's own screen.
+
+**What C-101 inherits from C-100, and must not re-decide:** the pepper is an
+env secret and the enrolment path is what first reads it, so C-101 is where the
+env var is actually named, documented in `.env.example` and made to fail loudly
+when absent — a digest computed under an empty pepper is a digest under a known
+pepper. Nothing writes a ledger row yet; every C-100 test inserts events
+directly. The `phoneLast4` CHECK means the enrolment write has to normalise
+before it stores, not after.
+
+**The trap C-100 re-proved, and it is new to this project:** a SQL `CASE` with
+no `ELSE` returns NULL for an unmatched value and **a CHECK constraint passes
+on NULL**. A constraint written as one `CASE` over an enum — the shape this
+repo likes, because it forces an edit when a variant is added — only forces
+that edit if it ends in `ELSE false`. Without it the guard reads as enforced,
+tests green on every variant that exists, and admits the first one that does
+not. Check the *unmatched* branch of any constraint expression, not the
+matched ones.
 
 **Numbering correction:** PRD 6's forget item was written as `C-087`; the brand
 item shipped under that number first, so the forget item is now **C-091**. Both
 PRDs are updated. The number is bookkeeping; the dependency is not.
 
-**Two traps this session re-proved, both cheap to re-trip:**
+**Two traps carried forward from C-065 and C-066, both cheap to re-trip:**
 - `ALTER TYPE … ADD VALUE` cannot be USED in the transaction that adds it.
   C-065 needed two migration files; C-066 needed one, because nothing used the
   new value. Check which case you are in before splitting.
@@ -4060,4 +4165,4 @@ PRDs are updated. The number is bookkeeping; the dependency is not.
 shadcn; light-mode-only tokens). C-087 left the body background unset and two
 palette tokens unused because of it.
 
-C-066 committed at 495ef52.
+C-100 is this entry; its SHA is recorded in the follow-up commit.

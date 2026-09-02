@@ -9,3 +9,4 @@ export * from './menu/index';
 export * from './pricing/index';
 export * from './orders/index';
 export * from './cart/index';
+export * from './loyalty/index';

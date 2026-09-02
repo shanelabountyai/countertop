@@ -274,6 +274,12 @@ model Order {
   /// side, so the link between a wrong order and its remake cannot be tidied
   /// away — it is the only record that either happened.
   remadeBy        OrderEvent[] @relation("OrderRemake")
+  /// Ledger rows earned or redeemed against this order (PRD 7). `Restrict` on
+  /// the far side: the order outlives them. `Order` itself gains NO column and
+  /// NO foreign key to any loyalty table — P0-6 states that as a requirement
+  /// rather than an omission, because a member FK here would make the forget
+  /// either cascade (changing a report count) or restrict (blocking it).
+  loyaltyEvents   LoyaltyEvent[]
 
   /// Two concurrent placements contend HERE, on the constraint — never on a
   /// check-then-write. The loser catches the violation and retries at seq+1.
@@ -414,6 +420,10 @@ model StaffMember {
   active    Boolean      @default(true)
   createdAt DateTime     @db.Timestamptz(3)
   events    OrderEvent[]
+  /// Corrections this person made to a loyalty balance (PRD 7 P0-2).
+  /// `Restrict`, like every other attribution: a name outlives the rows it is
+  /// on.
+  loyaltyEvents LoyaltyEvent[]
 }
 
 // ---------------------------------------------------------------------------
@@ -449,6 +459,95 @@ model RestaurantSettings {
   /// P0-7. Added per unit of open prep weight — the same OPEN_STATUSES sum the
   /// auto-pause threshold reads, so "busy" means one thing (P1-7).
   prepPerWeightMinutes Int @default(1)
+
+  // --- Loyalty (PRD 7, C-100). Decision 8 of 2026-09-02 lifted the master
+  // PRD's Non-Goal; decisions 9 and 10 set the numbers. ---
+
+  /// DEFAULT FALSE, and P0-1 makes that load-bearing: with it off no loyalty
+  /// copy renders anywhere, no ledger row is written, and the seeded rush
+  /// passes unchanged.
+  loyaltyEnabled        Boolean @default(false)
+  /// Decision 9: 1 point per dollar of SUBTOTAL. Tax earns nothing.
+  pointsPerDollar       Int     @default(1)
+  /// Decision 9: 100 points buys the reward.
+  rewardThresholdPoints Int     @default(100)
+  /// Decision 9: worth $10. Together: 10% back.
+  ///
+  /// Editable, which is not the same as changeable — moving these once
+  /// customers hold balances devalues those balances visibly.
+  rewardValueCents      Int     @default(1000)
+  /// Decision 10: 365 days of INACTIVITY. P0-5's
+  /// `loyaltyExpiryDays <= retentionDays` CHECK lands with C-091, which is
+  /// where `retentionDays` first exists.
+  loyaltyExpiryDays     Int     @default(365)
+}
+
+/// A loyalty member is a PHONE NUMBER (PRD 7 P0-1). No account, no password,
+/// no portal — the resolved tokenized-link decision is not re-opened.
+///
+/// THE PHONE IS NEVER STORED HERE. `phoneDigest` is an HMAC-SHA256 of the
+/// normalised number under a pepper held in the ENVIRONMENT, so a dump of this
+/// table is not a customer list. `Order.customerPhone` still holds the number
+/// in clear and is unchanged — a different fact with a different retention
+/// story, deleted by PRD 6's forget path.
+model LoyaltyMember {
+  id             String         @id @default(uuid())
+  phoneDigest    String         @unique
+  /// In clear, and only four digits: "the one ending 2233" is what a person
+  /// can confirm out loud. Four digits is not an identifier.
+  phoneLast4     String         @db.VarChar(4)
+  /// Copied at enrolment, like every other snapshot here.
+  displayName    String         @db.VarChar(40)
+  enrolledAt     DateTime       @db.Timestamptz(3)
+  /// What expiry counts from (P0-5). Moved by an earn or a redeem, never by
+  /// somebody merely looking the member up.
+  lastActivityAt DateTime       @db.Timestamptz(3)
+  events         LoyaltyEvent[]
+}
+
+enum LoyaltyEventKind {
+  /// Points for food bought and collected. Positive.
+  earn
+  /// A reward spent at the counter. Negative, and the only kind carrying money.
+  redeem
+  /// A staff correction, either direction, never zero.
+  adjust
+  /// The system zeroing an inactive balance. Negative.
+  expire
+}
+
+/// The ledger (PRD 7 P0-2). Append-only for UPDATE; DELETE is deliberately
+/// permitted, because P0-5's forget path is a real delete and the member
+/// Cascade is how it reaches these rows.
+model LoyaltyEvent {
+  id          String           @id @default(uuid())
+  memberId    String
+  /// The one Cascade in this model, and the reason the forget can be real: a
+  /// balance is an entitlement held for the customer, not a financial record.
+  member      LoyaltyMember    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  /// Null on an `expire`, which is written against no order.
+  orderId     String?
+  /// `Restrict`: an order outlives every ledger row pointing at it.
+  order       Order?           @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  at          DateTime         @db.Timestamptz(3)
+  kind        LoyaltyEventKind
+  /// SIGNED, unlike `OrderEvent.amountCents`. A ledger's direction is its sign
+  /// because the balance is a plain sum; money's direction is its KIND because
+  /// a balance trusting a sign could not tell a refund from a negative
+  /// payment. A CHECK ties the sign to the kind.
+  points      Int
+  /// What the reward was worth. Non-null exactly on `redeem` — the money
+  /// itself lives on `OrderEvent` as an `adjustment`, and this is the ledger's
+  /// own copy so the two reconcile to the cent.
+  amountCents Int?
+  reason      String?
+  /// Who corrected it (C-086). `Restrict`: attribution outlives the ledger.
+  staffId     String?
+  staff       StaffMember?     @relation(fields: [staffId], references: [id], onDelete: Restrict)
+
+  @@index([memberId, at])
+  @@index([orderId])
+  @@index([staffId])
 }
 
 /// One row per day the restaurant is OPEN (P0-6). A missing day is a closed

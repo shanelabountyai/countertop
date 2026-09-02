@@ -313,6 +313,11 @@ Recorded as they are made, with the ceiling each one has.
 - **Two e2e failures that were the test's fault, and one that was not** (C-066). The spec navigated straight after clicking a server action twice — the defect class `apps/web/e2e/fixtures.ts` exists to prevent, committed by the person who had just read that file's header. Both were invisible in the sibling test that happened to use an auto-retrying assertion. Worth recording because the shared fixture only helps the flows it covers: a spec that composes its own interaction re-acquires the whole hazard, and "use the helper" is not advice that reaches a new flow nobody wrote a helper for.
 - **The concurrency test found a throw where a replay belonged** (C-066). Two "Remake it" taps genuinely in flight derive the same idempotency key; the loser hit the unique constraint and the extracted retry loop had no recovery handler on that path, so it threw instead of returning the winner's order. Written sequentially the test passes — two sequential calls are two deliberate remakes and are *supposed* to produce two tickets — so only the concurrent form could distinguish "same intent twice" from "asked again". The seq-retry loop was extracted from placement for this item rather than copied, and this is the bug that extraction was supposed to prevent, found in the one call site that did not inherit the whole mechanism.
 
+- **Loyalty is the one PRD in this project built on a decision rather than on evidence** (C-100). Three independent evaluators produced thirty-six findings and not one of them asked for a loyalty program; the ranking signal the whole second-pass set is built on is lens consensus, and this has none. `prd-loyalty.md` recommended shelving it, that recommendation was read, and the owner lifted the master PRD's Non-Goal anyway — which is the owner's call. It is recorded this way rather than retro-justified, because the interesting engineering fact is that the document argued against itself and shipped, and a later reader deserves to know which parts of this codebase exist because somebody observed a Friday failing and which exist because somebody wanted a punch card.
+- **The loyalty program is now what drives this product's PII retention policy** (C-100, decision 10). Points expire after 365 days of inactivity, and P0-5's CHECK makes the retention window at least as long — so a named person's purchase history is now kept for a year, where nothing else in the product needs more than a few days of it. That is a real widening accepted deliberately, and it is the reason the forget path stopped being insurance and became a prerequisite: the feature that creates the obligation is shipping ahead of the feature that discharges it, and the only thing keeping that honest is that C-091 is now scheduled rather than hoped for.
+- **A signed ledger column beside an unsigned money column** (C-100). `LoyaltyEvent.points` carries its direction in its sign; `OrderEvent.amountCents` refuses to, and stores direction in the kind. Read side by side that looks like an inconsistency, so both files say why: a points balance is a plain sum with one column and one direction per kind, while a money balance that trusted a sign could not distinguish a refund from a negative payment — the two would sum identically and no constraint could recover the difference. Recorded because the obvious tidying-up, making them match, would silently break the one that matters.
+- **The append-only rule is not the same rule in both places** (C-100). `OrderEvent`'s trigger refuses UPDATE and DELETE; `LoyaltyEvent`'s refuses only UPDATE. The difference is the whole reason the forget path can be real: an order event is a financial record and a loyalty balance is an entitlement held for the customer's benefit, and a system that will not delete the second on request has mistaken one for the other.
+
 ## Defects Found
 
 **C-001 — the drift check could never have passed.** CI's schema-drift step runs
@@ -1255,6 +1260,44 @@ invariant enforced by the database will be enforced against *you*, including
 in the cases you consider obviously fine. That is the point of it. The cost is
 having to write down why an exception is one, which is a much better cost than
 finding out later that the guard was decorative.
+
+### The guard that was decorative, two paragraphs later (C-100)
+
+The paragraph above ends on *the guard was decorative*, and the next item
+shipped one — caught before the commit, which is the only reason this is a
+paragraph and not a defect in production.
+
+`LoyaltyEvent`'s sign-matches-kind CHECK was written as a single `CASE` over
+the four kinds rather than four separate constraints, and the comment above it
+claimed the reason out loud: **a fifth kind cannot be added without this
+expression being edited.** That claim was false as written. A SQL `CASE` with
+no `ELSE` returns `NULL` for an unmatched value, and **a CHECK constraint
+passes on `NULL`** — it fails only on `false`. So a fifth `LoyaltyEventKind`
+would not have been rejected, or even noticed: it would have been admitted with
+any sign at all, by the very constraint whose stated purpose was to make that
+impossible. Every one of the four kinds that exists today is checked correctly,
+which is exactly why no test could have failed.
+
+Two characters of SQL — `ELSE false` — and the comment became true.
+
+*How it was found:* by reading the migration before committing it, prompted by
+nothing except that the comment made a strong claim and strong claims in this
+repo are supposed to be mechanisms. *What would have caught it later:* nothing
+in this project's gate, and that is the uncomfortable part. There is no test
+for a fifth enum value because there is no fifth enum value; the failure is
+scheduled for whoever adds one, and it fails silently by admitting bad rows
+rather than loudly by rejecting good ones. The nearest thing to a real defence
+is the habit of checking a constraint's *unmatched* branch, not its matched
+ones — verified here by asking Postgres directly (`SELECT (CASE 'fifth' WHEN
+'earn' THEN … END) IS NULL` → `t`) rather than by reasoning about it.
+
+*The generalisable form, which is the reason it is written down:* **a
+constraint that encodes a rule as an expression has to answer for every input
+the expression does not name, and NULL is the answer that looks like
+compliance.** Same shape as the equivalence CHECKs elsewhere in this schema
+(`("kind" = 'redeem') = ("amountCents" IS NOT NULL)`), which do not have the
+hole — an equivalence over two NOT NULL columns is total, a `CASE` is only as
+total as its `ELSE`.
 
 ## Skills Learned / Functions Unlocked
 

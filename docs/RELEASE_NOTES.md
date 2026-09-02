@@ -1415,3 +1415,34 @@ its food is not added to the item counts, and it cannot put an "onions"
 attachment on the remake of an order that asked for none. The report says how
 many were remade, on its own line, and says why that number is not in the
 totals above.
+
+## C-100 — The groundwork for a loyalty program
+
+**This is plumbing, and nothing is switched on yet.** The program is off by
+default, no screen mentions it, and no customer or member data is recorded
+anywhere until enrolment ships.
+
+**A member is a phone number and nothing else.** No account, no password, no
+portal to sign into. And the phone number itself is never kept in the loyalty
+records — only a one-way scramble of it, computed with a secret that lives
+outside the database. Anyone who got hold of the loyalty tables would not have
+a customer list. The last four digits are kept in the clear, on purpose, so the
+counter can say "the one ending 2233" without reading someone's number aloud.
+
+**The points ledger can be added to and never edited.** A mistake is corrected
+by writing a correction, with the staff member's name on it — the same rule the
+order history already follows.
+
+**The database itself refuses the ways this could go wrong.** Points can't be
+recorded in the wrong direction. An order can't earn points twice, even if it
+gets sent back and handed over again. A reward can't be recorded without what
+it was worth.
+
+**Deleting a member really deletes their points.** That is deliberate: a
+balance is something held for the customer, not a financial record, and
+refusing to delete it would defeat the whole point of being able to forget
+someone. What they were charged and what was taken off their bill stays on the
+order, where it belongs.
+
+**The numbers are set: 1 point per dollar, 100 points for $10 off.** Ten
+percent back, and they expire after a year of not visiting.
