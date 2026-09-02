@@ -3830,4 +3830,4 @@ recommendation is not to build it yet), and the two calls recorded in
 now blocks something concrete rather than nothing: C-087 left the body
 background unset and two palette tokens unused because of it.
 
-C-087 committed at PENDING.
+C-087 committed at a67f570.
