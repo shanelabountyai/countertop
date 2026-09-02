@@ -4,10 +4,10 @@
 // of them a thing the application code is then allowed to be careless about,
 // which is the discipline this repo applies to order numbers, idempotency keys
 // and money amounts.
-import { loyaltyBalance } from '@countertop/core';
+import { loyaltyBalance, orderBalance } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
-import { enrolMember, memberByPhone, phoneDigest } from './loyalty';
+import { enrolMember, memberByPhone, phoneDigest, redeemReward } from './loyalty';
 import { placeOrder } from './placement';
 import {
   resetDatabase,
@@ -543,5 +543,255 @@ describe('earning at pickup', () => {
     expect(
       (await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).status,
     ).toBe('picked_up');
+  });
+});
+
+describe('redeeming at the counter (P0-4)', () => {
+  const PICKUP = new Date(Date.UTC(2026, 6, 5, 4, 0, 0));
+  const REDEEM_AT = new Date(Date.UTC(2026, 6, 5, 4, 5, 0));
+
+  // Hand-calculated, from the seeded menu and the seeded 8.25% rate.
+  // 1095 burrito + 150 carnitas + 250 guacamole = 1495 subtotal;
+  // round(1495 × 0.0825) = round(123.3375) = 123 tax; 1618 total.
+  //
+  // The PRD writes this case as "$10 against a $13.75 order" — illustrative
+  // prose, not a fixture; these are the real numbers this menu produces and
+  // they make the same distinction the PRD's do. AFTER TAX, off what is owed:
+  // 1618 − 1000 = 618. A before-tax discount would owe 536 instead
+  // (495 + round(495 × 0.0825) = 495 + 41), so this one number is what
+  // separates the version that shipped from the version P1-1 is gated on.
+  const SUBTOTAL = 1495;
+  const TAX = 123;
+  const TOTAL = 1618;
+
+  let keyCounter = 0;
+  const place = async (
+    line: { itemId: string; unitPriceAtAddCents: number; selections?: unknown[] },
+    phone: string | undefined = '5550102233',
+  ) => {
+    const placed = await placeOrder({
+      cart: {
+        lines: [
+          {
+            id: 'line-1',
+            unitPriceAtAddCents: line.unitPriceAtAddCents,
+            composition: {
+              itemId: line.itemId,
+              quantity: 1,
+              selections: (line.selections ?? []) as never,
+            },
+          },
+        ],
+      },
+      customerName: 'Ivy Castellanos',
+      customerPhone: phone,
+      idempotencyKey: `c8f2b0e1-0000-4000-8000-20000000000${(keyCounter += 1)}`,
+      now: AT,
+    });
+    if (!placed.ok) throw new Error(`placement refused: ${JSON.stringify(placed.errors)}`);
+    return placed.order.id;
+  };
+
+  const BURRITO = {
+    itemId: 'burrito',
+    unitPriceAtAddCents: SUBTOTAL,
+    selections: [
+      { groupId: 'protein', optionId: 'carnitas' },
+      { groupId: 'addons', optionId: 'guacamole' },
+    ],
+  };
+
+  /** Enrol, and hand the member however many points the case needs. The
+   *  `adjust` is the product's own correction kind, so nothing here writes a
+   *  ledger row in a shape the application could not. */
+  const memberWith = async (points: number) => {
+    await seedSettings({ loyaltyEnabled: true });
+    const result = await enrolMember({
+      phone: '(555) 010-2233',
+      displayName: 'Ivy Castellanos',
+      now: AT,
+    });
+    if (!result.ok) throw new Error(result.reason);
+    if (points !== 0) {
+      await prisma.loyaltyEvent.create({
+        data: {
+          memberId: result.memberId,
+          at: AT,
+          kind: 'adjust',
+          points,
+          reason: 'opening balance',
+        },
+      });
+    }
+    return result.memberId;
+  };
+
+  it('writes both rows, and moves no snapshot column doing it', async () => {
+    const memberId = await memberWith(100);
+    const orderId = await place(BURRITO);
+
+    const redeemed = await redeemReward(orderId, REDEEM_AT, 'staff-noor');
+    expect(redeemed).toEqual({ ok: true, pointsSpent: -100, amountCents: 1000 });
+
+    // THE SNAPSHOT IS UNTOUCHED. The customer was charged what they were
+    // charged; the reward is a second fact beside it (P0-4, and CLAUDE.md's
+    // snapshot rule read from the money side).
+    const order = await prisma.order.findUniqueOrThrow({
+      where: { id: orderId },
+      select: { subtotalCents: true, taxCents: true, totalCents: true },
+    });
+    expect(order).toEqual({ subtotalCents: SUBTOTAL, taxCents: TAX, totalCents: TOTAL });
+
+    // Two rows, and they agree to the cent.
+    const ledger = await prisma.loyaltyEvent.findMany({ where: { orderId, kind: 'redeem' } });
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({
+      memberId,
+      points: -100,
+      amountCents: 1000,
+      staffId: 'staff-noor',
+    });
+
+    const money = await prisma.orderEvent.findMany({ where: { orderId, kind: 'adjustment' } });
+    expect(money).toHaveLength(1);
+    expect(money[0]).toMatchObject({
+      amountCents: 1000,
+      reason: 'loyalty_reward',
+      actor: 'staff',
+      staffId: 'staff-noor',
+      // Not a status change: the order is wherever it was.
+      fromStatus: null,
+      toStatus: null,
+    });
+
+    // What the counter now collects, after tax.
+    expect(orderBalance({ totalCents: TOTAL, events: money }).outstandingCents).toBe(618);
+    // And the points are gone, summed rather than decremented.
+    expect((await memberByPhone('5550102233'))?.balance).toBe(0);
+    // The redeem moves the expiry clock too — an active customer is one who
+    // spends as well as one who earns (P0-5 counts from this).
+    const member = await prisma.loyaltyMember.findUniqueOrThrow({ where: { id: memberId } });
+    expect(member.lastActivityAt).toEqual(REDEEM_AT);
+  });
+
+  it('refuses a second reward on the same order, by name', async () => {
+    await memberWith(250);
+    const orderId = await place(BURRITO);
+
+    expect((await redeemReward(orderId, REDEEM_AT)).ok).toBe(true);
+    const second = await redeemReward(orderId, REDEEM_AT);
+    expect(second).toMatchObject({ ok: false, reason: 'already_redeemed_on_this_order' });
+
+    // One of each, still — and 150 points kept rather than spent twice.
+    expect(await prisma.loyaltyEvent.count({ where: { orderId, kind: 'redeem' } })).toBe(1);
+    expect(await prisma.orderEvent.count({ where: { orderId, kind: 'adjustment' } })).toBe(1);
+    expect((await memberByPhone('5550102233'))?.balance).toBe(150);
+  });
+
+  it('is held by the INDEX, not by the read in front of it', async () => {
+    const memberId = await memberWith(0);
+    const orderId = await place(BURRITO);
+    const row = {
+      memberId,
+      orderId,
+      at: REDEEM_AT,
+      kind: 'redeem' as const,
+      points: -100,
+      amountCents: 1000,
+    };
+    await expect(prisma.loyaltyEvent.create({ data: row })).resolves.toBeTruthy();
+    // Two taps a moment apart both pass a check-then-write. This is what stops
+    // the second one — the same sentence as the earn's index and the
+    // idempotency key's.
+    await expect(prisma.loyaltyEvent.create({ data: row })).rejects.toThrow();
+  });
+
+  it('refuses against an order that owes less than the reward — never clamps', async () => {
+    await memberWith(100);
+    // 300 side, round(300 × 0.0825) = round(24.75) = 25 tax, 325 owed. A clamp
+    // would quietly turn a $10 reward into a $3.25 one and tell nobody the
+    // customer lost the other $6.75; refusing keeps it for a bigger order.
+    const orderId = await place({ itemId: 'beans-side', unitPriceAtAddCents: 300 });
+    expect(
+      await prisma.order.findUniqueOrThrow({
+        where: { id: orderId },
+        select: { totalCents: true },
+      }),
+    ).toEqual({ totalCents: 325 });
+
+    const refused = await redeemReward(orderId, REDEEM_AT);
+    expect(refused).toMatchObject({ ok: false, reason: 'reward_exceeds_balance_owed' });
+
+    // NEITHER row was written. A refusal that spent the points anyway is the
+    // worse half of the pair landing alone.
+    expect(await prisma.loyaltyEvent.count({ where: { orderId } })).toBe(0);
+    expect(await prisma.orderEvent.count({ where: { orderId, kind: 'adjustment' } })).toBe(0);
+    expect((await memberByPhone('5550102233'))?.balance).toBe(100);
+  });
+
+  it('refuses against an order already paid in full — the reward is what is OWED', async () => {
+    await memberWith(100);
+    const orderId = await place(BURRITO);
+    // The checkout default: "Pay now — card", captured in full at placement.
+    await prisma.orderEvent.create({
+      data: { orderId, at: AT, kind: 'payment', actor: 'customer', amountCents: TOTAL },
+    });
+
+    const refused = await redeemReward(orderId, REDEEM_AT);
+    expect(refused).toMatchObject({ ok: false, reason: 'reward_exceeds_balance_owed' });
+    expect((await memberByPhone('5550102233'))?.balance).toBe(100);
+
+    // NOT an oversight — the bound is what is still owed, and a captured card
+    // charge cannot be handed back without the refund C-067 has not built.
+    // Counter redemption is a pay-at-pickup feature by construction; spending
+    // points on a prepaid order is P1-1, applied at checkout, gated on SMS.
+    // The proof is the same order with the payment absent:
+    const unpaid = await place(BURRITO);
+    expect((await redeemReward(unpaid, REDEEM_AT)).ok).toBe(true);
+  });
+
+  it('refuses a balance short of a reward, and says how short', async () => {
+    await memberWith(99);
+    const orderId = await place(BURRITO);
+    const refused = await redeemReward(orderId, REDEEM_AT);
+    expect(refused).toMatchObject({ ok: false, reason: 'not_enough_points' });
+    if (!refused.ok) expect(refused.message).toContain('1 points');
+    expect(await prisma.loyaltyEvent.count({ where: { orderId } })).toBe(0);
+  });
+
+  it('refuses for a customer nobody enrolled, and with the program off', async () => {
+    await memberWith(100);
+    const stranger = await place(BURRITO, '5550109999');
+    expect(await redeemReward(stranger, REDEEM_AT)).toMatchObject({
+      ok: false,
+      reason: 'not_a_member',
+    });
+
+    const orderId = await place(BURRITO);
+    await seedSettings({ loyaltyEnabled: false });
+    expect(await redeemReward(orderId, REDEEM_AT)).toMatchObject({
+      ok: false,
+      reason: 'loyalty_disabled',
+    });
+    expect(await prisma.orderEvent.count({ where: { kind: 'adjustment' } })).toBe(0);
+  });
+
+  it('spends on the same visit that earns — one order carries both rows', async () => {
+    // The product's own happy path, and the reason the indexes are PARTIAL: a
+    // customer with a balance orders, collects, earns, and spends on the way
+    // out. A unique index on `orderId` across all kinds would refuse this.
+    await memberWith(90);
+    const orderId = await place(BURRITO);
+    for (let i = 0; i < 6; i += 1) {
+      const moved = await applyOrderAction(orderId, { kind: 'advance', actor: 'staff' }, PICKUP);
+      if (!moved.ok) throw new Error(`advance refused: ${moved.failure.message}`);
+      if (moved.order.status === 'picked_up') break;
+    }
+    // 90 + 14 earned = 104.
+    expect((await memberByPhone('5550102233'))?.balance).toBe(104);
+
+    expect((await redeemReward(orderId, REDEEM_AT)).ok).toBe(true);
+    expect(await prisma.loyaltyEvent.count({ where: { orderId } })).toBe(2);
+    expect((await memberByPhone('5550102233'))?.balance).toBe(4);
   });
 });

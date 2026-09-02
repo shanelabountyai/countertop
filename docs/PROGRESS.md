@@ -4410,3 +4410,111 @@ palette tokens unused because of it.
 
 C-100 committed at 40ce2e2. C-101 committed at be83261. C-102 committed at
 a4179a4. C-103 committed at abdaf28.
+
+## C-104 — Redeeming (PRD 7 P0-4)
+
+The panel grows the control C-103 deliberately left off it. A reward is spent
+at the counter, by a named staff member, and it writes two rows in one
+transaction: a `redeem` on the ledger and an `adjustment` on the order's event
+log. The money mechanism is PRD 3's, unchanged and unextended.
+
+**Built:**
+- `redeemReward` in `packages/db/loyalty.ts`. The order id is the only input —
+  the amount comes from the settings row, the member comes from the order's own
+  phone, and nothing about a reward arrives from a client.
+- `adjustOrder` now takes an optional transaction client. The redemption owns
+  the transaction and hands it down, so the money side goes through the SAME
+  validation every comp goes through rather than having the rule copied inside
+  a second writer.
+- A hand-written migration: `LoyaltyEvent_one_redeem_per_order`, a partial
+  unique index mirroring C-100's earn index.
+- `LOYALTY_REWARD_REASON` in `packages/core`, and `isStaffAdjustmentReason` —
+  the guard both form actions now use.
+- The control and its refusal line on `/kitchen/orders/[id]`, plus
+  `redeemRewardForm`.
+- Tests: seven in `packages/db/loyalty.test.ts` (both rows written and agreeing
+  to the cent, the snapshot columns unmoved, the second redemption refused by
+  name, the index holding it independently of the read, the over-large reward
+  refused rather than clamped with NEITHER row written, the short balance, the
+  stranger and the switched-off program, and the earn-and-spend-on-one-visit
+  case the partial indexes exist for); a snapshot-regression case; two e2e
+  specs.
+
+**Decided:**
+- **`loyalty_reward` is deliberately NOT in `ADJUSTMENT_REASONS`.** The two
+  lists have different jobs: the preset is what a PERSON may pick, and this is
+  a reason the system writes when points were actually spent. One list would
+  put "Punch card reward" in the Make-it-right dropdown, where choosing it
+  takes ten dollars off an order and moves no points — the redemption's money
+  without the ledger row that pays for it, which is the one pairing P0-4
+  exists to hold. The form actions still validate against the staff-pickable
+  list, so a hand-crafted POST cannot reach it either.
+- **Both rows in one transaction, and the adjustment's refusal throws.** A
+  `redeem` with no `adjustment` takes a customer's points and charges them
+  anyway; an `adjustment` with no `redeem` gives ten dollars away for free.
+  Either half alone is found at close, from the till.
+- **`adjustOrder` gained a parameter rather than the redemption gaining a
+  copy of its rule.** Four lines of validation duplicated inside a transaction
+  is the version that drifts.
+- **Bounded by what is OWED, not by what is adjustable.** `planRedemption`
+  takes `orderBalance().outstandingCents`, which is stricter than
+  `adjustableRemainingCents` — an order already collected in full owes nothing,
+  and a reward against it would be cash the counter hands back through a refund
+  path that does not exist yet. **The consequence, found by the e2e and not by
+  reasoning: counter redemption is a PAY-AT-PICKUP feature.** The checkout's
+  default is "Pay now — card", so most orders arrive at the counter owing
+  nothing and correctly offer no reward. That is not a gap to close here —
+  handing $10 back on a captured card charge needs C-067's refund, and applying
+  the reward before the money is taken is P1-1, at checkout, gated on SMS. Two
+  specs and a db test now assert both halves so the limit is stated rather than
+  discovered.
+- **The screen asks `planRedemption` too.** A button that renders is a button
+  that works, and the refusal the panel prints is the refusal the server would
+  have given.
+- **`alreadyRedeemed` is read off the money side on the page**, from the
+  activity already loaded, rather than costing a second query. The two rows are
+  written in one transaction and cannot disagree; the ledger's partial unique
+  index is still what makes that true under two taps.
+- **The snapshot fixture's phone became ten digits.** `555-0100` was seven and
+  `normalizePhone` refuses it rather than inventing an area code — so the
+  snapshot file could not enrol its own customer until it changed.
+
+**Left behind:**
+- **Half a reward is not spendable.** A balance of 190 buys one reward, not
+  1.9; the remainder sits until it crosses 100 again. Deliberate — a
+  part-reward is a second entitlement dimension and decision 8's boundary is
+  one integer per member.
+- **A reward cannot be un-spent.** There is no undo: a staff `adjust` puts the
+  points back and a second adjustment is how the money comes off. Both are
+  attributed and both are append-only, which is the honest shape, but it is two
+  screens rather than one control.
+- **A prepaid order shows "Reward available" and then refuses.** The panel
+  reads the member (who does have a reward) and the order (which owes nothing),
+  and the refusal line says "this order does not owe enough" — true, but a
+  counter reading it quickly may hear "not enough points". A message that named
+  the paid order would be better, and it belongs in `planRedemption` where the
+  distinction is already known.
+- **`not_enough_points` prints no line on the panel**, because the "N points to
+  the next reward" line above it already says the same thing better.
+- **The customer pays tax on food they did not pay for.** The reward is applied
+  after tax, and that is P0-4's own recorded cost — the before-tax version
+  needs a snapshotted `Order.discountCents` with the tax base moving with it,
+  which is P1-1 and gated on SMS verification.
+- **The queue card still says nothing** (P1-3), and the program still has no
+  operator switch — `setLoyaltyEnabled` in the e2e fixtures is how a spec turns
+  it on. C-106's screen is where the toggle belongs.
+
+**What C-105 inherits:**
+- **The forget path now has a redemption to survive.** A member with an earn
+  and a redeem is exactly the fixture P0-5's byte-identical assertion wants:
+  deleting the member takes both ledger rows, and the `adjustment` on
+  `OrderEvent` — with its amount, its instant and its staff member — is
+  untouched, because the financial fact was never on the loyalty side.
+- **`lastActivityAt` is moved by a redeem as well as an earn**, so twelve
+  months of inactivity means neither earning nor spending.
+- **Two partial unique indexes now, one per kind.** A third kind that must be
+  unique per order gets its own; do not widen either into a plain unique index
+  on `orderId`, because an order legitimately carries an `earn` and a `redeem`
+  at once and there is a test that says so.
+
+---

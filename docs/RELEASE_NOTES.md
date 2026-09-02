@@ -1532,3 +1532,36 @@ the food up, not when you order it.
 **Still nothing at all with the program switched off.** A restaurant that has
 not turned loyalty on has the same receipt, the same checkout and the same
 kitchen screens it had before any of this existed.
+
+---
+
+## C-104 — Spending what you earned
+
+**"Use reward — $10.00 off the total."** One button on the screen the person
+serving you is already looking at. They tap it, ten dollars comes off what you
+owe, and a hundred points come off your card.
+
+**Your receipt does not change.** The order was $11.85 and it stays $11.85 —
+subtotal, tax and total are exactly what you agreed to. The reward is a line
+below them: $10.00 off, $1.85 still owed. A restaurant that quietly rewrites
+what it charged you is a restaurant whose receipts cannot be trusted, and the
+history of this order shows why ten dollars came off, when, and who did it.
+
+**A reward worth more than you owe is refused, not shrunk.** Order a $3 side
+with a reward waiting and the screen says so rather than spending your hundred
+points on three dollars. You keep them for a bigger order.
+
+**Once per order, and the database says so.** Two taps on a slow connection
+write one reward, not two — that is a constraint, not a disabled button.
+
+**It comes off at the counter, so it needs something left to pay.** Choose
+"pay at pickup" and the reward comes off what you hand over. Pay by card when
+you order and there is nothing left for it to come off — your points stay
+exactly where they are, for next time. Spending them at checkout is a bigger
+change that is coming with the verified-by-text version.
+
+**It only counts what you actually bought.** The reward comes off the total
+after tax, which means the tax is still on the full amount. That is honest and
+it is written down: taking it off before tax is a bigger change to how every
+receipt adds up, and it comes with the version where you spend points yourself
+at checkout.

@@ -9,9 +9,9 @@
 // came from a screen this app rendered.
 import {
   ADJUSTMENT_KINDS,
-  ADJUSTMENT_REASONS,
   CANCEL_REASONS,
   ORDER_STATUSES,
+  isStaffAdjustmentReason,
   parsePriceInput,
   type AdjustmentKind,
   type AdjustmentReason,
@@ -22,6 +22,7 @@ import {
 } from '@countertop/core';
 import { prisma } from '@countertop/db';
 import { adjustOrder } from '@countertop/db/adjustment';
+import { redeemReward } from '@countertop/db/loyalty';
 import { remakeOrder } from '@countertop/db/remake';
 import { collectOrderPayment } from '@countertop/db/payment';
 import { isStaffPin, staffByPin } from '@countertop/db/staff';
@@ -205,6 +206,38 @@ const ECHOABLE_REFUSALS: readonly AdjustmentRefusalReason[] = [
 ];
 
 /**
+ * Spend a punch-card reward on this order (PRD 7 P0-4).
+ *
+ * THE ORDER ID IS THE ONLY INPUT. No amount, no member, no points — the reward
+ * is worth what the settings row says it is worth, and who it belongs to is
+ * whoever enrolled under the order's own phone. There is nothing here for a
+ * hand-crafted POST to inflate, which is the shape the server-is-the-price-
+ * authority rule takes when the price is the restaurant's own giveaway.
+ *
+ * Every refusal is echoed, unlike `adjustOrderForm`'s. That rule exists
+ * because an adjustment's message can quote a number a person typed; a
+ * redemption takes no typed number, so all four messages are strings written
+ * here and none is a channel for anything a caller supplied.
+ */
+export async function redeemRewardForm(formData: FormData): Promise<void> {
+  const orderId = formData.get('orderId');
+  if (typeof orderId !== 'string' || orderId === '') {
+    return redirect('/kitchen/orders');
+  }
+  const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
+
+  const result = await redeemReward(orderId, new Date(), await currentShiftId());
+  if (!result.ok) {
+    return redirect(`${back}?redeemError=${encodeURIComponent(result.message)}`);
+  }
+
+  // The subtree, for the same reason the adjustment revalidates it: a
+  // redemption is an adjustment, so the queue card's "still owed" moved too.
+  revalidatePath('/kitchen', 'layout');
+  redirect(back);
+}
+
+/**
  * Make an order right (PRD 3 P0-3).
  *
  * Form-shaped, like `collectPayment`, because the receipt is a server
@@ -233,7 +266,7 @@ export async function adjustOrderForm(formData: FormData): Promise<void> {
   if (typeof kind !== 'string' || !ADJUSTMENT_KINDS.includes(kind as AdjustmentKind)) {
     return refuse('Pick comp or a partial amount.');
   }
-  if (typeof reason !== 'string' || !ADJUSTMENT_REASONS.includes(reason as AdjustmentReason)) {
+  if (typeof reason !== 'string' || !isStaffAdjustmentReason(reason)) {
     return refuse('Pick a reason.');
   }
 
@@ -300,7 +333,7 @@ export async function remakeOrderForm(formData: FormData): Promise<void> {
   const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
 
   const reason = formData.get('reason');
-  if (typeof reason !== 'string' || !ADJUSTMENT_REASONS.includes(reason as AdjustmentReason)) {
+  if (typeof reason !== 'string' || !isStaffAdjustmentReason(reason)) {
     return redirect(`${back}?adjustError=${encodeURIComponent('Pick a reason.')}`);
   }
 

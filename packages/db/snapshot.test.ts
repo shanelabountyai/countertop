@@ -10,6 +10,7 @@ import type { Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { adjustOrder } from './adjustment';
+import { enrolMember, redeemReward } from './loyalty';
 import { placeOrder } from './placement';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
@@ -50,7 +51,10 @@ async function placeSnapshotOrder(): Promise<string> {
   const result = await placeOrder({
     cart: CART,
     customerName: 'Dana',
-    customerPhone: '555-0100',
+    // Ten digits since C-104: the punch-card case below has to be able to
+    // enrol this order's customer, and `normalizePhone` refuses a seven-digit
+    // number rather than inventing an area code for it.
+    customerPhone: '555-010-0100',
     orderNote: 'blue Honda out front',
     idempotencyKey: `snapshot-${(keyCounter += 1)}`,
     now: AT,
@@ -171,6 +175,34 @@ describe('the snapshot rule', () => {
       data: { name: 'RENAMED ITEM', basePriceCents: 9999, available: false },
     });
     await prisma.modifierOption.delete({ where: { id: 'cheese' } });
+
+    expect(JSON.stringify(await readReceipt(id))).toBe(before);
+  });
+
+  it('is byte-identical after a punch-card reward is redeemed against it', async () => {
+    // PRD 7 P0-4 and P0-6, made a test (C-104). Loyalty is the second thing in
+    // this product that writes money-shaped data about an order after it is
+    // placed, and it is the one with a live customer record behind it — so it
+    // is the direction from which "just take it off the total" is most
+    // tempting. `Order` gains no column and no foreign key to any loyalty
+    // table; the link runs one way, from `LoyaltyEvent.orderId`.
+    await seedSettings({ loyaltyEnabled: true });
+    const enrolled = await enrolMember({ phone: '555-010-0100', displayName: 'Dana', now: AT });
+    if (!enrolled.ok) throw new Error(enrolled.reason);
+    await prisma.loyaltyEvent.create({
+      data: { memberId: enrolled.memberId, at: AT, kind: 'adjust', points: 100 },
+    });
+
+    const id = await placeSnapshotOrder();
+    const before = JSON.stringify(await readReceipt(id));
+
+    const redeemed = await redeemReward(id, AT);
+    expect(redeemed).toMatchObject({ ok: true, amountCents: 1000 });
+    // And the menu moves underneath it, as everywhere else in this file.
+    await prisma.menuItem.update({
+      where: { id: 'burrito' },
+      data: { name: 'RENAMED ITEM', basePriceCents: 9999 },
+    });
 
     expect(JSON.stringify(await readReceipt(id))).toBe(before);
   });

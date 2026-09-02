@@ -1,0 +1,22 @@
+-- PRD 7 P0-4 (C-104): at most one reward per order.
+--
+-- The sibling of C-100's `LoyaltyEvent_one_earn_per_order`, and it exists for
+-- the same reason stated the other way round. The earn's index guards a REVERT
+-- — the state machine permits `ready -> picked_up` twice, so the second
+-- advance would earn again. This one guards a DOUBLE TAP: the redemption
+-- control is a form on a server-rendered receipt with no client JavaScript to
+-- disable it, so two taps a moment apart are two requests that both read a
+-- balance with a reward in it and both write.
+--
+-- PARTIAL, on `kind = 'redeem'` alone. An order carries an `earn` and a
+-- `redeem` at once — that is the ordinary case, a customer spending points on
+-- the same visit that earns them — so a unique index on `orderId` across all
+-- kinds would refuse the product's own happy path.
+--
+-- THE CONSTRAINT IS THE MECHANISM and the code's check is UX, the same
+-- sentence this repo has written about idempotency keys, order numbers and
+-- the earn. `redeemReward` reads the ledger first so the loser gets a refusal
+-- BY NAME; without this index that read is a check-then-write and both taps
+-- pass it.
+CREATE UNIQUE INDEX "LoyaltyEvent_one_redeem_per_order"
+  ON "LoyaltyEvent"("orderId") WHERE "kind" = 'redeem';

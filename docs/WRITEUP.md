@@ -1311,6 +1311,76 @@ compliance.** Same shape as the equivalence CHECKs elsewhere in this schema
 hole — an equivalence over two NOT NULL columns is total, a `CASE` is only as
 total as its `ELSE`.
 
+### The feature that was unreachable in the default flow (C-104)
+
+**Found by the e2e suite, and it could not have been found any other way.** The
+unit tests for the counter redemption were green — both rows written, snapshot
+untouched, over-large reward refused, second redemption refused — and every one
+of them placed an order the way `packages/db`'s tests place orders: unpaid.
+
+Then two browser specs failed on a missing button. The checkout screen's
+payment radio defaults to **"Pay now — card"**, so the order reaching the
+counter had been captured in full. The reward comes off what is still OWED, a
+prepaid order owes nothing, and `planRedemption` correctly refused. **The
+feature worked exactly as specified and was unreachable through the product's
+own default path.**
+
+The temptation was to widen the bound to `adjustableRemainingCents` — total
+minus adjustments, which is what PRD 3's comp uses, and which would have made
+the button appear. That is the wrong fix and it is wrong for a reason that has
+nothing to do with code: **a restaurant cannot hand back a captured card charge
+because a screen let somebody tap a button.** A comp on a prepaid order is a
+recorded decision the counter settles at the drawer; a $10 reward on a prepaid
+order is $10 the customer is owed and no mechanism owes it to them. The refusal
+was right.
+
+So the fix was to the specs — they now place pay-at-pickup — plus one spec and
+one unit test asserting the *other* half out loud: a prepaid order shows the
+member, shows "Reward available", and offers no control. The limitation is now
+stated rather than discovered, and it says where it goes: the refund path
+(C-067) or applying the reward before the money is taken (P1-1, at checkout,
+gated on SMS verification).
+
+**The generalisation: a data-layer test suite that constructs its own fixtures
+never exercises the defaults a user actually gets.** Every db test here places
+an unpaid order because `placeOrder`'s `paidNow` is optional and the tests
+never pass it. The screen's default is the opposite. Nothing was wrong with
+either — the gap is that the two layers disagreed about the common case, and
+only a test that drives the real form could see it.
+
+### The validation that would have widened itself (C-104)
+
+**Not a defect — a near miss the compiler caught, and the interesting part is
+that it very nearly could not have.** A redemption writes an `adjustment` on
+the order event log with a `loyalty_reward` reason, and `ADJUSTMENT_REASONS`
+was the existing preset of four. The obvious edit is to add a fifth string to
+that array.
+
+That edit ships two bugs at once and neither is a type error. The array is
+what both dropdowns on the staff receipt render, so "Punch card reward" appears
+in the Make-it-right picker — where choosing it takes ten dollars off an order
+and moves no points, which is the redemption's money without the ledger row
+that pays for it. And both form actions guard with
+`ADJUSTMENT_REASONS.includes(reason as AdjustmentReason)`, so the guard widens
+in the same commit: a hand-crafted POST reaches the same giveaway directly.
+**The array is a UI list and a security boundary at once, and adding a value to
+it silently moves both.**
+
+The version that shipped splits them — `ADJUSTMENT_REASONS` stays the
+staff-pickable preset, `AdjustmentReason` is the wider union the engine
+accepts, and `isStaffAdjustmentReason` is the guard. Widening the union broke
+`tsc` in exactly the two form actions that had to keep refusing, which is the
+compiler doing what CLAUDE.md's "adding a state means the compiler finds the
+readers" rule asks of the status module, applied to a reason list.
+
+**The generalisation: a constant that is both rendered and validated against
+has two audiences with opposite requirements, and the safe direction is not the
+same for both.** Adding to the rendered list is additive and harmless; adding
+to the validated list is a permission grant. When one array is doing both jobs,
+splitting it is not ceremony — and the `as` cast in the guard is what hides the
+consequence, because it converts a widening into a silent pass rather than a
+compile error.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

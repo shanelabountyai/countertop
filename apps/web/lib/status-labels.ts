@@ -98,6 +98,11 @@ export const ADJUSTMENT_REASON_LABEL: Record<AdjustmentReason, string> = {
   late: 'Took too long',
   quality: 'Quality',
   other: 'Other',
+  // Never in a dropdown — `ADJUSTMENT_REASONS` is the staff-pickable set and
+  // this one is not in it (C-104). It reaches a screen only through the
+  // activity log, where "Adjusted $10.00 · Punch card reward" is the sentence
+  // that tells a dispute why ten dollars came off.
+  loyalty_reward: 'Punch card reward',
 };
 
 /**

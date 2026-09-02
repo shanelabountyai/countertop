@@ -12,7 +12,7 @@
 // append-only row, and `orderBalance` does the rest for every surface that
 // shows what is owed.
 import { adjustmentEvent, type AdjustmentInput, type AdjustmentRefusalReason } from '@countertop/core';
-import { prisma } from './index';
+import { Prisma, prisma } from './index';
 import { eventRow } from './placement';
 
 export type AdjustOrderResult =
@@ -42,8 +42,16 @@ export async function adjustOrder(
   /** Who decided (C-086). Null where no shift is signed on — an honest null,
    *  and the reason decision 3 put identity ahead of this PRD. */
   staffId?: string | null,
+  /** The transaction to write in, when the caller has one (C-104).
+   *
+   *  A REDEMPTION IS TWO ROWS AND THEY MUST BOTH LAND — the `adjustment` here
+   *  and a `redeem` on the loyalty ledger — so the redemption owns a
+   *  transaction and hands it down rather than duplicating the validation
+   *  above inside it. Defaulting to the client means every existing caller is
+   *  unchanged and there is still exactly one path that writes an adjustment. */
+  client: Prisma.TransactionClient = prisma,
 ): Promise<AdjustOrderResult> {
-  const order = await prisma.order.findUnique({
+  const order = await client.order.findUnique({
     where: { id: orderId },
     select: { totalCents: true, events: { select: { kind: true, amountCents: true } } },
   });
@@ -52,7 +60,7 @@ export async function adjustOrder(
   const decided = adjustmentEvent(order, input, now);
   if (!decided.ok) return decided;
 
-  await prisma.orderEvent.create({
+  await client.orderEvent.create({
     data: { orderId, ...eventRow(decided.event, staffId) },
   });
 

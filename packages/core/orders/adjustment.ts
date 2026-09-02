@@ -34,9 +34,52 @@ export type AdjustmentKind = (typeof ADJUSTMENT_KINDS)[number];
 
 /** The short preset, in the shape `CANCEL_REASONS` established. `other`
  *  requires free text, for the same reason it does there: "other" with no note
- *  is the row nobody can act on in a week. */
+ *  is the row nobody can act on in a week.
+ *
+ *  THE STAFF-PICKABLE SET, and after C-104 that is narrower than the set of
+ *  reasons an adjustment may carry — see `LOYALTY_REWARD_REASON`. Both
+ *  dropdowns and the form action read THIS one. */
 export const ADJUSTMENT_REASONS = ['wrong_item', 'late', 'quality', 'other'] as const;
-export type AdjustmentReason = (typeof ADJUSTMENT_REASONS)[number];
+
+/**
+ * The reason a punch-card redemption writes (PRD 7 P0-4, C-104).
+ *
+ * DELIBERATELY NOT IN `ADJUSTMENT_REASONS`, and that is the whole point of the
+ * split rather than a naming preference. The lists have different jobs: this
+ * is a reason the SYSTEM writes when points were actually spent, and the
+ * preset above is what a person may choose. Folding it into one list would
+ * put "punch card reward" in the Make-it-right dropdown, where picking it
+ * takes ten dollars off an order and moves no points — the redemption's money
+ * without its ledger row, which is the one thing P0-4 exists to keep paired.
+ *
+ * The form action keeps validating against `ADJUSTMENT_REASONS`, so a
+ * hand-crafted POST cannot reach it either.
+ */
+export const LOYALTY_REWARD_REASON = 'loyalty_reward';
+
+export type AdjustmentReason =
+  | (typeof ADJUSTMENT_REASONS)[number]
+  | typeof LOYALTY_REWARD_REASON;
+
+/**
+ * Whether a PERSON may pick this reason (C-104).
+ *
+ * The same list the dropdowns render, asked as a question, so the options on
+ * the screen and the guard in the form action cannot drift. `loyalty_reward`
+ * fails it — which is what stops a hand-crafted POST writing a reward's money
+ * without the ledger row that pays for it.
+ */
+export const isStaffAdjustmentReason = (
+  value: string,
+): value is (typeof ADJUSTMENT_REASONS)[number] =>
+  (ADJUSTMENT_REASONS as readonly string[]).includes(value);
+
+/** What the ENGINE accepts. One list, so a fifth reason is added in one place
+ *  and `ADJUSTMENT_REASON_LABEL`'s `Record` still forces a word for it. */
+const WRITABLE_REASONS: readonly AdjustmentReason[] = [
+  ...ADJUSTMENT_REASONS,
+  LOYALTY_REWARD_REASON,
+];
 
 export type AdjustmentRefusalReason =
   | 'unknown_adjustment_kind'
@@ -111,7 +154,7 @@ export function adjustmentEvent(
   if (!ADJUSTMENT_KINDS.includes(input.kind)) {
     return refuse('unknown_adjustment_kind', `"${input.kind}" is not an adjustment.`);
   }
-  if (!ADJUSTMENT_REASONS.includes(input.reason)) {
+  if (!WRITABLE_REASONS.includes(input.reason)) {
     return refuse('unknown_adjustment_reason', `"${input.reason}" is not an adjustment reason.`);
   }
   if (input.reason === 'other' && !input.note?.trim()) {

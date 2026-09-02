@@ -116,12 +116,23 @@ test('the enrolment control is reachable and labelled', async ({ page }) => {
 // gets is the last four and a name — "the one ending 2233, Ivy" — which is
 // what a person confirms out loud.
 
-/** Place an order that joins the punch card, and hand back the name used. */
+/**
+ * Place an order that joins the punch card, and hand back the name used.
+ *
+ * PAY AT PICKUP, not the default "Pay now — card", and that is load-bearing
+ * for C-104 rather than incidental. A counter redemption comes off what is
+ * still OWED, so an order already charged in full has nothing for a reward to
+ * come off — the restaurant cannot hand back a captured card charge, and the
+ * refund that would let it is C-067. Redeeming at the counter is therefore a
+ * pay-at-pickup feature by construction; spending points on a prepaid order is
+ * P1-1, which applies the reward at checkout and is gated on SMS verification.
+ */
 async function placeAsMember(page: Page, name: string): Promise<void> {
   await addBurritoToCart(page);
   await page.getByRole('link', { name: 'Checkout' }).click();
   await page.getByRole('textbox', { name: /Name for the order/ }).fill(name);
   await page.getByRole('textbox', { name: /Phone/ }).fill(PHONE);
+  await page.getByRole('radio', { name: 'Pay at pickup' }).check();
   await page.getByRole('checkbox', { name: /Collect points/ }).check();
   await page.getByRole('button', { name: /Place order/ }).click();
   await expect(page.getByTestId('order-number')).toBeVisible();
@@ -161,9 +172,100 @@ test('the counter reads a balance the pickup earned', async ({ page }) => {
   await expect(page.getByTestId('member-reward')).toContainText('Reward available');
   await expect(page.getByTestId('member-reward')).toContainText('$10.00');
 
-  // Read-only: spending it is C-104's, and a panel that implies a control it
-  // does not have is worse than one that admits it.
-  await expect(page.getByRole('button', { name: /reward/i })).toHaveCount(0);
+  // The control C-103 deliberately did not grow. This assertion was "there is
+  // no reward button"; growing it is C-104's job and editing it is the
+  // deliberate act that item's entry describes.
+  await expect(page.getByTestId('redeem-reward')).toBeVisible();
+});
+
+// C-104: redeeming (PRD 7 P0-4).
+//
+// The whole point is what does NOT move. A reward is ten dollars off what is
+// owed, written as an adjustment beside the money — the order was charged what
+// it was charged, and the receipt above the fold says so afterwards exactly as
+// it did before.
+
+test('spends a reward as an adjustment, and the total never moves', async ({ page }) => {
+  await setLoyaltyEnabled(true);
+  await placeAsMember(page, 'Ivy Castellanos');
+  await page.goto('/kitchen');
+  await pickUp(page, 'Ivy Castellanos');
+  // Ten earned at pickup, ninety granted: one reward, exactly.
+  await adjustLoyaltyPoints(90);
+
+  await openReceipt(page, 'Ivy Castellanos');
+  const total = await page.getByTestId('history-total').textContent();
+  await expect(page.getByTestId('redeem-reward')).toContainText('$10.00 off the total');
+  await page.getByTestId('redeem-reward').click();
+
+  // The three snapshot lines are untouched; the reward is a fourth fact below
+  // them. $11.85 charged, $10.00 off, $1.85 still owed.
+  await expect(page.getByTestId('history-total')).toHaveText(total ?? '');
+  await expect(page.getByTestId('history-adjusted')).toHaveText('−$10.00');
+  await expect(page.getByTestId('history-outstanding')).toHaveText('$1.85');
+
+  // Points spent, and the button gone with them.
+  await expect(page.getByTestId('member-balance')).toHaveText('0 points');
+  await expect(page.getByTestId('redeem-reward')).toHaveCount(0);
+  await expect(page.getByTestId('redeem-note')).toContainText('already been used');
+  // Why ten dollars came off, for whoever reads this in a dispute.
+  await expect(page.getByTestId('order-activity')).toContainText('Punch card reward');
+
+  // And it is not offerable twice, whatever the balance says.
+  await adjustLoyaltyPoints(100);
+  await page.reload();
+  await expect(page.getByTestId('member-balance')).toHaveText('100 points');
+  await expect(page.getByTestId('redeem-reward')).toHaveCount(0);
+});
+
+test('offers nothing on an order that was already paid in full', async ({ page }) => {
+  // The default checkout path — "Pay now — card". The reward comes off what is
+  // still owed, and a prepaid order owes nothing, so there is a balance, a
+  // member and deliberately no control. Handing $10 back on a captured card
+  // charge needs the refund C-067 has not built; applying it before the money
+  // is taken is P1-1, at checkout, gated on SMS.
+  await setLoyaltyEnabled(true);
+  await addBurritoToCart(page);
+  await page.getByRole('link', { name: 'Checkout' }).click();
+  await page.getByRole('textbox', { name: /Name for the order/ }).fill('Ivy Castellanos');
+  await page.getByRole('textbox', { name: /Phone/ }).fill(PHONE);
+  await page.getByRole('checkbox', { name: /Collect points/ }).check();
+  await page.getByRole('button', { name: /Place order/ }).click();
+  await expect(page.getByTestId('order-number')).toBeVisible();
+
+  await page.goto('/kitchen');
+  await pickUp(page, 'Ivy Castellanos');
+  await adjustLoyaltyPoints(90);
+
+  await openReceipt(page, 'Ivy Castellanos');
+  await expect(page.getByTestId('member-reward')).toContainText('Reward available');
+  await expect(page.getByTestId('redeem-reward')).toHaveCount(0);
+  await expect(page.getByTestId('redeem-note')).toContainText('does not owe enough');
+  // And the points are still theirs, for an order they have not paid for yet.
+  await expect(page.getByTestId('member-balance')).toHaveText('100 points');
+});
+
+test('refuses a reward worth more than the order owes, rather than clamping it', async ({
+  page,
+}) => {
+  await setLoyaltyEnabled(true);
+  await placeAsMember(page, 'Ivy Castellanos');
+  await page.goto('/kitchen');
+  await pickUp(page, 'Ivy Castellanos');
+  await adjustLoyaltyPoints(90);
+
+  // Comp all but a little of it first, so what is left owing is under a
+  // reward's worth. The customer keeps the points for a bigger order — a
+  // clamp would silently spend them on $1.85.
+  await openReceipt(page, 'Ivy Castellanos');
+  await page.getByRole('combobox', { name: 'Reason' }).selectOption('quality');
+  await page.getByRole('textbox', { name: 'Amount to take off, in dollars' }).fill('10.00');
+  await page.getByRole('button', { name: 'Take off' }).click();
+
+  await expect(page.getByTestId('member-reward')).toContainText('Reward available');
+  await expect(page.getByTestId('redeem-reward')).toHaveCount(0);
+  await expect(page.getByTestId('redeem-note')).toContainText('does not owe enough');
+  await expect(page.getByTestId('member-balance')).toHaveText('100 points');
 });
 
 test('the staff receipt says nothing about punch cards while the program is off', async ({

@@ -11,11 +11,16 @@
 // digest of one", and `apps/web` has no unit suite to hold it to that.
 import { createHmac } from 'node:crypto';
 import {
+  LOYALTY_REWARD_REASON,
   loyaltyBalance,
   normalizePhone,
+  orderBalance,
+  planRedemption,
   pointsForOrder,
   type LoyaltyTerms,
+  type RedemptionRefusalReason,
 } from '@countertop/core';
+import { adjustOrder } from './adjustment';
 import { Prisma, prisma } from './index';
 
 const PEPPER_VAR = 'LOYALTY_PHONE_PEPPER';
@@ -249,3 +254,155 @@ export async function earnForOrder(
   await tx.loyaltyMember.update({ where: { id: member.id }, data: { lastActivityAt: now } });
   return 'earned';
 }
+
+// --- Redeeming at the counter (P0-4, C-104) --------------------------------
+
+/** Why a reward was not spent. The four the engine decides, plus the three
+ *  only a database can: no such order, no pepper, nobody enrolled. Named, so
+ *  "the button did nothing" is never the answer a customer gets. */
+export type RedemptionRefusal =
+  | RedemptionRefusalReason
+  | 'loyalty_pepper_unset'
+  | 'order_not_found'
+  | 'not_a_member';
+
+export type RedeemResult =
+  | { ok: true; pointsSpent: number; amountCents: number }
+  | { ok: false; reason: RedemptionRefusal; message: string };
+
+/**
+ * Spend one reward against one order (P0-4).
+ *
+ * TWO ROWS, ONE TRANSACTION, and that is the requirement rather than a
+ * tidiness preference: a `redeem` on the ledger with no `adjustment` beside it
+ * takes a customer's points and charges them anyway, and an `adjustment` with
+ * no `redeem` gives ten dollars away for free. Either half alone is a defect
+ * somebody finds at close, from the till.
+ *
+ * NO NEW MONEY MECHANISM. The money side is PRD 3 P0-3's adjustment, written
+ * by `adjustOrder` through the same validation every comp goes through — the
+ * transaction is handed DOWN to it rather than the rule being copied in here.
+ * So `subtotalCents`, `taxCents` and `totalCents` are untouched, exactly as
+ * they are for a comp, and the snapshot regression covers this path for free.
+ *
+ * THE AMOUNT IS THE PROGRAM'S, NOT THE SCREEN'S. `rewardValueCents` is read
+ * from the settings row here; nothing about the reward arrives from a client.
+ * The order id is the only input, which is what leaves nothing to tamper with.
+ *
+ * REFUSED, NEVER CLAMPED, against an order that owes less than the reward is
+ * worth — `planRedemption` decides that, and it is the SAME function the panel
+ * asks before it renders the button, so the screen and the write cannot
+ * disagree about what is offerable.
+ */
+export async function redeemReward(
+  orderId: string,
+  now: Date,
+  /** Who spent it (C-086). A redemption is a counter decision like a comp. */
+  staffId?: string | null,
+): Promise<RedeemResult> {
+  const settings = await prisma.restaurantSettings.findUniqueOrThrow({
+    where: { id: 'singleton' },
+    select: {
+      loyaltyEnabled: true,
+      pointsPerDollar: true,
+      rewardThresholdPoints: true,
+      rewardValueCents: true,
+    },
+  });
+  if (!settings.loyaltyEnabled) {
+    return refuseRedemption('loyalty_disabled', 'The loyalty program is switched off.');
+  }
+  if (!hasLoyaltyPepper()) {
+    return refuseRedemption('loyalty_pepper_unset', 'The loyalty program is not configured.');
+  }
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      customerPhone: true,
+      totalCents: true,
+      events: { select: { kind: true, amountCents: true } },
+      // The ledger side of THIS order. One query, and the answer feeds the
+      // refusal by name; the unique index below is what makes it true under a
+      // double tap.
+      loyaltyEvents: { where: { kind: 'redeem' }, select: { id: true } },
+    },
+  });
+  if (!order) {
+    return refuseRedemption('order_not_found', 'That order could not be found.');
+  }
+
+  const phone = normalizePhone(order.customerPhone);
+  const member = phone
+    ? await prisma.loyaltyMember.findUnique({
+        where: { phoneDigest: phoneDigest(phone.digits) },
+        select: { id: true, events: { select: { kind: true, points: true } } },
+      })
+    : null;
+  if (!member) {
+    return refuseRedemption('not_a_member', 'Nobody is on the punch card for this order.');
+  }
+
+  const plan = planRedemption({
+    enabled: settings.loyaltyEnabled,
+    balance: loyaltyBalance(member.events),
+    // AFTER TAX, against what is still OWED — not against the total and not
+    // against what is left to adjust. An order already collected in full owes
+    // nothing, and a reward against it would be money the restaurant hands
+    // back at the counter with no refund path to hand it back through.
+    outstandingCents: orderBalance(order).outstandingCents,
+    alreadyRedeemed: order.loyaltyEvents.length > 0,
+    terms: settings,
+  });
+  if (!plan.ok) return { ok: false, reason: plan.reason, message: plan.message };
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await tx.loyaltyEvent.create({
+        data: {
+          memberId: member.id,
+          orderId,
+          at: now,
+          kind: 'redeem',
+          points: plan.pointsSpent,
+          // The ledger's OWN copy of what the reward was worth, so the two
+          // rows reconcile to the cent without a join deciding which is right.
+          amountCents: plan.amountCents,
+          staffId: staffId ?? null,
+        },
+      });
+
+      const adjusted = await adjustOrder(
+        orderId,
+        { kind: 'partial', amountCents: plan.amountCents, reason: LOYALTY_REWARD_REASON },
+        now,
+        staffId,
+        tx,
+      );
+      // Cannot happen — `planRedemption` bounded the amount by what is owed,
+      // which is never more than what is adjustable — but a money write that
+      // refused must not leave its ledger row committed beside it.
+      if (!adjusted.ok) throw new Error(`redemption adjustment refused: ${adjusted.reason}`);
+
+      await tx.loyaltyMember.update({ where: { id: member.id }, data: { lastActivityAt: now } });
+      return { ok: true as const, pointsSpent: plan.pointsSpent, amountCents: plan.amountCents };
+    });
+  } catch (error) {
+    // Two taps racing on one order. THE INDEX is the mechanism — the read
+    // above is UX — so the loser reads as the refusal it actually is rather
+    // than as a crash.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return refuseRedemption(
+        'already_redeemed_on_this_order',
+        'A reward has already been used on this order.',
+      );
+    }
+    throw error;
+  }
+}
+
+const refuseRedemption = (reason: RedemptionRefusal, message: string): RedeemResult => ({
+  ok: false,
+  reason,
+  message,
+});

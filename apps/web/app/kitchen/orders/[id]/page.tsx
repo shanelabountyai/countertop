@@ -22,8 +22,10 @@ import {
   canCollectPayment,
   formatOrderNumber,
   hasReward,
+  LOYALTY_REWARD_REASON,
   orderBalance,
   paymentTotals,
+  planRedemption,
   pointsToNextReward,
 } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
@@ -40,7 +42,7 @@ import {
   PAYMENT_LABEL,
   STATUS_LABEL,
 } from '@/lib/status-labels';
-import { adjustOrderForm, collectPayment, remakeOrderForm } from '../../actions';
+import { adjustOrderForm, collectPayment, redeemRewardForm, remakeOrderForm } from '../../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,10 +51,10 @@ export default async function OrderHistoryDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ adjustError?: string }>;
+  searchParams: Promise<{ adjustError?: string; redeemError?: string }>;
 }) {
   const { id } = await params;
-  const { adjustError } = await searchParams;
+  const { adjustError, redeemError } = await searchParams;
   const [gateState, order, activity, remakes] = await Promise.all([
     loadGateState(new Date()),
     findOrderByIdForStaff(id),
@@ -77,6 +79,27 @@ export default async function OrderHistoryDetailPage({
   const { adjustedCents } = paymentTotals(order.events);
   const remainingCents = adjustableRemainingCents(order);
   const balance = orderBalance(order);
+
+  // Whether the reward can be spent, asked of the SAME function the write
+  // asks (C-104) — so a button that renders is a button that works, and a
+  // refusal the screen shows is the refusal the server would have given.
+  //
+  // `alreadyRedeemed` is read off the MONEY side, from the activity already
+  // loaded, rather than costing a second query for the ledger side. The two
+  // rows are written in one transaction and cannot disagree; the ledger's own
+  // partial unique index is still what makes that true under two taps.
+  const rewardUsed = activity.some(
+    (entry) => entry.kind === 'adjustment' && entry.reason === LOYALTY_REWARD_REASON,
+  );
+  const redemption = member
+    ? planRedemption({
+        enabled: gateState.loyalty.offered,
+        balance: member.balance,
+        outstandingCents: balance.outstandingCents,
+        alreadyRedeemed: rewardUsed,
+        terms: gateState.loyalty.terms,
+      })
+    : null;
 
   return (
     <main className="mx-auto max-w-2xl p-6">
@@ -114,11 +137,11 @@ export default async function OrderHistoryDetailPage({
         </p>
       )}
 
-      {/* Read-only, and deliberately not a control: redeeming is C-104's, and
-          a panel that can only be READ is the honest shape while the balance
-          is the only thing that exists. The last four and the name together
-          are what a person confirms out loud — "the one ending 2233, Ivy" —
-          because the counter is holding a phone number it cannot see. */}
+      {/* The last four and the name together are what a person confirms out
+          loud — "the one ending 2233, Ivy" — because the counter is holding a
+          phone number it cannot see. Read-only until C-104; the control below
+          is that item, and it asks `planRedemption` rather than re-deciding
+          from the balance what a reward is. */}
       {member && (
         <section
           className="mt-4 rounded-lg border border-neutral-300 p-4"
@@ -140,6 +163,48 @@ export default async function OrderHistoryDetailPage({
             <p className="mt-1 text-sm text-neutral-700" data-testid="member-reward">
               {pointsToNextReward(member.balance, gateState.loyalty.terms)} points to the next
               reward
+            </p>
+          )}
+
+          {redeemError && (
+            <p
+              role="status"
+              data-testid="redeem-error"
+              className="mt-3 rounded-lg border border-red-700 bg-red-50 p-3 text-sm font-semibold text-red-900"
+            >
+              {redeemError}
+            </p>
+          )}
+
+          {/* AFTER TAX, off what is still owed — which is why the copy says
+              "off the total" and never "a free burrito" (P0-4). The honest
+              before-tax version needs a snapshotted discount column and the
+              tax base to move with it, and that is P1-1, gated on SMS.
+
+              Its own form, like the remake's: this receipt already has two
+              forms whose first submit button is not this one, and a form's
+              implicit submission would otherwise make Enter in the adjustment
+              note spend a customer's points. */}
+          {redemption?.ok && (
+            <form action={redeemRewardForm} className="mt-3">
+              <input type="hidden" name="orderId" value={order.id} />
+              <button
+                type="submit"
+                data-testid="redeem-reward"
+                className="min-h-12 w-full rounded-lg border-2 border-neutral-900 bg-neutral-900 px-4 text-lg font-bold text-white"
+              >
+                Use reward — {formatCents(redemption.amountCents)} off the total
+              </button>
+            </form>
+          )}
+          {/* The refusal, in words, exactly where the button would have been.
+              "Reward available" with nothing beside it is the screen a counter
+              argues with — an order that owes less than the reward is worth is
+              the case that actually happens, and it is REFUSED rather than
+              clamped, so the customer keeps the points for a bigger order. */}
+          {redemption && !redemption.ok && redemption.reason !== 'not_enough_points' && (
+            <p className="mt-3 text-sm font-semibold" data-testid="redeem-note">
+              {redemption.message}
             </p>
           )}
         </section>
