@@ -37,6 +37,11 @@ export const ORDER_EVENT_KINDS = [
    *  for an amount — not a column that is simply true. Until this kind, an
    *  order collected at the counter carried no instant at all. */
   'payment',
+  /** Money the restaurant chose not to ask for (PRD 3 P0-3, C-065): a comp or
+   *  a partial write-off, appended beside the snapshot and never subtracted
+   *  from it. The counter has always done this; until now it did it off-system,
+   *  and the till and the report disagreed by an amount nobody wrote down. */
+  'adjustment',
 ] as const;
 export type OrderEventKind = (typeof ORDER_EVENT_KINDS)[number];
 

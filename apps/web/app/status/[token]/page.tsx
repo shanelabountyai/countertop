@@ -21,6 +21,8 @@ import {
   formatOrderNumber,
   isOpen,
   isTerminal,
+  orderBalance,
+  paymentTotals,
   remainingEstimate,
   type CancelReason,
   type OrderStatus,
@@ -112,6 +114,11 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
   if (!order) notFound();
 
   const view = STATUS_VIEW[order.status];
+  // The same two figures the staff receipt shows, off the same events — the
+  // customer's copy is a different WORDING of one fact, never a second
+  // calculation of it (C-065).
+  const { adjustedCents } = paymentTotals(order.events);
+  const balance = orderBalance(order);
   // The gate is NOT asked here (decided C-013): an order already cooking still
   // has a ready time after the restaurant stops taking new ones. The estimate
   // is recalculated on every render, and this page re-renders on every poll
@@ -212,14 +219,43 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
             <dt>Total</dt>
             <dd data-testid="status-total">{formatCents(order.totalCents)}</dd>
           </div>
+
+          {/* An adjusted order says so (PRD 3 P0-3). Showing the original
+              total and nothing else would be the product quietly presenting a
+              figure the counter has already decided not to charge — the
+              customer arrives expecting one number and hears another.
+
+              WHAT IS NOT HERE IS THE POINT: no reason, no note, no staff name.
+              The preset is an operational category and the note is something a
+              cook typed about a mistake, and neither is the customer's to
+              read. This renders one number, off the same events the staff
+              receipt sums. */}
+          {adjustedCents > 0 && (
+            <>
+              <div className="flex justify-between border-t border-neutral-300 pt-2 text-sm">
+                <dt>Adjusted by the restaurant</dt>
+                <dd data-testid="status-adjusted">−{formatCents(adjustedCents)}</dd>
+              </div>
+              <div className="flex justify-between text-lg font-semibold">
+                <dt>You owe</dt>
+                <dd data-testid="status-outstanding">{formatCents(balance.outstandingCents)}</dd>
+              </div>
+            </>
+          )}
         </dl>
 
         {/* P1-8. The customer's half of the same fact the kitchen card flags:
             an unpaid order means bring a card to the counter. `refunded` is
-            here too — a cancelled order that took money has to say so. */}
+            here too — a cancelled order that took money has to say so.
+
+            The DUE figure is the balance, not the total (C-065): telling
+            somebody to bring $34.20 for an order that has been comped to zero
+            is the same defect as not mentioning the comp at all. */}
         <p className="mt-3 font-semibold" data-testid="status-payment">
           {order.paymentState === 'unpaid'
-            ? `${PAYMENT_LABEL.unpaid} — ${formatCents(order.totalCents)} due`
+            ? balance.outstandingCents > 0
+              ? `${PAYMENT_LABEL.unpaid} — ${formatCents(balance.outstandingCents)} due`
+              : 'Nothing to pay'
             : PAYMENT_LABEL[order.paymentState]}
         </p>
 

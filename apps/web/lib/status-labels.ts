@@ -7,7 +7,13 @@
 //
 // A `Record<OrderStatus, …>`, so a new state cannot ship without a name — the
 // same trick `STATUS_FACTS` uses, applied to the words.
-import type { EventActor, OrderEventKind, OrderStatus, PaymentState } from '@countertop/core';
+import type {
+  AdjustmentReason,
+  EventActor,
+  OrderEventKind,
+  OrderStatus,
+  PaymentState,
+} from '@countertop/core';
 
 export const STATUS_LABEL: Record<OrderStatus, string> = {
   placed: 'New',
@@ -65,8 +71,29 @@ export function describeEvent(entry: {
       return 'Refunded';
     case 'total_mismatch':
       return 'Total mismatch recorded';
+    case 'adjustment':
+      // Deliberately not "Comped" or "Discounted": the amount is rendered
+      // beside this on the receipt, and the log entry has to read the same for
+      // a whole-order comp and a $3 partial. Which one it was is in `detail`,
+      // and the amount is the thing a dispute is actually about.
+      return 'Adjusted';
   }
 }
+
+/**
+ * The adjustment preset, in words (C-065).
+ *
+ * A `Record<AdjustmentReason, …>` for the same reason `STATUS_LABEL` is one: a
+ * fifth reason cannot ship without the compiler asking what it reads as. Staff
+ * facing — the customer never sees these, and the status page is written so it
+ * structurally cannot.
+ */
+export const ADJUSTMENT_REASON_LABEL: Record<AdjustmentReason, string> = {
+  wrong_item: 'Wrong item',
+  late: 'Took too long',
+  quality: 'Quality',
+  other: 'Other',
+};
 
 /**
  * Who did it, when the log knows.
@@ -85,4 +112,25 @@ export function describeActor(entry: { actor: EventActor; staffName: string | nu
     case 'staff':
       return 'Staff — name not recorded';
   }
+}
+
+/**
+ * The words for an event's `reason` column (C-065).
+ *
+ * The column holds a PRESET KEY, deliberately — "why were things comped on
+ * Friday" has to be a `GROUP BY` and not a scan of typed sentences. That makes
+ * it a key a screen must translate, and `quality` rendered raw in quotation
+ * marks reads as something a cook typed.
+ *
+ * Only adjustments are mapped. A cancel reason has rendered raw since C-004
+ * and fixing that here would change a string four specs assert on, under an
+ * item about money — a separate, deliberate change, not a drive-by.
+ */
+export function describeEventReason(entry: {
+  kind: OrderEventKind;
+  reason: string | null;
+}): string | null {
+  if (entry.reason === null) return null;
+  if (entry.kind !== 'adjustment') return entry.reason;
+  return ADJUSTMENT_REASON_LABEL[entry.reason as AdjustmentReason] ?? entry.reason;
 }

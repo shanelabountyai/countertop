@@ -27,6 +27,7 @@
     "./gate": "./gate.ts",
     "./transitions": "./transitions.ts",
     "./payment": "./payment.ts",
+    "./adjustment": "./adjustment.ts",
     "./staff": "./staff.ts"
   }
 }

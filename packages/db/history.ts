@@ -117,6 +117,11 @@ export type ActivityEntry = {
   toStatus: OrderStatus | null;
   actor: EventActor;
   reason: string | null;
+  /** Money this event moved, in cents (C-065). Null on everything that moved
+   *  none — the same CHECK the database enforces. The receipt is where a
+   *  disputed comp is read, and "Adjusted" with no figure on it is the row
+   *  that starts the argument rather than settling it. */
+  amountCents: number | null;
   /** Null where the actor was not staff, and null on every event written
    *  before C-086 — an honest "we did not record this". */
   staffName: string | null;
@@ -133,6 +138,7 @@ export async function loadOrderActivity(orderId: string): Promise<ActivityEntry[
       toStatus: true,
       actor: true,
       reason: true,
+      amountCents: true,
       staff: { select: { name: true } },
     },
   });

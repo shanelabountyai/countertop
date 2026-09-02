@@ -119,6 +119,13 @@ enum OrderEventKind {
   /// mirror of `refund`. Before it, an order collected at the counter had a
   /// `paymentState` of `paid` and nothing anywhere saying when.
   payment
+  /// PRD 3 P0-3 (C-065): money the restaurant chose not to ask for — a comp or
+  /// a partial write-off. Decision 6 of 2026-09-01: a record of a decision the
+  /// counter made, not a charge. It NEVER updates `subtotalCents`, `taxCents`
+  /// or `totalCents` — the balance is a computation beside the snapshot, and
+  /// the obvious "subtract it from the total" version is refused because it
+  /// mutates a write-once column.
+  adjustment
 }
 
 // ---------------------------------------------------------------------------

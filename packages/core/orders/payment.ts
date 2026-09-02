@@ -25,13 +25,26 @@ export type MoneyEvent = {
 const sumOf = (events: readonly MoneyEvent[], kind: OrderEventKind): number =>
   events.reduce((sum, event) => (event.kind === kind ? sum + (event.amountCents ?? 0) : sum), 0);
 
-/** What was taken, and what went back. The two numbers the enum is a lossy
- *  summary of, exposed because C-064's balance is built from exactly these. */
+/**
+ * What was taken, what went back, and what was written off.
+ *
+ * The numbers the enum is a lossy summary of, exposed because C-064's balance
+ * is built from exactly these. `adjustedCents` (C-065) is the third and is a
+ * different KIND of number from the other two: nothing moved. A comp is a
+ * record of a decision the counter made — money the restaurant chose not to
+ * ask for — which is why it reduces what is owed below and never touches what
+ * was collected.
+ */
 export function paymentTotals(events: readonly MoneyEvent[]): {
   capturedCents: number;
   refundedCents: number;
+  adjustedCents: number;
 } {
-  return { capturedCents: sumOf(events, 'payment'), refundedCents: sumOf(events, 'refund') };
+  return {
+    capturedCents: sumOf(events, 'payment'),
+    refundedCents: sumOf(events, 'refund'),
+    adjustedCents: sumOf(events, 'adjustment'),
+  };
 }
 
 /**
@@ -53,6 +66,12 @@ export function paymentTotals(events: readonly MoneyEvent[]): {
  * agreement test is scoped to orders written since the events existed.
  */
 export function derivePaymentState(events: readonly MoneyEvent[]): PaymentState {
+  // `adjustedCents` is deliberately not read here. An adjustment moves no
+  // money, so a comped order that was never paid is still honestly `unpaid` —
+  // the enum's job is what the till did, and the balance's job is what is
+  // owed. Folding comps in would make the cache disagree with the column for
+  // every order the counter ever made right, and the agreement test over the
+  // seeded rush is the thing that would fail.
   const { capturedCents, refundedCents } = paymentTotals(events);
   // Checked first, so a refund with no capture — which is a data error, not a
   // state — reads as `unpaid` rather than as money that went back.
@@ -94,15 +113,27 @@ export type OrderBalance = {
  * CUSTOMER, which is a refund the product cannot yet issue — showing it as a
  * negative debt would invite somebody to collect it again.
  *
- * The comp term PRD 3 P0-2 names is deliberately absent: nothing writes a comp
- * yet (C-065 does). It arrives as one more case in `paymentTotals`, and the
- * arithmetic below does not change shape when it does.
+ * THE COMP TERM LANDED IN C-065, and it is subtracted from what is OWED rather
+ * than from what was collected. Those are two different sentences: comping a
+ * $13.75 order the customer never paid means the restaurant collected nothing
+ * and is owed nothing; comping one they already paid means the restaurant
+ * collected $13.75 and owes it BACK. Only the first is expressible today, and
+ * `outstandingCents`' existing clamp is what makes the second read as zero
+ * rather than as a negative debt somebody could collect twice — a refund the
+ * product cannot yet issue is C-067's problem, and quietly showing it as owed
+ * would be the wrong answer in the customer's disfavour.
+ *
+ * One consequence worth stating, because C-064's entry claims the opposite:
+ * `collected + outstanding` is no longer exactly the revenue booked once an
+ * order is comped. That is correct rather than broken — a comped order booked
+ * no revenue — and it is the reason the report's comps line (P1-3) is a line
+ * of its own rather than an adjustment to net sales.
  */
 export function orderBalance(order: OrderMoney): OrderBalance {
-  const { capturedCents, refundedCents } = paymentTotals(order.events);
+  const { capturedCents, refundedCents, adjustedCents } = paymentTotals(order.events);
   const collectedCents = Math.max(0, capturedCents - refundedCents);
   return {
     collectedCents,
-    outstandingCents: Math.max(0, order.totalCents - collectedCents),
+    outstandingCents: Math.max(0, order.totalCents - collectedCents - adjustedCents),
   };
 }

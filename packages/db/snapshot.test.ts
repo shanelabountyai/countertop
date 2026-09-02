@@ -9,6 +9,7 @@ import {
 import type { Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
+import { adjustOrder } from './adjustment';
 import { placeOrder } from './placement';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
@@ -143,6 +144,33 @@ describe('the snapshot rule', () => {
     await prisma.itemModifierGroup.delete({
       where: { itemId_groupId: { itemId: 'burrito', groupId: 'addons' } },
     });
+
+    expect(JSON.stringify(await readReceipt(id))).toBe(before);
+  });
+
+  it('is byte-identical after the order is comped, refunded, AND the menu moves', async () => {
+    // PRD 3's invariant note, made a test (C-065). An adjustment is the first
+    // thing in this product that writes money-shaped data about an order AFTER
+    // it is placed, so it is the first real chance to violate the snapshot rule
+    // from a direction the menu cannot reach. The obvious implementation —
+    // "comp it, subtract from the total" — passes every other test in this
+    // file and fails this one.
+    const id = await placeSnapshotOrder();
+    const before = JSON.stringify(await readReceipt(id));
+
+    await adjustOrder(id, { kind: 'partial', amountCents: 300, reason: 'late' }, AT);
+    await adjustOrder(id, { kind: 'comp', reason: 'quality' }, AT);
+    // A refund beside them, so the case is the PRD's: money out AND money
+    // written off on the same order.
+    await prisma.orderEvent.create({
+      data: { orderId: id, at: AT, kind: 'refund', actor: 'system', amountCents: 500 },
+    });
+    // And the menu moves underneath all of it.
+    await prisma.menuItem.update({
+      where: { id: 'burrito' },
+      data: { name: 'RENAMED ITEM', basePriceCents: 9999, available: false },
+    });
+    await prisma.modifierOption.delete({ where: { id: 'cheese' } });
 
     expect(JSON.stringify(await readReceipt(id))).toBe(before);
   });

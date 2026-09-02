@@ -3797,37 +3797,171 @@ four don'ts a stylesheet can regress on its own; and the favicon is served
 - **The stacked lockup and the counter stamp are not built.** Bags, cups and
   signage are not screens. They are in the sheet when something needs them.
 
+## C-065 — Making it right (PRD 3 P0-3)
+
+The operator's complaint, word for word: *there is no way to make an order
+right.* A burrito goes out wrong at 7:20 and the product's only money controls
+were `cancel` — which the state machine correctly refuses on cooked food — and
+collecting the full amount anyway. So the counter did the honest thing
+off-system, and the till and the report disagreed by an amount nobody wrote
+down.
+
+**What the shape had to be.** Decision 6 of 2026-09-01, now in the schema
+comment: an adjustment is an append-only **record of a decision the counter
+made**. It moves no money and calls no processor, so the master PRD's "no real
+payment processing" Non-Goal is untouched. The obvious implementation — comp
+it, subtract from the total — mutates a write-once snapshot column and is
+refused. `Order.totalCents` is what the customer was charged at placement,
+forever; the balance is a computation beside it.
+
+**Built:**
+- **`adjustment`, a sixth `OrderEventKind`**, and **two hand-written
+  migrations** rather than one. Not a preference: Postgres will not let a value
+  added by `ALTER TYPE … ADD VALUE` be USED in the transaction that added it,
+  and Prisma runs each file in one — so the CHECK that has to name it is the
+  next *file*, not the next statement. C-085 hit this first and recorded it,
+  which is why it cost nothing this time.
+- **C-063's equivalence paid off exactly as designed.** The money CHECK was
+  written as `(kind IN (…)) = (amountCents IS NOT NULL)` rather than as two
+  CHECKs, specifically so a third money kind would be one line. It was one
+  line. An `adjustment` row with a null amount is now rejected by the database
+  rather than by a code path somebody remembered to write.
+- **Two kinds: `comp` and `partial`.** `remake` is the third in P0-3 and is
+  deliberately absent — it carries a link to the order it replaces, and a
+  remake kind with no link is a word on a screen rather than the number "we
+  remade six tickets Friday". C-066 adds the column and the kind together.
+- **`adjustableRemainingCents`, its own function with two readers** — the
+  validator and the screen. This is the item's one real trap and the
+  requirement's own wording hides it: *"an adjustment larger than the order
+  total is refused"* reads as a single-amount check, and a single-amount check
+  lets two $10 comps land on a $13.75 order. **The bound is cumulative.** There
+  is a test named for exactly that case.
+- **A comp takes no amount from the client at all.** It is defined as "the
+  whole order, zero to the customer", so the server derives it from the order's
+  own snapshot. Strictly stronger than validating a number it never needed —
+  the test hands it `amountCents: 999999` and asserts the event carries the
+  order's total.
+- **Refused, never clamped**, and the refusal names the bound. A clamp turns
+  "comp $50 of this $11.85 order" into a legal $11.85 comp and tells nobody a
+  wrong number was typed; the counter finds out at close, from the till.
+- **`paymentTotals` gains a third direction and `orderBalance` subtracts it
+  from what is OWED**, not from what was collected. Two different sentences:
+  comping an unpaid order means the restaurant collected nothing and is owed
+  nothing; comping a paid one means it holds the money and owes it back.
+- **Every money surface followed for free.** The queue's unpaid badge, the
+  staff receipt and the report's outstanding list all read `orderBalance`
+  already (C-064), so a comped order drops off all three without one of them
+  being edited. This is the single-source discipline paying a dividend rather
+  than costing one.
+- The **staff control on the receipt**, reachable in *every* state including
+  `picked_up` and `abandoned` — the two the product had no money control for at
+  all, and the two where a wrong order is actually discovered. Money is
+  decoupled from status, which is what will let P0-5's cancel refusal stop
+  being a dead end without changing which states can be cancelled.
+- The **customer's status page says an order was adjusted** and structurally
+  cannot say why: one number, off the same events, with no preset, no note and
+  no staff name anywhere in the component.
+
+**Decided:**
+- **`derivePaymentState` deliberately ignores adjustments.** An adjustment is
+  not money arriving, so a comped unpaid order is still honestly `unpaid`. The
+  enum's job is what the till did; the balance's job is what is owed. Folding
+  comps in would make the cache disagree with the column for every order the
+  counter ever made right — and C-063's agreement test over the seeded rush is
+  the thing that would have failed.
+- **The refusal goes in the URL, not swallowed.** `collectPayment` can swallow
+  a refusal because the re-render is legible (the button is gone, or it is
+  not). An adjustment cannot: the form comes back looking identical and the
+  counter believes the comp landed.
+- **Only four refusals are echoed back to the screen.** The two that
+  interpolate the caller's own string into their message are unreachable from
+  the rendered form, and reaching them means a hand-made request — so they get
+  a generic sentence. C-084's rule applied a second time: name what may travel
+  down a free-text channel rather than sanitising what does.
+- **`parsePriceInput` was reused, not rewritten.** The menu editor has parsed
+  dollars into integer cents with it since C-015. A second parser would have
+  been a second set of edge cases (`1.5`, `1.555`, a bare `$`) to get right
+  twice.
+
+**One correction to C-064's entry, which claimed the opposite.**
+`collected + outstanding` is no longer exactly the revenue booked, once an
+order is comped. That is correct rather than broken — a comped order booked no
+revenue — and it is the reason the report's comps line is P1-3, a line of its
+own, rather than an adjustment to net sales.
+
+**Tested:** 28 core cases (the arithmetic, every refusal by *reason*, the PRD's
+$13.75 acceptance case to the cent, and the cumulative-bound case), 10 db cases
+(the snapshot columns and the payment cache untouched, reachable in `picked_up`
+and `abandoned`, the counter collecting the *remainder*, the CHECK rejecting a
+null and a negative amount, and the append-only trigger still covering the new
+kind), a new case in the **snapshot regression** — comp it, partially adjust
+it, refund it, then move the menu underneath, and assert the receipt is
+byte-identical — and 5 e2e including axe.
+
+**Left behind:**
+- **Nothing reverses an adjustment.** The log is append-only and the honest
+  answer is a contradicting adjustment, which does not exist: today a comp
+  typed on the wrong order stands, and the only recourse is that the event says
+  who did it and when. The reversing kind belongs with C-066's `relatedOrderId`
+  work, which is the other thing that needs an event pointing at another row.
+- **A comp on an order that already PAID reads as a zero balance, not as a
+  refund owed.** `outstandingCents` clamps, exactly as C-064 documented, and
+  the money owed back to that customer is invisible to the product. C-067's
+  refund path is where that becomes expressible; showing it as a negative debt
+  meanwhile would invite somebody to collect it twice.
+- **The report has no comps line.** Net sales is unchanged by a comp, by
+  design — P1-3 in this PRD, and the tables land in
+  `prd-reports-that-decide.md`. What *did* change for free is the outstanding
+  list, which now correctly omits comped orders.
+- **A cancel reason still renders as its raw preset key** in the activity log,
+  as it has since C-004. `describeEventReason` maps adjustment reasons only;
+  fixing the cancel side would change a string four specs assert on, under an
+  item about money.
+
 ---
 
 # Carried forward — read this first in a new session
 
-State at the end of the 2026-09-01 session, so the next one does not have to
+State at the end of the 2026-09-01/02 session, so the next one does not have to
 reconstruct it.
 
-**Pushed and CI-green:** C-051, C-052, C-084, C-085, C-086, C-063, C-064, plus
-the loyalty PRD. **C-087 is this entry**, gated green (513 unit, 129 passed +
-14 skipped = 143 e2e, reconciled against the 141 baseline plus its own two new
-tests) and committed with it.
+**Pushed and CI-green:** C-051, C-052, C-084, C-085, C-086, C-063, C-064,
+C-087, plus the loyalty PRD. **C-065 is this entry**, gated green (552 unit,
+134 passed + 14 skipped = 148 e2e, reconciled against the 143 baseline plus its
+own five new tests) and committed with it.
 
-**The logo set is now implemented — as assets, not as a redesign.** Fonts,
-palette tokens, the mark as inline SVG, the monogram favicon, and the lockup on
-`/menu`. What is deliberately NOT done, and is the obvious next brand item: the
-staff screens. The sheet's own "in place" example includes a kitchen header — a
-black bar, a 32px mark, `FIREBIRD · LINE`, a clock — and building it means
-touching the highest-consequence screen in the product, which is a different
-item with a different risk profile. **Do not soften the `NO ONIONS` treatment**
-when that happens; the brand sheet and `CLAUDE.md` already agree on it, and
-C-087 changed nothing about it.
+**PRD 3 continues at C-066** — the remake link: `OrderEvent.relatedOrderId`,
+the kitchen ticket for the remake, and "we remade six tickets Friday" as a
+number. C-065 deliberately left `remake` out of `ADJUSTMENT_KINDS` so the kind
+and its link arrive together. **C-066 is also where the reversing adjustment
+belongs** — undoing a comp typed onto the wrong order needs an event that
+points at another event, which is the same machinery, and building a second
+version of it separately would guarantee the two disagreed.
 
-**PRD 3 continues at C-065** — comp and partial adjustment on the staff
-receipt. Both of its blocking Open Questions are answered (decisions 5 and 6,
-2026-09-01), so it is unblocked and is the next non-brand item.
+**Then C-067** (a refund that can fail) and **C-068** (the cancel refusal that
+names the adjustment path). C-067 is where "we comped an order the customer had
+already paid for" stops reading as a zero balance and starts being a refund
+owed — see the WRITEUP caveat.
+
+**Two live traps recorded from C-065, both cheap to re-trip:**
+- `ALTER TYPE … ADD VALUE` cannot be USED in the transaction that adds it, and
+  Prisma runs each migration file in one. A CHECK naming a new enum value is
+  the next FILE, never the next statement. C-085 hit it first; C-065 paid
+  nothing for it.
+- A money bound stated as "larger than the order total" is a CUMULATIVE bound,
+  not a per-amount one. The single-amount reading is what the PRD text leads
+  you to and it lets two $10 comps land on a $13.75 order.
+
+**The brand work stopped at the customer's menu screen (C-087).** The staff
+screens are still neutral greys; the sheet's own kitchen-header example is
+where that continues, and it is a redesign of the highest-consequence screen
+rather than an asset drop. **Do not soften the `NO ONIONS` treatment.**
 
 **Two things still waiting on the owner:** the loyalty PRD's first Open
 Question (lift the master PRD's loyalty Non-Goal, or shelve it — the PRD's own
-recommendation is not to build it yet), and the two calls recorded in
-`docs/DESIGN_BRIEF.md` (no shadcn; light-mode-only tokens). The second of those
-now blocks something concrete rather than nothing: C-087 left the body
-background unset and two palette tokens unused because of it.
+recommendation is not to build it yet), and the two calls in
+`docs/DESIGN_BRIEF.md` (no shadcn; light-mode-only tokens). The second blocks
+something concrete: C-087 left the body background unset and two palette tokens
+unused because of it.
 
-C-087 committed at a67f570.
+C-065 committed at PENDING.

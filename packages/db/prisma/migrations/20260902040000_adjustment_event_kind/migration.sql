@@ -1,0 +1,24 @@
+-- ---------------------------------------------------------------------------
+-- PRD 3 P0-3 (C-065): making it right — the `adjustment` event kind.
+--
+-- The counter has always comped a wrong order. Until now it did so
+-- off-system, because the product's only money controls were `cancel` — which
+-- the state machine correctly refuses on cooked food — and collecting the full
+-- amount anyway. The till and the report then disagreed by an amount nobody
+-- wrote down.
+--
+-- Decision 6 of 2026-09-01, in writing: an adjustment is a RECORD OF A
+-- DECISION, not a charge. It moves no money and calls no processor, so the
+-- master PRD's "no real payment processing" Non-Goal is untouched.
+--
+-- ONE STATEMENT, and it is the whole migration for the same reason C-085's was:
+-- Postgres will not let a value added by `ALTER TYPE ... ADD VALUE` be USED
+-- later in the same transaction, and Prisma runs each migration file in one.
+-- The CHECK that has to name this value is therefore the NEXT migration, not
+-- the next statement.
+--
+-- Nothing is backfilled and nothing could be. An order comped before today was
+-- comped on paper; there is no row anywhere that says so, and inventing one
+-- would be a claim about money the restaurant never recorded.
+-- ---------------------------------------------------------------------------
+ALTER TYPE "OrderEventKind" ADD VALUE 'adjustment';

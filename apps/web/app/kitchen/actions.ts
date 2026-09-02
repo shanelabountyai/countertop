@@ -8,13 +8,20 @@
 // between these writes and the internet, so nothing below may assume a caller
 // came from a screen this app rendered.
 import {
+  ADJUSTMENT_KINDS,
+  ADJUSTMENT_REASONS,
   CANCEL_REASONS,
   ORDER_STATUSES,
+  parsePriceInput,
+  type AdjustmentKind,
+  type AdjustmentReason,
+  type AdjustmentRefusalReason,
   type CancelReason,
   type OrderAction,
   type OrderStatus,
 } from '@countertop/core';
 import { prisma } from '@countertop/db';
+import { adjustOrder } from '@countertop/db/adjustment';
 import { collectOrderPayment } from '@countertop/db/payment';
 import { isStaffPin, staffByPin } from '@countertop/db/staff';
 import { cookies } from 'next/headers';
@@ -26,6 +33,7 @@ import {
 } from '@/lib/shift';
 import { applyOrderAction } from '@countertop/db/transitions';
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { revalidateMenuSurfaces } from '@/lib/revalidate-menu';
 
 export type KitchenResult = { ok: true } | { ok: false; message: string };
@@ -171,6 +179,103 @@ export async function markOrderPaid(orderId: unknown): Promise<KitchenResult> {
  */
 export async function collectPayment(formData: FormData): Promise<void> {
   await markOrderPaid(formData.get('orderId'));
+}
+
+/**
+ * Refusals this action is willing to REPEAT BACK to the screen (C-065).
+ *
+ * The four a person can actually cause by filling the form in — a number too
+ * big, an order with nothing left, a missing note, a note too long. Their
+ * messages are composed entirely of server-side values, so echoing one through
+ * a query string says nothing the server did not already know.
+ *
+ * The two omitted refusals interpolate the CALLER'S OWN STRING into their
+ * message ("\"foo\" is not an adjustment"), and neither is reachable from the
+ * rendered form — reaching them means a hand-made request. Allow-listing the
+ * kinds rather than trusting the message is C-084's rule applied a second
+ * time: a message is a free-text channel, and the fix is to name what may
+ * travel down it rather than to sanitise what does.
+ */
+const ECHOABLE_REFUSALS: readonly AdjustmentRefusalReason[] = [
+  'adjustment_exceeds_total',
+  'nothing_left_to_adjust',
+  'adjustment_note_required',
+  'adjustment_note_too_long',
+];
+
+/**
+ * Make an order right (PRD 3 P0-3).
+ *
+ * Form-shaped, like `collectPayment`, because the receipt is a server
+ * component with no client JavaScript. Unlike `collectPayment` this one CANNOT
+ * swallow a refusal: "you typed $50 on a $13.75 order" is not legible in a
+ * re-render — the form comes back looking exactly as it did, and the counter
+ * believes the comp landed. So the refusal goes in the URL, which is the shape
+ * the sign-in, the settings save and the menu confirm already use.
+ *
+ * Everything here is untrusted input, including the amount. The amount in
+ * particular is never written as given: `adjustOrder` re-reads the order and
+ * bounds it against that order's own snapshotted total (CLAUDE.md — the server
+ * is the price authority), and the parse below only turns text into cents.
+ */
+export async function adjustOrderForm(formData: FormData): Promise<void> {
+  const orderId = formData.get('orderId');
+  if (typeof orderId !== 'string' || orderId === '') {
+    return redirect('/kitchen/orders');
+  }
+  const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
+  const refuse = (message: string): never =>
+    redirect(`${back}?adjustError=${encodeURIComponent(message)}`);
+
+  const kind = formData.get('kind');
+  const reason = formData.get('reason');
+  if (typeof kind !== 'string' || !ADJUSTMENT_KINDS.includes(kind as AdjustmentKind)) {
+    return refuse('Pick comp or a partial amount.');
+  }
+  if (typeof reason !== 'string' || !ADJUSTMENT_REASONS.includes(reason as AdjustmentReason)) {
+    return refuse('Pick a reason.');
+  }
+
+  // Dollars in, cents out, and `parsePriceInput` is the one that already
+  // exists — the menu editor has parsed prices with it since C-015. A second
+  // parser here would be a second set of edge cases (a bare `$`, `1.5`, `1.555`)
+  // to get right twice. Only the `partial` needs it: a comp's amount is
+  // DERIVED by the engine from the order and is never sent by the client.
+  let amountCents: number | undefined;
+  if (kind === 'partial') {
+    const raw = formData.get('amount');
+    const parsed = typeof raw === 'string' ? parsePriceInput(raw) : null;
+    if (parsed === null) return refuse('Enter an amount like 3.50.');
+    amountCents = parsed;
+  }
+
+  const note = formData.get('note');
+  const result = await adjustOrder(
+    orderId,
+    {
+      kind: kind as AdjustmentKind,
+      reason: reason as AdjustmentReason,
+      ...(amountCents === undefined ? {} : { amountCents }),
+      ...(typeof note === 'string' && note !== '' ? { note } : {}),
+    },
+    // `now` read here and passed down, and WHO read from the shift rather than
+    // from the form — the same rule every other write on this screen follows.
+    new Date(),
+    await currentShiftId(),
+  );
+
+  if (!result.ok) {
+    return refuse(
+      ECHOABLE_REFUSALS.includes(result.reason as AdjustmentRefusalReason)
+        ? result.message
+        : 'That adjustment could not be applied.',
+    );
+  }
+
+  // The subtree: an adjustment changes what the queue card says is owed as
+  // well as what this receipt says, because both ask `orderBalance`.
+  revalidatePath('/kitchen', 'layout');
+  redirect(back);
 }
 
 /**

@@ -1356,3 +1356,33 @@ monogram — which is exactly what the logo set says to do at that size.
 **NO ONIONS is untouched.** The brand sheet renders it white-on-red on a
 printed ticket, which is what the kitchen screen has done since it was built.
 Nothing was harmonised.
+
+## C-065 — There is now a way to make an order right
+
+**Before this, there wasn't one.** A burrito goes out wrong at 7:20. The order
+is cooked, so it can't be cancelled — correctly; nobody wants a system that
+lets a paid, collected order vanish. The only remaining control was to charge
+the full amount. So the counter sorted it out off the books, and on Sunday the
+report and the till disagreed by an amount nobody had written down.
+
+**Open any order and there is now "Make it right."** Comp the whole thing, or
+take a specific amount off. Pick a reason, add a note. It works on every order
+in any state — including one already picked up or written off as a no-show,
+which are exactly the ones a complaint arrives about.
+
+**The order's total never changes.** What the customer was charged stays what
+they were charged, permanently. The adjustment is recorded next to it, and
+what's still owed is worked out from the two. That means a comped order stops
+showing up as money outstanding — on the queue card, on the receipt, and on the
+report — without anything rewriting history.
+
+**Too much is refused, not quietly reduced.** Type $50 on an $11.85 order and
+it says so and names the limit. Two half-comps can't add up to more than the
+order was worth either.
+
+**The customer's page tells them.** An adjusted order shows the adjustment and
+what's actually left to pay — not the original figure as if nothing happened.
+It doesn't show the reason or the note; those are the shop's.
+
+**Every adjustment is signed.** Who made the call and when, on the order's
+history, next to the amount.

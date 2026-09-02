@@ -11,12 +11,18 @@ const refund = (amountCents: number): MoneyEvent => ({ kind: 'refund', amountCen
 /** Every other kind: a status move, a mismatch. Money-less by construction —
  *  the column's CHECK requires their amount to be null. */
 const move = (): MoneyEvent => ({ kind: 'transition', amountCents: null });
+/** Money the restaurant chose not to ask for (C-065). A third direction, and
+ *  deliberately its own field below rather than folded into either of the
+ *  other two: nothing moved, so netting it against a capture would claim the
+ *  till did something it did not. */
+const adjustment = (amountCents: number): MoneyEvent => ({ kind: 'adjustment', amountCents });
 
 describe('paymentTotals', () => {
   it('sums each direction separately, never nets them into one number', () => {
-    expect(paymentTotals([payment(3420), refund(300)])).toEqual({
+    expect(paymentTotals([payment(3420), refund(300), adjustment(500)])).toEqual({
       capturedCents: 3420,
       refundedCents: 300,
+      adjustedCents: 500,
     });
   });
 
@@ -24,11 +30,12 @@ describe('paymentTotals', () => {
     expect(paymentTotals([move(), payment(1456), move()])).toEqual({
       capturedCents: 1456,
       refundedCents: 0,
+      adjustedCents: 0,
     });
   });
 
   it('is zeroes, not NaN, on an order with no events at all', () => {
-    expect(paymentTotals([])).toEqual({ capturedCents: 0, refundedCents: 0 });
+    expect(paymentTotals([])).toEqual({ capturedCents: 0, refundedCents: 0, adjustedCents: 0 });
   });
 });
 

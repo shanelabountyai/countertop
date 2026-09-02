@@ -16,29 +16,52 @@
 // day it was placed.
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { canCollectPayment, formatOrderNumber, orderBalance } from '@countertop/core';
+import {
+  ADJUSTMENT_REASONS,
+  adjustableRemainingCents,
+  canCollectPayment,
+  formatOrderNumber,
+  orderBalance,
+  paymentTotals,
+} from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
 import { findOrderByIdForStaff, loadOrderActivity } from '@countertop/db/history';
 import { formatCents } from '@/lib/money';
 import { formatPlacedAt } from '@/lib/format-time';
 import { describeSelection } from '@/lib/menu-labels';
-import { describeActor, describeEvent, PAYMENT_LABEL, STATUS_LABEL } from '@/lib/status-labels';
-import { collectPayment } from '../../actions';
+import {
+  ADJUSTMENT_REASON_LABEL,
+  describeActor,
+  describeEvent,
+  describeEventReason,
+  PAYMENT_LABEL,
+  STATUS_LABEL,
+} from '@/lib/status-labels';
+import { adjustOrderForm, collectPayment } from '../../actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function OrderHistoryDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ adjustError?: string }>;
 }) {
   const { id } = await params;
+  const { adjustError } = await searchParams;
   const [gateState, order, activity] = await Promise.all([
     loadGateState(new Date()),
     findOrderByIdForStaff(id),
     loadOrderActivity(id),
   ]);
   if (!order) notFound();
+
+  // Both read from the SAME events the balance is summed from, so the figure
+  // the form bounds itself by and the figure the server enforces cannot drift.
+  const { adjustedCents } = paymentTotals(order.events);
+  const remainingCents = adjustableRemainingCents(order);
+  const balance = orderBalance(order);
 
   return (
     <main className="mx-auto max-w-2xl p-6">
@@ -100,11 +123,30 @@ export default async function OrderHistoryDetailPage({
             <dt>Total</dt>
             <dd data-testid="history-total">{formatCents(order.totalCents)}</dd>
           </div>
+
+          {/* BELOW the total, never inside it (C-065). The three lines above
+              are the snapshot and are write-once: an adjustment is a second
+              fact beside the money, not an edit to it. Rendering it as a
+              smaller total would be the exact defect the requirement's
+              "never updates subtotalCents/taxCents/totalCents" forbids, done
+              in CSS instead of SQL. */}
+          {adjustedCents > 0 && (
+            <>
+              <div className="flex justify-between border-t border-neutral-300 pt-2 text-sm">
+                <dt>Adjusted</dt>
+                <dd data-testid="history-adjusted">−{formatCents(adjustedCents)}</dd>
+              </div>
+              <div className="flex justify-between text-lg font-semibold">
+                <dt>Still owed</dt>
+                <dd data-testid="history-outstanding">{formatCents(balance.outstandingCents)}</dd>
+              </div>
+            </>
+          )}
         </dl>
 
         <p className="mt-3 font-semibold">{PAYMENT_LABEL[order.paymentState]}</p>
 
-        {canCollectPayment(order.status, orderBalance(order).outstandingCents) && (
+        {canCollectPayment(order.status, balance.outstandingCents) && (
           <form action={collectPayment} className="mt-3">
             <input type="hidden" name="orderId" value={order.id} />
             <button
@@ -116,6 +158,102 @@ export default async function OrderHistoryDetailPage({
           </form>
         )}
       </section>
+
+      {/* Making it right (PRD 3 P0-3). Reachable in EVERY state, which is the
+          requirement's point: `picked_up` and `abandoned` are exactly where a
+          wrong order is discovered, and they are the two the product had no
+          money control for at all. The state machine goes on refusing to
+          cancel cooked food (P0-5) — money is decoupled from status, so that
+          refusal stops being a dead end. */}
+      {remainingCents > 0 && (
+        <section className="mt-6 rounded-lg border border-neutral-300 p-4">
+          <h2 className="font-semibold">Make it right</h2>
+          <p className="mt-1 text-sm text-neutral-600">
+            Records a decision. It does not move money or change the total — up to{' '}
+            {formatCents(remainingCents)} on this order.
+          </p>
+
+          {adjustError && (
+            <p
+              role="status"
+              data-testid="adjust-error"
+              className="mt-3 rounded-lg border border-red-700 bg-red-50 p-3 text-sm font-semibold text-red-900"
+            >
+              {adjustError}
+            </p>
+          )}
+
+          <form action={adjustOrderForm} className="mt-3 flex flex-col gap-3">
+            <input type="hidden" name="orderId" value={order.id} />
+
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium">Reason</span>
+              <select
+                name="reason"
+                required
+                defaultValue=""
+                className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+              >
+                <option value="" disabled>
+                  Pick one
+                </option>
+                {ADJUSTMENT_REASONS.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {ADJUSTMENT_REASON_LABEL[reason]}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium">Note</span>
+              <input
+                type="text"
+                name="note"
+                maxLength={140}
+                placeholder="Required for “Other”"
+                className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+              />
+            </label>
+
+            {/* Two submits, one form, and the KIND is the button rather than a
+                radio: "comp the whole thing" and "take $3 off" are two
+                decisions, not one decision with a parameter. The comp carries
+                no amount at all — the engine derives it from the order, so
+                there is no field here for anybody to disagree with. */}
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                type="submit"
+                name="kind"
+                value="comp"
+                className="min-h-12 flex-1 rounded-lg border-2 border-neutral-900 bg-neutral-900 px-4 text-lg font-bold text-white"
+              >
+                Comp the whole order
+              </button>
+              <div className="flex flex-1 gap-2">
+                <label className="flex-1">
+                  <span className="sr-only">Amount to take off, in dollars</span>
+                  <input
+                    type="text"
+                    name="amount"
+                    inputMode="decimal"
+                    placeholder="3.50"
+                    className="min-h-12 w-full rounded-lg border border-neutral-400 px-3 text-lg tabular-nums"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  name="kind"
+                  value="partial"
+                  className="min-h-12 rounded-lg border-2 border-neutral-900 px-4 text-lg font-bold"
+                >
+                  Take off
+                </button>
+              </div>
+            </div>
+          </form>
+        </section>
+      )}
 
       {order.orderNote && (
         <p className="mt-4 text-sm italic text-neutral-700">“{order.orderNote}”</p>
@@ -139,9 +277,16 @@ export default async function OrderHistoryDetailPage({
                 {formatPlacedAt(entry.at, gateState.timezone)}
               </span>
               <span className="text-lg">{describeEvent(entry)}</span>
+              {entry.amountCents !== null && (
+                <span className="text-lg font-semibold tabular-nums">
+                  {formatCents(entry.amountCents)}
+                </span>
+              )}
               <span className="text-sm text-neutral-700">· {describeActor(entry)}</span>
-              {entry.reason && (
-                <span className="text-sm italic text-neutral-600">“{entry.reason}”</span>
+              {describeEventReason(entry) && (
+                <span className="text-sm italic text-neutral-600">
+                  “{describeEventReason(entry)}”
+                </span>
               )}
             </li>
           ))}
