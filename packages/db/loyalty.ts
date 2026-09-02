@@ -1,0 +1,169 @@
+// Enrolment, and the counter lookup (PRD 7 P0-1, C-101).
+//
+// THE PHONE IS NEVER STORED. `LoyaltyMember.phoneDigest` is an HMAC-SHA256 of
+// the normalised number under a pepper held in the ENVIRONMENT, so a dump of
+// the loyalty tables is not a customer list. `Order.customerPhone` still holds
+// what was typed, in clear, and is unchanged — a different fact with a
+// different retention story, deleted by PRD 6's forget path.
+//
+// HERE AND NOT IN `apps/web`, for the same reason `staff.ts` is: this file is
+// the one thing standing between "we keep a phone number" and "we keep a
+// digest of one", and `apps/web` has no unit suite to hold it to that.
+import { createHmac } from 'node:crypto';
+import { loyaltyBalance, normalizePhone, type LoyaltyTerms } from '@countertop/core';
+import { prisma } from './index';
+
+const PEPPER_VAR = 'LOYALTY_PHONE_PEPPER';
+
+/**
+ * The pepper, or the empty string.
+ *
+ * AN ENV SECRET, WHERE THE STAFF PIN'S SALT IS A CONSTANT, and the difference
+ * is the whole reason this file exists. `staff.ts` admits its salt is a
+ * constant and that anybody holding that table can recover every four-digit
+ * PIN in a second; that is acceptable there because the PIN is a stamp behind
+ * a passcode, not a credential. A phone number has a keyspace of about ten
+ * billion and a plausible one has far less — an unpeppered digest of one is
+ * decorative, brute-forced from a stolen table in minutes. The pepper is the
+ * thing that is not in the backup.
+ *
+ * ROTATING IT ORPHANS EVERY MEMBER, exactly the way rotating `STAFF_PASSCODE`
+ * ends every shift: the digests no longer match anything a customer types, so
+ * balances become unreachable rather than wrong. That is a real operational
+ * constraint and it is the price of the phone not being in the table.
+ */
+export const loyaltyPepper = (): string => process.env[PEPPER_VAR] ?? '';
+
+/** Whether enrolment can happen at all. Read by the checkout screen too: a
+ *  program switched on with no pepper configured must not render a checkbox
+ *  that cannot do anything. */
+export const hasLoyaltyPepper = (): boolean => loyaltyPepper() !== '';
+
+/**
+ * The stored value. THROWS on an unset pepper, deliberately.
+ *
+ * The alternative — hashing under an empty key — produces a perfectly stable
+ * digest that becomes wrong the moment the pepper is configured, silently
+ * orphaning every member enrolled before it. A throw is louder than a
+ * migration nobody knows they need. Every caller checks `hasLoyaltyPepper`
+ * first and refuses by name, so this is a programmer error, not a request one.
+ */
+export function phoneDigest(digits: string): string {
+  const pepper = loyaltyPepper();
+  if (pepper === '') throw new Error(`${PEPPER_VAR} is not set`);
+  return createHmac('sha256', pepper).update(`countertop-loyalty-phone:${digits}`).digest('hex');
+}
+
+/** Why an enrolment did not happen. Named rather than silent — a customer who
+ *  ticked the box and was not enrolled is a support call, and "it failed" is
+ *  not an answer to it. */
+export type EnrolmentRefusal =
+  | 'loyalty_disabled'
+  | 'loyalty_pepper_unset'
+  | 'phone_not_enrollable';
+
+export type EnrolmentResult =
+  | { ok: true; memberId: string }
+  | { ok: false; reason: EnrolmentRefusal };
+
+/**
+ * Enrol, or find the member who is already there (P0-1).
+ *
+ * An UPSERT on the digest, so the same phone typed two ways across two orders
+ * is one member — and so two checkouts racing produce one row rather than one
+ * row and a unique violation. `update: {}` on a hit: a returning member keeps
+ * the name and the instant they enrolled under, and `lastActivityAt` is moved
+ * by an earn or a redeem (C-102, C-104), never by ordering again under a
+ * different name.
+ *
+ * The settings row is read HERE rather than trusted from the caller: this is
+ * the write, and `loyaltyEnabled: false` has to mean no ledger row exists no
+ * matter which screen asked.
+ */
+export async function enrolMember(input: {
+  /** As typed. Normalised and digested here; never written anywhere. */
+  phone: string | null | undefined;
+  /** The name off the placed order, already trimmed and length-checked by
+   *  `normalizeIdentity`. Copied at enrolment, like every other snapshot. */
+  displayName: string;
+  now: Date;
+}): Promise<EnrolmentResult> {
+  const settings = await prisma.restaurantSettings.findUniqueOrThrow({
+    where: { id: 'singleton' },
+    select: { loyaltyEnabled: true },
+  });
+  if (!settings.loyaltyEnabled) return { ok: false, reason: 'loyalty_disabled' };
+  if (!hasLoyaltyPepper()) return { ok: false, reason: 'loyalty_pepper_unset' };
+
+  const phone = normalizePhone(input.phone);
+  if (!phone) return { ok: false, reason: 'phone_not_enrollable' };
+
+  const digest = phoneDigest(phone.digits);
+  const member = await prisma.loyaltyMember.upsert({
+    where: { phoneDigest: digest },
+    update: {},
+    create: {
+      phoneDigest: digest,
+      phoneLast4: phone.last4,
+      displayName: input.displayName,
+      enrolledAt: input.now,
+      lastActivityAt: input.now,
+    },
+    select: { id: true },
+  });
+  return { ok: true, memberId: member.id };
+}
+
+/** What the counter sees about a member. The last four and a name, because
+ *  "the one ending 2233, Ivy" is what a person confirms out loud — and the
+ *  balance, because that is the question being asked. Never the digest. */
+export type LoyaltyMemberView = {
+  id: string;
+  displayName: string;
+  phoneLast4: string;
+  balance: number;
+  enrolledAt: Date;
+  lastActivityAt: Date;
+};
+
+/**
+ * The counter lookup (P0-1). Hashes the typed number and matches the digest,
+ * so THE PLAINTEXT NEVER REACHES A `where` — the same discipline `staffByPin`
+ * applies, and here it is load-bearing: a `contains` on a phone column is the
+ * query that turns a loyalty program into a searchable customer index.
+ *
+ * The balance is summed by the pure function over the member's own rows, not
+ * read from a column, because there is no balance column and P0-2 says why.
+ */
+export async function memberByPhone(phone: string): Promise<LoyaltyMemberView | null> {
+  if (!hasLoyaltyPepper()) return null;
+  const normalized = normalizePhone(phone);
+  if (!normalized) return null;
+
+  const member = await prisma.loyaltyMember.findUnique({
+    where: { phoneDigest: phoneDigest(normalized.digits) },
+    select: {
+      id: true,
+      displayName: true,
+      phoneLast4: true,
+      enrolledAt: true,
+      lastActivityAt: true,
+      events: { select: { kind: true, points: true } },
+    },
+  });
+  if (!member) return null;
+
+  const { events, ...rest } = member;
+  return { ...rest, balance: loyaltyBalance(events) };
+}
+
+/** The program as configured, for the screens that have to describe it before
+ *  anybody has earned anything. */
+export type LoyaltyOffer = {
+  /** Both halves of "can we offer this": the switch, and a pepper to hash
+   *  under. One boolean, so a screen cannot check a different pair than the
+   *  writer does. */
+  offered: boolean;
+  terms: LoyaltyTerms;
+  expiryDays: number;
+};

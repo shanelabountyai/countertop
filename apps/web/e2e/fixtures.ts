@@ -172,3 +172,39 @@ export async function pickUp(page: Page, name: string): Promise<void> {
     await expect(button).toHaveCount(0);
   }
 }
+
+/**
+ * Switch the punch card on or off (PRD 7 P0-1, C-101).
+ *
+ * Directly, like `backdateQueue`, and for the same reason: there is no screen
+ * that does it. The program has no operator control yet — C-106 is where the
+ * program's own screen lands — so a spec that wants it on has exactly one way
+ * to say so, and this is it rather than five copies of a Prisma call.
+ *
+ * `reseed()` puts it back to false, which is the seeded default and the state
+ * every other spec in the suite runs against.
+ */
+export async function setLoyaltyEnabled(loyaltyEnabled: boolean): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  try {
+    await prisma.restaurantSettings.update({ where: { id: 'singleton' }, data: { loyaltyEnabled } });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/** Every loyalty member, as stored. The digest included — a spec asserting the
+ *  phone is not in the table has to be able to look at the whole row. */
+export async function loyaltyMembers(): Promise<
+  { phoneDigest: string; phoneLast4: string; displayName: string }[]
+> {
+  const { prisma } = await import('@countertop/db');
+  try {
+    return await prisma.loyaltyMember.findMany({
+      select: { phoneDigest: true, phoneLast4: true, displayName: true },
+      orderBy: { enrolledAt: 'asc' },
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+}

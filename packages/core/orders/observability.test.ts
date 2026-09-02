@@ -139,6 +139,51 @@ describe('placementLogLine — no line can carry a person', () => {
   });
 });
 
+describe('placementLogLine — the enrolment the customer ticked a box for', () => {
+  // PRD 7 P0-1 / C-101. Every outcome except `enrolled` is invisible to the
+  // customer: the order succeeded and nothing on the receipt says the punch
+  // card did not start. `loyalty_pepper_unset` has no other symptom at all.
+  const placed = { result: 'placed', orderId: 'order-1', replayed: false } as const;
+
+  it('names what happened, in one word from a closed set', () => {
+    for (const enrolment of [
+      'enrolled',
+      'loyalty_disabled',
+      'loyalty_pepper_unset',
+      'phone_not_enrollable',
+      'enrolment_threw',
+    ] as const) {
+      expect(
+        placementLogLine({ at: AT, idempotencyKey: KEY, outcome: placed, enrolment }),
+      ).toMatchObject({ result: 'placed', enrolment });
+    }
+  });
+
+  it('says nothing at all when nobody asked to join', () => {
+    expect(placementLogLine({ at: AT, idempotencyKey: KEY, outcome: placed })).not.toHaveProperty(
+      'enrolment',
+    );
+    expect(
+      placementLogLine({ at: AT, idempotencyKey: KEY, outcome: placed, enrolment: null }),
+    ).not.toHaveProperty('enrolment');
+  });
+
+  it('carries no phone number, because the type has no field for one', () => {
+    // The structural argument again: an enrolment is about a phone number and
+    // this line still cannot hold one.
+    expect(
+      JSON.stringify(
+        placementLogLine({
+          at: AT,
+          idempotencyKey: KEY,
+          outcome: placed,
+          enrolment: 'phone_not_enrollable',
+        }),
+      ),
+    ).not.toContain('555');
+  });
+});
+
 describe('totalTampering — evidence, not noise', () => {
   // Built through the same field the cart computes, so a test cannot assert a
   // combination `reviewCart` would never produce.

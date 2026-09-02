@@ -7,6 +7,7 @@
 import { loyaltyBalance } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
+import { enrolMember, memberByPhone, phoneDigest } from './loyalty';
 import { placeOrder } from './placement';
 import {
   resetDatabase,
@@ -223,5 +224,144 @@ describe('the program is off by default (P0-1)', () => {
         prisma.restaurantSettings.update({ where: { id: 'singleton' }, data: patch }),
       ).rejects.toThrow(/loyalty_settings_positive/);
     }
+  });
+});
+
+// --- Enrolment (P0-1, C-101) -----------------------------------------------
+//
+// The phone is the key and the phone is never stored, which makes these the
+// two claims worth a test: the same number typed two ways is ONE member, and
+// nothing in the loyalty tables holds the digits.
+
+describe('enrolment', () => {
+  const NOW = new Date(Date.UTC(2026, 6, 5, 19, 30, 0));
+  /** The same customer, back the next day. */
+  const TOMORROW = new Date(Date.UTC(2026, 6, 6, 19, 30, 0));
+  const enable = () => seedSettings({ loyaltyEnabled: true });
+
+  it('reads the PRD\'s two spellings as one member', async () => {
+    await enable();
+
+    const first = await enrolMember({
+      phone: '(555) 010-2233',
+      displayName: 'Ivy Castellanos',
+      now: NOW,
+    });
+    const second = await enrolMember({
+      phone: '5550102233',
+      displayName: 'Ivy C',
+      now: TOMORROW,
+    });
+
+    expect(first.ok && second.ok).toBe(true);
+    expect(first.ok && second.ok && first.memberId).toBe(second.ok ? second.memberId : null);
+    expect(await prisma.loyaltyMember.count()).toBe(1);
+
+    // The second enrolment does not overwrite the first: a returning customer
+    // keeps the instant they joined, which is what expiry and retention are
+    // both counted from.
+    const stored = await prisma.loyaltyMember.findFirstOrThrow();
+    expect(stored.displayName).toBe('Ivy Castellanos');
+    expect(stored.enrolledAt).toEqual(NOW);
+    expect(stored.phoneLast4).toBe('2233');
+  });
+
+  it('stores a digest under the pepper, never the number', async () => {
+    await enable();
+    await enrolMember({ phone: '555-010-2233', displayName: 'Ivy', now: NOW });
+
+    const stored = await prisma.loyaltyMember.findFirstOrThrow();
+    // Every field, serialised — so a column added later that happens to hold
+    // the digits fails this test rather than shipping. The last four are
+    // deliberately in clear and are not the number.
+    const everything = JSON.stringify(stored).replace(stored.phoneLast4, '');
+    expect(everything).not.toContain('5550102233');
+    expect(everything).not.toContain('555-010-2233');
+    expect(everything).not.toContain('555010');
+
+    expect(stored.phoneDigest).toBe(phoneDigest('5550102233'));
+    expect(stored.phoneDigest).toHaveLength(64);
+    // An HMAC, not a bare hash: the same digits under a different pepper is a
+    // different digest, which is the entire point of the pepper being an
+    // environment secret and not a constant in this file.
+    const pepper = process.env.LOYALTY_PHONE_PEPPER;
+    process.env.LOYALTY_PHONE_PEPPER = 'a-different-pepper';
+    expect(phoneDigest('5550102233')).not.toBe(stored.phoneDigest);
+    process.env.LOYALTY_PHONE_PEPPER = pepper;
+  });
+
+  it('writes nothing at all while the program is off', async () => {
+    // The seeded default, restated as the behaviour that matters: a request
+    // may ask to enrol, and with `loyaltyEnabled: false` it is refused BY NAME
+    // and no row exists.
+    const result = await enrolMember({ phone: '5550102233', displayName: 'Ivy', now: NOW });
+    expect(result).toEqual({ ok: false, reason: 'loyalty_disabled' });
+    expect(await prisma.loyaltyMember.count()).toBe(0);
+  });
+
+  it('refuses a phone it cannot key a membership on, rather than inventing one', async () => {
+    await enable();
+    for (const phone of [null, '', '555010223', '+44 20 7946 0000']) {
+      expect(await enrolMember({ phone, displayName: 'Ivy', now: NOW })).toEqual({
+        ok: false,
+        reason: 'phone_not_enrollable',
+      });
+    }
+    expect(await prisma.loyaltyMember.count()).toBe(0);
+  });
+
+  it('refuses — and does not hash under an empty key — with no pepper set', async () => {
+    await enable();
+    const pepper = process.env.LOYALTY_PHONE_PEPPER;
+    delete process.env.LOYALTY_PHONE_PEPPER;
+    try {
+      expect(await enrolMember({ phone: '5550102233', displayName: 'Ivy', now: NOW })).toEqual({
+        ok: false,
+        reason: 'loyalty_pepper_unset',
+      });
+      // Louder than a digest that is stable now and wrong the day the pepper
+      // is configured.
+      expect(() => phoneDigest('5550102233')).toThrow(/LOYALTY_PHONE_PEPPER/);
+      expect(await memberByPhone('5550102233')).toBeNull();
+    } finally {
+      process.env.LOYALTY_PHONE_PEPPER = pepper;
+    }
+    expect(await prisma.loyaltyMember.count()).toBe(0);
+  });
+});
+
+describe('the counter lookup', () => {
+  const NOW = new Date(Date.UTC(2026, 6, 5, 19, 30, 0));
+
+  it('finds a member by a number typed any way, and sums their balance', async () => {
+    await seedSettings({ loyaltyEnabled: true });
+    const enrolled = await enrolMember({
+      phone: '(555) 010-2233',
+      displayName: 'Ivy Castellanos',
+      now: NOW,
+    });
+    if (!enrolled.ok) throw new Error(enrolled.reason);
+    await prisma.loyaltyEvent.createMany({
+      data: [
+        { memberId: enrolled.memberId, at: NOW, kind: 'earn', points: 140 },
+        { memberId: enrolled.memberId, at: NOW, kind: 'redeem', points: -100, amountCents: 1000 },
+      ],
+    });
+
+    const found = await memberByPhone('555.010.2233');
+    expect(found).toMatchObject({
+      id: enrolled.memberId,
+      displayName: 'Ivy Castellanos',
+      phoneLast4: '2233',
+      balance: 40,
+    });
+    // What the counter is handed carries no digest to leak onto a screen.
+    expect(JSON.stringify(found)).not.toContain(phoneDigest('5550102233'));
+  });
+
+  it('is a miss, not an error, for a number nobody enrolled', async () => {
+    await seedSettings({ loyaltyEnabled: true });
+    expect(await memberByPhone('5550109999')).toBeNull();
+    expect(await memberByPhone('nonsense')).toBeNull();
   });
 });

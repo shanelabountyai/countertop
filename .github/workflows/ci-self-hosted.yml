@@ -52,8 +52,10 @@ jobs:
           # throwaway database on this machine. It is written rather than
           # defaulted because the app FAILS CLOSED without it (C-037), so a CI
           # run with no value would be 90-odd e2e tests stuck on a login page.
-          printf 'DATABASE_URL=%s\nDIRECT_URL=%s\nSTAFF_PASSCODE=ci-runner\n' "$URL" "$URL" > .env.test
-          printf 'DATABASE_URL=%s\nDIRECT_URL=%s\nPORT=%s\nSTAFF_PASSCODE=ci-runner\n' "$URL" "$URL" "$PORT" > .env.local
+          # LOYALTY_PHONE_PEPPER (C-101) is written for the same reason: unset
+          # means enrolment refuses by name and the loyalty specs assert nothing.
+          printf 'DATABASE_URL=%s\nDIRECT_URL=%s\nSTAFF_PASSCODE=ci-runner\nLOYALTY_PHONE_PEPPER=ci-runner-loyalty-pepper\n' "$URL" "$URL" > .env.test
+          printf 'DATABASE_URL=%s\nDIRECT_URL=%s\nPORT=%s\nSTAFF_PASSCODE=ci-runner\nLOYALTY_PHONE_PEPPER=ci-runner-loyalty-pepper\n' "$URL" "$URL" "$PORT" > .env.local
 
       # --force (PG13+) terminates whatever is still attached. Without it a
       # previous run's leaked connection pool makes THIS run fail before it

@@ -9,6 +9,7 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { isEnrollablePhone, type LoyaltyTerms } from '@countertop/core';
 import { placeCartOrder, type CheckoutError, type OrderConfirmation } from './actions';
 import { formatCents } from '@/lib/money';
 import { PAYMENT_LABEL } from '@/lib/status-labels';
@@ -18,10 +19,16 @@ const MAX_NAME = 40;
 const MAX_PHONE = 32;
 const MAX_NOTE = 140;
 
+/** What the enrolment checkbox needs to describe itself (PRD 7 P0-1). Null
+ *  when the program is off, and null renders NOTHING — no checkbox, no copy,
+ *  no mention that a punch card exists. */
+export type LoyaltyOfferProps = { terms: LoyaltyTerms; expiryDays: number } | null;
+
 export function CheckoutForm({
   cartEmpty,
   canPlace,
   clientTotalCents,
+  loyalty,
 }: {
   /** True once there is nothing to place — including the instant AFTER a
    *  successful placement, which clears the cart. This component owns that
@@ -33,6 +40,7 @@ export function CheckoutForm({
    *  nothing. */
   canPlace: boolean;
   clientTotalCents: number;
+  loyalty: LoyaltyOfferProps;
 }) {
   // Lazy initialiser, so it is generated once for the life of this attempt and
   // not regenerated on every keystroke's re-render.
@@ -41,6 +49,10 @@ export function CheckoutForm({
   const [pending, startTransition] = useTransition();
   const [errors, setErrors] = useState<CheckoutError[]>([]);
   const [confirmation, setConfirmation] = useState<OrderConfirmation | null>(null);
+  // The phone is tracked only to decide whether enrolment can be OFFERED. The
+  // field itself stays uncontrolled — the value that gets placed is read off
+  // the FormData, like every other field here.
+  const [phone, setPhone] = useState('');
 
   // The receipt wins over everything: this render happens immediately after
   // the cart was cleared by the placement that produced it.
@@ -66,6 +78,10 @@ export function CheckoutForm({
         customerName: formData.get('customerName'),
         customerPhone: formData.get('customerPhone'),
         orderNote: formData.get('orderNote'),
+        // A disabled checkbox is not submitted at all, so an unusable phone
+        // reads as false here without the form having to remember to untick
+        // anything. The server checks the number again regardless.
+        joinLoyalty: formData.get('joinLoyalty') === 'on',
         // The radio is the customer's INTENT; the server decides the state.
         payNow: formData.get('payment') === 'now',
         clientTotalCents,
@@ -119,9 +135,17 @@ export function CheckoutForm({
           type="tel"
           maxLength={MAX_PHONE}
           autoComplete="tel"
+          onChange={(event) => setPhone(event.target.value)}
           className="min-h-12 rounded-lg border border-neutral-400 px-3"
         />
       </label>
+
+      {/* The punch card (PRD 7 P0-1). Unchecked by default, no interstitial,
+          no second screen: ordering without it is a first-class path and this
+          is one checkbox on the form the customer was already filling in.
+          Rendered only when the program is on — `loyalty` is null otherwise
+          and nothing below exists to be read by a screen reader either. */}
+      {loyalty && <LoyaltyOptIn offer={loyalty} phone={phone} />}
 
       <label className="flex flex-col gap-1">
         <span className="font-medium">Anything we should know? (optional)</span>
@@ -167,6 +191,50 @@ export function CheckoutForm({
         </ul>
       )}
     </form>
+  );
+}
+
+/**
+ * The enrolment checkbox (PRD 7 P0-1).
+ *
+ * DISABLED UNTIL THE PHONE IS ONE WE CAN ACTUALLY KEY A MEMBERSHIP ON, asked
+ * of the same `isEnrollablePhone` the writer uses — a checkbox enabled on a
+ * looser rule is a customer ticking a box that silently does nothing. The
+ * reason is written next to it rather than left to be guessed from a greyed
+ * control.
+ *
+ * The copy states what is kept and for how long, because that is the
+ * requirement and because "join our rewards!" next to a phone field is the
+ * dark pattern this product is supposed to be the counter-example to.
+ */
+function LoyaltyOptIn({ offer, phone }: { offer: NonNullable<LoyaltyOfferProps>; phone: string }) {
+  const enrollable = isEnrollablePhone(phone);
+  const reward = formatCents(offer.terms.rewardValueCents);
+  return (
+    <fieldset className="flex flex-col gap-2 rounded-lg border border-neutral-300 p-4">
+      <legend className="px-1 font-medium">Punch card</legend>
+      <label className="flex min-h-12 items-start gap-2">
+        <input
+          type="checkbox"
+          name="joinLoyalty"
+          disabled={!enrollable}
+          className="mt-1 size-5 disabled:opacity-50"
+        />
+        <span>
+          Collect points on this order —{' '}
+          {offer.terms.pointsPerDollar === 1
+            ? 'a point per dollar'
+            : `${offer.terms.pointsPerDollar} points per dollar`}{' '}
+          you spend on food, and {offer.terms.rewardThresholdPoints} points is {reward} off a
+          future order.
+        </span>
+      </label>
+      <p className="text-sm text-neutral-700">
+        {enrollable
+          ? `We keep your phone number — as a one-way code, not the number itself — your name, and what you have earned. If you do not order for ${offer.expiryDays} days, the points expire and we delete it.`
+          : 'Add your phone number above to join. That is what a punch card is counted against.'}
+      </p>
+    </fieldset>
   );
 }
 

@@ -4099,12 +4099,93 @@ where the objection it encoded genuinely begins.
 
 ---
 
+## C-101 — Enrolment (PRD 7 P0-1)
+
+The punch card gets its first row. A member is a **phone number and nothing
+else** — no account, no password, no portal, and the resolved "tokenized link,
+no auth project" decision is not re-opened. Enrolment is one checkbox on the
+form the customer was already filling in.
+
+**Built:**
+- `normalizePhone` / `isEnrollablePhone` in `packages/core/loyalty/phone.ts`.
+  Pure, and the reason `(555) 010-2233` and `5550102233` are one member rather
+  than two: the digits are stripped, an optional leading `1` is dropped, and
+  anything that is not then ten digits is refused.
+- `packages/db/loyalty.ts` — `phoneDigest` (HMAC-SHA256 under
+  `LOYALTY_PHONE_PEPPER`), `enrolMember` (an upsert on the digest), and
+  `memberByPhone`, the counter lookup that **hashes the typed number and
+  matches the digest so the plaintext never reaches a `where`**. The same
+  discipline `staffByPin` applies, and here it is load-bearing: a `contains`
+  on a phone column is the query that turns a loyalty program into a
+  searchable customer index.
+- The checkbox on `/checkout`, rendered only when the program is on, unchecked
+  by default, **disabled until the typed phone is one a membership can be keyed
+  on** — asked of the same `isEnrollablePhone` the writer uses. Copy that says
+  what is kept ("a one-way code, not the number itself") and for how long
+  (365 days of inactivity), which is the requirement and also the reason this
+  is one checkbox rather than an interstitial.
+- The loyalty offer rides on `loadGateState`'s existing settings read, so the
+  screen that offers enrolment and the writer that performs it are looking at
+  one row rather than two reads of it.
+- An `enrolment` field on the placement log line — one word from a closed set,
+  and the type still has no field for a phone number.
+- `LOYALTY_PHONE_PEPPER` named in `.env.example`, both CI workflows, and both
+  local env files. No migration: C-100 landed the schema.
+
+**Decided:**
+- **An unset pepper refuses by name; it never hashes under an empty key.**
+  `phoneDigest` throws, `enrolMember` returns `loyalty_pepper_unset`, and the
+  checkout screen does not render the checkbox at all — `offered` is
+  `loyaltyEnabled && hasLoyaltyPepper()`, one expression, checked identically
+  by the screen and the writer. The alternative is worse than it looks: an
+  empty-key HMAC is perfectly stable, so it would enrol members happily and
+  orphan every one of them the day the pepper is configured.
+- **Rotating the pepper orphans every member** — balances become unreachable,
+  not wrong. Stated in `.env.example` beside the variable, the same way
+  rotating `STAFF_PASSCODE` is stated to end every shift. That is the price of
+  the phone not being in the table and it is worth paying.
+- **A returning customer keeps the name and the instant they enrolled under.**
+  The upsert's `update: {}` is deliberate: `enrolledAt` is what expiry and
+  retention are both counted from, and `lastActivityAt` moves on an earn or a
+  redeem (C-102, C-104), never on somebody ordering again.
+- **Enrolment happens in the checkout action, after the order exists, and
+  cannot fail it.** A punch card that could not be written must not cost a
+  customer their food, so the call is wrapped and every outcome — including a
+  throw, whose message is deliberately dropped because a Prisma error quotes
+  the row it choked on — becomes one word on the log line.
+- **The name and phone come off the placed order, not off the request.** They
+  have already been trimmed and length-checked by `normalizeIdentity`, and
+  `displayName` has a 40-character column the raw field does not respect.
+- **NANP only, and it is a `ponytail:` ceiling rather than an oversight.** A
+  `+44` number, an extension, or a half-typed one is not enrollable; the
+  checkbox stays disabled and says why, rather than the enrolment failing
+  invisibly after the order is placed. The order itself is unaffected —
+  `Order.customerPhone` keeps whatever was typed, because that field is for a
+  human to ring back and has never had a format rule. The upgrade path is a
+  real E.164 parser, which is a dependency and not a regex.
+
+**Left behind:**
+- **Nothing switches the program on through a screen.** `loyaltyEnabled` is a
+  column with no operator control, so the e2e fixture writes it directly. The
+  toggle belongs with C-106, the program's own screen, and putting it on the
+  service settings form now would be a control for a feature with no numbers
+  behind it yet.
+- **No ledger row is written yet.** Enrolment creates the member; C-102 is the
+  earn that first gives them a balance. `memberByPhone` already sums one, so
+  C-103's counter panel is a render away.
+- **The receipt does not confirm enrolment.** A customer who ticks the box sees
+  their order number and nothing about the punch card. That is a real gap and
+  the natural home for it is C-103, where the member's balance first exists to
+  be shown.
+
+---
+
 # Carried forward — read this first in a new session
 
 State at the end of the 2026-09-02 session.
 
 **Pushed and CI-green:** C-051, C-052, C-084, C-085, C-086, C-063, C-064,
-C-087, C-065, C-066. **C-100 is this entry.**
+C-087, C-065, C-066, C-100. **C-101 is this entry.**
 
 **PRD 3 has two items left:** C-067 (a refund that can fail — and the home for
 the reversing adjustment C-065 and C-066 both deferred) and C-068 (the cancel
@@ -4129,17 +4210,26 @@ refusal that names the adjustment path).
   run**, ahead of loyalty's expiry item, because it is loyalty's hard
   prerequisite and it is what makes the durable customer data defensible.
 
-**Order of the loyalty run:** ~~C-100 ledger~~ (done) → **C-101 enrolment is
-next** → C-102 earning → C-103 counter panel → C-104 redeeming → **C-091
-retention + forget** → C-105 expiry + forget → C-106 the program's own screen.
+**Order of the loyalty run:** ~~C-100 ledger~~ → ~~C-101 enrolment~~ (both
+done) → **C-102 earning is next** → C-103 counter panel → C-104 redeeming →
+**C-091 retention + forget** → C-105 expiry + forget → C-106 the program's own
+screen.
 
-**What C-101 inherits from C-100, and must not re-decide:** the pepper is an
-env secret and the enrolment path is what first reads it, so C-101 is where the
-env var is actually named, documented in `.env.example` and made to fail loudly
-when absent — a digest computed under an empty pepper is a digest under a known
-pepper. Nothing writes a ledger row yet; every C-100 test inserts events
-directly. The `phoneLast4` CHECK means the enrolment write has to normalise
-before it stores, not after.
+**What C-102 inherits from C-101, and must not re-decide:**
+- `LOYALTY_PHONE_PEPPER` exists, is in `.env.example` and both CI workflows,
+  and an unset value **refuses by name** rather than hashing under an empty
+  key. `hasLoyaltyPepper()` is half of `loadGateState`'s `loyalty.offered`.
+- **`lastActivityAt` is deliberately not moved by enrolling again.** The earn
+  is the first thing that moves it, which is what P0-5 counts expiry from.
+- A member is found by `memberByPhone`, which hashes what it is given. **The
+  earn's job is to find the member for an order's `customerPhone`** — a
+  member's identity is the digest, and the order has never held one.
+- Enrolment happens in the checkout action, after the write, and cannot fail
+  the order. The earn is a different shape: it happens inside a transition, and
+  the partial unique index on `(orderId) WHERE kind = 'earn'` is what makes a
+  revert-and-re-advance safe. Do not add a check-then-write in front of it.
+- **The program still has no operator switch.** `setLoyaltyEnabled` in
+  `apps/web/e2e/fixtures.ts` is how a spec turns it on; the toggle is C-106's.
 
 **The trap C-100 re-proved, and it is new to this project:** a SQL `CASE` with
 no `ELSE` returns NULL for an unmatched value and **a CHECK constraint passes

@@ -21,7 +21,7 @@ export const metadata = { title: 'Checkout — Firebird Kitchen' };
 export const dynamic = 'force-dynamic';
 
 export default async function CheckoutPage() {
-  const [menu, review, { gate, estimate }] = await Promise.all([
+  const [menu, review, { gate, estimate, loyalty }] = await Promise.all([
     loadMenu(),
     getCartReview(),
     currentCheckout(),
@@ -124,11 +124,17 @@ export default async function CheckoutPage() {
       )}
 
       {/* The total is passed as EVIDENCE, not as input: the server recomputes
-          it and logs a mismatch (P0-2). */}
+          it and logs a mismatch (P0-2).
+
+          `loyalty` is null when the program is off (PRD 7 P0-1), and off is
+          the default: this screen then renders exactly what it rendered before
+          loyalty existed, which is the invisibility requirement expressed as a
+          prop rather than as a promise. */}
       <CheckoutForm
         cartEmpty={review.lines.length === 0}
         canPlace={gate.open && !review.needsFix && !review.needsPriceConfirmation}
         clientTotalCents={review.totals.totalCents}
+        loyalty={loyalty.offered ? { terms: loyalty.terms, expiryDays: loyalty.expiryDays } : null}
       />
 
       {review.lines.length > 0 && review.needsFix && (

@@ -35,6 +35,24 @@ export type PlacementOutcome =
     }
   | { result: 'threw'; errorName: string; message: string };
 
+/**
+ * What happened to the enrolment the customer ticked a box for (PRD 7 P0-1,
+ * C-101). A CLOSED SET OF NAMES, never free text and never a phone number —
+ * the whole reason it is a union and not a message.
+ *
+ * Logged at all because every value here except `enrolled` is silent to the
+ * customer: they ticked a box, the order succeeded, and nothing on the receipt
+ * says the punch card did not happen. `loyalty_pepper_unset` in particular is
+ * a deploy that switched the program on and forgot the secret, which has no
+ * other symptom whatsoever.
+ */
+export type EnrolmentLogOutcome =
+  | 'enrolled'
+  | 'loyalty_disabled'
+  | 'loyalty_pepper_unset'
+  | 'phone_not_enrollable'
+  | 'enrolment_threw';
+
 export type PlacementLogInput = {
   /** The instant, passed in like every other instant in this package. */
   at: Date;
@@ -44,6 +62,8 @@ export type PlacementLogInput = {
   outcome: PlacementOutcome;
   /** P0-2's evidence, when there is any. See `totalTampering`. */
   mismatch?: TotalMismatch | null;
+  /** Absent unless the customer asked to join (PRD 7 P0-1). */
+  enrolment?: EnrolmentLogOutcome | null;
 };
 
 /**
@@ -105,6 +125,11 @@ export function placementLogLine(input: PlacementLogInput): PlacementLogLine {
     line.clientTotalCents = input.mismatch.clientTotalCents;
     line.serverTotalCents = input.mismatch.serverTotalCents;
   }
+
+  // One word, from a closed set. There is no channel here for the phone
+  // number that enrolment is about — the type has no field for it, which is
+  // the same structural no-PII guarantee the rest of this line has.
+  if (input.enrolment) line.enrolment = input.enrolment;
 
   return line;
 }

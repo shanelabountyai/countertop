@@ -1446,3 +1446,32 @@ order, where it belongs.
 
 **The numbers are set: 1 point per dollar, 100 points for $10 off.** Ten
 percent back, and they expire after a year of not visiting.
+
+## C-101 — Joining the punch card
+
+**One checkbox, on the form you were already filling in.** No pop-up, no second
+screen, no "are you sure you don't want rewards?" — it sits under the phone
+field at checkout, unticked, and ordering without it is exactly as easy as it
+was before.
+
+**It only appears when the restaurant has switched the program on.** With
+loyalty off — which is how every restaurant starts — the checkout page is
+character for character the page it was.
+
+**The box stays greyed until there's a phone number to count it against**, and
+says so in words rather than leaving you to guess why it won't tick. Your punch
+card is your phone number; without one there is nothing to attach.
+
+**We still never keep the number.** It is turned into a one-way code and only
+the code is stored, alongside the last four digits so the counter can say "the
+one ending 2233". The order itself keeps your number in the ordinary way, for
+the ordinary reason: somebody may need to ring you about your food.
+
+**Typed differently is still you.** `(555) 010-2233` today and `5550102233`
+next week are one punch card, not two half-full ones.
+
+**And the copy says what is kept and for how long** — your one-way code, your
+name, and what you've earned, deleted after a year without an order.
+
+**If joining fails, your order doesn't.** The food is placed first and the
+punch card second, so a problem with one is never a problem with the other.

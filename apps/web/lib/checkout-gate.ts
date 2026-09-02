@@ -19,6 +19,7 @@ import {
   type ReadyEstimate,
 } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
+import type { LoyaltyOffer } from '@countertop/db/loyalty';
 
 /** The gate and the P0-7 estimate, off ONE read of the queue.
  *
@@ -29,6 +30,11 @@ import { loadGateState } from '@countertop/db/gate';
 export async function currentCheckout(): Promise<{
   gate: GateResult;
   estimate: ReadyEstimate;
+  /** The punch card, as configured (PRD 7 P0-1). Off by default, and off means
+   *  no loyalty copy renders on any screen — which is why it comes from the
+   *  same read as the gate rather than from a second query the checkout page
+   *  would have to remember to make. */
+  loyalty: LoyaltyOffer;
 }> {
   // Read once, here, and passed down — the weight of today's open orders and
   // the wall-clock reading the gate compares hours against are the same
@@ -38,6 +44,7 @@ export async function currentCheckout(): Promise<{
   return {
     gate: checkoutGate(state, restaurantClock(now, state.timezone)),
     estimate: readyEstimate(state),
+    loyalty: state.loyalty,
   };
 }
 

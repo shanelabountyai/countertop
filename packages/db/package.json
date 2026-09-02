@@ -29,6 +29,7 @@
     "./payment": "./payment.ts",
     "./adjustment": "./adjustment.ts",
     "./remake": "./remake.ts",
-    "./staff": "./staff.ts"
+    "./staff": "./staff.ts",
+    "./loyalty": "./loyalty.ts"
   }
 }

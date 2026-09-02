@@ -10,10 +10,12 @@ import {
   formatOrderNumber,
   isIdempotencyKey,
   type CartReview,
+  type EnrolmentLogOutcome,
   type Intensity,
   type PaymentState,
 } from '@countertop/core';
 import { placeOrder, type OrderReceipt, type PlacementError } from '@countertop/db/placement';
+import { enrolMember } from '@countertop/db/loyalty';
 import { clearCart, readCart } from '@/lib/cart-session';
 import { logPlacement } from '@/lib/log';
 
@@ -120,6 +122,33 @@ const confirm = (order: OrderReceipt): OrderConfirmation => ({
 });
 
 /**
+ * Enrol the customer who ticked the box (PRD 7 P0-1).
+ *
+ * The NAME AND PHONE COME OFF THE PLACED ORDER, not off the request: those two
+ * have already been trimmed and length-checked by `normalizeIdentity`, and the
+ * member's display name has a 40-character column that the raw field does not
+ * respect. One source of truth for what this customer is called.
+ *
+ * Never throws. An enrolment that fails is a punch card that did not start;
+ * an exception here would be a receipt the customer never sees for an order
+ * that is already on the grill.
+ */
+async function enrol(order: OrderReceipt, now: Date): Promise<EnrolmentLogOutcome> {
+  try {
+    const result = await enrolMember({
+      phone: order.customerPhone,
+      displayName: order.customerName,
+      now,
+    });
+    return result.ok ? 'enrolled' : result.reason;
+  } catch {
+    // The message is deliberately not carried: a Prisma error quotes the row
+    // it choked on, and the row it choked on here is a customer's.
+    return 'enrolment_threw';
+  }
+}
+
+/**
  * Place the cart in this session's cookie (P0-3, P0-8, P0-10).
  *
  * The idempotency key is the client's, generated once per checkout attempt and
@@ -144,6 +173,12 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
   // failure — not the radio button — is what would decide the state; this is
   // the seam where that call goes.
   if (payNow !== undefined && typeof payNow !== 'boolean') return MALFORMED;
+  // The punch card checkbox (PRD 7 P0-1). A request is welcome to send it with
+  // the program switched off or with a phone we cannot key a membership on;
+  // `enrolMember` refuses both by name, because this flag is a customer's
+  // WISH and the settings row is the authority on whether it can be granted.
+  const { joinLoyalty } = raw;
+  if (joinLoyalty !== undefined && typeof joinLoyalty !== 'boolean') return MALFORMED;
 
   const customerName = optionalString(raw.customerName);
   const customerPhone = optionalString(raw.customerPhone);
@@ -210,10 +245,17 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
     return result;
   }
 
+  // AFTER the order exists and BEFORE its receipt is returned, and never in
+  // the same breath as the placement: a punch card that could not be written
+  // must not cost a customer their food. `enrol` swallows nothing quietly —
+  // every outcome, including a throw, is one word on the placement's log line.
+  const enrolment = joinLoyalty ? await enrol(result.order, now) : null;
+
   logPlacement({
     at: now,
     idempotencyKey,
     outcome: { result: 'placed', orderId: result.order.id, replayed: result.replayed },
+    enrolment,
   });
 
   // The cart's job is done. Clearing it after the write, not before, means a

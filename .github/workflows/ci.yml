@@ -32,6 +32,11 @@ env:
   # sweep that never gets past the login page. Not a secret: it gates a
   # throwaway container's queue screen.
   STAFF_PASSCODE: ci-runner
+  # The loyalty phone pepper (C-101). Not a secret here for the same reason:
+  # it peppers digests of made-up phone numbers in a throwaway database. It is
+  # written rather than defaulted because an unset value means enrolment
+  # refuses by name, which would make the loyalty specs assert nothing.
+  LOYALTY_PHONE_PEPPER: ci-runner-loyalty-pepper
 
 jobs:
   gate:

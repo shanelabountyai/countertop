@@ -19,6 +19,7 @@ import {
   type GateState,
 } from '@countertop/core';
 import { prisma } from './index';
+import { hasLoyaltyPepper, type LoyaltyOffer } from './loyalty';
 
 /** Settings, hours and the open prep weight in one round trip.
  *
@@ -31,7 +32,9 @@ export async function loadGateState(
   /** The instant the count is taken as of. Passed in, never read here — it is
    *  what decides which orders are TODAY's (CLAUDE.md time rules). */
   now: Date,
-): Promise<GateState & EstimateState & { timezone: string; taxRatePpm: number }> {
+): Promise<
+  GateState & EstimateState & { timezone: string; taxRatePpm: number; loyalty: LoyaltyOffer }
+> {
   const [settings, hours] = await Promise.all([
     // Throws rather than defaulting, like `loadSettings`: a missing settings
     // row must not become an accidentally wide-open restaurant.
@@ -72,6 +75,22 @@ export async function loadGateState(
       openMinute: day.openMinute,
       closeMinute: day.closeMinute,
     })),
+    // The loyalty offer rides on the SAME settings read, for the reason this
+    // file's header gives about the tax rate: the checkout screen that decides
+    // whether to render the enrolment checkbox and the writer that decides
+    // whether to create the member must be looking at one row, not two reads
+    // of it (PRD 7 P0-1 — with the program off, nothing renders anywhere).
+    loyalty: {
+      // A program switched on with no pepper cannot enrol anybody, so the
+      // screen must not offer it. `enrolMember` checks the same pair.
+      offered: settings.loyaltyEnabled && hasLoyaltyPepper(),
+      terms: {
+        pointsPerDollar: settings.pointsPerDollar,
+        rewardThresholdPoints: settings.rewardThresholdPoints,
+        rewardValueCents: settings.rewardValueCents,
+      },
+      expiryDays: settings.loyaltyExpiryDays,
+    },
     cutoffMinutes: settings.cutoffMinutes,
     prepBaseMinutes: settings.prepBaseMinutes,
     prepPerWeightMinutes: settings.prepPerWeightMinutes,
