@@ -3656,3 +3656,5 @@ re-opened):**
 - **`providerRef` is null on every row**, and will be until there is a
   processor. It exists now because adding a column later means a migration
   over a table that only ever grows.
+
+C-063 committed at cb58f8e.
