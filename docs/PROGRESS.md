@@ -3964,4 +3964,4 @@ recommendation is not to build it yet), and the two calls in
 something concrete: C-087 left the body background unset and two palette tokens
 unused because of it.
 
-C-065 committed at PENDING.
+C-065 committed at 3551cf0.
