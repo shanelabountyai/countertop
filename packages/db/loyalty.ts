@@ -10,8 +10,13 @@
 // the one thing standing between "we keep a phone number" and "we keep a
 // digest of one", and `apps/web` has no unit suite to hold it to that.
 import { createHmac } from 'node:crypto';
-import { loyaltyBalance, normalizePhone, type LoyaltyTerms } from '@countertop/core';
-import { prisma } from './index';
+import {
+  loyaltyBalance,
+  normalizePhone,
+  pointsForOrder,
+  type LoyaltyTerms,
+} from '@countertop/core';
+import { Prisma, prisma } from './index';
 
 const PEPPER_VAR = 'LOYALTY_PHONE_PEPPER';
 
@@ -167,3 +172,80 @@ export type LoyaltyOffer = {
   terms: LoyaltyTerms;
   expiryDays: number;
 };
+
+// --- Earning at pickup (P0-3, C-102) ---------------------------------------
+
+/** What happened to an order's points. Named for the same reason enrolment's
+ *  refusals are: "no points appeared" is a support call, and the answer is one
+ *  of these words. */
+export type EarnOutcome =
+  | 'earned'
+  /** The revert-and-re-advance. The INDEX said so, not a check-then-write. */
+  | 'already_earned'
+  | 'loyalty_disabled'
+  | 'loyalty_pepper_unset'
+  /** Nobody enrolled under this order's phone — the ordinary case. */
+  | 'not_a_member'
+  /** Under a dollar of subtotal. An `earn` of zero would fail the sign CHECK,
+   *  correctly: a ledger row worth nothing is noise in a balance. */
+  | 'nothing_to_earn';
+
+/**
+ * Write the one `earn` an order gets (P0-3).
+ *
+ * INSIDE THE CALLER'S TRANSACTION, unlike enrolment. The two look similar and
+ * are not: enrolment hangs off a placement and must never fail it, because a
+ * punch card that did not start must not cost a customer their food. The earn
+ * hangs off a status change, and a `picked_up` that committed without its
+ * ledger row is a customer who handed over money, took the food, and earned
+ * nothing with no second chance — there is no later moment to retry from.
+ *
+ * THE CONSTRAINT IS THE MECHANISM. `skipDuplicates` is `ON CONFLICT DO
+ * NOTHING`, and the partial unique index on `(orderId) WHERE kind = 'earn'`
+ * (C-100) is what it lands on. The state machine PERMITS a revert, so
+ * `ready → picked_up` twice on one order is a supported operation and not an
+ * edge case; a check-then-write in front of this would be two cooks' taps away
+ * from a double earn. Same discipline as placement's idempotency key.
+ *
+ * The points come from the order's SNAPSHOTTED subtotal. No menu row is read,
+ * nothing is recomputed, and tax earns nothing.
+ */
+export async function earnForOrder(
+  tx: Prisma.TransactionClient,
+  order: { id: string; customerPhone: string | null; subtotalCents: number },
+  now: Date,
+): Promise<EarnOutcome> {
+  const settings = await tx.restaurantSettings.findUniqueOrThrow({
+    where: { id: 'singleton' },
+    select: {
+      loyaltyEnabled: true,
+      pointsPerDollar: true,
+      rewardThresholdPoints: true,
+      rewardValueCents: true,
+    },
+  });
+  if (!settings.loyaltyEnabled) return 'loyalty_disabled';
+  if (!hasLoyaltyPepper()) return 'loyalty_pepper_unset';
+
+  const phone = normalizePhone(order.customerPhone);
+  if (!phone) return 'not_a_member';
+  const member = await tx.loyaltyMember.findUnique({
+    where: { phoneDigest: phoneDigest(phone.digits) },
+    select: { id: true },
+  });
+  if (!member) return 'not_a_member';
+
+  const points = pointsForOrder(order.subtotalCents, settings);
+  if (points <= 0) return 'nothing_to_earn';
+
+  const written = await tx.loyaltyEvent.createMany({
+    data: [{ memberId: member.id, orderId: order.id, at: now, kind: 'earn', points }],
+    skipDuplicates: true,
+  });
+  if (written.count === 0) return 'already_earned';
+
+  // Moved by the earn and not by enrolling again (C-101), because this is what
+  // P0-5 counts twelve months of inactivity from.
+  await tx.loyaltyMember.update({ where: { id: member.id }, data: { lastActivityAt: now } });
+  return 'earned';
+}

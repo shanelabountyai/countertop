@@ -16,6 +16,7 @@ import {
   seedStaff,
   seedStoreHours,
 } from './testing/index';
+import { applyOrderAction } from './transitions';
 
 const AT = new Date(Date.UTC(2026, 6, 5, 3, 0, 0));
 
@@ -363,5 +364,184 @@ describe('the counter lookup', () => {
     await seedSettings({ loyaltyEnabled: true });
     expect(await memberByPhone('5550109999')).toBeNull();
     expect(await memberByPhone('nonsense')).toBeNull();
+  });
+});
+
+// --- Earning at pickup (P0-3, C-102) ---------------------------------------
+//
+// The arithmetic is the core suite's — `pointsForOrder` asserts $23.47 and
+// $23.99 both earning 23 there, with no database in sight. These prove the
+// three things only the write path can be wrong about: that the earn fires on
+// the SOLD transition and nowhere else, that a revert-and-re-advance produces
+// one row because the INDEX says so, and that the number comes off the frozen
+// snapshot rather than off a menu row somebody has since repriced.
+
+describe('earning at pickup', () => {
+  const PICKUP = new Date(Date.UTC(2026, 6, 5, 4, 0, 0));
+  /** 1095 burrito + 150 carnitas + 250 guacamole. $14.95, which earns 14 and
+   *  not 15 — the floor, hand-calculated. */
+  const SUBTOTAL = 1495;
+
+  let keyCounter = 0;
+  const place = async (phone: string | undefined) => {
+    const placed = await placeOrder({
+      cart: {
+        lines: [
+          {
+            id: 'line-1',
+            unitPriceAtAddCents: SUBTOTAL,
+            composition: {
+              itemId: 'burrito',
+              quantity: 1,
+              selections: [
+                { groupId: 'protein', optionId: 'carnitas' },
+                { groupId: 'addons', optionId: 'guacamole' },
+              ],
+            },
+          },
+        ],
+      },
+      customerName: 'Ivy Castellanos',
+      customerPhone: phone,
+      idempotencyKey: `c8f2b0e1-0000-4000-8000-10000000000${(keyCounter += 1)}`,
+      now: AT,
+    });
+    if (!placed.ok) throw new Error(`placement refused: ${JSON.stringify(placed.errors)}`);
+    expect(placed.order.subtotalCents).toBe(SUBTOTAL);
+    return placed.order.id;
+  };
+
+  /** Every tap a cook makes between the ticket printing and the bag going
+   *  over the counter. Deliberately the whole chain rather than a jump: the
+   *  earn has to fire on the LAST one and on none of the others. */
+  const advanceTo = async (orderId: string, target: string, now = PICKUP) => {
+    for (let i = 0; i < 6; i += 1) {
+      const moved = await applyOrderAction(orderId, { kind: 'advance', actor: 'staff' }, now);
+      if (!moved.ok) throw new Error(`advance refused: ${moved.failure.message}`);
+      if (moved.order.status === target) return;
+    }
+    throw new Error(`never reached ${target}`);
+  };
+
+  const earns = (orderId: string) =>
+    prisma.loyaltyEvent.findMany({ where: { orderId, kind: 'earn' } });
+
+  const enrolled = async () => {
+    await seedSettings({ loyaltyEnabled: true });
+    const result = await enrolMember({
+      phone: '(555) 010-2233',
+      displayName: 'Ivy Castellanos',
+      now: AT,
+    });
+    if (!result.ok) throw new Error(result.reason);
+    return result.memberId;
+  };
+
+  it('earns once, at pickup, and survives a revert and a re-advance', async () => {
+    const memberId = await enrolled();
+    const orderId = await place('5550102233');
+
+    // Nothing yet: the food is still being made, and points are for food
+    // collected.
+    await advanceTo(orderId, 'ready');
+    expect(await earns(orderId)).toHaveLength(0);
+
+    await advanceTo(orderId, 'picked_up');
+    expect(await earns(orderId)).toHaveLength(1);
+
+    // The fat-fingered advance and its undo — a supported operation, which is
+    // exactly why the constraint and not the code path is the mechanism.
+    const reverted = await applyOrderAction(orderId, { kind: 'revert', actor: 'staff' }, PICKUP);
+    expect(reverted.ok).toBe(true);
+    await advanceTo(orderId, 'picked_up');
+
+    const rows = await earns(orderId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ memberId, points: 14, amountCents: null });
+    // Nothing is clawed back by the revert either (recorded ceiling): a staff
+    // `adjust` is the correction, because an automatic reversal would make the
+    // balance a function of a status history rather than of a set of facts.
+    expect((await memberByPhone('5550102233'))?.balance).toBe(14);
+  });
+
+  it('moves lastActivityAt — what expiry is counted from', async () => {
+    await enrolled();
+    const before = await prisma.loyaltyMember.findFirstOrThrow();
+    expect(before.lastActivityAt).toEqual(AT);
+
+    await advanceTo(await place('5550102233'), 'picked_up');
+
+    const after = await prisma.loyaltyMember.findFirstOrThrow();
+    expect(after.lastActivityAt).toEqual(PICKUP);
+    // The instant they joined is not touched by earning.
+    expect(after.enrolledAt).toEqual(AT);
+  });
+
+  it('reads the snapshot, not the menu — a reprice after placement earns the same', async () => {
+    await enrolled();
+    const orderId = await place('5550102233');
+    // Everything the points were computed from, moved underneath the order.
+    await prisma.menuItem.update({
+      where: { id: 'burrito' },
+      data: { basePriceCents: 9999, name: 'Renamed' },
+    });
+    await prisma.modifierOption.update({
+      where: { id: 'guacamole' },
+      data: { priceDeltaCents: 9999 },
+    });
+
+    await advanceTo(orderId, 'picked_up');
+    expect((await earns(orderId))[0]?.points).toBe(14);
+  });
+
+  it('earns nothing on an order nobody collected', async () => {
+    await enrolled();
+    const abandoned = await place('5550102233');
+    await advanceTo(abandoned, 'ready');
+    expect(
+      (await applyOrderAction(abandoned, { kind: 'abandon', actor: 'staff' }, PICKUP)).ok,
+    ).toBe(true);
+
+    const cancelled = await place('5550102233');
+    expect(
+      (
+        await applyOrderAction(
+          cancelled,
+          { kind: 'cancel', actor: 'staff', reason: 'other', note: 'Customer changed their mind' },
+          PICKUP,
+        )
+      ).ok,
+    ).toBe(true);
+
+    expect(await prisma.loyaltyEvent.count()).toBe(0);
+  });
+
+  it('is a quiet no-op for a customer who never joined', async () => {
+    await seedSettings({ loyaltyEnabled: true });
+    await advanceTo(await place('5550109999'), 'picked_up');
+    await advanceTo(await place(undefined), 'picked_up');
+    expect(await prisma.loyaltyEvent.count()).toBe(0);
+  });
+
+  it('writes nothing once the program is switched off, member or not', async () => {
+    await enrolled();
+    await seedSettings({ loyaltyEnabled: false });
+    await advanceTo(await place('5550102233'), 'picked_up');
+    expect(await prisma.loyaltyEvent.count()).toBe(0);
+  });
+
+  it('earns nothing under a dollar rather than writing a zero-point row', async () => {
+    // A zero `earn` would fail the sign CHECK and take the cook's tap down
+    // with it; the refusal is by name and the pickup still commits.
+    await enrolled();
+    await seedSettings({ loyaltyEnabled: true, pointsPerDollar: 1 });
+    const orderId = await place('5550102233');
+    await prisma.order.update({ where: { id: orderId }, data: { subtotalCents: 99 } });
+
+    await advanceTo(orderId, 'picked_up');
+    expect(await prisma.loyaltyEvent.count()).toBe(0);
+    expect(
+      (await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).status,
+    ).toBe('picked_up');
   });
 });

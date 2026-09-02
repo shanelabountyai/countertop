@@ -4180,12 +4180,87 @@ form the customer was already filling in.
 
 ---
 
+## C-102 — Earning at pickup (PRD 7 P0-3)
+
+The punch card gets its first punch. Points are earned **once, at pickup, from
+the snapshot** — and the thing that makes "once" true is a unique index, not a
+careful code path, because the state machine permits reverts and
+`ready → picked_up` twice on one order is a supported operation rather than an
+edge case.
+
+**Built:**
+- `earnForOrder` in `packages/db/loyalty.ts` — reads the settings row, finds
+  the member by the digest of the order's `customerPhone`, computes
+  `pointsForOrder(order.subtotalCents, terms)` and writes one `earn` row.
+  Returns one word from a closed set (`earned`, `already_earned`,
+  `loyalty_disabled`, `loyalty_pepper_unset`, `not_a_member`,
+  `nothing_to_earn`), the same discipline enrolment's refusals use: "no points
+  appeared" is a support call and the answer has to be nameable.
+- The call site in `applyOrderAction`, **inside the transaction that changes
+  the status**, guarded by `salesRoleOf(decision.status) === 'sold'`. Two
+  snapshot columns joined the existing `findUnique` — `subtotalCents` and
+  `customerPhone` — rather than being re-fetched.
+- Seven tests in `packages/db/loyalty.test.ts`: the revert-and-re-advance
+  producing exactly one row, `lastActivityAt` moving, a menu repriced under a
+  placed order earning the same 14 points, `abandoned` and `cancelled` earning
+  nothing, a non-member and a phoneless order being quiet no-ops, the program
+  switched off writing nothing, and a sub-dollar order refusing by name rather
+  than writing a zero.
+- No migration. C-100 landed the index this whole item rests on.
+
+**Decided:**
+- **The earn is INSIDE the transition's transaction, and enrolment is not
+  inside placement's.** The two look like the same shape and are not.
+  Enrolment hangs off a placement and must never fail it, because a punch card
+  that did not start must not cost a customer their food — there is a later
+  moment to fix it. A `picked_up` that committed without its ledger row is a
+  customer who paid, took the food and earned nothing, and there is no later
+  moment to retry from: the order is terminal and nothing will touch it again.
+  So the earn commits with the status or not at all.
+- **`skipDuplicates`, which is `ON CONFLICT DO NOTHING`, and not a
+  check-then-write.** A `findFirst` in front of the insert would be two cooks'
+  taps away from a double earn, and it would also turn the ordinary
+  re-advance into a rolled-back transaction — a second `earn` insert throwing
+  inside the transition would take the cook's tap down with it. The index
+  swallows it and the re-advance succeeds, which is the behaviour the queue
+  needs.
+- **Derived from `salesRoleOf`, never from `=== 'picked_up'`.** `SOLD_STATUSES`
+  is `['picked_up']` today; a second sold status makes the compiler find this
+  reader, which is the entire reason the status module exists.
+- **`lastActivityAt` moves on the earn and only when a row was actually
+  written.** A re-advance that earned nothing must not restart the twelve-month
+  expiry clock — otherwise a cook's fat finger silently extends how long a
+  named person's data is held, which is precisely the thing P0-5 exists to
+  bound.
+- **Nothing under a dollar is written.** `pointsForOrder` returns 0, and a
+  zero-point `earn` would fail C-100's sign CHECK and roll back the pickup. The
+  refusal is by name and the tap commits.
+- **A revert does not claw back.** The recorded ceiling from the PRD, restated
+  because it looks like an oversight and is not: an automatic reversal makes a
+  balance a function of a status HISTORY rather than of a set of facts, and the
+  staff `adjust` is the correction.
+
+**Left behind:**
+- **Nobody can see the points yet.** `memberByPhone` sums a balance and nothing
+  renders it — C-103's counter panel is the reader, and until it lands the only
+  proof a punch was recorded is a test.
+- **The receipt still says nothing about the punch card**, which is now a
+  customer who earned 14 points and was told nothing. Same home as C-101 left
+  it: C-103.
+- **No `redeem` path.** The balance only goes up. C-104.
+- **The seeded rush earns nothing**, because `loyaltyEnabled` defaults false
+  and the rush does not turn it on. Deliberate — the rush is the counter
+  handoff's demo and a loyalty column in it would be C-106's screen leaking
+  into somebody else's capstone.
+
+---
+
 # Carried forward — read this first in a new session
 
 State at the end of the 2026-09-02 session.
 
 **Pushed and CI-green:** C-051, C-052, C-084, C-085, C-086, C-063, C-064,
-C-087, C-065, C-066, C-100. **C-101 is this entry.**
+C-087, C-065, C-066, C-100, C-101. **C-102 is this entry.**
 
 **PRD 3 has two items left:** C-067 (a refund that can fail — and the home for
 the reversing adjustment C-065 and C-066 both deferred) and C-068 (the cancel
@@ -4210,12 +4285,22 @@ refusal that names the adjustment path).
   run**, ahead of loyalty's expiry item, because it is loyalty's hard
   prerequisite and it is what makes the durable customer data defensible.
 
-**Order of the loyalty run:** ~~C-100 ledger~~ → ~~C-101 enrolment~~ (both
-done) → **C-102 earning is next** → C-103 counter panel → C-104 redeeming →
+**Order of the loyalty run:** ~~C-100 ledger~~ → ~~C-101 enrolment~~ →
+~~C-102 earning~~ (all three done) → **C-103 counter panel is next** →
+C-104 redeeming →
 **C-091 retention + forget** → C-105 expiry + forget → C-106 the program's own
 screen.
 
-**What C-102 inherits from C-101, and must not re-decide:**
+**What C-103 inherits, and must not re-decide:**
+- **A balance exists and nothing renders it.** `memberByPhone` already returns
+  one; C-103 is a read-only render of what is already summed, not a second way
+  to compute it. There is no balance column and adding one is a later decision
+  with a written reason (C-100).
+- **The earn is written inside the transition's transaction** and leans on
+  C-100's partial unique index via `skipDuplicates`. Do not put a
+  check-then-write in front of it, and do not move it outside the transaction:
+  a `picked_up` that committed without its ledger row has no later moment to
+  retry from.
 - `LOYALTY_PHONE_PEPPER` exists, is in `.env.example` and both CI workflows,
   and an unset value **refuses by name** rather than hashing under an empty
   key. `hasLoyaltyPepper()` is half of `loadGateState`'s `loyalty.offered`.
@@ -4225,9 +4310,8 @@ screen.
   earn's job is to find the member for an order's `customerPhone`** — a
   member's identity is the digest, and the order has never held one.
 - Enrolment happens in the checkout action, after the write, and cannot fail
-  the order. The earn is a different shape: it happens inside a transition, and
-  the partial unique index on `(orderId) WHERE kind = 'earn'` is what makes a
-  revert-and-re-advance safe. Do not add a check-then-write in front of it.
+  the order — the earn is deliberately the opposite shape, and C-102 wrote down
+  why the asymmetry is not an inconsistency.
 - **The program still has no operator switch.** `setLoyaltyEnabled` in
   `apps/web/e2e/fixtures.ts` is how a spec turns it on; the toggle is C-106's.
 

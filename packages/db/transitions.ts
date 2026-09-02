@@ -6,8 +6,14 @@
 // already moved out of, and put the new status and its event in ONE
 // transaction. A status that changed without an event is a hole in the history
 // the reports read.
-import { applyTransition, type OrderAction, type TransitionRefusal } from '@countertop/core';
+import {
+  applyTransition,
+  salesRoleOf,
+  type OrderAction,
+  type TransitionRefusal,
+} from '@countertop/core';
 import { prisma } from './index';
+import { earnForOrder } from './loyalty';
 import { eventRow, ORDER_RECEIPT, type OrderReceipt } from './placement';
 
 export type OrderActionFailure =
@@ -44,7 +50,16 @@ export async function applyOrderAction(
 ): Promise<OrderActionResult> {
   const current = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { status: true, paymentState: true, totalCents: true },
+    // `subtotalCents` and `customerPhone` are the earn's two inputs (PRD 7
+    // P0-3) and are read here rather than re-fetched: both are snapshot
+    // columns, frozen at placement, and this row is already being read.
+    select: {
+      status: true,
+      paymentState: true,
+      totalCents: true,
+      subtotalCents: true,
+      customerPhone: true,
+    },
   });
   if (!current) {
     return {
@@ -85,6 +100,22 @@ export async function applyOrderAction(
     await tx.orderEvent.createMany({
       data: decision.events.map((draft) => ({ orderId, ...eventRow(draft, staffId) })),
     });
+
+    // Points, on the transition INTO a sold state (PRD 7 P0-3). Derived from
+    // the SALES ROLE and never from `=== 'picked_up'`, so a second sold status
+    // makes the compiler find this reader — the rule the whole status module
+    // exists to enforce. In the transaction with the status change on purpose:
+    // a pickup that committed without its ledger row has no later moment to
+    // retry from. `earnForOrder` leans on the unique index rather than on this
+    // path firing once, which is what makes the revert-and-re-advance safe.
+    if (salesRoleOf(decision.status) === 'sold') {
+      await earnForOrder(
+        tx,
+        { id: orderId, customerPhone: current.customerPhone, subtotalCents: current.subtotalCents },
+        now,
+      );
+    }
+
     return tx.order.findUniqueOrThrow({ where: { id: orderId }, ...ORDER_RECEIPT });
   });
 

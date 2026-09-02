@@ -1475,3 +1475,30 @@ name, and what you've earned, deleted after a year without an order.
 
 **If joining fails, your order doesn't.** The food is placed first and the
 punch card second, so a problem with one is never a problem with the other.
+
+---
+
+## C-102 — The first punch
+
+**Points appear when the food does.** Not when you order, not when the kitchen
+starts it — when you pick it up. Food you never collected earns nothing, and a
+cancelled order earns nothing, because the punch is for a meal you actually
+took home.
+
+**A dollar of food is a point, and tax is not food.** $14.95 of burrito earns
+14 points. The cents round down and the sales tax earns nothing, which is the
+honest version: you did not buy that part, the state did.
+
+**A cook's mistake cannot cost you your points or give you two lots of them.**
+Tapping "picked up" by accident, undoing it, and tapping it again for real is a
+thing that happens on a busy counter. It is one punch on your card either way —
+guaranteed by the database and not by everyone remembering to be careful. And
+undoing the tap does not take the points back off you.
+
+**What you earned is what your receipt said.** The points come off the order as
+it was written down. If the restaurant reprices the burrito that afternoon,
+your points do not move — the same rule the receipt itself follows.
+
+**Off is still off.** A restaurant that has not switched the program on has
+nothing written anywhere, and its checkout, its kitchen queue and its sales
+report are the ones it had yesterday.
