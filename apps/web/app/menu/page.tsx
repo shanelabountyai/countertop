@@ -6,6 +6,7 @@ import { loadMenu } from '@countertop/db/menu';
 import { formatCents } from '@/lib/money';
 import { currentGate } from '@/lib/checkout-gate';
 import { GateNotice } from '../checkout/gate-notice';
+import { Lockup } from '@/lib/brand';
 
 export const metadata = { title: 'Menu — Firebird Kitchen' };
 
@@ -20,8 +21,13 @@ export default async function MenuPage() {
 
   return (
     <main className="mx-auto max-w-2xl p-6">
-      <header className="mb-8 flex items-baseline justify-between gap-4">
-        <h1 className="text-3xl font-semibold">Firebird Kitchen</h1>
+      <header className="mb-8 flex items-center justify-between gap-4">
+        {/* The primary lockup, not plain text (docs/design/README.md). The
+            mark is aria-hidden, so the heading's accessible name is still
+            exactly "Firebird Kitchen". */}
+        <h1>
+          <Lockup />
+        </h1>
         <Link href="/cart" className="inline-flex min-h-12 w-fit items-center text-sm underline underline-offset-4">
           View cart
         </Link>

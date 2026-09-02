@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Firebird Kitchen">
+  <!-- The monogram, not the mark: every favicon size is below the 48px floor
+       where the sheet says the flame drops out and only the F survives.
+       A webfont cannot be loaded from inside a favicon, so this resolves to
+       Georgia — which is the brand's own declared Zilla Slab fallback, and a
+       serif either way. Never the UI sans. -->
+  <rect width="100" height="100" rx="22" fill="#b91c1c"/>
+  <text x="50" y="50" text-anchor="middle" dominant-baseline="central"
+        font-family="'Zilla Slab', Georgia, serif" font-weight="700" font-size="62" fill="#ffffff">F</text>
+</svg>

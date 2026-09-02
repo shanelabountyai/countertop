@@ -66,6 +66,23 @@ counter stamp for sealing a bag.
 **The four don'ts:** no circle · never the wordmark in the UI sans · no
 recolouring outside the four colourways · no stretch, skew or shadow.
 
+## What implements this (C-087)
+
+The spec above is no longer only a spec. Where each rule now lives:
+
+| Rule | Where it is enforced |
+|---|---|
+| The two faces, and the wordmark never in the UI sans | `apps/web/app/layout.tsx` loads both; `apps/web/app/globals.css` wires `--font-sans` (Archivo) and `--font-display` (Zilla Slab) |
+| The palette | `@theme` tokens in `globals.css`. The stone ramp is Tailwind's own and is **not** redefined |
+| The mark, the four colourways, the 48px flame floor | `apps/web/lib/brand.tsx` — `Mark`, `COLOURWAYS`, `FLAME_MIN_PX` |
+| The horizontal lockup | `Lockup` in the same file; used by `/menu`'s `<h1>` |
+| The monogram at favicon sizes | `apps/web/app/icon.svg` |
+| That any of it still renders | `apps/web/e2e/brand.spec.ts` |
+
+**Not built:** the stacked lockup, the counter stamp, and anything on the staff
+screens — including the sheet's own kitchen-header example. C-087 was scoped to
+assets rather than a redesign; see `docs/PROGRESS.md`.
+
 ## Two things worth noticing before implementing
 
 **The brand and the founding invariant already agree.** The sheet's own

@@ -3711,6 +3711,92 @@ a partial refund now, a comp when C-065 lands. Three surfaces asked the enum
 - **Nothing writes a partial payment or a partial refund.** Both db tests
   insert the events directly. C-065 and C-067 are where writers appear.
 
+## C-087 — The logo set, implemented
+
+`docs/design/Firebird Logo Set.dc.html` arrived in the repo the day before with
+its spec written out as greppable values in `docs/design/README.md`, and
+nothing in the app used any of it. This item is **brand assets, not a
+redesign** — the deliberate line, because the same session could have turned
+into a re-skin of eight screens and the invariants those screens carry.
+
+**Built:**
+- **The two faces, via `next/font/google`.** Archivo (variable, 400–900) and
+  Zilla Slab (500/600/700, not variable, so its weights are named). Both land
+  as CSS variables and are wired in `globals.css`: `--font-sans` becomes
+  Archivo, which makes the UI face automatic for the whole document through
+  Tailwind's preflight, and `--font-display` becomes Zilla Slab, which stays a
+  choice a component makes. That split is deliberate — *"never set the wordmark
+  in the UI sans"* is one of the sheet's four don'ts, and the half of the type
+  system a person can break is the half a default cannot fix.
+- **The palette as `@theme` tokens** — `--color-brand-red`, `--color-ink`,
+  `--color-border-black`, `--color-paper`. Two of the four are unused by
+  today's screens and are defined anyway: this is the *whole permitted
+  palette*, not a starting set, and the point of a token is that the next
+  person reaches for it instead of typing a hex.
+- **The sheet's greys are Tailwind's own `stone` ramp**, value for value
+  (`#57534e` = stone-600 … `#d6d3d1` = stone-300). Checked before writing
+  anything; nothing was redefined. A second name for a colour that already has
+  one is how two greys drift apart.
+- **The mark redrawn as inline SVG.** The sheet builds it from CSS borders —
+  `border-left: 22px solid transparent` and so on — which is the right tool for
+  a static sheet and the wrong one for a product: a border triangle cannot be
+  recoloured by a token, cannot scale with its box, and cannot be printed
+  one-colour. Geometry normalised to a 100-unit square off the 88px primary
+  (a 44-wide, 38-tall flame centred, a 12-tall base bar), and cross-checked
+  against the 64px and 48px instances, which agree to a rounding.
+- **Four colourways and no others**, as a lookup rather than props. Only full
+  colour carries the ink base bar; the single-colour versions knock the flame
+  out of a solid square, where a bar would have nothing to sit against. That is
+  in the sheet and easy to miss — three of the four colourway examples simply
+  have no bar `div`.
+- **`app/icon.svg` is the monogram, not a small mark.** Every favicon size is
+  below the sheet's 48px floor where the flame drops out and only the F
+  survives — and it is a real rule, not a stylistic one: a 25-unit white wedge
+  inside a 32px square is three grey pixels.
+- **The one true wordmark instance becomes the lockup.** `/menu`'s `<h1>` was
+  the only place "Firebird Kitchen" was *set* rather than mentioned inside a
+  sentence or a `<title>`. The mark is `aria-hidden`, so the heading's
+  accessible name is unchanged and `auth.spec.ts`'s existing assertion holds
+  without being touched.
+
+**Decided:**
+- **The size floor is code, not a comment.** `Mark` switches to the monogram
+  below `FLAME_MIN_PX`. It could have been two components and a rule in a
+  README; it is one component and a constant, because the README version is
+  the one that gets forgotten at the call site.
+- **The kitchen header was left alone.** The sheet has an "in place" example of
+  it — a black bar, a 32px red square, `FIREBIRD · LINE`, a clock — and
+  building it would have been a redesign of the highest-consequence screen in
+  the product under an item scoped to assets. Recorded as the obvious next
+  thing, not done here.
+- **The favicon's F resolves to Georgia.** A webfont cannot be loaded from
+  inside an SVG favicon, so the `font-family` falls to the brand's own declared
+  Zilla Slab fallback. Converting the glyph to a path is the alternative and
+  needs font tooling this repo does not have; a serif F on brand red is
+  correct in every browser either way, and it is never the UI sans.
+
+**Tested:** two e2e cases, because both failure modes here look like nothing at
+all — a font that never loaded still renders text, an SVG the bundler dropped
+still leaves a heading. So: the heading's accessible name is still
+"Firebird Kitchen"; the mark is `aria-hidden` and carries exactly one
+`polygon`, i.e. the flame version rather than the monogram; the wordmark's
+**computed** `font-family` contains Zilla Slab, which is the only one of the
+four don'ts a stylesheet can regress on its own; and the favicon is served
+`200`, contains an `F`, and contains no polygon.
+
+**Left behind:**
+- **Nothing on the staff screens uses the brand.** `/kitchen` and its six
+  sub-screens are still the neutral greys they were built in. Deliberate per
+  the scope line above, and the sheet's kitchen-header example is where that
+  work starts.
+- **`--color-paper` and `--color-border-black` are defined and unused.** The
+  body background is still the browser default, because setting it to paper
+  interacts with the `dark:` classes several pages carry, and the light-mode-only
+  call in `docs/DESIGN_BRIEF.md` is one of the two things still waiting on the
+  owner. Tokens first; surfaces when that is answered.
+- **The stacked lockup and the counter stamp are not built.** Bags, cups and
+  signage are not screens. They are in the sheet when something needs them.
+
 ---
 
 # Carried forward — read this first in a new session
@@ -3718,28 +3804,30 @@ a partial refund now, a comp when C-065 lands. Three surfaces asked the enum
 State at the end of the 2026-09-01 session, so the next one does not have to
 reconstruct it.
 
-**Pushed and CI-green:** C-051, C-052, C-084, C-085, C-086, C-063, plus the
-loyalty PRD. **C-064 is this entry**, gated green (513 unit, 127 passed + 14
-skipped = 141 e2e, reconciled) and committed with it.
+**Pushed and CI-green:** C-051, C-052, C-084, C-085, C-086, C-063, C-064, plus
+the loyalty PRD. **C-087 is this entry**, gated green (513 unit, 129 passed +
+14 skipped = 143 e2e, reconciled against the 141 baseline plus its own two new
+tests) and committed with it.
 
-**Next item is the logo set, and it is imported and unbuilt.**
-`docs/design/Firebird Logo Set.dc.html` is in the repo, with the spec written
-out as greppable values in `docs/design/README.md`. Nothing in the app uses it
-yet. The implementation is brand assets, not a redesign: the two faces via
-`next/font`, the palette as `@theme` tokens in Tailwind v4, the mark redrawn as
-inline SVG, an `app/icon.svg` favicon using the monogram F (the sheet says the
-flame drops out below 48px), and the lockup wherever "Firebird Kitchen" is
-currently plain text. The four don'ts and the 48px/120px rules are in the
-README. **Do not soften the `NO ONIONS` treatment** — the brand sheet and
-`CLAUDE.md` agree on it.
+**The logo set is now implemented — as assets, not as a redesign.** Fonts,
+palette tokens, the mark as inline SVG, the monogram favicon, and the lockup on
+`/menu`. What is deliberately NOT done, and is the obvious next brand item: the
+staff screens. The sheet's own "in place" example includes a kitchen header — a
+black bar, a 32px mark, `FIREBIRD · LINE`, a clock — and building it means
+touching the highest-consequence screen in the product, which is a different
+item with a different risk profile. **Do not soften the `NO ONIONS` treatment**
+when that happens; the brand sheet and `CLAUDE.md` already agree on it, and
+C-087 changed nothing about it.
 
-**Then PRD 3 continues at C-065** — comp and partial adjustment on the staff
-receipt. Both of its blocking Open Questions are now answered (decisions 5 and
-6, 2026-09-01), so it is unblocked.
+**PRD 3 continues at C-065** — comp and partial adjustment on the staff
+receipt. Both of its blocking Open Questions are answered (decisions 5 and 6,
+2026-09-01), so it is unblocked and is the next non-brand item.
 
 **Two things still waiting on the owner:** the loyalty PRD's first Open
 Question (lift the master PRD's loyalty Non-Goal, or shelve it — the PRD's own
 recommendation is not to build it yet), and the two calls recorded in
-`docs/DESIGN_BRIEF.md` (no shadcn; light-mode-only tokens).
+`docs/DESIGN_BRIEF.md` (no shadcn; light-mode-only tokens). The second of those
+now blocks something concrete rather than nothing: C-087 left the body
+background unset and two palette tokens unused because of it.
 
-C-064 committed at 909de7c.
+C-087 committed at PENDING.

@@ -1334,3 +1334,25 @@ ticket, "Collected" takes $25 — not another $35.
 
 **And the order's own total never moves.** What a customer was charged is a
 permanent record; the balance is worked out beside it, never by editing it.
+
+## C-087 — The restaurant now looks like itself
+
+**The site had no identity.** "Firebird Kitchen" was a line of default system
+text at the top of the menu, in whatever face the browser reached for, next to
+nothing. The logo set had been drawn and was sitting in the repo unused.
+
+**The menu now opens with the real lockup** — the mark and the wordmark, in the
+restaurant's own two typefaces. The wordmark is the slab serif it is supposed
+to be, and everything else on every screen is now set in the brand's UI face
+instead of the browser's default.
+
+**The browser tab has the F.** Below a certain size the flame in the mark stops
+being a flame and starts being three grey pixels, so the tab icon is the
+monogram — which is exactly what the logo set says to do at that size.
+
+**A screen reader hears no difference.** The heading still announces
+"Firebird Kitchen"; the mark beside it is decorative and is skipped.
+
+**NO ONIONS is untouched.** The brand sheet renders it white-on-red on a
+printed ticket, which is what the kitchen screen has done since it was built.
+Nothing was harmonised.

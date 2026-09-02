@@ -1,5 +1,31 @@
 @import "tailwindcss";
 
+/* Firebird Kitchen brand tokens — docs/design/README.md is the authority, and
+ * `docs/design/Firebird Logo Set.dc.html` is the sheet these came off.
+ *
+ * Four colourways and no others, so this IS the whole permitted palette rather
+ * than a starting set. Two of them are unused by today's screens (the ticket
+ * printer's one-colour black, and paper as a surface) and are still defined
+ * here, because the point of a token is that the next person reaches for it
+ * instead of typing a hex.
+ *
+ * The sheet's greys are Tailwind's own `stone` ramp, value for value
+ * (#57534e = stone-600 … #d6d3d1 = stone-300). Nothing is redefined for them. */
+@theme {
+  /* Archivo is the UI face; Zilla Slab is display ONLY. Setting --font-sans
+   * makes Archivo the default for the whole document via preflight, which is
+   * the half of the brand's type split that has to be automatic — the other
+   * half is a rule a person can break, and the sheet lists breaking it as one
+   * of its four don'ts. */
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-zilla-slab), Georgia, serif;
+
+  --color-brand-red: #b91c1c;
+  --color-ink: #14100e;
+  --color-border-black: #0a0a0a;
+  --color-paper: #faf7f2;
+}
+
 /* The un-acknowledged-order flash (P0-12).
  *
  * 1.2s per cycle — well under the three-flashes-a-second seizure threshold
