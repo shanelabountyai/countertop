@@ -1,8 +1,8 @@
 # Countertop — the second-pass PRD set
 
-Six PRDs and three defects, derived from three independent evaluations delivered 2026-09-01.
+Six PRDs and three defects, derived from three independent evaluations delivered 2026-09-01. A seventh PRD — `prd-loyalty.md` — was added afterwards and is **not** derived from those evaluations; it is a product-owner proposal, it re-opens a master-PRD Non-Goal, and it is ranked and labelled accordingly.
 
-Nothing in this directory changes a decision the master PRD settled. Where an evaluator re-opened a Non-Goal or a resolved Open Question, it is named below under *Raised but not PRD'd* with the reason it stays closed.
+Nothing in this directory changes a decision the master PRD settled. Where an evaluator re-opened a Non-Goal or a resolved Open Question, it is named below under *Raised but not PRD'd* with the reason it stays closed. `prd-loyalty.md` is the one document that asks for a Non-Goal to be lifted rather than accepting it, and it says so in its own first blocking Open Question.
 
 ---
 
@@ -18,7 +18,7 @@ Three evaluators read the shipped product independently, from three deliberately
 
 Thirty-six numbered findings, plus a handful of asides buried in the systems review's invariant audit.
 
-**The ranking signal is consensus across lenses.** A finding two evaluators reached independently, from different evidence, is the strongest evidence available here that it is real and not a matter of taste. Three of the six PRDs below exist because two or three lenses converged on the same ninety seconds of a Friday without coordinating.
+**The ranking signal is consensus across lenses.** A finding two evaluators reached independently, from different evidence, is the strongest evidence available here that it is real and not a matter of taste. Three of the six evaluation-derived PRDs below exist because two or three lenses converged on the same ninety seconds of a Friday without coordinating. PRD 7 has no such backing, which is why it ranks where it does.
 
 All three evaluators also independently confirmed that the **snapshot rule holds** — the systems reviewer could not construct a read path joining an order to a menu table, and the operator's phrasing was "a menu edit provably cannot touch a placed order." All three named the **end-to-end negation treatment** as the best thing in the product. Both are load-bearing and every PRD below is written to keep them true; the negation in particular must not be normalised into a grey chip by any redesign this set triggers.
 
@@ -73,7 +73,9 @@ The WRITEUP defends "revenue is what was charged, not collected" as a deliberate
 | 5 | [`prd-the-customer-who-is-not-in-the-room.md`](prd-the-customer-who-is-not-in-the-room.md) | address / phone / hours on every customer screen; a status page that admits it is late; a last-call warning; menu descriptions and category nav; the "Skip" pill; focus to the error; a way back to your own order; cart quantity | DX (8 findings), with SYS 7 on the phone field | M — 7 sessions, one three-column migration | One lens, eight findings, nearly all S. It ranks on volume and cheapness: this is the only surface where a customer decides whether to order here at all, and it is the least designed one in the product. It also completes the master PRD's resolved answer "call the restaurant" by making the restaurant callable. |
 | 6 | [`prd-who-did-it-and-what-leaves.md`](prd-who-did-it-and-what-leaves.md) | structured logging and error reporting; staff PINs stamping the event log; a payment event; retention and "forget this customer"; an ordered replayable event feed (P1); the multi-location widening plan (P1) | OPS + SYS (OPS 10 · SYS 5, 6, 7, 8, 9, 12) | L — 7 sessions, two hand-written migrations | Ranked last because most of it insures against futures — a second client, a subpoena, a printer — rather than this Friday. **Except its first item**, which is the cheapest high-value session in the entire set: today, when an order goes missing at 7:10pm, the product cannot distinguish "never placed" from "placed and eaten", because it writes no log line anywhere. Pull C-084 forward. |
 
-**Sequencing that is not the ranking:** D1, D2, D3 first, in that order. Then `C-084` (logging) out of PRD 6, because every other PRD's defects will be diagnosed with it. Then **staff identity** (PRD 6 P0-2), pulled forward by the decision below. Then the ranking above.
+| 7 | [`prd-loyalty.md`](prd-loyalty.md) | a member keyed on the phone already collected; an append-only points ledger; earn at pickup from the snapshot; redemption as a counter adjustment, after tax; expiry tied to the retention window; the program's own liability screen (P1) | **nobody** — no evaluator raised it; product-owner proposal | M — 7 sessions (6 P0 items), two hand-written migrations certain and a third conditional | **Ranked last, and the honest case is against it.** Every PRD above prevents a failure someone observed on a real Friday; this one prevents nothing and adds a product surface. It has zero lens consensus, which is the ranking signal this document is built on. It re-opens a Non-Goal both v2 reviewers respected. It adds durable customer data while `prd-who-did-it-and-what-leaves.md` P0-4 — the forget path — is still unbuilt, and it is blocked on that plus PRD 3's balance and adjustment. **The case for it, stated once so it is not strawmanned:** the paper punch card is the only thing the incumbent third-party app does that this product cannot, a pickup-only shop is the easiest place in food service to run one, and the design is cheap because it reuses PRD 3's adjustment rather than inventing a second money path. |
+
+**Sequencing that is not the ranking:** D1, D2, D3 first, in that order. Then `C-084` (logging) out of PRD 6, because every other PRD's defects will be diagnosed with it. Then **staff identity** (PRD 6 P0-2), pulled forward by the decision below. Then the ranking above. PRD 7 sits outside this sequence entirely and does not enter it until its first Open Question is answered by the owner.
 
 ---
 
@@ -87,6 +89,13 @@ Four contradictions between evaluators, resolved. Recorded here and in each PRD'
 | 2 | Reconcile against the processor's settlement or the till? | **Neither yet.** Ship the outstanding list and stop. | Neither source exists in the system today, and a half-reconciliation is worse than an honest "the drawer is out of scope". A nightly drawer-count is also the chore staff skip on the bad night it would have mattered. **Trigger to revisit: the outstanding list stops explaining the variance.** |
 | 3 | Can comps ship before staff identity? | **No — identity first.** PRD 6 P0-2 moves ahead of PRD 3. | The one thing here that cannot be retrofitted: every event written `actor: 'staff'` meanwhile is anonymous permanently and no backfill can invent a name. The typed-name middle option was rejected on this repo's own discipline — the constraint is the mechanism, and a typed name is the disabled-submit-button of accountability. **This reorders the set.** |
 | 4 | Keep collecting the customer's phone number? | **Keep it, label it, give it a deletion path.** | The "unused PII" premise was wrong on inspection: `kitchen/orders/[id]/page.tsx:53` reads it onto the staff receipt so a customer whose order was wrong can be called. One real reader passes the use-it-or-stop-asking test. The actual defect is the missing retention limit and the form that never says why it asks. |
+
+### Decisions taken later — 2026-09-01, after the defects and PRD 6's prerequisites landed
+
+| # | Question | Decision | Why |
+|---|---|---|---|
+| 5 | Does `paymentState` stay the truth, or become a derived cache over a payment event stream? *(PRD 3's own text: "a human has to pick; the whole PRD's data model forks here")* | **The event stream is the truth.** `paymentState` stays as the fast read every surface already uses, and becomes a derived cache with a test asserting the two agree for every order in the seeded rush. | The only shape P0-2's balance and P0-4's "we tried and it failed" can live in — an enum holds terminal facts, and a refund in flight is not one. C-085 had already landed the events on both write paths, so the fork cost less than it did when the question was written. *(PRD 3 P0-1, C-063.)* |
+| 6 | Do comps breach the master PRD's "no real payment processing" Non-Goal? | **No, and it is now written down.** An adjustment is an append-only record of a decision the counter made: it moves no money, calls no processor, and never touches the snapshot columns. | The question asked for one sentence of explicit agreement so a later reader would not have to re-derive it. *(PRD 3 P0-3, C-065.)* |
 
 **What decision 3 changes about the ranking:** PRD 6 is no longer last in execution order even though its value ÷ cost still ranks it there. Its first two items — `C-084` structured logging and `C-085`-onward staff identity — are now prerequisites, not insurance.
 
@@ -128,7 +137,7 @@ Nothing from the three reports is dropped. Everything here is accounted for with
 - No SMS/email "your order is ready" — P1-3, unbuilt. Named repeatedly as the real fix for counter congestion and no-shows; still deferred.
 - No queue position on the status page — Open Question, non-blocking, deliberately not shown because it leaks pace information.
 - No order-ahead time slots (P1-2); no reorder, tips, printer/KDS, station routing, prepay (P2).
-- No delivery, real payments, loyalty, POS hardware, multi-restaurant — Non-Goals, re-affirmed under "Deliberately rejected".
+- No delivery, real payments, loyalty, POS hardware, multi-restaurant — Non-Goals, re-affirmed under "Deliberately rejected". **The loyalty half of this line is the one thing in the set now under challenge**: `prd-loyalty.md` asks the owner to lift it, on the grounds that the same master PRD also lists loyalty under P2 futures, so the ask is a promotion rather than a reversal. Unanswered, and it blocks that document entirely.
 - No mute or dismiss on the new-order chime — deliberate refusal (C-010); both evaluators independently endorsed it.
 - The menu editor edits but cannot author — recorded caveat C-015. A seasonal special stays a SQL job.
 - One opening window per day, no split lunch/dinner *hours*, no overnight service — recorded caveat C-011. PRD 4's dayparts are about which items are orderable, which is a different gate.
@@ -153,6 +162,20 @@ Nothing from the three reports is dropped. Everything here is accounted for with
 - **`packages/db/report.ts:94` restates a status in SQL** with no paired test — the same dual-dialect risk the WRITEUP already flags for `isLeftOver`, without the test that one has. → carried in PRD 1 as part of C-054.
 - **`priceLine` throws on unknown ids with no handler and no log.** → carried in PRD 6 P0-1.
 - **The `total_mismatch` event is only persisted if the surrounding order write succeeds**, so a tampered request that also fails validation is recorded nowhere. → carried in PRD 6 P0-1.
+
+**Raised by `prd-loyalty.md`, and deliberately not built by it:**
+
+Loyalty is the one entry in this section whose parent document is itself asking for a Non-Goal to be lifted. Everything below is a thing PRD 7 names and refuses, so a later reader does not mistake its silence for an oversight.
+
+- **Phone verification / SMS one-time codes.** The prerequisite for self-serve redemption at checkout, and therefore for a pre-tax reward. Master PRD P1-3, still unbuilt and still deferred. PRD 7 works around it by making redemption a counter action, and says so.
+- **Self-serve redemption and a pre-tax discount.** PRD 7 P1-1, not phased. It needs verified identity plus a snapshotted `Order.discountCents` and a `subtotal − discount` tax base, because `priceOrder` currently defines `subtotalCents` as exactly the sum of the lines. That is a PRD of its own, not an item.
+- **Stored value / gift cards.** Customer money held by the shop — a regulated liability and genuinely adjacent to the "no real payment processing" Non-Goal. Named explicitly in PRD 7's Non-Goals because "points worth cents" drifts here on its own.
+- **Tiers, birthdays, referrals, streaks, bonus-point promotions.** The master PRD parks entitlement systems in the fitness-studio project. PRD 7 stops at one integer per member and marks a second entitlement dimension as the point where that Non-Goal is genuinely breached rather than promoted.
+- **Any marketing use of the phone number.** No email, no campaign SMS, no "we miss you". The number is a key, not a channel — collecting it for one purpose and using it for another is exactly the failure PRD 6 P0-4 exists to prevent.
+- **Point transfer, gifting, merging or a balance that follows a changed number.** Two numbers are two members; a staff `adjust` is the manual answer.
+- **Automatic point clawback on a comp, a refund or a revert.** A recorded ceiling in PRD 7 P0-3: the earn reads the order's snapshotted subtotal and does not chase adjustments, so a comped order still earns once. The trigger to revisit is repeat names on PRD 3's comps line.
+- **A loyalty number on the sales report.** PRD 7 P0-6 makes this a *requirement* rather than an omission — the report must read no loyalty table, which is what keeps PRD 6 P0-4's byte-identical forget test true. The program's own liability screen is separate (PRD 7 P1-2).
+- **Multi-restaurant point pooling.** Non-Goal / P2. It would add one row to PRD 6 P1-3's widening plan and nothing else.
 
 **Genuinely out of scope here:**
 
