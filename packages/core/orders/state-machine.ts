@@ -279,6 +279,21 @@ export type OrderEventDraft = {
   toStatus: OrderStatus | null;
   actor: EventActor;
   reason: string | null;
+  /**
+   * Money this event MOVED, in integer cents (PRD 3 P0-1, C-063).
+   *
+   * Required on `payment` and `refund` and forbidden on everything else — the
+   * database says the same thing as a CHECK, written as an equivalence so the
+   * two halves cannot drift. Direction is the KIND and never the sign: a
+   * refund of -300 and a payment of 300 would be the same row twice over.
+   *
+   * A field rather than a `detail` key because the event stream is now the
+   * truth about payment (decision 5, 2026-09-01), and a balance summed out of
+   * JSON is one no index can help and no constraint can defend.
+   */
+  amountCents?: number;
+  /** The processor's own reference, for the day there is a processor. */
+  providerRef?: string;
   detail?: Record<string, unknown>;
 };
 
@@ -361,6 +376,10 @@ export function paymentEvent(
     // took the money, at the counter somebody handed it over a till.
     actor: where === 'checkout' ? 'customer' : 'staff',
     reason: null,
+    amountCents,
+    // `detail` keeps its copy: it is what the rows written before C-063 have,
+    // and dropping it would make an old event and a new one different shapes
+    // for no gain. The COLUMN is what anything sums.
     detail: { amountCents, where, provider: 'mock' },
   };
 }
@@ -511,6 +530,7 @@ export function applyTransition(
           toStatus: 'cancelled',
           actor: 'system',
           reason: action.reason,
+          amountCents: order.totalCents,
           detail: { amountCents: order.totalCents, provider: 'mock' },
         });
       }

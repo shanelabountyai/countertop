@@ -3582,3 +3582,77 @@ systems reviewer reached that independently, from opposite ends.
   needs an event table that is not `OrderEvent`.
 
 C-086 committed at 4cfbe2a.
+
+## C-063 — The event stream becomes the truth about money (PRD 3 P0-1)
+
+The first item of PRD 3, and it starts with a decision rather than with code:
+the PRD's own text said *"a human has to pick; the whole PRD's data model forks
+here."* Asked and answered on 2026-09-01.
+
+**Decisions taken (recorded in the PRD's Open Questions and the INDEX, not
+re-opened):**
+- **Decision 5 — the event stream is the truth.** `Order.paymentState` stays,
+  stays indexed, and stays the read every existing surface uses — it becomes a
+  *derived cache*. Both halves matter: rewriting the queue card, the receipt
+  and the report to sum a log on every render would be a worse product for no
+  gain. What changes is which one is allowed to be wrong. If they disagree,
+  the events are right.
+- **Decision 6 — a comp is a record, not a charge.** Written into the PRD as
+  the sentence it asked for, so P0-3 can ship without anyone re-deriving
+  whether it breaches the master PRD's "no real payment processing" Non-Goal.
+  It does not: nothing here processes a payment.
+
+**Built:**
+- `OrderEvent.amountCents` and `OrderEvent.providerRef` as **columns**. A
+  balance summed out of a JSON key is one no index can help and no constraint
+  can defend, and the balance is what P0-2 builds next.
+- A CHECK written as an **equivalence** — `(kind IN ('payment','refund')) =
+  (amountCents IS NOT NULL)` — so the two halves cannot drift apart. Money
+  events must carry an amount and nothing else may. `total_mismatch` is
+  deliberately on the "must not" side: it holds two amounts in `detail` and
+  moves no money, and a balance that summed it would be wrong in the
+  customer's favour by whatever they claimed.
+- A second CHECK: amounts are never negative. **Direction is the kind, never
+  the sign** — a refund of -300 and a payment of 300 would be the same row
+  twice over.
+- `derivePaymentState` and `paymentTotals` in `packages/core/orders/payment.ts`.
+- **The assertion the decision was really about**: for every order in the
+  seeded rush, the column agrees with the stream. Over a whole simulated
+  service with a real mix of states, not a fixture built to agree, and it
+  reports *which* order disagrees rather than "false is not true".
+
+**Found while building:**
+- **You cannot backfill an append-only table.** The migration's `UPDATE` to
+  copy `detail.amountCents` into the new column was refused by the C-003
+  trigger, by name, with its own error message: *"OrderEvent is append-only:
+  UPDATE is not permitted. Write a revert event instead."* The trigger is
+  right and stays. What it defends against is application code rewriting
+  history; this is a lossless **re-encoding** of a fact already on the row —
+  no event changes its meaning, instant, actor or amount. The migration
+  disables that one trigger **by name** (not `session_replication_role`, which
+  needs superuser and would silently disable every other trigger in the
+  database) and re-enables it unconditionally, with the reasoning written above
+  the statement. A migration that leaves the guard off removes the invariant
+  permanently.
+- Editing an already-applied migration file forced a `db:reset:test`. Cheap
+  here and worth remembering: the moment a migration has run anywhere that
+  matters, the fix is a new migration, not an edit.
+
+**Left behind:**
+- **A partial refund reads as `paid`.** Captured 3420, refunded 300 → the enum
+  has no better value, and the honest answer ("3120 still ours") needs P0-2's
+  balance. Written into `derivePaymentState`'s own doc comment so it reads as
+  the enum being lossy rather than the derivation being wrong.
+- **An order paid before C-085 has no `payment` event**, so the derivation
+  returns `unpaid` for it while the column says `paid`. That is the migration
+  being honest — nothing recorded when that money arrived, and inventing an
+  event would be a lie about a payment. The agreement test is scoped to orders
+  written since the events existed, and says so.
+- **Nothing recomputes the cache at write time.** The writers set the column
+  and the test proves they agree; there is no reconciliation job and no
+  read-path that derives. That is the intended shape at this size — the
+  alternative is a job nobody runs — but it means the invariant is enforced by
+  the suite rather than by the database.
+- **`providerRef` is null on every row**, and will be until there is a
+  processor. It exists now because adding a column later means a migration
+  over a table that only ever grows.

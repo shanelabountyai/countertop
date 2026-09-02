@@ -1205,6 +1205,45 @@ warning without. The general version, which this project keeps relearning: a
 comment that says what the code does is background, and a comment that says
 what happened when somebody ignored it is a fence.
 
+### You cannot backfill an append-only table (C-063)
+
+Adding `amountCents` as a real column meant copying the value out of the JSON
+`detail` where it had been living. One `UPDATE`, derived entirely from each
+row's own data. Postgres refused it, by name, with the message the project
+wrote for itself in C-003:
+
+```
+ERROR: OrderEvent is append-only: UPDATE is not permitted
+       (order e165bb6f-…). Write a revert event instead.
+```
+
+The interesting part is that the trigger was *right to fire* and *wrong to
+obey*. What it defends against is application code rewriting history — an undo
+that edits the event it is undoing, which is the entire reason the append-only
+rule exists. A migration copying `detail->>'amountCents'` into
+`"amountCents"` is not that. No event changes its meaning, its instant, its
+actor or its amount; it is a lossless re-encoding of a fact already stored on
+the row, done once, by a schema change, with nobody's history restated.
+
+So the migration disables that trigger and re-enables it. Three details make
+the difference between a defensible exception and a hole:
+
+- **By name**, not `session_replication_role = replica`. The blunt version
+  needs superuser and silently disables *every* trigger in the database for
+  the duration, which is a much larger promise than this migration is making.
+- **Re-enabled unconditionally**, in the same file. A migration that leaves
+  the guard off does not have an exception, it has removed the invariant.
+- **The reasoning is written above the statement**, not in a commit message.
+  The next person to read that file is deciding whether to do the same thing,
+  and the argument they need is "is this a re-encoding or a restatement?" —
+  which is a question, not a precedent.
+
+The general lesson, which this project keeps meeting from new directions: an
+invariant enforced by the database will be enforced against *you*, including
+in the cases you consider obviously fine. That is the point of it. The cost is
+having to write down why an exception is one, which is a much better cost than
+finding out later that the guard was decorative.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

@@ -1,4 +1,5 @@
 import {
+  derivePaymentState,
   estimateAccuracy,
   instantMinutesAfter,
   isOpen,
@@ -389,5 +390,81 @@ describe('stopping the rush mid-service', () => {
     // And the tally counts her as still in flight: nothing is booked as sold.
     const rows = timeInStateReport([await eventsFor('Ada Nkemelu')], midService.end);
     expect(rows.find((r) => r.status === 'picked_up')).toMatchObject({ orders: 0, averageMs: null });
+  });
+});
+
+// PRD 3 P0-1 (C-063), and the assertion the 2026-09-01 decision was really
+// about. The event stream is the truth about money; `Order.paymentState` is a
+// DERIVED CACHE over it. A cache nobody checks is a second source of truth
+// wearing a disguise, so this is the check — over a whole simulated service
+// rather than over a fixture built to agree.
+describe('the payment column is a cache of the payment events', () => {
+  it('agrees with the stream for every order in the rush', async () => {
+    const orders = await prisma.order.findMany({
+      select: {
+        seq: true,
+        paymentState: true,
+        events: { select: { kind: true, amountCents: true } },
+      },
+      orderBy: { seq: 'asc' },
+    });
+
+    // The rush mixes paid-at-checkout, pay-at-pickup and one cancelled prepaid
+    // ticket that refunds, so this is not a set of rows that agree by being
+    // identical — which is the only reason the assertion below means anything.
+    //
+    // Deliberately not asserted against `RUSH_ORDERS.length`: that counts
+    // ATTEMPTS, and the double-submit is two attempts that must produce one
+    // order. The order count has its own test above; what this one needs is
+    // that every payment state is represented.
+    expect(new Set(orders.map((order) => order.paymentState)).size).toBeGreaterThan(1);
+
+    // Named disagreements, not a boolean: a failure here should say WHICH
+    // order and which two answers, because "false is not true" would send
+    // somebody back through thirty orders by hand.
+    const disagreements = orders
+      .map((order) => ({
+        seq: order.seq,
+        column: order.paymentState,
+        derived: derivePaymentState(order.events),
+      }))
+      .filter((row) => row.column !== row.derived);
+    expect(disagreements).toEqual([]);
+  });
+
+  it('gives every money event an amount and no other event one', async () => {
+    // The database CHECK says this too. The test says it in the vocabulary of
+    // the rush, so a future writer that adds a third money kind fails here
+    // with a readable message rather than on a constraint name.
+    const events = await prisma.orderEvent.findMany({ select: { kind: true, amountCents: true } });
+    const money = events.filter((event) => event.kind === 'payment' || event.kind === 'refund');
+
+    expect(money.length).toBeGreaterThan(0);
+    expect(money.every((event) => typeof event.amountCents === 'number')).toBe(true);
+    expect(
+      events
+        .filter((event) => event.kind !== 'payment' && event.kind !== 'refund')
+        .every((event) => event.amountCents === null),
+    ).toBe(true);
+  });
+
+  it('refunds exactly what it captured on the cancelled prepaid ticket', async () => {
+    // The one order in the rush that goes all the way round: charged at
+    // checkout, cancelled, refunded. Captured and refunded must be the same
+    // number, or the balance P0-2 builds on this starts life wrong.
+    const refunded = await prisma.order.findFirstOrThrow({
+      where: { paymentState: 'refunded' },
+      select: { totalCents: true, events: { select: { kind: true, amountCents: true } } },
+    });
+
+    const captured = refunded.events
+      .filter((event) => event.kind === 'payment')
+      .reduce((sum, event) => sum + (event.amountCents ?? 0), 0);
+    const returned = refunded.events
+      .filter((event) => event.kind === 'refund')
+      .reduce((sum, event) => sum + (event.amountCents ?? 0), 0);
+
+    expect(captured).toBe(refunded.totalCents);
+    expect(returned).toBe(captured);
   });
 });

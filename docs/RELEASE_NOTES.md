@@ -1301,3 +1301,20 @@ before today honestly say the name was not recorded, rather than guessing.
 a shift any more, and nothing they ever did loses its attribution.
 
 *Not included: there is no screen for adding staff or changing a PIN yet.*
+
+## C-063 — Money is recorded as things that happened, not as a label
+
+**An order used to carry one word about money:** unpaid, paid, or refunded.
+That word could not say how much, or when, or whether a refund had been
+attempted and failed — and a word cannot be added up.
+
+**The record is now the sequence of events**, each carrying the amount that
+moved and the moment it moved. The word stays on the order because every
+screen already reads it and it is fast; it is now a summary of the events
+rather than the only thing the restaurant knows. A test checks the two agree
+across an entire simulated service.
+
+**Why it matters for what comes next:** "what is still owed on this order" and
+"we tried to refund and the card failed" are both questions a single word
+cannot answer. They are the next two items, and this is the foundation they
+needed.

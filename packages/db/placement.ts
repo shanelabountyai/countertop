@@ -132,6 +132,10 @@ export const eventRow = (draft: OrderEventDraft, staffId?: string | null) => ({
   fromStatus: draft.fromStatus,
   toStatus: draft.toStatus,
   actor: draft.actor,
+  // Null rather than absent, so the CHECK sees what it is meant to: money
+  // events carry an amount and nothing else may.
+  amountCents: draft.amountCents ?? null,
+  providerRef: draft.providerRef ?? null,
   // WHICH staff member, where `actor` says what KIND (C-086). Stamped ONLY on
   // an event the engine attributes to staff: the customer's placement and the
   // system's refund are not somebody's tap, and putting the cook who cancelled

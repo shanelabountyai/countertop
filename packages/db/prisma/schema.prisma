@@ -334,6 +334,19 @@ model OrderEvent {
   staffId    String?
   staff      StaffMember?   @relation(fields: [staffId], references: [id], onDelete: Restrict)
   reason     String?
+  /// Money moved by THIS event, in integer cents (PRD 3 P0-1, C-063).
+  ///
+  /// A column and not a key in `detail`, because the event stream is now the
+  /// truth about payment (decision 5, 2026-09-01) and a balance summed out of
+  /// JSON is a balance no index can help and no CHECK can constrain. A CHECK
+  /// ties it to the kinds that move money: `payment` and `refund` must carry
+  /// one, everything else must not.
+  amountCents Int?
+  /// The processor's own reference for this movement, for the day there is a
+  /// processor. Null throughout — `provider: 'mock'` in `detail` is the honest
+  /// record that no call was made — and here now because adding it later means
+  /// a migration over a table that only grows.
+  providerRef String?        @db.VarChar(128)
   detail     Json?
 
   @@index([orderId, at])
