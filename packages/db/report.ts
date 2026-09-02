@@ -36,6 +36,12 @@ export function loadReportOrders(since: Date): Promise<ReportableOrder[]> {
       seq: true,
       customerName: true,
       paymentState: true,
+      // The money events (C-064): the report's outstanding list asks
+      // `orderBalance` what is owed, like the queue card and the receipt do.
+      // Two scalars per event on an already-heavy scan — the alternative was
+      // leaving one of that function's three readers on the enum, which is the
+      // drift this codebase keeps having to come back and undo.
+      events: { select: { kind: true, amountCents: true } },
       subtotalCents: true,
       taxCents: true,
       totalCents: true,

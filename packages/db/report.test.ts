@@ -186,7 +186,7 @@ describe('the sales report, against the database', () => {
     expect(report.payment.collectedCents).toBe(1456);
     expect(charged - report.payment.collectedCents).toBe(report.payment.outstandingCents);
     expect(report.payment.outstanding).toEqual([
-      { day: '2026-07-14', seq: 2, customerName: 'Ozzy', totalCents: 1456 },
+      { day: '2026-07-14', seq: 2, customerName: 'Ozzy', owedCents: 1456 },
     ]);
     expect(report.payment.unpaidRate).toBe(1 / 2);
   });

@@ -59,3 +59,50 @@ export function derivePaymentState(events: readonly MoneyEvent[]): PaymentState 
   if (capturedCents === 0) return 'unpaid';
   return refundedCents >= capturedCents ? 'refunded' : 'paid';
 }
+
+/** Enough of an order to say what is still owed on it. A database row
+ *  satisfies it structurally, like every other input in this package. */
+export type OrderMoney = {
+  /** The snapshot's total. NEVER modified by anything in this file — a balance
+   *  is computed beside the money, never by editing it (the snapshot rule). */
+  totalCents: number;
+  events: readonly MoneyEvent[];
+};
+
+export type OrderBalance = {
+  /** Money received and kept: captured minus refunded. */
+  collectedCents: number;
+  /** What the customer still owes. Zero once the order is settled. */
+  outstandingCents: number;
+};
+
+/**
+ * A balance, not a boolean (PRD 3 P0-2, C-064).
+ *
+ * `paymentState` can say paid, unpaid or refunded. It cannot say "$31.20 of
+ * $34.20", which is the answer as soon as anything partial exists — a partial
+ * refund today, a comp or a partial payment when C-065 lands. This is the one
+ * function that answers "how much is still owed", and the staff receipt, the
+ * queue's unpaid badge and the report's outstanding list all ask it.
+ *
+ * INTEGER CENTS THROUGHOUT, no float anywhere in the arithmetic (CLAUDE.md).
+ *
+ * Both figures are clamped at zero, and the clamps mean different things.
+ * `collectedCents` clamps because a refund exceeding capture is a data error
+ * and "we hold minus three dollars" is not a thing a screen should ever show.
+ * `outstandingCents` clamps because an overpayment is money owed to the
+ * CUSTOMER, which is a refund the product cannot yet issue — showing it as a
+ * negative debt would invite somebody to collect it again.
+ *
+ * The comp term PRD 3 P0-2 names is deliberately absent: nothing writes a comp
+ * yet (C-065 does). It arrives as one more case in `paymentTotals`, and the
+ * arithmetic below does not change shape when it does.
+ */
+export function orderBalance(order: OrderMoney): OrderBalance {
+  const { capturedCents, refundedCents } = paymentTotals(order.events);
+  const collectedCents = Math.max(0, capturedCents - refundedCents);
+  return {
+    collectedCents,
+    outstandingCents: Math.max(0, order.totalCents - collectedCents),
+  };
+}

@@ -49,6 +49,19 @@ const order = (
   seq: (seq += 1),
   customerName: 'Dana',
   paymentState: payment,
+  // C-064: the split reads the EVENTS now, so a fixture has to carry the ones
+  // its `paymentState` implies. Derived from that argument rather than passed
+  // separately, so a test cannot describe an order that is `paid` with no
+  // payment on it — which is a state the database's own agreement test forbids.
+  events:
+    payment === 'unpaid'
+      ? []
+      : payment === 'paid'
+        ? [{ kind: 'payment' as const, amountCents: money.totalCents }]
+        : [
+            { kind: 'payment' as const, amountCents: money.totalCents },
+            { kind: 'refund' as const, amountCents: money.totalCents },
+          ],
   ...money,
   lines,
 });
@@ -303,7 +316,7 @@ describe('salesReport — collected versus charged (defect D2, C-051)', () => {
     expect(charged - report.payment.collectedCents).toBe(1430);
     expect(report.payment.outstandingCents).toBe(1430);
     expect(report.payment.outstanding).toEqual([
-      { day: '2026-07-14', seq: unpaid.seq, customerName: 'Dana', totalCents: 1430 },
+      { day: '2026-07-14', seq: unpaid.seq, customerName: 'Dana', owedCents: 1430 },
     ]);
     expect(report.payment.unpaidRate).toBe(1 / 2);
   });
@@ -327,18 +340,43 @@ describe('salesReport — collected versus charged (defect D2, C-051)', () => {
     expect(report.payment.unpaidRate).toBeNull();
   });
 
-  it('keeps a refund in its own bucket instead of netting it into either', () => {
+  it('keeps a refund in its own bucket, and shows the money as owed', () => {
     const report = salesReport(
       [order(AT, [line('Burrito', 1, 1095)], 'picked_up', money(1195), 'refunded')],
       LA,
     );
 
+    // C-064 CHANGED THIS, and the new answer is the more honest one. Under the
+    // enum a refunded order counted toward neither collected nor outstanding
+    // and simply vanished from the split. Under the balance the customer has
+    // the food and we hold nothing — which is money owed, and it belongs on
+    // the chase list. Unreachable today (a refund only accompanies a cancel,
+    // and a cancelled order is not a sale), and written down because the day
+    // C-067 lets a picked-up order be refunded, this is what the report says.
     expect(report.payment.collectedCents).toBe(0);
-    expect(report.payment.outstandingCents).toBe(0);
+    expect(report.payment.outstandingCents).toBe(1195);
+    // Its own bucket still, netted into neither.
     expect(report.payment.refundedCents).toBe(1195);
     // Still booked as revenue: the split explains the headline, it never
     // restates it (decision 2026-09-01 #1).
     expect(report.days[0]?.totalCents).toBe(1195);
+  });
+
+  it('splits every window exactly into collected and outstanding', () => {
+    // The invariant the balance buys, and one the enum could not hold: a
+    // refunded order used to fall out of both halves. Now every cent of
+    // revenue is in exactly one of them.
+    const report = salesReport(
+      [
+        order(AT, [line('Burrito', 1, 1)], 'picked_up', money(1195), 'paid'),
+        order(AT, [line('Bowl', 1, 1)], 'picked_up', money(1430), 'unpaid'),
+        order(AT, [line('Bowl', 1, 1)], 'picked_up', money(900), 'refunded'),
+      ],
+      LA,
+    );
+
+    const revenue = report.days.reduce((sum, day) => sum + day.totalCents, 0);
+    expect(report.payment.collectedCents + report.payment.outstandingCents).toBe(revenue);
   });
 
   it('lists the chase list chronologically, oldest first', () => {
@@ -350,7 +388,7 @@ describe('salesReport — collected versus charged (defect D2, C-051)', () => {
       LA,
     );
 
-    expect(report.payment.outstanding.map((o) => [o.day, o.totalCents])).toEqual([
+    expect(report.payment.outstanding.map((o) => [o.day, o.owedCents])).toEqual([
       ['2026-07-14', 100],
       ['2026-07-15', 200],
     ]);

@@ -1318,3 +1318,19 @@ across an entire simulated service.
 "we tried to refund and the card failed" are both questions a single word
 cannot answer. They are the next two items, and this is the foundation they
 needed.
+
+## C-064 — "Unpaid" became an amount
+
+**A yes/no could not describe a partly settled order.** An order was paid or it
+wasn't. If some of it came back, or some of it was never taken, no screen had a
+way to say how much.
+
+**Every screen that talks about money owed now shows the balance** — the queue
+card's badge, the staff receipt, and the sales report's list of who still owes.
+One calculation, three places, so they cannot disagree.
+
+**The counter now collects the remainder.** If $10 is already down on a $35
+ticket, "Collected" takes $25 — not another $35.
+
+**And the order's own total never moves.** What a customer was charged is a
+permanent record; the balance is worked out beside it, never by editing it.

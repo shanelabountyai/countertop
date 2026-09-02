@@ -13,7 +13,6 @@ import {
   STATUS_FACTS,
   type CancelReason,
   type OrderStatus,
-  type PaymentState,
 } from '@countertop/core';
 import {
   abandonOrder,
@@ -47,14 +46,15 @@ const REASON_LABEL: Record<CancelReason, string> = {
 export function QueueControls({
   orderId,
   status,
-  paymentState,
+  outstandingCents,
   undoMs,
 }: {
   orderId: string;
   status: OrderStatus;
-  /** P1-8. Only `unpaid` puts a control here — there is no un-pay button, and
-   *  a refund is what cancelling a paid order does. */
-  paymentState: PaymentState;
+  /** What is still owed, from `orderBalance` on the server (C-064). A number
+   *  rather than `paymentState`: "unpaid" cannot describe an order that has
+   *  been half refunded, and "is anything owed" can. */
+  outstandingCents: number;
   /** Milliseconds left on the undo, computed by the SERVER from the event log.
    *  A duration, not an instant — nothing here reads a clock to decide. */
   undoMs: number;
@@ -113,10 +113,10 @@ export function QueueControls({
           that lets the bag leave and this is the one that must happen first
           (P1-8). Not a blocker: the PRD says flag, and a cook who cannot hand
           over food because a screen disagrees about money will find a way
-          around the screen. Asked of the status module rather than of
-          `paymentState` alone, so a no-show sitting in the "Just finished"
-          strip does not offer to collect for food nobody took. */}
-      {canCollectPayment(status, paymentState) && (
+          around the screen. Asked of the status module rather than of the
+          amount alone, so a no-show sitting in the "Just finished" strip does
+          not offer to collect for food nobody took. */}
+      {canCollectPayment(status, outstandingCents) && (
         <button
           type="button"
           disabled={pending}

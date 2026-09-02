@@ -3658,3 +3658,86 @@ re-opened):**
   over a table that only ever grows.
 
 C-063 committed at cb58f8e.
+
+## C-064 — A balance, not a boolean (PRD 3 P0-2)
+
+**What was wrong.** `paymentState` can say paid, unpaid or refunded. It cannot
+say "$31.20 of $34.20", and that is the answer the moment anything is partial —
+a partial refund now, a comp when C-065 lands. Three surfaces asked the enum
+"is money owed" and got a yes/no where the truthful answer is an amount.
+
+**Built:**
+- `orderBalance` in `packages/core/orders/payment.ts` — `collectedCents` and
+  `outstandingCents`, integer cents, no float. Both clamp at zero and the
+  clamps mean different things: a refund exceeding capture is a data error and
+  "we hold minus three dollars" should never reach a screen; an overpayment is
+  money owed to the *customer*, and a negative debt would invite somebody to
+  collect it again.
+- **`canCollectPayment` now takes an amount, not the enum.** A number rather
+  than the balance object, so the status module stays ignorant of the payment
+  stream — the two are deliberately uncoupled and the caller does the one
+  computation.
+- **All three readers converted**, which was the point: the queue's unpaid
+  badge, the staff receipt, and the report's outstanding list. `QUEUE_ORDER`
+  and `ORDER_RECEIPT` now carry the money events; the report's scan selects
+  them too. Leaving one reader on the enum is precisely the drift this
+  codebase keeps coming back to undo.
+- The chase list's `totalCents` became `owedCents`. A partly settled order
+  belongs on it for the remainder, not for the whole ticket.
+- The PRD's acceptance case, to the cent: $34.20 captured, $3.00 refunded →
+  3120 collected, and `totalCents` still 3420. A balance is computed *beside*
+  the money, never by editing it.
+- A db test that proves it changes behaviour rather than just arithmetic: with
+  $10 already down, the counter collects **the remainder**, not another $35.07.
+
+**Decided:**
+- **A refunded order now shows as OUTSTANDING**, where under the enum it fell
+  out of the split entirely. The customer has the food and we hold nothing —
+  that is money owed, and it belongs on the chase list. Unreachable today (a
+  refund only accompanies a cancel, and a cancelled order is not a sale) and
+  written into the test for the day C-067 makes it reachable.
+- **`collected + outstanding` is now exactly the revenue booked.** The enum
+  could not hold that invariant, because refunded orders counted toward
+  neither half. There is a test for it.
+- **The comp term PRD 3 P0-2 names is absent**, because nothing writes a comp
+  yet. It arrives as one more case in `paymentTotals` and the arithmetic does
+  not change shape when it does.
+
+**Left behind:**
+- **The report's scan got heavier** — every order in the window now carries its
+  money events. At one restaurant's volume this is milliseconds against a scan
+  the WRITEUP already flags as the wrong shape at chain scale; it is recorded
+  because the honest reason to accept it was consistency, not cost.
+- **Nothing writes a partial payment or a partial refund.** Both db tests
+  insert the events directly. C-065 and C-067 are where writers appear.
+
+---
+
+# Carried forward — read this first in a new session
+
+State at the end of the 2026-09-01 session, so the next one does not have to
+reconstruct it.
+
+**Pushed and CI-green:** C-051, C-052, C-084, C-085, C-086, C-063, plus the
+loyalty PRD. **C-064 is this entry**, gated green (513 unit, 127 passed + 14
+skipped = 141 e2e, reconciled) and committed with it.
+
+**Next item is the logo set, and it is imported and unbuilt.**
+`docs/design/Firebird Logo Set.dc.html` is in the repo, with the spec written
+out as greppable values in `docs/design/README.md`. Nothing in the app uses it
+yet. The implementation is brand assets, not a redesign: the two faces via
+`next/font`, the palette as `@theme` tokens in Tailwind v4, the mark redrawn as
+inline SVG, an `app/icon.svg` favicon using the monogram F (the sheet says the
+flame drops out below 48px), and the lockup wherever "Firebird Kitchen" is
+currently plain text. The four don'ts and the 48px/120px rules are in the
+README. **Do not soften the `NO ONIONS` treatment** — the brand sheet and
+`CLAUDE.md` agree on it.
+
+**Then PRD 3 continues at C-065** — comp and partial adjustment on the staff
+receipt. Both of its blocking Open Questions are now answered (decisions 5 and
+6, 2026-09-01), so it is unblocked.
+
+**Two things still waiting on the owner:** the loyalty PRD's first Open
+Question (lift the master PRD's loyalty Non-Goal, or shelve it — the PRD's own
+recommendation is not to build it yet), and the two calls recorded in
+`docs/DESIGN_BRIEF.md` (no shadcn; light-mode-only tokens).

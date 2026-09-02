@@ -44,6 +44,11 @@ export const ORDER_RECEIPT = {
       orderBy: { lineNumber: 'asc' },
       include: { options: { orderBy: { sortOrder: 'asc' } } },
     },
+    // The money events, so any holder of a receipt can ask `orderBalance` what
+    // is still owed (C-064). Two scalars per event, not the whole row: a
+    // receipt has no business carrying the actor or the detail payload, and
+    // this is the shape `MoneyEvent` asks for.
+    events: { select: { kind: true, amountCents: true } },
   },
 } as const satisfies Prisma.OrderDefaultArgs;
 

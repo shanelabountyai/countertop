@@ -12,6 +12,7 @@
 // joined MenuItem for a name would restate last month's sales under this
 // month's menu, and a deleted item would vanish from its own history.
 import { restaurantClock } from './business-day';
+import { orderBalance, paymentTotals, type MoneyEvent } from './payment';
 import { salesRoleOf, type OrderStatus, type PaymentState } from './state-machine';
 
 /** What a report needs off an order. A subset of the snapshot, so a database
@@ -24,6 +25,9 @@ export type ReportableOrder = {
   seq: number;
   customerName: string;
   paymentState: PaymentState;
+  /** The money events, so the split below asks `orderBalance` rather than the
+   *  enum (C-064). The third of that function's three readers. */
+  events: readonly MoneyEvent[];
   subtotalCents: number;
   taxCents: number;
   totalCents: number;
@@ -91,7 +95,10 @@ export type OutstandingOrder = {
   day: string;
   seq: number;
   customerName: string;
-  totalCents: number;
+  /** What is OWED, which since C-064 is not always the order's total — a
+   *  partly settled order belongs on the chase list for the remainder, not
+   *  for the whole ticket. */
+  owedCents: number;
 };
 
 /**
@@ -188,31 +195,28 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     const hour = Math.floor(clock.minuteOfDay / 60);
     const units = order.lines.reduce((sum, line) => sum + line.quantity, 0);
 
-    // Booked as revenue above; here is whether the money arrived. Exhaustive
-    // over `PaymentState` rather than "paid, else outstanding" — a fourth
-    // state must not become money owed by default.
-    switch (order.paymentState) {
-      case 'paid':
-        collectedCents += order.totalCents;
-        break;
-      case 'refunded':
-        refundedCents += order.totalCents;
-        break;
-      case 'unpaid':
-        outstandingCents += order.totalCents;
-        outstanding.push({
-          day: clock.day,
-          seq: order.seq,
-          customerName: order.customerName,
-          totalCents: order.totalCents,
-        });
-        break;
-      default:
-        // Unreachable by construction; here so the COMPILER finds this reader
-        // when a fourth payment state ships, rather than silently letting it
-        // count as neither collected nor owed.
-        throw new Error(`unhandled payment state: ${String(order.paymentState satisfies never)}`);
+    // Booked as revenue above; here is how much of it arrived. Asked of
+    // `orderBalance` rather than of `paymentState` (C-064) — the enum could
+    // only sort orders into three piles, and the moment anything is partial
+    // the answer is an amount. `collected + outstanding` is still exactly the
+    // revenue booked above, so the split explains the headline without
+    // restating it.
+    const balance = orderBalance(order);
+    collectedCents += balance.collectedCents;
+    if (balance.outstandingCents > 0) {
+      outstandingCents += balance.outstandingCents;
+      outstanding.push({
+        day: clock.day,
+        seq: order.seq,
+        customerName: order.customerName,
+        owedCents: balance.outstandingCents,
+      });
     }
+    // Its own bucket, and now a SUM OF REFUNDS rather than the totals of
+    // orders wearing a `refunded` label. It still nets into neither of the
+    // other two: a refunded order shows the money as outstanding, because
+    // that is what it is — the customer has the food and we hold nothing.
+    refundedCents += paymentTotals(order.events).refundedCents;
 
     const day = days.get(clock.day) ?? {
       day: clock.day,

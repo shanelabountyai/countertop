@@ -16,7 +16,7 @@
 // day it was placed.
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { canCollectPayment, formatOrderNumber } from '@countertop/core';
+import { canCollectPayment, formatOrderNumber, orderBalance } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
 import { findOrderByIdForStaff, loadOrderActivity } from '@countertop/db/history';
 import { formatCents } from '@/lib/money';
@@ -104,7 +104,7 @@ export default async function OrderHistoryDetailPage({
 
         <p className="mt-3 font-semibold">{PAYMENT_LABEL[order.paymentState]}</p>
 
-        {canCollectPayment(order.status, order.paymentState) && (
+        {canCollectPayment(order.status, orderBalance(order).outstandingCents) && (
           <form action={collectPayment} className="mt-3">
             <input type="hidden" name="orderId" value={order.id} />
             <button

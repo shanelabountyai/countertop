@@ -189,7 +189,7 @@ export default async function ReportPage({
                     order.day,
                     formatOrderNumber(order.seq),
                     order.customerName,
-                    formatCents(order.totalCents),
+                    formatCents(order.owedCents),
                   ])}
                 />
               </div>

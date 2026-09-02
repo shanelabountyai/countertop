@@ -15,10 +15,27 @@ import { ORDER_RECEIPT } from './placement';
  * what decides whether the 5-second undo is on offer (P0-4). Placement and the
  * customer's status page keep the smaller shape.
  */
+/**
+ * The card's read.
+ *
+ * `events` used to be `take: 1` — the newest, for the undo countdown. C-064
+ * needs the money events too, and one `events` key cannot be two queries, so
+ * it is now every event with the five scalars BOTH readers want: `at`,
+ * `kind`, `fromStatus` and `toStatus` for `undoRemainingMs`, and `amountCents`
+ * for `orderBalance`. Newest first, so `events[0]` still means what it did at
+ * every existing call site.
+ *
+ * The cost is real and small: a queue is twenty-odd orders of a handful of
+ * events each, and both answers now come from one round trip rather than the
+ * card needing a second query for what it is owed.
+ */
 export const QUEUE_ORDER = {
   include: {
     ...ORDER_RECEIPT.include,
-    events: { orderBy: { at: 'desc' }, take: 1 },
+    events: {
+      orderBy: { at: 'desc' },
+      select: { at: true, kind: true, fromStatus: true, toStatus: true, amountCents: true },
+    },
   },
 } as const satisfies Prisma.OrderDefaultArgs;
 

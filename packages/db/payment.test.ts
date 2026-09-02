@@ -8,6 +8,7 @@ import { instantMinutesAfter, type Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { collectOrderPayment } from './payment';
+import { orderBalance } from '@countertop/core';
 import { placeOrder, type PlacementInput } from './placement';
 import { applyOrderAction } from './transitions';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
@@ -230,5 +231,90 @@ describe('a payment is something that happened (PRD 6 P0-3)', () => {
     });
     expect(money.map((event) => event.kind)).toEqual(['payment', 'refund']);
     expect(money.find((event) => event.kind === 'payment')?.toStatus).toBeNull();
+  });
+});
+
+// PRD 3 P0-2 (C-064), at the database grain. The arithmetic is proved in
+// packages/core; what is proved here is that a receipt loaded through the real
+// query carries what `orderBalance` needs, and that a partial refund leaves
+// the snapshot alone.
+describe('the balance, against the database', () => {
+  it('survives a partial refund without touching a cent of the snapshot', async () => {
+    const order = await place({ paidNow: true });
+    const before = { subtotal: order.subtotalCents, tax: order.taxCents, total: order.totalCents };
+
+    // Nothing WRITES a partial refund yet — C-067 does. Inserted directly, as
+    // an append (which the append-only trigger permits), because the balance
+    // has to be right on the day something does.
+    await prisma.orderEvent.create({
+      data: {
+        orderId: order.id,
+        at: DINNER,
+        kind: 'refund',
+        fromStatus: null,
+        toStatus: null,
+        actor: 'staff',
+        amountCents: 300,
+        detail: { amountCents: 300, provider: 'mock' },
+      },
+    });
+
+    const reloaded = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      select: {
+        subtotalCents: true,
+        taxCents: true,
+        totalCents: true,
+        events: { select: { kind: true, amountCents: true } },
+      },
+    });
+
+    expect(orderBalance(reloaded)).toEqual({
+      collectedCents: order.totalCents - 300,
+      outstandingCents: 300,
+    });
+    // The snapshot rule, in money form: the order still costs what it cost.
+    expect({
+      subtotal: reloaded.subtotalCents,
+      tax: reloaded.taxCents,
+      total: reloaded.totalCents,
+    }).toEqual(before);
+  });
+
+  it('lets the counter collect the remainder, and only the remainder', async () => {
+    // The reason the collect path takes the BALANCE rather than the total: a
+    // partly settled order must not be charged the whole ticket again.
+    const order = await place();
+    for (let step = 0; step < 3; step += 1) {
+      await applyOrderAction(order.id, { kind: 'advance', actor: 'staff' }, DINNER);
+    }
+    await prisma.orderEvent.create({
+      data: {
+        orderId: order.id,
+        at: DINNER,
+        kind: 'payment',
+        fromStatus: null,
+        toStatus: null,
+        actor: 'staff',
+        amountCents: 1000,
+        detail: { amountCents: 1000, where: 'counter', provider: 'mock' },
+      },
+    });
+
+    expect(await collectOrderPayment(order.id, DINNER)).toEqual({ ok: true });
+
+    const events = await prisma.orderEvent.findMany({
+      where: { orderId: order.id, kind: 'payment' },
+      orderBy: { at: 'asc' },
+      select: { amountCents: true },
+    });
+    // 1000 already down, and the collection takes the rest — not another 3507.
+    expect(events.map((event) => event.amountCents)).toEqual([1000, order.totalCents - 1000]);
+
+    const reloaded = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      select: { totalCents: true, events: { select: { kind: true, amountCents: true } } },
+    });
+    expect(orderBalance(reloaded).outstandingCents).toBe(0);
   });
 });

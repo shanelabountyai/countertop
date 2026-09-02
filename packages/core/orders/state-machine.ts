@@ -225,19 +225,29 @@ export const SOLD_STATUSES = statusesInSalesRole('sold');
 export const NO_SHOW_STATUSES = statusesInSalesRole('no_show');
 
 /**
- * Is there money still to collect on this order (P1-8)?
+ * Is there money still to collect on this order (P1-8, rewritten C-064)?
  *
  * ONE predicate, three readers — the queue card's collect button, the history
  * receipt's, and the server action behind both — for the same reason the gate
- * and the orderability check are each one function. Unpaid is necessary and
- * not sufficient: on a `cancelled` or `abandoned` order, `unpaid` is the
- * correct permanent answer, because nobody took the food. `sold` is the case
- * the queue card structurally cannot serve — it has already dropped that
- * order — which is how an unpaid order used to become uncollectable forever
- * by being handed over.
+ * and the orderability check are each one function.
+ *
+ * It took `paymentState` until C-064 and now takes an AMOUNT, from
+ * `orderBalance` (PRD 3 P0-2). The enum could only say unpaid, and "unpaid"
+ * is not a question about an order that has been half refunded or partly
+ * comped; "is anything still owed" is, and it has the same answer for every
+ * case the enum could express. A number rather than the balance object so
+ * this module keeps knowing nothing about the payment stream — the two are
+ * deliberately not coupled, and the caller does the one computation.
+ *
+ * A balance is necessary and not sufficient: on a `cancelled` or `abandoned`
+ * order the outstanding amount is the correct permanent answer and still must
+ * not be collected, because nobody took the food. `sold` is the case the
+ * queue card structurally cannot serve — it has already dropped that order —
+ * which is how an unpaid order used to become uncollectable forever by being
+ * handed over.
  */
-export function canCollectPayment(status: OrderStatus, paymentState: PaymentState): boolean {
-  if (paymentState !== 'unpaid') return false;
+export function canCollectPayment(status: OrderStatus, outstandingCents: number): boolean {
+  if (outstandingCents <= 0) return false;
   const role = STATUS_FACTS[status].salesRole;
   return role === 'in_flight' || role === 'sold';
 }

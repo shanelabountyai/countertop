@@ -188,29 +188,43 @@ describe('the status lists every reader derives from', () => {
   });
 });
 
-describe('money still to collect (P1-8)', () => {
-  it('is unpaid AND the customer has the food, or is going to', () => {
+// C-064 rewrote this against an AMOUNT rather than `paymentState`: the enum
+// could only say "unpaid", which is not a question about an order that has
+// been half refunded. `1456` below is simply "something is owed" — the figure
+// itself comes from `orderBalance`, which is tested in payment.test.ts.
+describe('money still to collect (P1-8, against the balance since C-064)', () => {
+  it('is something owed AND the customer has the food, or is going to', () => {
     // in_flight: the counter collects before the bag leaves.
-    expect(canCollectPayment('placed', 'unpaid')).toBe(true);
-    expect(canCollectPayment('ready', 'unpaid')).toBe(true);
+    expect(canCollectPayment('placed', 1456)).toBe(true);
+    expect(canCollectPayment('ready', 1456)).toBe(true);
     // sold: handed over without collecting. The case the queue card cannot
     // serve, because it has already dropped this order.
-    expect(canCollectPayment('picked_up', 'unpaid')).toBe(true);
+    expect(canCollectPayment('picked_up', 1456)).toBe(true);
   });
 
   it('is never a state where nobody took the food', () => {
-    // `unpaid` on these is the correct permanent answer, not an outstanding
+    // An outstanding amount on these is the correct permanent answer, not a
     // debt — collecting would invent revenue for food that was never handed
     // over, and a no-show is the numerator of a rate the owner acts on.
-    expect(canCollectPayment('abandoned', 'unpaid')).toBe(false);
-    expect(canCollectPayment('cancelled', 'unpaid')).toBe(false);
+    expect(canCollectPayment('abandoned', 1456)).toBe(false);
+    expect(canCollectPayment('cancelled', 1456)).toBe(false);
   });
 
-  it('is never anything but unpaid — there is no un-pay, and a refund is a cancel', () => {
+  it('is never anything once the balance is settled', () => {
     for (const status of ORDER_STATUSES) {
-      expect(canCollectPayment(status, 'paid')).toBe(false);
-      expect(canCollectPayment(status, 'refunded')).toBe(false);
+      expect(canCollectPayment(status, 0)).toBe(false);
+      // Negative cannot arise — `orderBalance` clamps — but a predicate that
+      // said "yes, collect" on an overpayment would be the worst possible
+      // reading of one, so it is asserted rather than assumed.
+      expect(canCollectPayment(status, -1)).toBe(false);
     }
+  });
+
+  it('does not care HOW the balance got there', () => {
+    // The whole point of taking a number. A cent still owed after a partial
+    // refund is collectable in exactly the states a full amount is, and this
+    // predicate never has to learn what a partial refund is.
+    expect(canCollectPayment('picked_up', 1)).toBe(true);
   });
 });
 

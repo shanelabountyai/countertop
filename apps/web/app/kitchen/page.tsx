@@ -14,6 +14,7 @@ import {
   isLeftOver,
   matchesLookup,
   needsAcknowledgment,
+  orderBalance,
   restaurantClock,
   queueAging,
   undoRemainingMs,
@@ -242,7 +243,7 @@ export default async function KitchenPage({
                 <QueueControls
                   orderId={order.id}
                   status={order.status}
-                  paymentState={order.paymentState}
+                  outstandingCents={orderBalance(order).outstandingCents}
                   undoMs={undoRemainingMs(order.status, order.events[0], now)}
                 />
               </li>
@@ -314,9 +315,13 @@ export default async function KitchenPage({
                         open the receipt to find it will wave the order through.
                         Amber, not the red the aging flags own: money owed is
                         not the same alarm as food going cold. */}
-                    {order.paymentState === 'unpaid' && (
+                    {orderBalance(order).outstandingCents > 0 && (
                       <p className="mt-2 w-fit rounded bg-amber-200 px-2 py-1 text-lg font-bold uppercase text-amber-900">
-                        {PAYMENT_LABEL.unpaid} — {formatCents(order.totalCents)}
+                        {/* The BALANCE, not the order total (C-064). Identical
+                            today and deliberately not the same expression: the
+                            badge must say what is owed, or a partly-settled
+                            order sends a cook to collect the whole amount. */}
+                        {PAYMENT_LABEL.unpaid} — {formatCents(orderBalance(order).outstandingCents)}
                       </p>
                     )}
 
@@ -388,7 +393,7 @@ export default async function KitchenPage({
                     <QueueControls
                       orderId={order.id}
                       status={order.status}
-                      paymentState={order.paymentState}
+                      outstandingCents={orderBalance(order).outstandingCents}
                       undoMs={undoMs}
                     />
                   </li>

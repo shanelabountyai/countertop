@@ -5,7 +5,7 @@
 // the missing event for two items. It is here now for the reason every other
 // write is: a column and its event have to move in ONE transaction, and that
 // is a thing only a database module can promise.
-import { canCollectPayment, paymentEvent } from '@countertop/core';
+import { canCollectPayment, orderBalance, paymentEvent } from '@countertop/core';
 import { prisma } from './index';
 import { eventRow } from './placement';
 
@@ -29,14 +29,24 @@ export async function collectOrderPayment(
 ): Promise<CollectPaymentResult> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { status: true, paymentState: true, totalCents: true },
+    select: {
+      status: true,
+      paymentState: true,
+      totalCents: true,
+      events: { select: { kind: true, amountCents: true } },
+    },
   });
   if (!order) return { ok: false, message: 'That order could not be found.' };
-  if (!canCollectPayment(order.status, order.paymentState)) {
+
+  // The balance, not the enum (C-064). Same three readers, same one predicate;
+  // what changed is that "is anything still owed" survives a partial refund
+  // and "unpaid" does not.
+  const balance = orderBalance(order);
+  if (!canCollectPayment(order.status, balance.outstandingCents)) {
     return {
       ok: false,
       message:
-        order.paymentState === 'unpaid'
+        balance.outstandingCents > 0
           ? 'Nobody took this order, so there is nothing to collect on it.'
           : 'This order is already settled.',
     };
@@ -54,8 +64,15 @@ export async function collectOrderPayment(
       data: { paymentState: 'paid' },
     });
     if (guard.count === 0) return false;
+    // What is OWED, not the order total. Identical today — nothing writes a
+    // partial payment yet — and the difference is the whole reason the balance
+    // exists: the day a comp lands, collecting the total would take money the
+    // customer no longer owes.
     await tx.orderEvent.create({
-      data: { orderId, ...eventRow(paymentEvent(now, order.totalCents, 'counter'), staffId) },
+      data: {
+        orderId,
+        ...eventRow(paymentEvent(now, balance.outstandingCents, 'counter'), staffId),
+      },
     });
     return true;
   });
