@@ -21,11 +21,14 @@ import {
   adjustableRemainingCents,
   canCollectPayment,
   formatOrderNumber,
+  hasReward,
   orderBalance,
   paymentTotals,
+  pointsToNextReward,
 } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
 import { findOrderByIdForStaff, loadOrderActivity, loadRemakesOf } from '@countertop/db/history';
+import { memberByPhone } from '@countertop/db/loyalty';
 import { formatCents } from '@/lib/money';
 import { formatPlacedAt } from '@/lib/format-time';
 import { describeSelection } from '@/lib/menu-labels';
@@ -57,6 +60,17 @@ export default async function OrderHistoryDetailPage({
     loadRemakesOf(id),
   ]);
   if (!order) notFound();
+
+  // The counter panel (PRD 7 P0-3's reader, C-103). SEQUENTIAL rather than in
+  // the Promise.all above, because the lookup's input is the order's own
+  // phone — and it is skipped entirely with the program off, which is what
+  // keeps "no loyalty copy renders anywhere" true on this screen too.
+  // `memberByPhone` hashes what it is given, so the plaintext still never
+  // reaches a `where`.
+  const member =
+    gateState.loyalty.offered && order.customerPhone
+      ? await memberByPhone(order.customerPhone)
+      : null;
 
   // Both read from the SAME events the balance is summed from, so the figure
   // the form bounds itself by and the figure the server enforces cannot drift.
@@ -98,6 +112,37 @@ export default async function OrderHistoryDetailPage({
             </span>
           ))}
         </p>
+      )}
+
+      {/* Read-only, and deliberately not a control: redeeming is C-104's, and
+          a panel that can only be READ is the honest shape while the balance
+          is the only thing that exists. The last four and the name together
+          are what a person confirms out loud — "the one ending 2233, Ivy" —
+          because the counter is holding a phone number it cannot see. */}
+      {member && (
+        <section
+          className="mt-4 rounded-lg border border-neutral-300 p-4"
+          data-testid="member-panel"
+        >
+          <h2 className="font-semibold">Punch card</h2>
+          <p className="mt-1">
+            {member.displayName}{' '}
+            <span className="text-neutral-600">· ending {member.phoneLast4}</span>
+          </p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums" data-testid="member-balance">
+            {member.balance} {member.balance === 1 ? 'point' : 'points'}
+          </p>
+          {hasReward(member.balance, gateState.loyalty.terms) ? (
+            <p className="mt-1 font-semibold" data-testid="member-reward">
+              Reward available — {formatCents(gateState.loyalty.terms.rewardValueCents)} off
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-neutral-700" data-testid="member-reward">
+              {pointsToNextReward(member.balance, gateState.loyalty.terms)} points to the next
+              reward
+            </p>
+          )}
+        </section>
       )}
 
       <section className="mt-6 rounded-lg border border-neutral-300 p-4">

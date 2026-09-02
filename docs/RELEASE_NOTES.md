@@ -1502,3 +1502,33 @@ your points do not move — the same rule the receipt itself follows.
 **Off is still off.** A restaurant that has not switched the program on has
 nothing written anywhere, and its checkout, its kitchen queue and its sales
 report are the ones it had yesterday.
+
+---
+
+## C-103 — What the counter can see
+
+**"The one ending 2233, Ivy."** The staff receipt now shows the punch card
+behind an order: the name, the last four digits, the points, and whether
+there's a reward to offer. That is the sentence a person says out loud at a
+counter, so it is what the screen shows.
+
+**The counter never sees the phone number, because nobody kept it.** Four
+digits and a name are enough to confirm you are you, and four digits are not an
+identifier. The rest of the number was turned into a one-way code the day you
+joined and there is nothing to display.
+
+**It offers the reward before you have to ask for it.** "Reward available —
+$10.00 off" sits on the screen the person serving you is already looking at.
+Until then it counts down honestly: 90 points to the next one.
+
+**Reading only.** Nothing on this panel spends anything yet — that is the next
+item, and a button that looked like it might have worked would be worse than
+none.
+
+**And you finally get told you joined.** Ticking the punch card box at checkout
+now says so on your receipt, along with when the points arrive: when you pick
+the food up, not when you order it.
+
+**Still nothing at all with the program switched off.** A restaurant that has
+not turned loyalty on has the same receipt, the same checkout and the same
+kitchen screens it had before any of this existed.

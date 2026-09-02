@@ -247,6 +247,14 @@ function Confirmation({ confirmation }: { confirmation: OrderConfirmation }) {
         {confirmation.orderNumber}
       </p>
       <p className="text-lg">under {confirmation.customerName}</p>
+      {/* The gap C-101 and C-102 both wrote down: a customer ticked the box,
+          was enrolled, and was told nothing. One line, no balance — the points
+          land when the food does. */}
+      {confirmation.enrolled && (
+        <p className="mt-2 font-medium text-green-900" data-testid="enrolled-confirmation">
+          You are on the punch card. Points land when you pick this up.
+        </p>
+      )}
       {/* The receipt itself — the same negation styling as the status page,
           so what the customer confirms here is what the kitchen makes. */}
       <ul className="mt-4 flex flex-col gap-2">

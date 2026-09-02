@@ -33,6 +33,18 @@ export type OrderConfirmation = {
   totalCents: number;
   /** P1-8. What the receipt has to tell the customer to bring cash for. */
   paymentState: PaymentState;
+  /**
+   * Whether the punch card started (PRD 7 P0-1, told at last in C-103).
+   *
+   * A BOOLEAN and not the refusal word: the outcomes are for the operator's
+   * log line, and "we could not key a membership on that number" is not a
+   * sentence to put on a customer's receipt beside their order number. True
+   * for a returning member as well as a new one — the upsert deliberately
+   * cannot tell them apart, and "you are on the punch card" is true either
+   * way. No balance here: the points are earned at PICKUP, so the honest
+   * number at this moment is zero and printing it would read as a bug.
+   */
+  enrolled: boolean;
   lines: {
     itemName: string;
     quantity: number;
@@ -97,7 +109,7 @@ function optionalString(value: unknown): string | null | undefined {
 }
 
 /** Reads the order rows back as the confirmation, dropping every id. */
-const confirm = (order: OrderReceipt): OrderConfirmation => ({
+const confirm = (order: OrderReceipt, enrolment: EnrolmentLogOutcome | null): OrderConfirmation => ({
   orderNumber: formatOrderNumber(order.seq),
   customerName: order.customerName,
   statusToken: order.statusToken,
@@ -106,6 +118,7 @@ const confirm = (order: OrderReceipt): OrderConfirmation => ({
   taxCents: order.taxCents,
   totalCents: order.totalCents,
   paymentState: order.paymentState,
+  enrolled: enrolment === 'enrolled',
   lines: order.lines.map((line) => ({
     itemName: line.itemName,
     quantity: line.quantity,
@@ -261,5 +274,5 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
   // The cart's job is done. Clearing it after the write, not before, means a
   // failed placement leaves the customer their food.
   await clearCart();
-  return { ok: true, confirmation: confirm(result.order) };
+  return { ok: true, confirmation: confirm(result.order, enrolment) };
 }

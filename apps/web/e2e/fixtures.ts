@@ -208,3 +208,26 @@ export async function loyaltyMembers(): Promise<
     await prisma.$disconnect();
   }
 }
+
+/**
+ * A staff correction on the only member's balance (PRD 7 P0-2's `adjust`).
+ *
+ * The one thing a fixture may do that a spec may not, for the same reason
+ * `backdateQueue` exists: the reward threshold is 100 points and a burrito
+ * earns 10, so reaching "reward available" through the screens is ten orders
+ * of clicking to assert one line of copy. `adjust` is a real kind with a real
+ * sign, so this writes a row the product itself would write rather than a
+ * fictional one — and the panel it feeds sums the ledger, so a fabricated
+ * balance column could not have been faked here even if one existed.
+ */
+export async function adjustLoyaltyPoints(points: number): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  try {
+    const member = await prisma.loyaltyMember.findFirstOrThrow();
+    await prisma.loyaltyEvent.create({
+      data: { memberId: member.id, at: new Date(), kind: 'adjust', points, reason: 'e2e fixture' },
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+}

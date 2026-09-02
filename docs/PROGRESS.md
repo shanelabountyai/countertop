@@ -4255,12 +4255,73 @@ edge case.
 
 ---
 
+## C-103 — The counter panel (PRD 7 P0-1's reader)
+
+A balance has existed since C-102 and nothing rendered it. This item is the
+read: on the staff receipt, the member behind an order — name, last four,
+points, and whether a reward is available — plus the one line C-101 and C-102
+both wrote down as missing, telling a customer who ticked the box that the
+punch card started.
+
+**Built:**
+- The punch card panel on `/kitchen/orders/[id]`. `memberByPhone` on the
+  order's own `customerPhone`, guarded by `gateState.loyalty.offered`, so with
+  the program off the lookup is not attempted and no copy exists to be read by
+  a screen reader either.
+- `hasReward` and `pointsToNextReward` from `packages/core` decide which of the
+  two lines renders — the same functions C-104's redemption control will ask,
+  so the panel that says "reward available" and the write that spends it cannot
+  disagree about what a reward is.
+- `enrolled` on `OrderConfirmation`, and the line on the checkout receipt.
+- `adjustLoyaltyPoints` in `apps/web/e2e/fixtures.ts` and two e2e specs: the
+  balance a pickup earned read back off the receipt, the offer changing when a
+  correction crosses the threshold, and a phone-carrying order picked up with
+  the program off showing nothing at all.
+
+**Decided:**
+- **The panel is the ORDER's member, not a search box.** It answers "who is
+  this order's customer and what do they have", which is the question a counter
+  actually asks with the food in its hand. A phone-lookup control is a second
+  entry point into a customer index, and the one thing this program has been
+  careful about from C-100 onward is not building one.
+- **`enrolled` is a boolean, not the refusal word.** The six outcomes are for
+  the operator's log line; "we could not key a membership on that number" is
+  not a sentence to put on a customer's receipt beside their order number. It
+  is true for a returning member too — the upsert deliberately cannot tell them
+  apart, and "you are on the punch card" is true either way.
+- **No balance on the customer's confirmation.** Points are earned at PICKUP,
+  so the honest number at checkout is zero and printing it would read as a bug.
+  The copy says when they land instead.
+- **The panel is read-only and says nothing that implies a control.**
+  Redeeming is C-104's, and a panel with a reward line and no way to spend it
+  is better than one that pretends. The spec asserts there is no reward button,
+  so growing one is a deliberate edit.
+- **Sequential, not folded into the page's `Promise.all`.** The lookup's input
+  is the order's own phone, so it cannot start until the order is read. One
+  extra round trip on one staff screen, and the alternative is passing a phone
+  into a query that has not been guarded by `offered` yet.
+
+**Left behind:**
+- **The queue card still says nothing.** "Member — reward available" on the
+  live card is PRD 7 P1-3 and belongs to whoever next opens the counter
+  handoff's card, because it must not compete with the negation treatment for
+  attention. The receipt is the arm's-length surface; the card is the busy one.
+- **A non-member's order renders no panel at all**, so there is no "offer them
+  the punch card" prompt at the counter. Deliberate: that is a marketing
+  surface on a screen whose job is to settle disputes.
+- **The customer still cannot see their own balance anywhere.** The status page
+  is reachable by anyone holding the token, and putting a balance behind a link
+  that gets forwarded is a decision this item did not need to take. The program
+  is a counter conversation until something says otherwise.
+
+---
+
 # Carried forward — read this first in a new session
 
 State at the end of the 2026-09-02 session.
 
 **Pushed and CI-green:** C-051, C-052, C-084, C-085, C-086, C-063, C-064,
-C-087, C-065, C-066, C-100, C-101. **C-102 is this entry.**
+C-087, C-065, C-066, C-100, C-101, C-102. **C-103 is this entry.**
 
 **PRD 3 has two items left:** C-067 (a refund that can fail — and the home for
 the reversing adjustment C-065 and C-066 both deferred) and C-068 (the cancel
@@ -4286,16 +4347,24 @@ refusal that names the adjustment path).
   prerequisite and it is what makes the durable customer data defensible.
 
 **Order of the loyalty run:** ~~C-100 ledger~~ → ~~C-101 enrolment~~ →
-~~C-102 earning~~ (all three done) → **C-103 counter panel is next** →
-C-104 redeeming →
+~~C-102 earning~~ → ~~C-103 counter panel~~ (all four done) →
+**C-104 redeeming is next** →
 **C-091 retention + forget** → C-105 expiry + forget → C-106 the program's own
 screen.
 
-**What C-103 inherits, and must not re-decide:**
-- **A balance exists and nothing renders it.** `memberByPhone` already returns
-  one; C-103 is a read-only render of what is already summed, not a second way
-  to compute it. There is no balance column and adding one is a later decision
-  with a written reason (C-100).
+**What C-104 inherits, and must not re-decide:**
+- **`planRedemption` already exists in `packages/core/loyalty/ledger.ts`** and
+  was written at C-100 — the refusals, the after-tax rule, and the
+  refuse-never-clamp decision are all in it with their reasons. C-104 is the
+  two writes and the control, not a second opinion about what a redemption is.
+  `hasReward` is already the panel's reader, so the screen that offers the
+  control and the write that performs it are asking one function.
+- **The redemption writes TWO rows** — a `redeem` on the ledger and an
+  `adjustment` on `OrderEvent` — and the money mechanism is PRD 3's, not a new
+  one. Hard dependency on C-064 and C-065, both shipped.
+- **The panel is read-only on purpose and a spec asserts there is no reward
+  button** (C-103). Growing one is this item's job and the assertion is the
+  thing to edit, deliberately.
 - **The earn is written inside the transition's transaction** and leans on
   C-100's partial unique index via `skipDuplicates`. Do not put a
   check-then-write in front of it, and do not move it outside the transaction:
