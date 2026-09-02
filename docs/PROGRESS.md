@@ -3741,3 +3741,5 @@ receipt. Both of its blocking Open Questions are now answered (decisions 5 and
 Question (lift the master PRD's loyalty Non-Goal, or shelve it — the PRD's own
 recommendation is not to build it yet), and the two calls recorded in
 `docs/DESIGN_BRIEF.md` (no shadcn; light-mode-only tokens).
+
+C-064 committed at 909de7c.
