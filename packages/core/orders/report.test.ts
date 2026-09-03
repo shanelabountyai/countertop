@@ -152,6 +152,7 @@ describe('salesReport — what each status counts toward', () => {
 
   it('is empty, not broken, with no orders at all', () => {
     expect(salesReport([], LA)).toEqual({
+      totals: { subtotalCents: 0, taxCents: 0, totalCents: 0 },
       days: [],
       hours: [],
       topItems: [],
@@ -393,5 +394,63 @@ describe('salesReport — collected versus charged (defect D2, C-051)', () => {
       ['2026-07-14', 100],
       ['2026-07-15', 200],
     ]);
+  });
+});
+
+// C-053 / PRD 1 P0-1. The headline was `Σ totalCents` labelled `Revenue`, so a
+// bookkeeper booked the state's sales tax as the shop's earnings. Three
+// numbers, three facts, and the addition that ties them asserted rather than
+// rendered.
+describe('salesReport — net sales, tax and gross are three different numbers', () => {
+  const money = { subtotalCents: 1095, taxCents: 90, totalCents: 1185 };
+  // Two hours on one local day, so the reconciliation is asserted on a row
+  // that is a SUM and not a single order's columns copied across.
+  const twoHours = [
+    order(utc(2026, 7, 14, 19), [line('Burrito', 1, 1095)], 'picked_up', money),
+    order(utc(2026, 7, 14, 20), [line('Burrito', 1, 1095)], 'picked_up', money),
+    order(utc(2026, 7, 14, 20), [line('Burrito', 1, 1095)], 'picked_up', money),
+  ];
+
+  it('reports the window as net, tax and gross', () => {
+    expect(salesReport(twoHours, LA).totals).toEqual({
+      subtotalCents: 3285,
+      taxCents: 270,
+      totalCents: 3555,
+    });
+  });
+
+  it('carries the same three columns on every hour bucket', () => {
+    expect(salesReport(twoHours, LA).hours).toEqual([
+      { hour: 12, orders: 1, items: 1, subtotalCents: 1095, taxCents: 90, totalCents: 1185 },
+      { hour: 13, orders: 2, items: 2, subtotalCents: 2190, taxCents: 180, totalCents: 2370 },
+    ]);
+  });
+
+  it('reconciles net + tax = gross on every row and on the window', () => {
+    // The assertion the requirement asks for, over a fixture with a tax that
+    // does not divide evenly into the subtotal — 90 on 1095 is 8.219%, so a
+    // report that recomputed tax from a rate instead of reading the snapshot
+    // would land a cent away and this would catch it.
+    const report = salesReport(twoHours, LA);
+    for (const row of [...report.days, ...report.hours, report.totals]) {
+      expect(row.subtotalCents + row.taxCents).toBe(row.totalCents);
+    }
+  });
+
+  it('counts tax on sold orders only, like every other money figure', () => {
+    // The cancelled order carries ten times the money. A headline that summed
+    // what it was handed would book it.
+    const report = salesReport(
+      [
+        ...twoHours,
+        order(utc(2026, 7, 14, 20), [line('Burrito', 9, 9855)], 'cancelled', {
+          subtotalCents: 9855,
+          taxCents: 810,
+          totalCents: 10665,
+        }),
+      ],
+      LA,
+    );
+    expect(report.totals).toEqual({ subtotalCents: 3285, taxCents: 270, totalCents: 3555 });
   });
 });

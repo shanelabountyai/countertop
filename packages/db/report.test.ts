@@ -87,7 +87,9 @@ describe('the sales report, against the database', () => {
     const report = await reportSince();
 
     // 19:30Z is 12:30 in Los Angeles.
-    expect(report.hours).toEqual([{ hour: 12, orders: 1, items: 1, totalCents: 1456 }]);
+    expect(report.hours).toEqual([
+      { hour: 12, orders: 1, items: 1, subtotalCents: 1345, taxCents: 111, totalCents: 1456 },
+    ]);
     expect(report.days[0]?.day).toBe('2026-07-14');
     // 1095 + 0 chicken + 250 guac + 0 onions(negated) = 1345.
     // Tax 1345 x 82_500ppm = 110.9625 -> 111. Total 1456.

@@ -239,3 +239,40 @@ test('an order handed over unpaid is money owed, by name, not just revenue', asy
   await expect(owed.getByRole('row').filter({ hasText: 'Dana Reyes' })).toBeVisible();
   await expect(owed.getByRole('row').filter({ hasText: 'Morgan Ellis' })).toHaveCount(0);
 });
+
+// C-053 / PRD 1 P0-1. The headline tile was the gross labelled "Revenue", so
+// the month-end number a bookkeeper reads off this screen included the sales
+// tax owed to the state. Three tiles, and the addition tying them checked on
+// the rendered page rather than only in the engine — the defect was never in
+// the arithmetic, it was in which number carried the word.
+test('the headline is net sales, with tax as its own number', async ({ page }) => {
+  await page.goto('/kitchen');
+  await pickUp(page, 'Dana Reyes');
+
+  await page.goto('/kitchen/report');
+
+  // The word itself is gone from the page. A screen that says "Revenue"
+  // anywhere is a screen someone can quote to an accountant.
+  await expect(page.getByText('Revenue')).toHaveCount(0);
+
+  // By test id, not by label. The blunt `stat` helper takes the LAST div whose
+  // text starts with the label, and this section's own prose starts with the
+  // word "Gross" — which made the first version of this test read the
+  // collected figure and call it the gross. The three tiles that have to add
+  // up are the three that carry an id.
+  const cents = async (testId: string) => {
+    const text = (await page.getByTestId(testId).textContent()) ?? '';
+    const amount = /^\$([\d,]+\.\d{2})$/.exec(text)?.[1];
+    // Loudly. `Number('')` is 0, so a locator that matched the wrong element
+    // reads as a real $0.00 and the reconciliation fails pointing at the page.
+    expect(amount, `no amount in ${testId}: ${text}`).toBeDefined();
+    return Math.round(Number(amount?.replace(/,/g, '')) * 100);
+  };
+  const net = await cents('report-net-sales');
+  const tax = await cents('report-tax');
+  const gross = await cents('report-gross');
+
+  expect(net).toBeGreaterThan(0);
+  expect(tax).toBeGreaterThan(0);
+  expect(net + tax).toBe(gross);
+});

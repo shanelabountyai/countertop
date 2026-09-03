@@ -1655,3 +1655,28 @@ the control does not ship until it can.
 not remembered: a test reads the report's own query and the page that renders
 it and fails if the word "loyalty" turns up in either. Sales figures stay
 readable by somebody who has never switched the program on.
+
+## C-053 — Revenue is not what was charged
+
+**The sales screen had one money tile and it was the wrong number.** It read
+the total of every ticket — food plus sales tax — and it was labelled
+*Revenue*. At a month end that is a P&L overstated by the tax and a tax line
+understated by the same amount, off a screen a bookkeeper is entitled to read
+literally.
+
+**Three tiles now, because these are three facts.** **Net sales** is what the
+shop earned. **Tax collected** is money held on the state's behalf and never
+the shop's. **Gross** is what was charged. Gross is still shown — it is the
+number the till is reconciled against — and it is no longer called revenue
+anywhere on the page, including the column in Top sellers that had the same
+word over a figure that was already net.
+
+**The addition is a test, not a rendering.** Net plus tax equals gross on every
+day, every hour and the window total, asserted in the suite. It holds by
+construction today; the point of asserting it is the day it stops, because the
+cause will be somebody widening a column and not this sum.
+
+**The tax shown is the tax charged.** Every figure is read off the order's own
+snapshot, never recomputed from today's rate — so raising the tax rate this
+afternoon leaves last month's report exactly where it was. Nothing on this path
+so much as loads the current rate.

@@ -72,7 +72,6 @@ export default async function ReportPage({
   const timeInStateRows = timeInState.filter((row) => row.orders > 0 && !isTerminal(row.status));
 
   const busiest = Math.max(1, ...report.hours.map((hour) => hour.orders));
-  const revenueCents = report.days.reduce((sum, day) => sum + day.totalCents, 0);
 
   return (
     <main className="mx-auto max-w-4xl p-4 sm:p-6">
@@ -82,7 +81,9 @@ export default async function ReportPage({
       <h1 className="mt-4 text-3xl font-semibold">Sales</h1>
       <p className="mt-1 text-lg text-neutral-700">
         Everything below is bucketed in {timezone} — the restaurant&rsquo;s own calendar, not the
-        server&rsquo;s. Only orders a customer picked up are counted as sales.
+        server&rsquo;s. Only orders a customer picked up are counted as sales. Every tax figure is
+        the one the order was charged, read off the order itself — never today&rsquo;s rate applied
+        to last month&rsquo;s sales.
       </p>
 
       <nav aria-label="Report window" className="mt-4 flex flex-wrap gap-2">
@@ -110,13 +111,35 @@ export default async function ReportPage({
         shown may be partial.
       </p>
 
-      <section className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Orders sold" value={String(report.noShow.sold)} />
+      {/* Three money numbers, because they are three different facts (P0-1).
+          One tile labelled "Revenue" holding the gross is how a month end
+          books the state's sales tax as the shop's earnings — the P&L
+          overstated and the tax line understated by the same amount. Net sales
+          leads because it is the only one of the three that is the shop's. */}
+      <section className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {/* Test ids on these three and on no other tile: they are the ones an
+            assertion has to ADD UP, and matching them by their label is how a
+            spec ends up reading the "Gross counts every order..." sentence
+            below and adding the collected figure to itself. */}
         <Stat
-          label="Revenue"
-          value={formatCents(revenueCents)}
-          note="Charged, not collected"
+          label="Net sales"
+          value={formatCents(report.totals.subtotalCents)}
+          note="What the shop earned, before tax"
+          testId="report-net-sales"
         />
+        <Stat
+          label="Tax collected"
+          value={formatCents(report.totals.taxCents)}
+          note="Owed to the state, never earnings"
+          testId="report-tax"
+        />
+        <Stat
+          label="Gross"
+          value={formatCents(report.totals.totalCents)}
+          note="Charged, not collected"
+          testId="report-gross"
+        />
+        <Stat label="Orders sold" value={String(report.noShow.sold)} />
         <Stat
           label="No-show rate"
           value={report.noShow.rate === null ? '—' : percent(report.noShow.rate)}
@@ -149,8 +172,8 @@ export default async function ReportPage({
 
       {report.payment.outstanding.length > 0 && (
         <p className="mt-4 rounded-lg border-2 border-amber-500 bg-amber-50 p-4 text-lg">
-          <strong>{formatCents(report.payment.outstandingCents)}</strong> of that revenue was
-          never collected — {report.payment.outstanding.length}{' '}
+          <strong>{formatCents(report.payment.outstandingCents)}</strong> of that gross was never
+          collected — {report.payment.outstanding.length}{' '}
           {report.payment.outstanding.length === 1 ? 'order' : 'orders'} handed over unpaid. They
           are listed below.
         </p>
@@ -167,7 +190,7 @@ export default async function ReportPage({
               reconciles it (D2). */}
           <Section title="Collected versus charged">
             <p className="text-lg text-neutral-700">
-              Revenue counts every order a customer took, paid or not — that is what it has always
+              Gross counts every order a customer took, paid or not — that is what it has always
               meant, and changing it would restate every past report. This is how much of it
               actually came in.
             </p>
@@ -243,8 +266,13 @@ export default async function ReportPage({
                     className="h-8 shrink-0 rounded bg-neutral-900"
                     style={{ width: `${(hour.orders / busiest) * 60}%` }}
                   />
+                  {/* The same three money columns as By day (P0-1). Written
+                      out rather than tabulated: the bar is what this section
+                      is for, and a second table of the same rows would be two
+                      renderings of one fact. */}
                   <span className="text-lg tabular-nums">
                     {hour.orders} {hour.orders === 1 ? 'order' : 'orders'} ·{' '}
+                    {formatCents(hour.subtotalCents)} net + {formatCents(hour.taxCents)} tax ={' '}
                     {formatCents(hour.totalCents)}
                   </span>
                 </li>
@@ -254,7 +282,7 @@ export default async function ReportPage({
 
           <Section title="Top sellers">
             <Table
-              headers={['Item', 'Sold', 'Revenue']}
+              headers={['Item', 'Sold', 'Net sales']}
               label="Top sellers"
               rows={report.topItems.map((item) => [
                 item.itemName,

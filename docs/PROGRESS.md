@@ -4864,3 +4864,91 @@ issued for free and billed later at a time the customer chooses.
   when, is not recorded anywhere — the event log is the ORDER's, and settings
   changes have never written one in this product. Consistent, and still a gap
   that grows every time a settings control ships.
+
+## C-053 — Net sales, tax, and gross (PRD 1 P0-1)
+
+The first feature item of `prd-reports-that-decide.md` — the only PRD in the
+second-pass set that all three evaluators raised independently — and the
+cheapest of its seven. The screen has had the right numbers since C-016 and has
+been putting the wrong one under the wrong word ever since: the headline tile
+read `Σ totalCents` and was labelled **Revenue**, so a month end books $41,203
+of revenue when $38,062 is revenue and $3,141 is a sales-tax liability owed to
+the state. The P&L is overstated and the tax line understated by exactly the
+same amount, which is the kind of error that looks like nothing until somebody
+files on it.
+
+**Built:**
+- `SalesTotals` and `SalesReport.totals` in `packages/core/orders/report.ts` —
+  the window's three money numbers, summed off the day buckets.
+- `HourBucket` gains `subtotalCents` and `taxCents`, so By-hour carries the
+  same three columns By-day already did.
+- `/kitchen/report`: three money tiles (**Net sales**, **Tax collected**,
+  **Gross**) where one said Revenue; the word is gone from the page, including
+  the Top-sellers column header, which was already a net figure wearing the
+  wrong label. The collected-versus-charged copy now reconciles against
+  *gross*, because that is the number `orderBalance` splits.
+- Four unit tests, one of them the reconciliation assertion over every day row,
+  every hour row and the window; one e2e test that parses the three rendered
+  tiles and adds them up.
+- No migration. Every column read here has been snapshotted since C-003.
+
+**Decided:**
+- **Net sales leads, because it is the only one of the three that is the
+  shop's money.** Tax collected is held on the state's behalf and gross is what
+  was charged; both are shown, and neither is the headline. The requirement's
+  own wording — "shown but never labelled Revenue" — is satisfied by deleting
+  the word from the page rather than by moving it to a different tile, which is
+  the version of this fix that would have left the same sentence readable to an
+  accountant.
+- **`totals` is summed off the day buckets, not off a fourth accumulator in the
+  loop.** The headline and the By-day table are then arithmetically incapable
+  of disagreeing; if the number is ever wrong it is one bug, not two numbers
+  that need reconciling against each other. It costs one pass over at most
+  ninety rows.
+- **The reconciliation is asserted, not rendered.** `net + tax = gross` holds
+  per order by construction and therefore per bucket by summation — which is
+  exactly why it is worth a test: the day it stops holding, the cause will be a
+  snapshot column somebody widened, and the assertion is what turns that into a
+  failing test instead of a wrong report. The fixture uses 90¢ of tax on
+  $10.95, which is 8.219% and divides into nothing, so an implementation that
+  recomputed tax from a rate instead of reading the snapshot lands a cent away
+  and fails.
+- **By-hour keeps the bar chart and states its three numbers in the row.** The
+  requirement asks for the same three columns; a second table of the same rows
+  underneath would be two renderings of one fact, and the bar — orders, not
+  money — is what the section is actually for.
+- **Nothing on this path reads `RestaurantSettings.taxRate`,** and that stays
+  structurally true rather than remembered: the report page loads settings for
+  the timezone alone, and `loadReportOrders` selects `taxCents` off the order.
+  Last month's sales are taxed at last month's rate because that is the rate
+  the order carries.
+
+**Found:**
+- **The new copy broke the new test, and the shared e2e `stat` helper is why.**
+  It takes the LAST `div` whose text starts with the label, and the sentence
+  introducing the collected-versus-charged section now starts with the word
+  "Gross" — so the assertion picked up that section's wrapper and read
+  `$0.00 collected` as the gross. It failed correctly (26.90 + 2.22 ≠ 0.00) and
+  it would have passed silently on any day the shop had collected exactly the
+  gross. Fixed by putting `data-testid` on the three tiles that have to add up
+  and matching those, and by making the parser *assert* it found an amount
+  rather than let `Number('')` return a plausible zero — a missed locator that
+  reads as a real $0.00 is the failure mode that makes a green suite worthless.
+  The blunt helper stays for the tiles nobody adds together.
+- **The Top sellers column called `lineTotalCents` "Revenue" too.** It is a
+  pre-tax figure, so the column was accurate arithmetic under an inaccurate
+  word — the same defect as the headline, one table down, and it would have
+  survived a fix that only touched the tile. Renamed to Net sales, which is
+  what it has always been.
+
+**Left behind:**
+- **The rolling windows still bucket on an instant,** so the oldest day of a
+  30-day window is partial and its net, tax and gross are all partial together.
+  Consistent, still not a business day — which is the next item (P0-3, `Today`).
+- **Tax is one number per order, with no categories.** A shop selling a cold
+  bottled drink beside a hot burrito is, in several states, charging two rates;
+  this reports the order-level tax the snapshot holds. Per-line tax is named as
+  a Non-Goal here and belongs to `prd-money-that-reconciles.md`.
+- **No year-to-date, and no comparison against the last period.** Three
+  numbers for the selected window and nothing that says whether the window was
+  good. That is P1-1's date range and P1-3's trend line, both still unbuilt.

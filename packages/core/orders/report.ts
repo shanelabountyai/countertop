@@ -66,6 +66,37 @@ export type HourBucket = {
   hour: number;
   orders: number;
   items: number;
+  /** The same three money columns the day bucket carries (P0-1). An hour that
+   *  reported only its gross made the one screen a bookkeeper reads say two
+   *  different things about tax depending on which table she looked at. */
+  subtotalCents: number;
+  taxCents: number;
+  totalCents: number;
+};
+
+/**
+ * The window's three money numbers, which are three different facts (P0-1).
+ *
+ * `Σ totalCents` was the headline and it was labelled `Revenue`, so a month
+ * end booked $41,203 of revenue when $3,141 of it was a sales-tax liability
+ * owed to the state — the P&L overstated and the tax line understated by
+ * exactly the same amount.
+ *
+ * `subtotalCents + taxCents === totalCents` per order, so it holds here by
+ * summation; the test asserts it anyway, on every day row and on this, because
+ * the day it stops holding the cause will be a snapshot column somebody
+ * widened and not this addition.
+ *
+ * Summed from the SNAPSHOT columns only. Nothing on this path recomputes tax
+ * from `RestaurantSettings` — last month's sales are taxed at last month's
+ * rate, which is the rate the order carries.
+ */
+export type SalesTotals = {
+  /** What the shop actually earned. The headline. */
+  subtotalCents: number;
+  /** Collected on the state's behalf, never the shop's money. */
+  taxCents: number;
+  /** What was charged. Shown, and never called revenue. */
   totalCents: number;
 };
 
@@ -137,6 +168,10 @@ export type NoShowRate = {
 };
 
 export type SalesReport = {
+  /** The window, in one object, so the headline tiles are not three `reduce`s
+   *  in a page component — the arithmetic that decides what a month's revenue
+   *  was belongs where it is tested. */
+  totals: SalesTotals;
   days: DayBucket[];
   hours: HourBucket[];
   topItems: TopItem[];
@@ -256,9 +291,18 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     day.totalCents += order.totalCents;
     days.set(clock.day, day);
 
-    const bucket = hours.get(hour) ?? { hour, orders: 0, items: 0, totalCents: 0 };
+    const bucket = hours.get(hour) ?? {
+      hour,
+      orders: 0,
+      items: 0,
+      subtotalCents: 0,
+      taxCents: 0,
+      totalCents: 0,
+    };
     bucket.orders += 1;
     bucket.items += units;
+    bucket.subtotalCents += order.subtotalCents;
+    bucket.taxCents += order.taxCents;
     bucket.totalCents += order.totalCents;
     hours.set(hour, bucket);
 
@@ -290,7 +334,20 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     return { itemName, groupName, optionName, withOption, ofTotal, rate: withOption / ofTotal };
   });
 
+  const totals = [...days.values()].reduce(
+    (sum, day) => ({
+      subtotalCents: sum.subtotalCents + day.subtotalCents,
+      taxCents: sum.taxCents + day.taxCents,
+      totalCents: sum.totalCents + day.totalCents,
+    }),
+    { subtotalCents: 0, taxCents: 0, totalCents: 0 },
+  );
+
   return {
+    // Summed off the day buckets rather than off a fourth accumulator in the
+    // loop, so the headline and the By-day table cannot disagree: if they ever
+    // do, it is one bug and not two numbers.
+    totals,
     // Chronological. Every other list is ranked; a calendar is not.
     days: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),
     hours: [...hours.values()].sort((a, b) => a.hour - b.hour),

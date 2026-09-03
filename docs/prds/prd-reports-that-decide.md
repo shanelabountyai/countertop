@@ -32,10 +32,10 @@ And the accountant asks for March. There is no month, no date range, no export �
 
 ### Must-Have (P0)
 
-**P0-1: Revenue means net sales; tax is its own number** *(SYS 3)*
-- [ ] The headline stat is **Net sales** = Σ `subtotalCents` over the window; **Tax collected** = Σ `taxCents` is a sibling tile; **Gross** = Σ `totalCents` is shown but never labelled "Revenue"
-- [ ] The By-day and By-hour tables carry the same three columns, and each day's three reconcile: `net + tax = gross`, asserted in the test, not just rendered
-- [ ] Tax is read from the snapshot columns only (`Order.taxCents`, `Order.taxRatePpm`); no recomputation from `RestaurantSettings` anywhere on this path
+**P0-1: Revenue means net sales; tax is its own number** *(SYS 3)* — ✅ **C-053**
+- [x] The headline stat is **Net sales** = Σ `subtotalCents` over the window; **Tax collected** = Σ `taxCents` is a sibling tile; **Gross** = Σ `totalCents` is shown but never labelled "Revenue"
+- [x] The By-day and By-hour tables carry the same three columns, and each day's three reconcile: `net + tax = gross`, asserted in the test, not just rendered
+- [x] Tax is read from the snapshot columns only (`Order.taxCents`, `Order.taxRatePpm`); no recomputation from `RestaurantSettings` anywhere on this path
 
 **P0-2: Collected versus charged, with the exceptions named** *(OPS 8, SYS 3 — and the follow-on to defect D2)*
 - [ ] `loadReportOrders` selects `paymentState`; the report splits the window into **collected** (`paid`) and **outstanding** (`unpaid`) and shows both against gross
@@ -122,10 +122,14 @@ And the accountant asks for March. There is no month, no date range, no export �
 
 ## Phasing — one item per session
 
-- **C-050 — The report reads `paymentState`** *(this is defect **D2**'s fix, not a feature; it lands first and alone)* — `loadReportOrders` selects the column, revenue splits collected/outstanding, the unpaid orders are listed. One migration-free session.
-- **C-051 — Net sales, tax, and gross are three different numbers** — P0-1, plus the reconciliation assertion in the test.
-- **C-052 — Today** — P0-3, the business-day window and the suppressed disclaimer, with the TZ×2 test.
-- **C-053 — The attach-rate table leads with the decidable rows** — P0-4, and the snapshot-rule assertion that the re-sort added no menu join.
-- **C-054 — p90, the ran-late count, and the slowest five** — P0-5, including the paired dual-dialect test for the SQL status restatement on `report.ts:94`.
-- **C-055 — Cancellations by reason** — P0-6, with the hand-written `ALTER TYPE` migration.
-- **C-056 — A date range and a CSV** — P1-1 and P1-2 together; both are the same query shape.
+**Renumbered 2026-09-02.** The numbers below were drafted before the three
+defect items took `C-050`–`C-052`; the real numbers are these, and
+`docs/backlog.md` is the register.
+
+- ✅ **C-051 — The report reads `paymentState`** *(defect **D2**'s fix, not a feature; it landed first and alone)* — `loadReportOrders` selects the column, revenue splits collected/outstanding, the unpaid orders are listed. One migration-free session.
+- ✅ **C-053 — Net sales, tax, and gross are three different numbers** — P0-1, plus the reconciliation assertion in the test.
+- **C-054 — Today** — P0-3, the business-day window and the suppressed disclaimer, with the TZ×2 test.
+- **C-055 — The attach-rate table leads with the decidable rows** — P0-4, and the snapshot-rule assertion that the re-sort added no menu join.
+- **C-056 — p90, the ran-late count, and the slowest five** — P0-5, including the paired dual-dialect test for the SQL status restatement on `report.ts:94`.
+- **C-057 — Cancellations by reason** — P0-6, with the hand-written `ALTER TYPE` migration.
+- **C-058 — A date range and a CSV** — P1-1 and P1-2 together; both are the same query shape.
