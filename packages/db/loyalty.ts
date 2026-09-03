@@ -12,6 +12,7 @@
 import { createHmac } from 'node:crypto';
 import {
   LOYALTY_REWARD_REASON,
+  cutoffDaysBefore,
   loyaltyBalance,
   normalizePhone,
   orderBalance,
@@ -406,3 +407,67 @@ const refuseRedemption = (reason: RedemptionRefusal, message: string): RedeemRes
   reason,
   message,
 });
+
+// --- Expiry (P0-5, C-105) --------------------------------------------------
+
+/**
+ * Zero every balance that has sat untouched for `loyaltyExpiryDays` (P0-5).
+ *
+ * WHY THIS EXISTS AT ALL, in the PRD's own words: an immortal balance is an
+ * unbounded liability, and — worse — it is the argument for keeping a named
+ * person's purchase history forever. Decision 10 made this program the thing
+ * that drives this product's retention policy; expiry is what stops that
+ * policy growing without limit.
+ *
+ * ONE `expire` ROW PER MEMBER, worth exactly minus the balance, so the ledger
+ * still explains itself: the balance is a plain sum and the row that zeroed it
+ * is visible beside the earns it cancelled. Nothing is deleted — this is the
+ * one path in this file that could have been an UPDATE to a balance column and
+ * there is no balance column, deliberately (C-100).
+ *
+ * IT DOES NOT READ `loyaltyEnabled`, and that is the decision here rather than
+ * an omission. The switch controls whether the program is OFFERED — enrolment,
+ * earning and redeeming all check it. Gating expiry behind it would mean
+ * switching the program off makes every outstanding balance immortal, which is
+ * the exact failure this requirement exists to prevent.
+ *
+ * IT DOES NOT MOVE `lastActivityAt`. Expiring is something done TO a member,
+ * not something they did; moving the clock would keep resetting the window
+ * that eventually deletes the row (`forgetInactiveMembers`).
+ *
+ * IDEMPOTENT WITHOUT A CONSTRAINT, unlike the earn: a second run finds the
+ * balance already at zero and writes nothing, because `points <= 0` is
+ * skipped — a zero-point row would fail C-100's sign CHECK anyway. A member
+ * who earns again after expiring is inside the window again and is not
+ * selected at all.
+ */
+export async function expireInactiveBalances(
+  now: Date,
+): Promise<{ expiryDays: number; members: number; points: number }> {
+  const { loyaltyExpiryDays } = await prisma.restaurantSettings.findUniqueOrThrow({
+    where: { id: 'singleton' },
+    select: { loyaltyExpiryDays: true },
+  });
+
+  const stale = await prisma.loyaltyMember.findMany({
+    where: { lastActivityAt: { lt: cutoffDaysBefore(now, loyaltyExpiryDays) } },
+    select: { id: true, events: { select: { kind: true, points: true } } },
+  });
+
+  const rows = stale
+    .map((member) => ({ memberId: member.id, points: -loyaltyBalance(member.events) }))
+    // A negative balance cannot happen — `planRedemption` refuses below zero
+    // and the CHECKs hold the signs — but a staff `adjust` is the one row a
+    // person types, so the guard is a filter and not an assumption.
+    .filter((row) => row.points < 0)
+    .map((row) => ({ ...row, at: now, kind: 'expire' as const }));
+
+  if (rows.length === 0) return { expiryDays: loyaltyExpiryDays, members: 0, points: 0 };
+
+  await prisma.loyaltyEvent.createMany({ data: rows });
+  return {
+    expiryDays: loyaltyExpiryDays,
+    members: rows.length,
+    points: rows.reduce((sum, row) => sum - row.points, 0),
+  };
+}

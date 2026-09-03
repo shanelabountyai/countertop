@@ -514,6 +514,21 @@ export default async function OrderHistoryDetailPage({
               on this order. It cannot be undone. {formatOrderNumber(order.seq)}, the
               money and the activity log all stay.
             </p>
+            {/* Only when there IS one. The punch card is a second thing this
+                button destroys and a balance is worth money to the person
+                standing there, so it is named before the tap and not after
+                (P0-5, C-105) — but a sentence about a program this restaurant
+                may not run would be a warning about nothing. */}
+            {member && (
+              <p
+                className="rounded-lg border border-red-700 bg-red-50 p-3 text-sm font-semibold text-red-900"
+                data-testid="forget-member-warning"
+              >
+                Their punch card goes too: {member.balance}{' '}
+                {member.balance === 1 ? 'point' : 'points'} and every order behind it,
+                deleted for good.
+              </p>
+            )}
             <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 type="submit"
@@ -535,8 +550,13 @@ export default async function OrderHistoryDetailPage({
             <p className="mt-1 text-sm text-neutral-600">
               For the customer who asks. Removes the name, phone number and notes
               from this order and nothing else &mdash; every report reads the same
-              afterwards. Everything older than the retention window goes on its
-              own (<code>npm run db:retention</code>, see docs/RETENTION.md).
+              afterwards.{' '}
+              {/* Conditional for the same reason the warning below is: with the
+                  program off, "no loyalty copy renders anywhere" has to stay
+                  true on this panel too. */}
+              {member && 'Their punch card and its whole history go with it. '}
+              Everything older than the retention window goes on its own
+              (<code>npm run db:retention</code>, see docs/RETENTION.md).
             </p>
             <Link
               href={`/kitchen/orders/${order.id}?forget=1`}

@@ -1,7 +1,8 @@
 # Data retention, and forgetting a customer
 
-*PRD 6 P0-4, shipped as C-091. Written down because an undocumented capability
-is one nobody uses when the email arrives.*
+*PRD 6 P0-4, shipped as C-091; extended over the loyalty tables by PRD 7 P0-5,
+shipped as C-105. Written down because an undocumented capability is one
+nobody uses when the email arrives.*
 
 ## What Countertop keeps about a person
 
@@ -19,8 +20,27 @@ the line and option names, the tax rate, the prep weight, the quote, and every
 row of the append-only event log. None of it names anybody.
 
 Separately, `LoyaltyMember` holds a *digest* of a phone number (never the
-number), the last four digits, and a display name. It is out of scope here and
-is handled by C-105 — deleting a member cascades its ledger.
+number), the last four digits, and a display name. Since C-105 it is in scope
+here: both the sweep and the button **delete** the member, and the
+`onDelete: Cascade` on `LoyaltyEvent` takes the whole ledger with it.
+
+A real delete, not a scrub — and that asymmetry with the order is the point.
+The order event log is a financial record and its trigger *blocks* DELETE; a
+loyalty balance is an entitlement held for the customer's benefit, and refusing
+to delete one is the exact behaviour this page exists to prevent.
+
+## The two windows
+
+| Setting | Default | What it bounds |
+|---|---|---|
+| `retentionDays` | 365 | how long a customer's identity is kept — the four fields above, and the `LoyaltyMember` row |
+| `loyaltyExpiryDays` | 365 | how long an unused points balance lives, counted from `lastActivityAt` |
+
+A CHECK, `loyalty_expiry_within_retention`, holds
+`loyaltyExpiryDays <= retentionDays`. **It is impossible to configure a program
+whose balances outlive the purchase history that explains them** — the failure
+it prevents is silent and arrives a year later, as live points nobody can
+account for. Moving one window without the other is refused by the database.
 
 ## The window
 
@@ -42,9 +62,25 @@ npm run db:retention          # the local dev database
 npm run db:retention:prod     # production
 ```
 
-It prints the window it used and how many orders it forgot. Running it twice
-is safe and the second run reports zero — it selects only orders that still
-have something to remove.
+It prints both windows and what each one did: how many orders it forgot, how
+many loyalty members it deleted, and how many points it expired. Running it
+twice is safe and the second run reports zero — it selects only orders that
+still have something to remove, and only balances that are not already at zero.
+
+Three things it does, in this order:
+
+1. **Forgets orders** past `retentionDays`, by `placedAt`.
+2. **Deletes members** past `retentionDays`, by `lastActivityAt` — the member's
+   *own* clock, not the orders just scrubbed. A customer with one ancient order
+   and one from last week has that order forgotten and their punch card intact,
+   which is the only honest reading of two different facts.
+3. **Expires balances** past `loyaltyExpiryDays`, by writing one `expire` event
+   worth exactly minus the balance. Nothing is deleted; the balance is a sum
+   and the row that zeroed it sits beside the earns it cancelled.
+
+The expiry pass **ignores `loyaltyEnabled`**, deliberately: switching the
+program off must not make every outstanding balance immortal, which is the
+exact failure expiry exists to prevent.
 
 **It is not scheduled.** A cron that destroys data wants a secret, an endpoint
 and a way to see that it ran, which is a feature and not a line of config; this
@@ -59,6 +95,13 @@ Staff receipt → **Forget this customer** → confirm. Reachable from
 It does exactly what the sweep does, to exactly the same columns — one function
 (`forgetOrders` in `packages/db/retention.ts`) serves both, so the button and
 the job cannot drift apart.
+
+**It deletes their punch card too**, if they have one, and the confirm panel
+says so in points before you tap. The member is found by hashing the order's
+own phone number, which is why it happens *before* the scrub: after it, there
+is nothing left to key the member on. With `LOYALTY_PHONE_PEPPER` unset or
+rotated, no stored digest is reachable by construction — the order is still
+scrubbed and the member has to go by hand (step 3 below).
 
 ## What a forget does NOT do
 
@@ -79,7 +122,9 @@ the job cannot drift apart.
 
 1. Find the orders. `/kitchen/orders` searches by name and by order number.
 2. Open each receipt and use **Forget this customer**.
-3. If they were also a loyalty member, delete the member — C-105 is the item
-   that gives that a screen. Until then it is a `DELETE FROM "LoyaltyMember"`
-   by digest, and the ledger cascades with it.
+3. Nothing more, normally: the button in step 2 deletes their loyalty member
+   and its ledger as well. **The one exception** is a rotated or unset
+   `LOYALTY_PHONE_PEPPER`, which makes every stored digest unreachable — then
+   it is a `DELETE FROM "LoyaltyMember"` by hand, and the ledger cascades
+   with it.
 4. Reply. Nothing else in the product holds their details.

@@ -45,8 +45,11 @@ neighbouring project's server.
 
 A customer's name, phone and notes are removed from orders past
 `RestaurantSettings.retentionDays` (default 365) by `npm run db:retention`, and
-from one order on demand from the staff receipt. The procedure, what the window
-is for, and what a forget deliberately does not do: **[docs/RETENTION.md](docs/RETENTION.md)**.
+from one order on demand from the staff receipt. The same command deletes
+loyalty members past that window and expires balances past
+`loyaltyExpiryDays` — a CHECK holds the second window inside the first. The
+procedure, what the windows are for, and what a forget deliberately does not
+do: **[docs/RETENTION.md](docs/RETENTION.md)**.
 
 ## The gate
 

@@ -288,3 +288,36 @@ test('the staff receipt says nothing about punch cards while the program is off'
   await expect(page.getByTestId('member-panel')).toHaveCount(0);
   await expect(page.getByText(/punch card|points/i)).toHaveCount(0);
 });
+
+// C-105: the forget reaches the member (PRD 7 P0-5).
+//
+// The receipt's one irreversible control now destroys a second thing, and a
+// balance is worth money to the person standing at the counter — so the
+// warning naming it is asserted as hard as the delete.
+test('forgetting the customer deletes the punch card, and says so first', async ({ page }) => {
+  await setLoyaltyEnabled(true);
+  await placeAsMember(page, 'Ivy Castellanos');
+  await page.goto('/kitchen');
+  await pickUp(page, 'Ivy Castellanos');
+  await adjustLoyaltyPoints(90);
+
+  await openReceipt(page, 'Ivy Castellanos');
+  await expect(page.getByTestId('member-balance')).toHaveText('100 points');
+
+  // The confirm names what is about to go, in points, before anything happens.
+  await page.getByTestId('forget-customer').click();
+  await expect(page.getByTestId('forget-member-warning')).toContainText('100 points');
+  // And "Keep it" keeps the punch card too.
+  await page.getByRole('link', { name: 'Keep it' }).click();
+  expect(await loyaltyMembers()).toHaveLength(1);
+
+  await page.getByTestId('forget-customer').click();
+  await page.getByRole('button', { name: 'Forget them' }).click();
+
+  await expect(page.getByTestId('already-forgotten')).toBeVisible();
+  // Gone from the table, not merely unreachable from this receipt.
+  expect(await loyaltyMembers()).toEqual([]);
+  await expect(page.getByTestId('member-panel')).toHaveCount(0);
+  // The order is still an order, and the money it took is still on it.
+  await expect(page.getByTestId('history-order-number')).toBeVisible();
+});

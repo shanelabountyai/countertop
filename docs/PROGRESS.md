@@ -4634,3 +4634,123 @@ window, a job that enforces it, and a button for the customer who asks today.
   instead of backdating an order by a year.
 
 ---
+
+---
+
+## C-105 — Expiry, and the forget (PRD 7 P0-5)
+
+The last P0 of the loyalty PRD, and the one the four before it were borrowing
+against. C-100 built a ledger that could only grow, C-101 put a named person's
+digest in it, and decision 10 made the punch card this product's reason for
+keeping purchase history for a year. This is the other side of that bargain: a
+balance that ends, a member row that ends with it, and a constraint making it
+impossible to configure the two out of step.
+
+**Built:**
+- `loyalty_expiry_within_retention` — the CHECK C-091 deliberately held back.
+  `loyaltyExpiryDays <= retentionDays`, hand-written migration
+  (`20260902200000_loyalty_expiry_within_retention`). No second positive-value
+  guard: `loyalty_settings_positive` (C-100) already covers zero.
+- `expireInactiveBalances(now)` in `packages/db/loyalty.ts` — one `expire` row
+  per stale member, worth exactly minus the balance, written against no order.
+- `forgetInactiveMembers` and `forgetMemberByPhone` in
+  `packages/db/retention.ts`, both private, wired into `sweepRetention` and
+  `forgetOrderCustomer`. Both now report a `members` count.
+- `packages/core/orders/retention.ts` — `retentionCutoff` renamed
+  `cutoffDaysBefore(now, days)`. One subtraction, two windows.
+- `retention-sweep.ts` narrates all three passes and both windows.
+- The receipt's forget panel names the punch card, in points, before the tap
+  (`forget-member-warning`) — conditional on a member existing, so "no loyalty
+  copy renders anywhere" stays true with the program off.
+- `docs/RETENTION.md` grew the two-window table, the ordered description of
+  what the sweep does, and a corrected step 3 for the email.
+- Tests: seven on expiry in `packages/db/loyalty.test.ts`, five on the member
+  in `packages/db/retention.test.ts` (including P0-5's own acceptance case —
+  an order with an earn, an adjust and a redemption, forgotten, with the report
+  byte-identical), one e2e in `loyalty.spec.ts`.
+
+**Decided:**
+- **Expiry ignores `loyaltyEnabled`, and that is the decision in this item.**
+  Every other write in `loyalty.ts` checks the switch first. This one must not:
+  gating it would mean switching the program off makes every outstanding
+  balance immortal, which is the exact failure the requirement exists to
+  prevent. Asserted, not argued — there is a test that expires a balance in a
+  restaurant with the program off.
+- **The sweep selects the member on `lastActivityAt`, not on the orders it just
+  scrubbed.** A customer with one order 400 days old and one from last week has
+  that order forgotten and a live punch card; deriving the member from the
+  scrubbed orders would destroy a balance they are about to spend. The member's
+  own clock is the only honest selector, and it is why the retention window is
+  read twice from two different columns rather than once.
+- **The CHECK is what makes the two passes order-independent.** A member cannot
+  reach the retention window still holding points, because their balance
+  expired first — `loyaltyExpiryDays <= retentionDays` guarantees it. So the
+  sweep can run retention before expiry (which it does, so the printed counts
+  are disjoint) without that being load-bearing.
+- **Expiry does not move `lastActivityAt`.** Expiring is done TO a member, not
+  by one. Moving the clock would reset the window that eventually deletes the
+  row, and a zeroed balance would be held under a name forever — the opposite
+  of the point.
+- **Idempotent without a constraint**, unlike C-102's earn. A second run finds
+  the balance already at zero and writes nothing, because a zero-point row is
+  skipped — it would fail C-100's sign CHECK anyway. No index was needed
+  because nothing here races a cook's tap.
+- **The member delete is a real DELETE and the order is still a scrub.** Two
+  verbs on two tables in one operation, and the asymmetry is the whole argument
+  PRD 7 makes: the order is a snapshot of a sale and has to survive, the member
+  is nothing but who somebody is. `retention.ts`'s header says so.
+- **`forgetMemberByPhone` runs BEFORE the scrub.** The phone is the only key
+  into the member table, and `forgetOrders` nulls it. Second time the ordering
+  inside this file is load-bearing (the line notes were the first).
+- **A rotated or unset pepper reports zero rather than pretending.** Every
+  stored digest is unreachable by construction (C-101), so the order is still
+  scrubbed and `docs/RETENTION.md` carries the manual `DELETE` for that case.
+- **`retentionCutoff` became `cutoffDaysBefore`.** Two windows now ask the same
+  question and a second copy of that subtraction would eventually disagree with
+  the first. Three call sites, one rename.
+
+**Found, from the tests and not from reasoning:**
+- **The new CHECK changed which constraint an existing test caught.** C-091
+  asserted that `retentionDays: 0` is refused by name — `retention_days_positive`.
+  With `loyaltyExpiryDays` at 365, a zero retention window now violates
+  `loyalty_expiry_within_retention` too, and which one Postgres reports first
+  is its business. The assertion accepts either name, because pinning it to one
+  would be asserting an ordering nothing promises. Worth recording as a general
+  shape: **adding a constraint can silently change the error message another
+  test depends on**, and the failure reads like a regression in the older rule.
+- **Shrinking the retention window in a test now needs both numbers.**
+  `seedSettings({ retentionDays: 1 })` was legal and is now refused — which is
+  the constraint doing its job on a fixture, and exactly the configuration the
+  requirement forbids.
+
+**Left behind:**
+- **Nothing schedules any of it.** Same ceiling C-091 recorded, now covering
+  three passes instead of one. The windows are policies the repo documents and
+  a person enforces.
+- **Expiry is not attributable and not announced.** No staff member, no
+  customer notice, no "your points expire next month" — the row appears in the
+  ledger and that is all. A warning needs SMS (master P1-3) and a screen needs
+  C-106.
+- **A member deleted by the sweep leaves their orders untouched.** Correct —
+  the orders aged out on their own window — but a member deleted at 366 days of
+  inactivity may still have an in-window order carrying their name. The two
+  windows are the same length by default, and the member's clock is not the
+  order's.
+- **Half an expired balance is not a thing.** Expiry zeroes; it does not age
+  points individually. A customer active for years accrues under one clock, and
+  the day they go quiet the whole balance has one expiry date. Per-earn expiry
+  is a different ledger and a different product.
+- **No warning before a balance is expired by a window change.** Shrinking
+  `loyaltyExpiryDays` takes effect on the next sweep with no preview of what it
+  would destroy. There is no screen for the number, which is the only thing
+  currently preventing it; C-106 must not add one without a dry run.
+
+**What C-106 inherits:**
+- **PRD 7's P0 set is complete.** P0-6's invisibility assertions are the only
+  thing left below the P1 line, and the snapshot regression already covers the
+  redeemed order.
+- **Both windows are configured and constrained, with no screen.** The toggle,
+  `loyaltyExpiryDays` and `retentionDays` are all database writes today, and
+  the CHECK is in place for the screen that adds controls for them.
+- **`expireInactiveBalances` returns the points it destroyed**, which is the
+  first number the program's own screen wants — the liability that left.

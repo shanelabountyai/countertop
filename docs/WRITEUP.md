@@ -327,6 +327,9 @@ Recorded as they are made, with the ceiling each one has.
 - **The earn can fail a cook's tap, and that is the trade** (C-102). It is written inside the same transaction as the status change, so anything it throws rolls the pickup back — the cook taps again and the queue looks broken for a second. The alternative loses points silently: a `picked_up` that committed without its ledger row is terminal, nothing will touch that order again, and there is no later moment to retry from. Enrolment made the opposite call for the opposite reason — an order in flight has later moments, and a punch card that did not start must not cost somebody their food. The two shapes look inconsistent side by side and the asymmetry is the point; the throw surface is deliberately kept to the two reads and one insert, with the pepper checked rather than assumed so the one operation that *can* throw never runs.
 - **A restaurant that switches loyalty on mid-service starts everyone at zero** (C-102). Points are written by the earn and the earn only fires on a pickup that happens after the program is enabled, so orders already on the queue when the switch flips earn nothing — correctly, since nobody was enrolled to earn them. Worth recording because it looks like a backfill question and is not one: there is no member to attribute those orders to, and inventing one from `Order.customerPhone` would enrol customers who never ticked a box.
 
+- **Points expire all at once, not per earn** (C-105). A balance is a single number with a single clock: twelve months after the member's last earn or redeem, the whole thing goes to zero in one `expire` row. Points earned three years ago and points earned last month share one expiry date, which is generous while the customer is active and abrupt when they stop. Per-earn expiry — where each batch ages on its own — is a different ledger with a different balance function, and the honest version of it also needs a customer-facing "these expire on the 4th" that this product has no channel for. Recorded because "points expire after 365 days" reads like it might mean the other thing.
+- **Nothing warns anybody before a balance is destroyed** (C-105). Not the customer, who has no channel until SMS (master P1-3), and not the operator, who gets a count after the fact rather than a preview before it. Shrinking `loyaltyExpiryDays` takes effect on the next sweep with no dry run of what it would zero. The only thing currently preventing an expensive accident is that the number has no screen — which means C-106 cannot add one without adding the dry run in the same item.
+- **Expiry ignores the program's own switch, deliberately** (C-105). Every other write in `loyalty.ts` refuses when `loyaltyEnabled` is false; the expiry sweep does not check it at all. Gating it would mean switching the program off makes every outstanding balance immortal — the exact unbounded liability the requirement exists to bound — but the consequence is real and worth stating: a restaurant that pauses its punch card for a year comes back to customers whose points quietly went to zero while they could not earn. The alternative is worse, and neither is free.
 - **The customer cannot see their own balance, and that is a decision rather than a gap** (C-103). The counter panel renders on a staff screen; the customer's own status page is reachable by anybody holding a forwarded link, and a points balance behind a URL that gets pasted into a group chat is a different privacy question from the receipt it sits beside. The receipt confirms that the punch card started and says when points land, which is what the customer needs at that moment, and the balance stays a counter conversation until something says otherwise. Recorded because "the customer cannot see their points" reads like an omission and is the narrower of two available behaviours.
 - **A reward line with no way to spend it** (C-103). The panel says "Reward available — $10.00 off" and offers no control, because redeeming is C-104 and writes two rows this item does not write. The e2e spec asserts there is no reward button, so the panel growing one is a deliberate edit rather than a drift — but for one item the counter is reading an offer it has to honour by hand.
 
@@ -1386,6 +1389,30 @@ to the validated list is a permission grant. When one array is doing both jobs,
 splitting it is not ceremony — and the `as` cast in the guard is what hides the
 consequence, because it converts a widening into a silent pass rather than a
 compile error.
+
+### Adding a constraint moved another test's error message (C-105)
+
+**Not a defect — a red test that was the new rule working, and it named the
+old rule.** C-091 asserted by name that a retention window of zero days is
+refused: `rejects.toThrow(/retention_days_positive/)`. C-105 added
+`loyalty_expiry_within_retention`, and with `loyaltyExpiryDays` at 365 a
+`retentionDays` of 0 now violates both CHECKs at once. Postgres reported the
+new one, so a test about retention failed citing loyalty, in an item that had
+not touched the retention rule at all.
+
+The fix is one character of regex and is not the interesting part. **The
+interesting part is that a passing test asserting an error message by name is
+asserting something the database never promised** — which constraint fires
+first when a row violates two is an implementation detail, and pinning to one
+of them encodes an ordering into the suite. The assertion now accepts either
+name, because both refusals say the same thing: the window cannot collapse.
+
+**The generalisation: adding a constraint widens what an existing row can fail
+on, and the symptom lands in a test for the older rule.** In a codebase that
+deliberately asserts refusals *by name* rather than by failure — which this one
+does everywhere, and for good reasons — that is a recurring cost, and the
+mitigation is to assert the name only where exactly one constraint can produce
+it.
 
 ## Skills Learned / Functions Unlocked
 

@@ -25,7 +25,14 @@
 export const FORGOTTEN_CUSTOMER_NAME = '(forgotten)';
 
 /**
- * Orders placed before this instant are past the window.
+ * The instant `days` before `now`. Anything strictly older is past its window.
+ *
+ * ONE function for TWO windows (C-105): `retentionDays`, which bounds how long
+ * a customer's identity is kept, and `loyaltyExpiryDays`, which bounds how long
+ * an unused balance lives. They are different policies with different numbers
+ * and a CHECK tying them together, but "what does N days ago mean" has exactly
+ * one answer and a second copy of this subtraction would eventually disagree
+ * with the first.
  *
  * Strictly before — an order placed exactly `retentionDays` ago is inside the
  * window and survives one more sweep. A boundary has to fall somewhere and
@@ -38,12 +45,12 @@ export const FORGOTTEN_CUSTOMER_NAME = '(forgotten)';
  * asking the restaurant's calendar what "365 days ago" means would be a second
  * answer to a question with one.
  */
-export function retentionCutoff(now: Date, retentionDays: number): Date {
+export function cutoffDaysBefore(now: Date, days: number): Date {
   return new Date(
     Date.UTC(
       now.getUTCFullYear(),
       now.getUTCMonth(),
-      now.getUTCDate() - retentionDays,
+      now.getUTCDate() - days,
       now.getUTCHours(),
       now.getUTCMinutes(),
       now.getUTCSeconds(),

@@ -476,10 +476,13 @@ model RestaurantSettings {
   /// Editable, which is not the same as changeable — moving these once
   /// customers hold balances devalues those balances visibly.
   rewardValueCents      Int     @default(1000)
-  /// Decision 10: 365 days of INACTIVITY. `retentionDays` below now exists
-  /// (C-091); the `loyaltyExpiryDays <= retentionDays` CHECK that PRD 7 P0-5
-  /// requires lands with the expiry sweep itself (C-105), which is the item
-  /// that has a reason to enforce it.
+  /// Decision 10: 365 days of INACTIVITY, counted from `lastActivityAt` and
+  /// zeroed by a system `expire` event (P0-5, C-105).
+  ///
+  /// Two hand-written CHECKs: `loyalty_settings_positive` keeps it above zero
+  /// (C-100), and `loyalty_expiry_within_retention` keeps it inside
+  /// `retentionDays` (C-105) — so it is impossible to configure a program
+  /// whose balances outlive the purchase history that explains them.
   loyaltyExpiryDays     Int     @default(365)
 
   // --- Retention (PRD 6 P0-4, C-091) ---
@@ -490,6 +493,10 @@ model RestaurantSettings {
   /// expires after a year of inactivity needs the purchase history behind it
   /// for at least that long, and nothing else here needs it for more than a
   /// few days.
+  ///
+  /// It also bounds the LOYALTY MEMBER (C-105): a member whose last activity is
+  /// past this window is DELETED, ledger and all, because `displayName` and
+  /// `phoneLast4` are the same class of fact as the name on the order.
   ///
   /// It bounds NOTHING else. `seq`, the money, the lines, the option names and
   /// every event are what was sold, and the sweep leaves all of them exactly
@@ -515,7 +522,8 @@ model LoyaltyMember {
   displayName    String         @db.VarChar(40)
   enrolledAt     DateTime       @db.Timestamptz(3)
   /// What expiry counts from (P0-5). Moved by an earn or a redeem, never by
-  /// somebody merely looking the member up.
+  /// somebody merely looking the member up — and never by the expiry itself,
+  /// or an expired balance would keep resetting the clock that deletes it.
   lastActivityAt DateTime       @db.Timestamptz(3)
   events         LoyaltyEvent[]
 }

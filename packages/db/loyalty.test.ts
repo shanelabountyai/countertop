@@ -7,7 +7,13 @@
 import { loyaltyBalance, orderBalance } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
-import { enrolMember, memberByPhone, phoneDigest, redeemReward } from './loyalty';
+import {
+  enrolMember,
+  expireInactiveBalances,
+  memberByPhone,
+  phoneDigest,
+  redeemReward,
+} from './loyalty';
 import { placeOrder } from './placement';
 import {
   resetDatabase,
@@ -793,5 +799,115 @@ describe('redeeming at the counter (P0-4)', () => {
     expect((await redeemReward(orderId, REDEEM_AT)).ok).toBe(true);
     expect(await prisma.loyaltyEvent.count({ where: { orderId } })).toBe(2);
     expect((await memberByPhone('5550102233'))?.balance).toBe(4);
+  });
+});
+
+// --- Expiry (P0-5, C-105) --------------------------------------------------
+//
+// An immortal balance is an unbounded liability and, worse, it is the argument
+// for keeping a named person's purchase history forever. These assert the
+// sweep that stops that — and the two things about it that are decisions
+// rather than mechanics: it ignores the program's own switch, and it does not
+// touch the clock it selects on.
+
+describe('expiring an inactive balance', () => {
+  /** Well past a 365-day window from `AT`. */
+  const LATER = new Date(Date.UTC(2027, 8, 1, 3, 0, 0));
+  /** A month before `LATER` — inside every window here. */
+  const RECENTLY = new Date(Date.UTC(2027, 7, 1, 3, 0, 0));
+
+  const balanceOf = async (id: string): Promise<number> =>
+    loyaltyBalance(
+      await prisma.loyaltyEvent.findMany({ where: { memberId: id }, select: { kind: true, points: true } }),
+    );
+
+  /** A member with `points` earned, last active at `lastActivityAt`. */
+  async function memberHolding(points: number, lastActivityAt: Date): Promise<string> {
+    const m = await member({ phoneDigest: `digest-${Math.random()}`, lastActivityAt });
+    await prisma.loyaltyEvent.create({
+      data: { memberId: m.id, at: lastActivityAt, kind: 'earn', points },
+    });
+    return m.id;
+  }
+
+  it('zeroes it with ONE expire row worth exactly minus the balance', async () => {
+    const id = await memberHolding(240, AT);
+
+    expect(await expireInactiveBalances(LATER)).toEqual({
+      expiryDays: 365,
+      members: 1,
+      points: 240,
+    });
+
+    const [expired, ...rest] = await prisma.loyaltyEvent.findMany({
+      where: { memberId: id, kind: 'expire' },
+    });
+    expect(rest).toHaveLength(0);
+    expect(expired?.points).toBe(-240);
+    expect(expired?.at).toEqual(LATER);
+    // Written against NO ORDER. Expiry is a fact about a member, not a sale.
+    expect(expired?.orderId).toBeNull();
+    // A sum, not a decrement — the earns are still there to explain it.
+    expect(await balanceOf(id)).toBe(0);
+    expect(await prisma.loyaltyEvent.count({ where: { memberId: id } })).toBe(2);
+  });
+
+  it('leaves a member who was active inside the window completely alone', async () => {
+    const id = await memberHolding(240, RECENTLY);
+
+    expect((await expireInactiveBalances(LATER)).members).toBe(0);
+
+    expect(await balanceOf(id)).toBe(240);
+  });
+
+  it('does not move `lastActivityAt` — expiring is not activity', async () => {
+    const id = await memberHolding(240, AT);
+
+    await expireInactiveBalances(LATER);
+
+    // If it moved, the member would keep resetting the clock that eventually
+    // deletes the row, and a balance of zero would be held under a name
+    // forever.
+    const after = await prisma.loyaltyMember.findUniqueOrThrow({ where: { id } });
+    expect(after.lastActivityAt).toEqual(AT);
+  });
+
+  it('is idempotent without a constraint — the second run finds nothing to zero', async () => {
+    await memberHolding(240, AT);
+
+    expect((await expireInactiveBalances(LATER)).members).toBe(1);
+    expect((await expireInactiveBalances(LATER)).members).toBe(0);
+    expect(await prisma.loyaltyEvent.count({ where: { kind: 'expire' } })).toBe(1);
+  });
+
+  it('writes nothing for a stale member whose balance is already zero', async () => {
+    // A zero-point row would fail the sign CHECK, correctly: a ledger row
+    // worth nothing records a decision nobody made.
+    await member({ lastActivityAt: AT });
+
+    expect((await expireInactiveBalances(LATER)).members).toBe(0);
+    expect(await prisma.loyaltyEvent.count()).toBe(0);
+  });
+
+  it('reads the window from the settings row, not from a constant', async () => {
+    const id = await memberHolding(240, RECENTLY);
+    await seedSettings({ loyaltyExpiryDays: 7 });
+
+    expect(await expireInactiveBalances(LATER)).toEqual({ expiryDays: 7, members: 1, points: 240 });
+
+    expect(await balanceOf(id)).toBe(0);
+  });
+
+  // THE decision in this sweep, asserted rather than argued: switching the
+  // program off must not make every outstanding balance immortal, which is the
+  // exact failure P0-5 exists to prevent.
+  it('expires with the program switched OFF, unlike every other write here', async () => {
+    const id = await memberHolding(240, AT);
+    const settings = await prisma.restaurantSettings.findUniqueOrThrow({ where: { id: 'singleton' } });
+    expect(settings.loyaltyEnabled).toBe(false);
+
+    expect((await expireInactiveBalances(LATER)).members).toBe(1);
+
+    expect(await balanceOf(id)).toBe(0);
   });
 });

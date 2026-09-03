@@ -1590,3 +1590,30 @@ quietly rewrites last month's revenue is a worse problem than the one it solved.
 **It is written down.** `docs/RETENTION.md` says what is kept, for how long,
 how to remove it, and what a forget deliberately does not do. A capability
 nobody can find is one nobody uses when the email arrives.
+
+## C-105 — Points that end, and a punch card that can be deleted
+
+**Points expire after a year of not using them.** No activity for twelve
+months and the balance goes to zero — recorded as its own line in the ledger,
+so the history still explains itself rather than quietly losing a number.
+
+**Forgetting a customer now takes their punch card too.** The same one tap on
+the staff receipt, and the confirm tells you what is about to go: *"Their punch
+card goes too: 100 points and every order behind it, deleted for good."* It is
+a real delete — the member and every row of their ledger — because a points
+balance is something held on the customer's behalf, and a shop that will not
+delete one on request has mistaken it for a receipt.
+
+**The money stays.** A reward that was already spent is still ten dollars off
+that order, with the staff member who gave it and the moment they did. That
+fact was never on the loyalty side, which is why deleting the loyalty side
+leaves it untouched — and every number on the sales report reads the same
+before and after.
+
+**The two windows cannot drift.** Points can never outlive the purchase history
+that explains them: the database refuses a setting where they would. That is a
+constraint, not a note — the failure it prevents is silent and arrives a year
+later, as live points nobody can account for.
+
+**One command still does all of it.** `npm run db:retention` now prints both
+windows: orders forgotten, members deleted, points expired.
