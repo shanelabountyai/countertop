@@ -103,6 +103,7 @@ test('every staff screen\'s back link is a real tap target', async ({ page }) =>
     '/kitchen/menu',
     '/kitchen/settings',
     '/kitchen/report',
+    '/kitchen/loyalty',
     '/kitchen/orders',
   ]) {
     await page.goto(path);

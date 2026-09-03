@@ -321,3 +321,119 @@ test('forgetting the customer deletes the punch card, and says so first', async 
   // The order is still an order, and the money it took is still on it.
   await expect(page.getByTestId('history-order-number')).toBeVisible();
 });
+
+// C-106: the program's own screen (PRD 7 P1-2), and P0-6 from the outside.
+//
+// The liability is what this screen exists for. Everything else on it is
+// arithmetic an owner could have done; "you have promised away $10.00 and
+// $0.00 of it can be collected tomorrow" is the pair of numbers that decides
+// whether the program keeps running.
+
+test('switches the punch card on from its own screen, and the checkout follows', async ({
+  page,
+}) => {
+  // The one spec that drives the REAL toggle. Everything else in this file
+  // uses the `setLoyaltyEnabled` fixture, and this is what stops that fixture
+  // being a claim nobody checks.
+  await page.goto('/kitchen/loyalty');
+  await expect(page.getByTestId('loyalty-switch-state')).toContainText('Nobody is offered');
+
+  await page.getByTestId('loyalty-toggle').click();
+  await expect(page.getByTestId('loyalty-saved')).toContainText('switched on');
+
+  await addBurritoToCart(page);
+  await page.getByRole('link', { name: 'Checkout' }).click();
+  await expect(page.getByRole('checkbox', { name: /Collect points/ })).toBeVisible();
+
+  // And off again, from the same button, with the copy that says what it does
+  // not do — the fear a manager has about this control is that it wipes
+  // everybody's points.
+  await page.goto('/kitchen/loyalty');
+  await page.getByTestId('loyalty-toggle').click();
+  await expect(page.getByTestId('loyalty-saved')).toContainText('every balance stays');
+
+  await page.goto('/checkout');
+  await expect(page.getByRole('checkbox', { name: /Collect points/ })).toHaveCount(0);
+});
+
+test('values the liability, and separates it from what can be spent tomorrow', async ({ page }) => {
+  await setLoyaltyEnabled(true);
+  await placeAsMember(page, 'Ivy Castellanos');
+  await page.goto('/kitchen');
+  await pickUp(page, 'Ivy Castellanos');
+
+  await page.goto('/kitchen/loyalty');
+  await expect(page.getByTestId('loyalty-members')).toHaveText('1');
+  // $10.95 of burrito floored to ten points, worth a dollar at the reward
+  // rate — and worth nothing at the counter, because half a reward is not
+  // spendable. That gap is the whole reason there are two figures.
+  await expect(page.getByTestId('loyalty-points')).toHaveText('10');
+  await expect(page.getByTestId('loyalty-accrued')).toHaveText('$1.00');
+  await expect(page.getByTestId('loyalty-redeemable')).toHaveText('$0.00');
+  await expect(page.getByText('Nobody has a whole reward yet')).toBeVisible();
+  await expect(page.getByText(/\$1\.00 of that is stranded/)).toBeVisible();
+
+  await expect(page.getByTestId('loyalty-earned')).toHaveText('10');
+  await expect(page.getByTestId('loyalty-redemptions')).toHaveText('0');
+  await expect(page.getByTestId('loyalty-rate')).toHaveText('0.0%');
+
+  // Ninety more by hand, and the same points are suddenly a bill that can walk
+  // in the door.
+  await adjustLoyaltyPoints(90);
+  await page.goto('/kitchen/loyalty');
+  await expect(page.getByTestId('loyalty-points')).toHaveText('100');
+  await expect(page.getByTestId('loyalty-accrued')).toHaveText('$10.00');
+  await expect(page.getByTestId('loyalty-redeemable')).toHaveText('$10.00');
+  await expect(page.getByTestId('loyalty-redeemable')).toBeVisible();
+  await expect(page.getByText('1 reward across 1 member')).toBeVisible();
+  // Signed, alone among the figures: a program propped up by hand looks it.
+  await expect(page.getByTestId('loyalty-adjusted')).toHaveText('+90');
+
+  // Spend it at the counter, and the liability leaves at the cost the ledger
+  // recorded rather than at a number this screen worked out for itself.
+  await openReceipt(page, 'Ivy Castellanos');
+  await page.getByTestId('redeem-reward').click();
+  await expect(page.getByTestId('member-balance')).toHaveText('0 points');
+
+  await page.goto('/kitchen/loyalty');
+  await expect(page.getByTestId('loyalty-points')).toHaveText('0');
+  await expect(page.getByTestId('loyalty-accrued')).toHaveText('$0.00');
+  await expect(page.getByTestId('loyalty-redemptions')).toHaveText('1');
+  await expect(page.getByTestId('loyalty-cost')).toHaveText('$10.00');
+  // Ten issued in this window, a hundred spent: above 100%, correctly, because
+  // a punch card is savings and ninety of those points were granted, not
+  // earned. The screen says so rather than looking broken.
+  await expect(page.getByTestId('loyalty-rate')).toHaveText('1000.0%');
+  await expect(page.getByText(/Above 100%/)).toBeVisible();
+});
+
+test('an empty program reports nothing rather than dividing by nothing', async ({ page }) => {
+  await setLoyaltyEnabled(true);
+  await page.goto('/kitchen/loyalty');
+
+  await expect(page.getByTestId('loyalty-members')).toHaveText('0');
+  await expect(page.getByTestId('loyalty-accrued')).toHaveText('$0.00');
+  // Not "0.0%" — a window with no points issued has no redemption rate, and a
+  // zero there reads as a program nobody is using.
+  await expect(page.getByTestId('loyalty-rate')).toHaveText('—');
+
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+});
+
+test('the punch card is invisible on the sales report (P0-6)', async ({ page }) => {
+  // The static check in packages/db proves the QUERY cannot see loyalty. This
+  // proves the rendered page does not either, with a member, an earn and a
+  // spent reward all sitting in the same window.
+  await setLoyaltyEnabled(true);
+  await placeAsMember(page, 'Ivy Castellanos');
+  await page.goto('/kitchen');
+  await pickUp(page, 'Ivy Castellanos');
+  await adjustLoyaltyPoints(90);
+  await openReceipt(page, 'Ivy Castellanos');
+  await page.getByTestId('redeem-reward').click();
+
+  await page.goto('/kitchen/report?days=1');
+  await expect(page.getByRole('heading', { name: 'Sales' })).toBeVisible();
+  await expect(page.getByText(/punch card|loyalty|points|reward/i)).toHaveCount(0);
+});

@@ -22,6 +22,7 @@ import {
 import { loadSettings } from '@countertop/db/menu';
 import { loadQuoteSamples, loadReportOrders, loadStatusTimelines } from '@countertop/db/report';
 import { formatCents } from '@/lib/money';
+import { Section, Stat } from '@/lib/panels';
 import { STATUS_LABEL } from '@/lib/status-labels';
 
 export const metadata = { title: 'Sales — Firebird Kitchen' };
@@ -394,37 +395,6 @@ function suggestionText(suggestion: QuoteAdjustment | null, samples: number): st
       ? 'the busier half of the window missed by more than the lighter half, so the queue is what the estimate is not pricing'
       : 'both halves of the window missed the same way, so the queue is not the variable';
   return `${direction} ${SETTING_LABEL[suggestion.setting]} on the settings screen — ${because}.`;
-}
-
-function Stat({
-  label,
-  value,
-  note,
-  testId,
-}: {
-  label: string;
-  value: string;
-  note?: string;
-  testId?: string;
-}) {
-  return (
-    <div className="rounded-lg border-2 border-neutral-300 p-3">
-      <p className="text-base text-neutral-700">{label}</p>
-      <p className="text-3xl font-bold tabular-nums" {...(testId && { 'data-testid': testId })}>
-        {value}
-      </p>
-      {note && <p className="mt-1 text-base text-neutral-600">{note}</p>}
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mt-10">
-      <h2 className="text-2xl font-semibold">{title}</h2>
-      <div className="mt-3">{children}</div>
-    </section>
-  );
 }
 
 /** A real table with real headers — this is tabular data, and a grid of divs

@@ -10,9 +10,11 @@ import { prisma } from './index';
 import {
   enrolMember,
   expireInactiveBalances,
+  loadLoyaltyProgram,
   memberByPhone,
   phoneDigest,
   redeemReward,
+  setLoyaltyEnabled,
 } from './loyalty';
 import { placeOrder } from './placement';
 import {
@@ -909,5 +911,138 @@ describe('expiring an inactive balance', () => {
     expect((await expireInactiveBalances(LATER)).members).toBe(1);
 
     expect(await balanceOf(id)).toBe(0);
+  });
+});
+
+// The program's own screen, at the database grain (PRD 7 P1-2, C-106).
+//
+// The arithmetic is proved in packages/core; what is proved here is the shape
+// of the three aggregates — that a member with no rows is still a member, that
+// the liability is all-time while everything else is the window, and that the
+// window's edge falls where it says it does.
+describe('the program report', () => {
+  const WINDOW_START = new Date(Date.UTC(2026, 6, 1, 0, 0, 0));
+  const INSIDE = new Date(Date.UTC(2026, 6, 5, 3, 0, 0));
+  const BEFORE = new Date(Date.UTC(2026, 5, 20, 3, 0, 0));
+
+  async function holder(points: number, at = INSIDE): Promise<string> {
+    const m = await member({ phoneDigest: `digest-${Math.random()}` });
+    if (points !== 0) {
+      await prisma.loyaltyEvent.create({
+        data: { memberId: m.id, at, kind: 'earn', points },
+      });
+    }
+    return m.id;
+  }
+
+  it('reports an empty program without dividing by anything', async () => {
+    const report = await loadLoyaltyProgram(WINDOW_START);
+
+    expect(report.members).toBe(0);
+    expect(report.liability).toMatchObject({ points: 0, accruedCents: 0, rewardsOutstanding: 0 });
+    expect(report.window.rate).toBeNull();
+    expect(report.window.redemptions).toBe(0);
+  });
+
+  it('counts a member who enrolled and never came back', async () => {
+    // No ledger rows at all, so the balance grouping cannot see them. They
+    // handed over a phone number; that is what this count means.
+    await holder(0);
+
+    const report = await loadLoyaltyProgram(WINDOW_START);
+    expect(report.members).toBe(1);
+    expect(report.liability.points).toBe(0);
+  });
+
+  it('values the liability per member, so half a reward stays unspendable', async () => {
+    await holder(250);
+    await holder(40);
+    await holder(100);
+
+    const report = await loadLoyaltyProgram(WINDOW_START);
+    expect(report.members).toBe(3);
+    expect(report.liability).toEqual({
+      points: 390,
+      accruedCents: 3900,
+      rewardsOutstanding: 3,
+      redeemableCents: 3000,
+      membersWithReward: 2,
+    });
+  });
+
+  it('reports the window as positive counts, whatever sign the rows carry', async () => {
+    const id = await holder(400);
+    await prisma.loyaltyEvent.createMany({
+      data: [
+        { memberId: id, at: INSIDE, kind: 'redeem', points: -100, amountCents: 1000 },
+        { memberId: id, at: INSIDE, kind: 'redeem', points: -100, amountCents: 1000 },
+        { memberId: id, at: INSIDE, kind: 'expire', points: -50 },
+        { memberId: id, at: INSIDE, kind: 'adjust', points: -25 },
+      ],
+    });
+
+    const report = await loadLoyaltyProgram(WINDOW_START);
+    expect(report.window).toEqual({
+      pointsEarned: 400,
+      pointsRedeemed: 200,
+      pointsExpired: 50,
+      // Signed, alone among them: a program propped up by hand should look
+      // like one.
+      pointsAdjusted: -25,
+      redemptions: 2,
+      redeemedCents: 2000,
+      rate: 0.5,
+    });
+    // 400 − 200 − 50 − 25.
+    expect(report.liability.points).toBe(125);
+  });
+
+  it('keeps the liability all-time while the window has an edge', async () => {
+    // Earned before the window, spent inside it: the shop still owes the
+    // remainder, and the rate is above 1 because a punch card is saved up.
+    const id = await holder(300, BEFORE);
+    await prisma.loyaltyEvent.createMany({
+      data: [
+        { memberId: id, at: INSIDE, kind: 'earn', points: 100 },
+        { memberId: id, at: INSIDE, kind: 'redeem', points: -200, amountCents: 2000 },
+      ],
+    });
+
+    const report = await loadLoyaltyProgram(WINDOW_START);
+    expect(report.window).toMatchObject({ pointsEarned: 100, pointsRedeemed: 200, rate: 2 });
+    expect(report.liability).toMatchObject({ points: 200, accruedCents: 2000 });
+  });
+
+  it('carries the terms and both windows, and the switch apart from the pepper', async () => {
+    const report = await loadLoyaltyProgram(WINDOW_START);
+
+    expect(report).toMatchObject({
+      enabled: false,
+      terms: { pointsPerDollar: 1, rewardThresholdPoints: 100, rewardValueCents: 1000 },
+      expiryDays: 365,
+      retentionDays: 365,
+    });
+
+    await setLoyaltyEnabled(true);
+    // The switch alone. `offered` is the switch AND a pepper, and the screen
+    // has to be able to say which of the two is missing.
+    expect(await loadLoyaltyProgram(WINDOW_START)).toMatchObject({ enabled: true });
+
+    await setLoyaltyEnabled(false);
+    expect(await loadLoyaltyProgram(WINDOW_START)).toMatchObject({ enabled: false });
+  });
+
+  it('switching the program off destroys nothing', async () => {
+    await setLoyaltyEnabled(true);
+    await holder(250);
+
+    await setLoyaltyEnabled(false);
+
+    // The balance is the customer's, not the program's. C-105 makes the same
+    // point from the other side: expiry runs with the switch off, because a
+    // switched-off program must not make every balance immortal.
+    const report = await loadLoyaltyProgram(WINDOW_START);
+    expect(report.liability.points).toBe(250);
+    expect(report.members).toBe(1);
   });
 });

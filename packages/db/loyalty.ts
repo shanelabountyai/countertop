@@ -14,10 +14,14 @@ import {
   LOYALTY_REWARD_REASON,
   cutoffDaysBefore,
   loyaltyBalance,
+  loyaltyLiability,
   normalizePhone,
   orderBalance,
   planRedemption,
   pointsForOrder,
+  redemptionRate,
+  type LoyaltyEventKind,
+  type LoyaltyLiability,
   type LoyaltyTerms,
   type RedemptionRefusalReason,
 } from '@countertop/core';
@@ -470,4 +474,135 @@ export async function expireInactiveBalances(
     members: rows.length,
     points: rows.reduce((sum, row) => sum - row.points, 0),
   };
+}
+
+// --- The program's own screen (P1-2, C-106) --------------------------------
+
+/** What one window of the ledger did. Points are POSITIVE here even where the
+ *  rows are negative — this is a report, and "302 points redeemed" is the
+ *  sentence; the sign is the ledger's business and stays there. */
+export type LoyaltyWindow = {
+  pointsEarned: number;
+  pointsRedeemed: number;
+  pointsExpired: number;
+  /** SIGNED, alone among these — a staff correction genuinely goes both ways
+   *  and a magnitude would hide a program being propped up by hand. */
+  pointsAdjusted: number;
+  redemptions: number;
+  /** What the rewards spent in this window actually cost, off the ledger's own
+   *  copy of each amount. */
+  redeemedCents: number;
+  /** Redeemed over earned, or null when nothing was issued. */
+  rate: number | null;
+};
+
+export type LoyaltyProgramReport = {
+  /** The switch, as stored — NOT `offered`. The screen has to be able to say
+   *  "switched on, but no pepper is configured", which one boolean cannot. */
+  enabled: boolean;
+  pepperConfigured: boolean;
+  terms: LoyaltyTerms;
+  expiryDays: number;
+  retentionDays: number;
+  members: number;
+  liability: LoyaltyLiability;
+  window: LoyaltyWindow;
+};
+
+/**
+ * Every number on the loyalty screen (P1-2).
+ *
+ * THREE AGGREGATES, NOT A `findMany`. The liability needs each member's own
+ * balance — whole rewards and the negative-balance floor are both per-member
+ * questions — but it does not need their rows, and pulling a year of ledger
+ * into memory to sum it is the kind of thing that works fine until the seeded
+ * rush is a real restaurant.
+ *
+ * MEMBERS ARE COUNTED SEPARATELY from the balance grouping, deliberately: a
+ * customer who enrolled and has not been back has no ledger rows at all, so
+ * the group-by cannot see them. They are a member with nothing, not a missing
+ * member, and the count on this screen is the count of people who handed over
+ * a phone number.
+ *
+ * The liability is ALL TIME and the rest of it is the window, which is the
+ * only reading either can have: what the shop owes is what it owes today, and
+ * "$390 of liability in the last 7 days" is not a number that means anything.
+ */
+export async function loadLoyaltyProgram(since: Date): Promise<LoyaltyProgramReport> {
+  const settings = await prisma.restaurantSettings.findUniqueOrThrow({
+    where: { id: 'singleton' },
+    select: {
+      loyaltyEnabled: true,
+      pointsPerDollar: true,
+      rewardThresholdPoints: true,
+      rewardValueCents: true,
+      loyaltyExpiryDays: true,
+      retentionDays: true,
+    },
+  });
+
+  const [members, balances, byKind] = await Promise.all([
+    prisma.loyaltyMember.count(),
+    prisma.loyaltyEvent.groupBy({ by: ['memberId'], _sum: { points: true } }),
+    prisma.loyaltyEvent.groupBy({
+      by: ['kind'],
+      where: { at: { gte: since } },
+      _sum: { points: true, amountCents: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const of = (kind: LoyaltyEventKind) => byKind.find((row) => row.kind === kind);
+  const pointsEarned = of('earn')?._sum.points ?? 0;
+  // Negated at the boundary, once. The rows are negative because the sign is
+  // the direction on this ledger; a screen saying "−302 points redeemed" is
+  // reading the storage out loud.
+  const pointsRedeemed = -(of('redeem')?._sum.points ?? 0);
+
+  return {
+    enabled: settings.loyaltyEnabled,
+    pepperConfigured: hasLoyaltyPepper(),
+    terms: settings,
+    expiryDays: settings.loyaltyExpiryDays,
+    retentionDays: settings.retentionDays,
+    members,
+    liability: loyaltyLiability(
+      balances.map((row) => row._sum.points ?? 0),
+      settings,
+    ),
+    window: {
+      pointsEarned,
+      pointsRedeemed,
+      pointsExpired: -(of('expire')?._sum.points ?? 0),
+      pointsAdjusted: of('adjust')?._sum.points ?? 0,
+      redemptions: of('redeem')?._count._all ?? 0,
+      redeemedCents: of('redeem')?._sum.amountCents ?? 0,
+      rate: redemptionRate(pointsEarned, pointsRedeemed),
+    },
+  };
+}
+
+/**
+ * The switch (P1-2's other half). The one loyalty setting this screen writes.
+ *
+ * A BOOLEAN AND NOTHING ELSE, and the omissions are the decision. The reward
+ * terms and the two windows are shown on that screen and are not editable
+ * there: changing `rewardValueCents` restates the liability of every point
+ * already earned, changing `rewardThresholdPoints` can take a reward away from
+ * somebody who has one, and shrinking `loyaltyExpiryDays` destroys balances
+ * with no preview of what it would destroy. Each of those is a migration-
+ * shaped decision with a dry run in front of it, exactly as the settings
+ * screen says of the timezone and the tax rate — and C-105 recorded that a
+ * control for the expiry window may not ship without one.
+ *
+ * Switching OFF is not destructive and that is worth stating: enrolment,
+ * earning and redeeming all stop, and every outstanding balance stays exactly
+ * where it is — including expiring on schedule, which `expireInactiveBalances`
+ * deliberately does with the program off (C-105).
+ */
+export async function setLoyaltyEnabled(enabled: boolean): Promise<void> {
+  await prisma.restaurantSettings.update({
+    where: { id: 'singleton' },
+    data: { loyaltyEnabled: enabled },
+  });
 }

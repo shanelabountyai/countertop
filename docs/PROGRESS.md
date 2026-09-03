@@ -4754,3 +4754,112 @@ impossible to configure the two out of step.
   the CHECK is in place for the screen that adds controls for them.
 - **`expireInactiveBalances` returns the points it destroyed**, which is the
   first number the program's own screen wants — the liability that left.
+
+## C-106 — The program's own screen (PRD 7 P1-2, and P0-6)
+
+The last item of the loyalty PRD below the SMS line, and the only one that is
+about the owner rather than the customer. Five items built a punch card that
+works; none of them could answer "is it worth running?" — because the number
+that answers it is a liability, and points look free precisely because they are
+issued for free and billed later at a time the customer chooses.
+
+**Built:**
+- `loyaltyLiability(balances, terms)` and `redemptionRate(earned, redeemed)` in
+  `packages/core/loyalty/ledger.ts` — pure, hand-calculated fixtures, no clock.
+- `loadLoyaltyProgram(since)` and `setLoyaltyEnabled(enabled)` in
+  `packages/db/loyalty.ts` — three aggregates and one boolean write.
+- `/kitchen/loyalty` (`page.tsx` + `actions.ts`), linked from the queue header
+  as "Punch card", behind the same middleware every other `/kitchen` route is.
+- `apps/web/lib/panels.tsx` — `Stat` and `Section`, lifted out of the sales
+  report the moment a second screen wanted the same tile.
+- P0-6's static check in `packages/db/report.test.ts`, and four e2e specs.
+- No migration. Every column this screen reads has existed since C-100.
+
+**Decided:**
+- **The liability is TWO numbers, and the gap between them is the requirement.**
+  `accruedCents` values every outstanding point at the reward rate;
+  `redeemableCents` counts only whole rewards. They differ because C-104
+  refuses half a reward rather than clamping it — an owner shown only the
+  accrual over-provisions, and one shown only the redeemable figure is
+  surprised the week everybody crosses the threshold at once. The screen names
+  the difference in cents and says what it is: money stranded in part-finished
+  cards, which becomes spendable exactly as those customers come back.
+- **It takes BALANCES, not a total.** The whole-reward division and the
+  negative-balance floor are both per-member questions, and a pre-summed number
+  can answer neither. **A negative balance is not a negative liability** — it
+  cannot happen through the product, but a staff `adjust` is the one row a
+  person types, and one fat finger must not quietly cancel out somebody else's
+  real points. Floored at zero per member.
+- **Members are counted separately from the balance grouping.** A customer who
+  enrolled and never came back has no ledger rows, so the `groupBy` cannot see
+  them. They are a member with nothing, not a missing member, and the count on
+  this screen means "people who handed over a phone number".
+- **Three aggregates, never a `findMany`.** A count, a `groupBy(memberId)` and a
+  `groupBy(kind)` over the window. Pulling a year of ledger into memory to sum
+  it is the shape that works right up until the seeded rush is a real shop.
+- **The liability is all-time; everything else is the window.** The only
+  reading either can have — what the shop owes is what it owes today, and
+  "$390 of liability in the last 7 days" is not a number that means anything.
+- **The rate is null rather than zero when nothing was issued**, the same
+  treatment the sales report gives its no-show rate, **and it is allowed above
+  100%** with the copy saying why: a punch card is savings, so points earned
+  before the window are spent inside it. A rate clamped at 100% would be a
+  screen lying to protect its own arithmetic.
+- **The switch shipped and the numbers deliberately did not.** `loyaltyEnabled`
+  is a button; the reward terms and both windows render read-only with their
+  reason, the same shape the settings screen gives the timezone and tax rate.
+  Changing `rewardValueCents` restates the liability of every point already
+  earned, raising `rewardThresholdPoints` takes a reward off somebody who has
+  one, and shrinking `loyaltyExpiryDays` destroys balances on the next sweep
+  with no preview of whose. **C-105 recorded that a control for that window may
+  not ship without a dry run in front of it — and not shipping the control is
+  the other way to satisfy that.** This item took it, and said so on the screen
+  rather than leaving the omission to be read as an oversight.
+- **Switching off is not destructive, and the button's own screen says so.**
+  The fear a manager has about that control is that it wipes everybody's
+  points; what it actually does is stop enrolment, earning and spending. The
+  balances stay, and they still expire on schedule, because C-105 made expiry
+  ignore the switch on purpose.
+- **P0-6 is asserted against the CODE, not against a result.** A runtime test
+  cannot tell "the report reads no loyalty table" from "it read one and it
+  happened to be empty" — the requirement is about what the query *cannot* do,
+  so the check reads `report.ts` and the report page as text and fails on the
+  word. Deliberately blunt rather than an import parse: a join added through a
+  relation name, a hand-widened `select` and an import all contain the same
+  seven letters, and a cleverer check would pass the first two. A second check
+  extracts `model Order` from the schema and asserts exactly one loyalty line,
+  the back-relation — no scalar and no `@relation(fields:)`, because a member
+  FK would make P0-5's delete either cascade or restrict and both are wrong.
+
+**Found:**
+- **The static check was verified against a deliberately broken copy before
+  being trusted.** One line appended to `report.ts` failed it; the line was
+  reverted. A guard nobody has watched fail is a guard nobody has tested, and
+  this project has the conventions note about alarm patterns for that reason.
+- **The e2e fixture that writes `loyaltyEnabled` directly is now a claim with a
+  spec behind it.** Its own comment had said "there is no screen that does it";
+  there is one now, and rather than routing ten specs through two navigations
+  and a form post each, one spec drives the real button and asserts the
+  checkout follows. The comment was rewritten to say that, because a shortcut
+  whose justification has expired is how a fixture starts testing itself.
+
+**Left behind:**
+- **No dry run, and therefore no window controls.** The two retention windows
+  and the three reward terms are still database writes. That is the recorded
+  decision rather than an omission, and the upgrade path is written on the
+  screen: show what the change would destroy, then allow it.
+- **Nothing warns a member before their balance expires.** Unchanged from
+  C-105 — there is no channel to warn them on until SMS (master P1-3) — but
+  this screen now makes the consequence visible after the fact, which is
+  strictly less than a warning.
+- **The liability has no age breakdown.** "How much of this was earned over a
+  year ago" is the question that would tell an owner how much of the accrual is
+  really going to be spent, and it needs per-earn ageing rather than the
+  one-clock-per-member model C-105 shipped. Different ledger, different product.
+- **No export, and no trend.** Four windows and today's number; there is no
+  "liability over time" line, which is the shape an owner would actually watch.
+  A second screen's worth of work for a program with no numbers on it yet.
+- **The screen is not attributable.** Who switched the punch card off, and
+  when, is not recorded anywhere — the event log is the ORDER's, and settings
+  changes have never written one in this product. Consistent, and still a gap
+  that grows every time a settings control ships.

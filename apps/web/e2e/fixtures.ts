@@ -176,10 +176,14 @@ export async function pickUp(page: Page, name: string): Promise<void> {
 /**
  * Switch the punch card on or off (PRD 7 P0-1, C-101).
  *
- * Directly, like `backdateQueue`, and for the same reason: there is no screen
- * that does it. The program has no operator control yet — C-106 is where the
- * program's own screen lands — so a spec that wants it on has exactly one way
- * to say so, and this is it rather than five copies of a Prisma call.
+ * DIRECTLY, EVEN THOUGH THERE IS NOW A SCREEN (C-106's /kitchen/loyalty). The
+ * ten-odd specs that want the program on want it as a precondition, and paying
+ * two navigations and a form post each to arrive at one is the slowest way to
+ * assert something a spec is not about. What keeps this honest is that the
+ * REAL toggle has its own spec — `switches the punch card on from its own
+ * screen` in loyalty.spec.ts drives the button and then checks the checkout
+ * follows it — so a fixture that wrote the wrong column could not pass
+ * unnoticed.
  *
  * `reseed()` puts it back to false, which is the seeded default and the state
  * every other spec in the suite runs against.

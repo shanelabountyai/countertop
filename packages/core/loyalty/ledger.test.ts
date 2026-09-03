@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import {
   hasReward,
   loyaltyBalance,
+  loyaltyLiability,
+  redemptionRate,
   planRedemption,
   pointsForOrder,
   pointsToNextReward,
@@ -138,5 +140,91 @@ describe('planRedemption (P0-4)', () => {
     expect(plan.ok).toBe(false);
     if (plan.ok) return;
     expect(plan.reason).toBe('already_redeemed_on_this_order');
+  });
+});
+
+// P1-2 (C-106). The liability is the one number this program cannot be judged
+// without, and every figure below is hand-calculated from decision 9's terms.
+describe('what the program owes', () => {
+  it('values every outstanding point, and separately what is spendable today', () => {
+    // Three members: 250, 40 and 100. 390 points at 10c each is $39.00
+    // accrued — but only three whole rewards exist (2 + 0 + 1), worth $30.00,
+    // and $9.00 of it is stranded across two people who cannot spend it yet.
+    expect(loyaltyLiability([250, 40, 100], TERMS)).toEqual({
+      points: 390,
+      accruedCents: 3900,
+      rewardsOutstanding: 3,
+      redeemableCents: 3000,
+      membersWithReward: 2,
+    });
+  });
+
+  it('is zero on an empty program rather than a divide by nothing', () => {
+    expect(loyaltyLiability([], TERMS)).toEqual({
+      points: 0,
+      accruedCents: 0,
+      rewardsOutstanding: 0,
+      redeemableCents: 0,
+      membersWithReward: 0,
+    });
+  });
+
+  it('counts a zero balance as a member with nothing, not as a member missing', () => {
+    // An enrolled customer who has not been back. They exist, they own no
+    // points, and the count of members is not this function's job.
+    expect(loyaltyLiability([0, 0], TERMS)).toMatchObject({ points: 0, rewardsOutstanding: 0 });
+  });
+
+  it('refuses to net a negative balance against somebody else’s real points', () => {
+    // Cannot happen through the product — a staff `adjust` is the one row a
+    // person types, and one fat finger must not quietly reduce what the shop
+    // owes everybody else.
+    expect(loyaltyLiability([-500, 200], TERMS)).toMatchObject({
+      points: 200,
+      accruedCents: 2000,
+      rewardsOutstanding: 2,
+      membersWithReward: 1,
+    });
+  });
+
+  it('rounds the accrual half-up to the cent', () => {
+    // A reward of $10.01 over 3 points is 333.667c per point. One point is
+    // 333.67c, and two are 667.33c — rounded, never truncated, because a
+    // liability rounded down is a liability understated.
+    const odd: LoyaltyTerms = { pointsPerDollar: 1, rewardThresholdPoints: 3, rewardValueCents: 1001 };
+    expect(loyaltyLiability([1], odd).accruedCents).toBe(334);
+    expect(loyaltyLiability([2], odd).accruedCents).toBe(667);
+    // And three points is exactly one reward, both ways round.
+    expect(loyaltyLiability([3], odd)).toMatchObject({ accruedCents: 1001, redeemableCents: 1001 });
+  });
+
+  it('reads the terms rather than decision 9’s numbers', () => {
+    const generous: LoyaltyTerms = {
+      pointsPerDollar: 2,
+      rewardThresholdPoints: 50,
+      rewardValueCents: 500,
+    };
+    expect(loyaltyLiability([250], generous)).toMatchObject({
+      accruedCents: 2500,
+      rewardsOutstanding: 5,
+      redeemableCents: 2500,
+    });
+  });
+});
+
+describe('the redemption rate', () => {
+  it('is what came back over what was issued', () => {
+    expect(redemptionRate(1000, 400)).toBe(0.4);
+  });
+
+  it('is null when nothing was issued, not zero', () => {
+    // "0.0%" reads as a program nobody is using; a window with no earns has no
+    // rate at all. Same treatment the sales report gives its no-show rate.
+    expect(redemptionRate(0, 0)).toBeNull();
+    expect(redemptionRate(0, 300)).toBeNull();
+  });
+
+  it('is allowed above 1, because a punch card is saved up across windows', () => {
+    expect(redemptionRate(100, 300)).toBe(3);
   });
 });

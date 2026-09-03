@@ -1,4 +1,5 @@
 import { instantMinutesAfter, salesReport, timeInState, type Cart } from '@countertop/core';
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { placeOrder } from './placement';
@@ -318,5 +319,52 @@ describe('the quote samples (P1-4, C-042)', () => {
     await readyAt(await place(1, AT), min(18));
 
     expect(await loadQuoteSamples(new Date(Date.UTC(2026, 6, 10, 0, 0, 0)))).toHaveLength(1);
+  });
+});
+
+// P0-6: loyalty is PROVABLY invisible to the order snapshot and the sales
+// report (C-106).
+//
+// A STATIC CHECK, deliberately, and it is the only kind that can hold this
+// claim. Every other loyalty test asserts that some number came out right;
+// this one asserts that a whole category of code is absent — and a runtime
+// test cannot see the difference between "the report reads no loyalty table"
+// and "the report reads one and it happened to be empty". The requirement is
+// about what the query CANNOT do, so the query is what gets read.
+//
+// It is deliberately blunt: the whole file text, not an import parse. A join
+// added through a relation name, a `select` widened by hand, and an import all
+// contain the same seven letters, and a cleverer check would pass the first
+// two.
+describe('the sales report cannot see the loyalty program (P0-6)', () => {
+  const source = (path: string): string => readFileSync(new URL(path, import.meta.url), 'utf8');
+
+  it('reads nothing loyalty-shaped anywhere on the query path', () => {
+    // The loader and the page that renders it. Both, because P0-6 says "no
+    // loyalty number appears on /kitchen/report" — a query kept clean and a
+    // page that fetches the balance itself would satisfy half a requirement.
+    for (const path of ['./report.ts', '../../apps/web/app/kitchen/report/page.tsx']) {
+      expect(source(path).toLowerCase(), `${path} mentions loyalty`).not.toContain('loyalt');
+      expect(source(path).toLowerCase(), `${path} mentions points`).not.toContain('rewardvalue');
+    }
+  });
+
+  it('leaves the order snapshot with no column and no foreign key to a member', () => {
+    // Bullet one of P0-6, and the reason is the forget: a member FK on the
+    // order would make P0-5's delete either cascade — changing a report count
+    // — or restrict, blocking it. Both are wrong, so the requirement is that
+    // the column never exists rather than that it points the right way.
+    const schema = source('./prisma/schema.prisma');
+    const order = /\nmodel Order \{\n([\s\S]*?)\n\}/.exec(schema)?.[1];
+    expect(order, 'model Order not found in the schema').toBeDefined();
+
+    const loyaltyLines = (order ?? '')
+      .split('\n')
+      .filter((line) => /loyalt/i.test(line) && !line.trim().startsWith('///'));
+    // Exactly one, and it is the BACK-relation: the list of ledger rows
+    // pointing AT this order. No scalar, no `@relation(fields:)`, so there is
+    // nothing on the order row itself to delete or to chase.
+    expect(loyaltyLines).toHaveLength(1);
+    expect(loyaltyLines[0]).toMatch(/^\s*loyaltyEvents\s+LoyaltyEvent\[\]\s*$/);
   });
 });

@@ -1617,3 +1617,41 @@ later, as live points nobody can account for.
 
 **One command still does all of it.** `npm run db:retention` now prints both
 windows: orders forgotten, members deleted, points expired.
+
+## C-106 — What the punch card costs, on a screen
+
+**The liability is the number nobody builds.** A points balance is a bill the
+shop has already agreed to pay, at a time the customer picks. *Punch card* on
+the kitchen header is the screen that says how big it is: how many members, how
+many points are outstanding, and what those points are worth.
+
+**Two money figures, because they are genuinely different.** The accrual —
+every point issued and not yet spent, valued at the reward rate — and what
+could be handed over tomorrow, which counts whole rewards only. A customer with
+forty points has cost the shop four dollars and can spend nothing. The screen
+names the gap: *"$9.00 of that is stranded in part-finished cards."* Provision
+against the first; expect the second at the counter.
+
+**Per period: what was earned, what was spent, and what it cost.** Plus the
+redemption rate — points spent over points issued — which is allowed to read
+above 100% and says why when it does: a punch card is savings, so a good week
+spends points saved up over months. A rate that quietly capped itself at 100%
+would be a screen protecting its own arithmetic instead of telling you what
+happened.
+
+**The switch is here, next to what it costs.** One button turns the program on
+and off, and the screen says plainly what switching off does *not* do: nobody
+loses a point. New ones stop being earned and rewards stop being spent; every
+balance stays exactly where it is.
+
+**The reward terms and the expiry windows are shown and not editable, on
+purpose.** Changing what a reward is worth restates the liability of every
+point already earned. Raising the threshold takes a reward away from somebody
+who has one. Shrinking the expiry window deletes balances on the next sweep.
+Each of those needs to show you what it would destroy before it does it — so
+the control does not ship until it can.
+
+**Nothing about any of this appears on the sales report.** That is enforced,
+not remembered: a test reads the report's own query and the page that renders
+it and fails if the word "loyalty" turns up in either. Sales figures stay
+readable by somebody who has never switched the program on.

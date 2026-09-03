@@ -141,6 +141,12 @@ export default async function KitchenPage({
             Sales
           </Link>
           <Link
+            href="/kitchen/loyalty"
+            className="flex min-h-12 min-w-12 items-center justify-center px-2 text-sm underline underline-offset-4"
+          >
+            Punch card
+          </Link>
+          <Link
             href="/kitchen/orders"
             className="flex min-h-12 min-w-12 items-center justify-center px-2 text-sm underline underline-offset-4"
           >

@@ -162,3 +162,82 @@ const refuse = (reason: RedemptionRefusalReason, message: string): RedemptionPla
   reason,
   message,
 });
+
+// --- What the program is worth, and what it owes (P1-2, C-106) -------------
+
+/**
+ * The liability, which is the number nobody builds.
+ *
+ * TWO NUMBERS, not one, and the gap between them is the honest part. Points
+ * are only spendable in whole rewards — C-104 refuses half of one rather than
+ * clamping it — so "every outstanding point valued at the reward rate" and
+ * "what could walk in the door tomorrow" are genuinely different amounts, and
+ * an owner shown only the first would over-provision while an owner shown only
+ * the second would be surprised the week everybody crosses the threshold at
+ * once.
+ *
+ * A NEGATIVE BALANCE IS NOT A NEGATIVE LIABILITY. It cannot happen —
+ * `planRedemption` refuses below zero and the CHECKs hold the signs — but a
+ * staff `adjust` is the one row a person types, and one fat finger must not
+ * quietly cancel out somebody else's real points. Floored at zero per member,
+ * which is also why this takes BALANCES rather than a sum: the flooring and
+ * the whole-reward division are both per-member questions, and a pre-summed
+ * total cannot answer either.
+ */
+export type LoyaltyLiability = {
+  /** Outstanding points, summed over members who have some. */
+  points: number;
+  /** Those points at the reward rate — the full accrual, whether or not any
+   *  given member has enough to spend yet. */
+  accruedCents: number;
+  /** Whole rewards sitting out there, and what they cost if every one is
+   *  spent. This is the number that can arrive at the counter tomorrow. */
+  rewardsOutstanding: number;
+  redeemableCents: number;
+  /** Members holding at least one. "Forty people can walk in with $10 off" is
+   *  the sentence an owner actually reacts to. */
+  membersWithReward: number;
+};
+
+export function loyaltyLiability(
+  balances: readonly number[],
+  terms: LoyaltyTerms,
+): LoyaltyLiability {
+  let points = 0;
+  let rewardsOutstanding = 0;
+  let membersWithReward = 0;
+
+  for (const balance of balances) {
+    points += Math.max(0, balance);
+    const rewards = rewardsAvailable(balance, terms);
+    rewardsOutstanding += rewards;
+    if (rewards >= 1) membersWithReward += 1;
+  }
+
+  return {
+    points,
+    // Half-up to the cent. Not `taxOn` — that function is the tax rounding and
+    // it takes a rate in ppm; this is a proportion of two configured integers
+    // and borrowing the tax function for it would make a later change to one
+    // silently a change to the other.
+    accruedCents: Math.round((points * terms.rewardValueCents) / terms.rewardThresholdPoints),
+    rewardsOutstanding,
+    redeemableCents: rewardsOutstanding * terms.rewardValueCents,
+    membersWithReward,
+  };
+}
+
+/**
+ * Of the points issued in a window, the share that came back as rewards.
+ *
+ * `null` when nothing was issued, rather than zero: a program with no earns
+ * yet has no redemption rate, and "0.0%" reads as a program nobody is using.
+ * Same treatment the report gives its no-show rate.
+ *
+ * IT CAN EXCEED 1, and that is not a bug — points earned before the window are
+ * spent inside it, which is what a punch card is for. The screen says so.
+ */
+export function redemptionRate(pointsEarned: number, pointsRedeemed: number): number | null {
+  if (pointsEarned <= 0) return null;
+  return pointsRedeemed / pointsEarned;
+}
