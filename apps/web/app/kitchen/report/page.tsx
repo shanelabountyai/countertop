@@ -10,6 +10,7 @@
 // appears in the history it earned.
 import Link from 'next/link';
 import {
+  businessDayOf,
   estimateAccuracy,
   formatOrderNumber,
   instantDaysBefore,
@@ -20,7 +21,12 @@ import {
   type QuoteAdjustment,
 } from '@countertop/core';
 import { loadSettings } from '@countertop/db/menu';
-import { loadQuoteSamples, loadReportOrders, loadStatusTimelines } from '@countertop/db/report';
+import {
+  loadQuoteSamples,
+  loadReportOrders,
+  loadStatusTimelines,
+  type ReportWindow,
+} from '@countertop/db/report';
 import { formatCents } from '@/lib/money';
 import { Section, Stat } from '@/lib/panels';
 import { STATUS_LABEL } from '@/lib/status-labels';
@@ -30,8 +36,16 @@ export const metadata = { title: 'Sales — Firebird Kitchen' };
 // Never prerendered: a report baked at build time is a report about the build.
 export const dynamic = 'force-dynamic';
 
-const WINDOWS = [1, 7, 30, 90] as const;
-const DEFAULT_DAYS = 7;
+// `today` is not "1 day" and is deliberately not spelled as one: the rolling
+// windows are 24-hour multiples from `now`, and this one is the restaurant's
+// own business day (P0-3). It leads because it is the question the screen is
+// opened to answer during a service.
+const WINDOWS = ['today', 1, 7, 30, 90] as const;
+type ReportChoice = (typeof WINDOWS)[number];
+const DEFAULT_WINDOW: ReportChoice = 'today';
+
+const windowLabel = (choice: ReportChoice): string =>
+  choice === 'today' ? 'Today' : choice === 1 ? 'Last 24 hours' : `Last ${choice} days`;
 
 const percent = (fraction: number) => `${(fraction * 100).toFixed(1)}%`;
 
@@ -51,20 +65,26 @@ export default async function ReportPage({
 }) {
   // Read once, here. Everything below is a parameter (CLAUDE.md time rules).
   const now = new Date();
-  const requested = Number((await searchParams).days);
-  const days = WINDOWS.includes(requested as (typeof WINDOWS)[number]) ? requested : DEFAULT_DAYS;
+  const requested = (await searchParams).days;
+  const choice = WINDOWS.find((option) => String(option) === requested) ?? DEFAULT_WINDOW;
 
   const { timezone } = await loadSettings();
-  const since = instantDaysBefore(now, days);
-  const report = salesReport(await loadReportOrders(since), timezone);
+  // The business day the order numbers reset on, matched as a string against
+  // the column placement wrote — never a pair of instants around local
+  // midnight (P0-3). Everything else stays the generous instant bound.
+  const bounds: ReportWindow =
+    choice === 'today'
+      ? { businessDay: businessDayOf(now, timezone) }
+      : instantDaysBefore(now, choice);
+  const report = salesReport(await loadReportOrders(bounds), timezone);
   // Same window, same `now`, and derived from the append-only event log rather
   // than from `statusChangedAt` — which holds one instant and cannot know that
   // a reverted ticket was on the grill twice.
-  const timeInState = timeInStateReport(await loadStatusTimelines(since), now);
+  const timeInState = timeInStateReport(await loadStatusTimelines(bounds), now);
   // P1-4. Graded against the quote each order CARRIES, not against a quote
   // recomputed now — which is why this needs a snapshot column and not a
   // cleverer query (C-042).
-  const accuracy = estimateAccuracy(await loadQuoteSamples(since));
+  const accuracy = estimateAccuracy(await loadQuoteSamples(bounds));
 
   // Only the states an order can still be sitting in. The terminal three
   // always total zero by construction, and a row of "0.0 min" reads like a
@@ -87,28 +107,31 @@ export default async function ReportPage({
       </p>
 
       <nav aria-label="Report window" className="mt-4 flex flex-wrap gap-2">
-        {WINDOWS.map((window) => (
+        {WINDOWS.map((option) => (
           <Link
-            key={window}
-            href={`/kitchen/report?days=${window}`}
-            aria-current={window === days ? 'page' : undefined}
+            key={option}
+            href={`/kitchen/report?days=${option}`}
+            aria-current={option === choice ? 'page' : undefined}
             className={`min-h-12 rounded-lg border-2 px-5 py-3 text-lg font-bold ${
-              window === days
+              option === choice
                 ? 'border-neutral-900 bg-neutral-900 text-white'
                 : 'border-neutral-400'
             }`}
           >
-            {window === 1 ? 'Last 24 hours' : `Last ${window} days`}
+            {windowLabel(option)}
           </Link>
         ))}
       </nav>
 
-      {/* The window is an INSTANT range, so its oldest local day is usually a
-          partial one. Saying so costs a line and stops someone reading a half
-          day as a bad day. */}
+      {/* A rolling window is an INSTANT range, so its oldest local day is
+          usually a partial one. Saying so costs a line and stops someone
+          reading a half day as a bad day — and `Today` must NOT say it, because
+          a business day is whole by definition and a disclaimer that is always
+          on is a disclaimer nobody reads (P0-3). */}
       <p className="mt-2 text-base text-neutral-600">
-        Counted from exactly {days === 1 ? '24 hours' : `${days} days`} ago, so the earliest day
-        shown may be partial.
+        {choice === 'today'
+          ? `The restaurant's business day in ${timezone} — the same day the order numbers reset on, not the last 24 hours.`
+          : `Counted from exactly ${choice === 1 ? '24 hours' : `${choice} days`} ago, so the earliest day shown may be partial.`}
       </p>
 
       {/* Three money numbers, because they are three different facts (P0-1).

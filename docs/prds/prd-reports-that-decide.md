@@ -44,10 +44,10 @@ And the accountant asks for March. There is no month, no date range, no export �
 - [ ] The number of unpaid pickups is reported as a rate as well as a count, so "six on a Friday" is comparable across days
 - [ ] Test: a fixture with one `picked_up`/`unpaid` order and one `picked_up`/`paid` order asserts `collected ≠ charged`, that the delta equals the unpaid order's total to the cent, and that the unpaid order appears in the list
 
-**P0-3: A "Today" window bounded on the restaurant's business day** *(DX 9)*
-- [ ] A `Today` window is added and is the default selection; it bounds on `restaurantClock(now, timezone).day`, the same business day the order-number reset and `businessDay` column already use — never a 24-hour instant range
-- [ ] The partial-oldest-day disclaimer is suppressed for `Today` and retained for the rolling windows, whose behaviour does not change *(the WRITEUP records the partial-day bucketing as deliberate; this adds a window, it does not re-bucket the existing ones)*
-- [ ] Test: with orders seeded on two adjacent business days, `Today` returns exactly one row in By-day, and the same fixture under `TZ=Pacific/Kiritimati` and `TZ=UTC` returns identical rows
+**P0-3: A "Today" window bounded on the restaurant's business day** *(DX 9)* — ✅ **C-054**
+- [x] A `Today` window is added and is the default selection; it bounds on `restaurantClock(now, timezone).day`, the same business day the order-number reset and `businessDay` column already use — never a 24-hour instant range
+- [x] The partial-oldest-day disclaimer is suppressed for `Today` and retained for the rolling windows, whose behaviour does not change *(the WRITEUP records the partial-day bucketing as deliberate; this adds a window, it does not re-bucket the existing ones)*
+- [x] Test: with orders seeded on two adjacent business days, `Today` returns exactly one row in By-day, and the same fixture under `TZ=Pacific/Kiritimati` and `TZ=UTC` returns identical rows
 
 **P0-4: The attach-rate table leads with the rows that can change a decision** *(DX 8)*
 - [ ] Rows at 100% across every unit collapse behind a disclosure labelled "Always taken (required choices) — show", closed by default
@@ -128,7 +128,7 @@ defect items took `C-050`–`C-052`; the real numbers are these, and
 
 - ✅ **C-051 — The report reads `paymentState`** *(defect **D2**'s fix, not a feature; it landed first and alone)* — `loadReportOrders` selects the column, revenue splits collected/outstanding, the unpaid orders are listed. One migration-free session.
 - ✅ **C-053 — Net sales, tax, and gross are three different numbers** — P0-1, plus the reconciliation assertion in the test.
-- **C-054 — Today** — P0-3, the business-day window and the suppressed disclaimer, with the TZ×2 test.
+- ✅ **C-054 — Today** — P0-3, the business-day window and the suppressed disclaimer, with the TZ×2 test.
 - **C-055 — The attach-rate table leads with the decidable rows** — P0-4, and the snapshot-rule assertion that the re-sort added no menu join.
 - **C-056 — p90, the ran-late count, and the slowest five** — P0-5, including the paired dual-dialect test for the SQL status restatement on `report.ts:94`.
 - **C-057 — Cancellations by reason** — P0-6, with the hand-written `ALTER TYPE` migration.

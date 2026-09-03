@@ -1680,3 +1680,25 @@ cause will be somebody widening a column and not this sum.
 snapshot, never recomputed from today's rate — so raising the tax rate this
 afternoon leaves last month's report exactly where it was. Nothing on this path
 so much as loads the current rate.
+
+## C-054 — Today
+
+**The sales screen could tell you about the last 24 hours. It could not tell
+you about today.** Those are different questions, and at 2pm they have very
+different answers: the last 24 hours is half of today plus half of yesterday,
+so a lunch that went badly is averaged against last night's dinner and a GM
+reading the screen at close gets a day that starts and ends in the wrong place.
+
+**Today is now a window, and it is the one the screen opens on.** It is the
+restaurant's own business day in the restaurant's own timezone — the same day
+the order numbers reset on, so the report's "today" and the counter's "#047
+today" are the same day and cannot drift apart.
+
+**It is a whole day, so it drops the small print.** The rolling windows count
+back in exact 24-hour multiples and their oldest day is usually a fragment;
+the screen has always said so. Today has no fragment to warn about, so it says
+what it is instead, and the caveat stays where it is true.
+
+**The whole page moves together.** Sales, time-in-state and the quote grades
+are bounded by one window, not three — so nothing on the screen is describing
+a different stretch of time than the tiles at the top.

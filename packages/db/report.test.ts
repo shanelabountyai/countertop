@@ -59,14 +59,18 @@ async function place(
 
 /** Walk an order forward to a terminal state through the REAL transitions, so
  *  the statuses the report counts are ones the state machine actually reaches. */
-async function advanceTo(id: string, target: 'picked_up' | 'abandoned'): Promise<void> {
+async function advanceTo(
+  id: string,
+  target: 'picked_up' | 'abandoned',
+  at: Date = AT,
+): Promise<void> {
   const steps = target === 'picked_up' ? 4 : 3;
   for (let step = 0; step < steps; step += 1) {
-    const result = await applyOrderAction(id, { kind: 'advance', actor: 'staff' }, AT);
+    const result = await applyOrderAction(id, { kind: 'advance', actor: 'staff' }, at);
     if (!result.ok) throw new Error(`advance refused: ${result.failure.message}`);
   }
   if (target === 'abandoned') {
-    const result = await applyOrderAction(id, { kind: 'abandon', actor: 'staff' }, AT);
+    const result = await applyOrderAction(id, { kind: 'abandon', actor: 'staff' }, at);
     if (!result.ok) throw new Error(`abandon refused: ${result.failure.message}`);
   }
 }
@@ -171,6 +175,35 @@ describe('the sales report, against the database', () => {
       LA,
     );
     expect(report.days.map((day) => day.day)).toEqual(['2026-07-14']);
+  });
+
+  // C-054 / PRD 1 P0-3. `Today` is the one window that is NOT a multiple of
+  // 24 hours from `now`: it is the restaurant's own business day, matched
+  // against the column placement already wrote.
+  //
+  // Both instants below are the 15th in UTC, and the first of them is the
+  // EVENING OF THE 14TH in Los Angeles — which is what makes this a real test.
+  // A window built out of UTC dates, or out of "the last 24 hours", puts these
+  // two orders on the same day; the restaurant's calendar does not.
+  it('bounds Today on the business day, not on the UTC day or a 24-hour slice', async () => {
+    const dinnerOnThe14th = new Date(Date.UTC(2026, 6, 15, 5, 30, 0)); // 22:30 in LA
+    const lunchOnThe15th = new Date(Date.UTC(2026, 6, 15, 19, 30, 0)); // 12:30 in LA
+    await advanceTo(await place(1, dinnerOnThe14th), 'picked_up', dinnerOnThe14th);
+    await advanceTo(await place(1, lunchOnThe15th), 'picked_up', lunchOnThe15th);
+
+    const today = salesReport(await loadReportOrders({ businessDay: '2026-07-14' }), LA);
+    // ONE row, and it is the 14th. Two rows means the window took a slice of
+    // instants; one row dated the 15th means it bucketed in UTC.
+    expect(today.days.map((day) => day.day)).toEqual(['2026-07-14']);
+    expect(today.days[0]).toMatchObject({ orders: 1, totalCents: 1456 });
+    // 22:00, the local hour. 05:00 would be the same failure one field over.
+    expect(today.hours.map((hour) => hour.hour)).toEqual([22]);
+
+    // And the neighbouring day is a clean split, not an overlap: the same two
+    // orders, one on each side, with nothing counted twice.
+    const nextDay = salesReport(await loadReportOrders({ businessDay: '2026-07-15' }), LA);
+    expect(nextDay.days.map((day) => day.day)).toEqual(['2026-07-15']);
+    expect(nextDay.days[0]).toMatchObject({ orders: 1 });
   });
 
   // C-051 / defect D2. The engine's arithmetic is proved in packages/core; what

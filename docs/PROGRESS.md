@@ -4952,3 +4952,78 @@ files on it.
 - **No year-to-date, and no comparison against the last period.** Three
   numbers for the selected window and nothing that says whether the window was
   good. That is P1-1's date range and P1-3's trend line, both still unbuilt.
+
+## C-054 — Today (PRD 1 P0-3)
+
+The report has had four windows since C-016 and every one of them is a
+multiple of 24 hours counted back from `now` — so the question the screen is
+actually opened with during a service, *how did today go*, was answered by
+"the last 24 hours", which at 2pm is half of today plus half of yesterday. A
+GM reading it at close on Friday gets Thursday evening folded in; a GM reading
+it at 10am gets yesterday's dinner rush and calls it this morning. The window
+that matches the shop's own day was the one missing.
+
+**Built:**
+- `ReportWindow` in `packages/db/report.ts` — `Date | { businessDay: string }`
+  — and `windowWhere`, one `where` fragment shared by all three loaders
+  (`loadReportOrders`, `loadStatusTimelines`, `loadQuoteSamples`), so the
+  sales numbers, the time-in-state tally and the quote grades on one screen
+  cannot end up bounding three different sets of orders.
+- `/kitchen/report`: `Today` added to the window selector, first, and the
+  DEFAULT. It resolves to `businessDayOf(now, timezone)` — matched as a string
+  against the `businessDay` column, never a pair of instants around local
+  midnight.
+- The partial-oldest-day disclaimer becomes conditional: the rolling windows
+  keep it, `Today` replaces it with a line naming the timezone and saying it
+  is the day the order numbers reset on.
+- One db test placing two orders whose UTC day is the same and whose
+  restaurant day is not; one e2e test asserting the default selection, the
+  suppressed disclaimer, and that the rolling window still carries it.
+- No migration. `businessDay` has been on the order since C-003.
+
+**Decided:**
+- **The window is a string match, not an instant range.** The local → instant
+  direction is the one `business-day.ts` refuses to go (a DST boundary has two
+  answers or none), and `Today` is exactly the case that would have needed it
+  — computing local midnight, twice, to bracket a query. It needs none: the
+  business day was written onto the order at placement by the same
+  `restaurantClock` reading that issued its number, so the window is the
+  column. That is also what makes "today" on this screen and "#047 today" on
+  the queue the same day by construction rather than by two computations
+  agreeing.
+- **`Date` still means the instant bound, so no existing caller moved.**
+  `ReportWindow` is a union with a `Date` arm rather than a new object shape,
+  which left all fifteen existing call sites — tests, the rush demo, the
+  retention regression — reading exactly as they did. The alternative was a
+  wrapper object and fifteen mechanical edits in the same commit as the
+  behaviour change.
+- **One `where` fragment, three loaders.** The two secondary loaders were
+  bounded by the same `since` and are now bounded by the same window; had
+  they kept the instant bound, `Today` would have shown today's sales beside
+  a week of time-in-state and called the page consistent.
+- **The disclaimer is suppressed rather than reworded.** A business day is
+  whole by definition, and a caveat that renders under every window is a
+  caveat nobody reads — which is what would have made the honest line under
+  the rolling windows worthless too.
+- **The test is a two-day fixture whose UTC days are identical.** Both orders
+  are placed on 2026-07-15 in UTC and one of them is the evening of the 14th
+  in Los Angeles. A UTC-day window puts them on one day, a 24-hour slice puts
+  them on one day, and the restaurant's calendar does not — so `Today` on the
+  14th must return exactly one row, dated the 14th, in hour 22. Verified by
+  breaking it: swapping the business-day match for a UTC-day range turns the
+  assertion red before the fix goes back in.
+
+**Left behind:**
+- **`Today` is midnight-to-midnight restaurant time**, because that is what
+  the `businessDay` column means. A kitchen serving past midnight sees its
+  service split across two Todays — the same caveat the order-number reset and
+  the leftover flag already carry, and the same one-line fix upgrades all
+  three: a service-day offset in settings that `businessDayOf` subtracts.
+- **No `Yesterday`, and no arbitrary day.** The machinery is now a string, so
+  either is a query-string parse away — but P1-1's date range is the item that
+  should introduce it, with two inputs rather than a second special case.
+- **The e2e seed places its orders minutes ago**, so a sweep started in the
+  last few minutes before local midnight would place orders on one business
+  day and assert them on the next. Not new — the same window the seeded
+  fixtures always ran against — but the default window is now the one that
+  notices.

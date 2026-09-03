@@ -89,15 +89,20 @@ test('a no-show is rated against finished orders, and is not revenue', async ({ 
   await expect(stat(page, 'Orders sold')).toContainText('1');
 });
 
+// C-054 / PRD 1 P0-3. `Today` is the default and is the restaurant's business
+// day — the seeded orders were placed minutes ago, so they are on it.
 test('the window selector narrows the report and marks the current choice', async ({ page }) => {
   await page.goto('/kitchen');
   await pickUp(page, 'Dana Reyes');
 
   await page.goto('/kitchen/report');
-  await expect(page.getByRole('link', { name: 'Last 7 days' })).toHaveAttribute(
-    'aria-current',
-    'page',
-  );
+  await expect(page.getByRole('link', { name: 'Today' })).toHaveAttribute('aria-current', 'page');
+  await expect(stat(page, 'Orders sold')).toContainText('1');
+  // The partial-day disclaimer belongs to the rolling windows only: a business
+  // day is whole by definition, and a caveat that is always on is one nobody
+  // reads.
+  await expect(page.getByText(/earliest day shown may be partial/)).toHaveCount(0);
+  await expect(page.getByText(/business day/)).toBeVisible();
 
   await page.getByRole('link', { name: 'Last 24 hours' }).click();
   await expect(page.getByRole('link', { name: 'Last 24 hours' })).toHaveAttribute(
@@ -106,6 +111,7 @@ test('the window selector narrows the report and marks the current choice', asyn
   );
   // The seeded order was placed minutes ago, so it survives the narrower window.
   await expect(stat(page, 'Orders sold')).toContainText('1');
+  await expect(page.getByText(/earliest day shown may be partial/)).toBeVisible();
 });
 
 test('the report is readable on a phone and has no accessibility violations', async ({ page }) => {
