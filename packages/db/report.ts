@@ -7,10 +7,13 @@
 // are not selected either — the report has no use for them, and not selecting
 // them is how it stays true that they are never read for display.
 //
-// Phones and notes are not selected. A sales report has no business holding
-// them. `customerName` and `seq` ARE selected, and only since C-051: the
-// outstanding list is a chase list, and "$14.30 is owed" with nobody to ask
-// is not one. They are snapshot columns like the rest of this select.
+// Phones and CUSTOMER notes are not selected. A sales report has no business
+// holding them. `customerName` and `seq` ARE selected, and only since C-051:
+// the outstanding list is a chase list, and "$14.30 is owed" with nobody to
+// ask is not one. `cancelNote` joined them at C-057 and is a different kind of
+// note — staff wrote it, about the shop, and it is the entire content of the
+// `other` bucket the by-reason table exists to shrink. They are snapshot
+// columns like the rest of this select.
 import {
   elapsedMinutes,
   type QuoteSample,
@@ -82,6 +85,12 @@ export function loadReportOrders(window: ReportWindow): Promise<ReportableOrder[
       // leaving one of that function's three readers on the enum, which is the
       // drift this codebase keeps having to come back and undo.
       events: { select: { kind: true, amountCents: true } },
+      // Why it was cancelled, on the orders that were (P0-6). Two scalars on
+      // the order, not a join and not an event lookup: the column is written
+      // in the same transaction as the cancel and is as much a snapshot as
+      // the prices beside it.
+      cancelReason: true,
+      cancelNote: true,
       subtotalCents: true,
       taxCents: true,
       totalCents: true,

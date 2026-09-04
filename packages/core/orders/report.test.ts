@@ -62,6 +62,8 @@ const order = (
             { kind: 'payment' as const, amountCents: money.totalCents },
             { kind: 'refund' as const, amountCents: money.totalCents },
           ],
+  cancelReason: null,
+  cancelNote: null,
   ...money,
   lines,
 });
@@ -166,8 +168,65 @@ describe('salesReport — what each status counts toward', () => {
         unpaidRate: null,
       },
       inFlight: 0,
+      cancellations: [],
       remakes: 0,
     });
+  });
+});
+
+describe('salesReport — cancellations by reason (P0-6)', () => {
+  const money = { subtotalCents: 1000, taxCents: 83, totalCents: 1083 };
+  const cancelled = (reason: ReportableOrder['cancelReason'], note?: string): ReportableOrder => ({
+    ...order(utc(2026, 7, 14, 19), [line('Burrito', 1, 1083)], 'cancelled', money),
+    cancelReason: reason,
+    cancelNote: note ?? null,
+  });
+
+  it('counts and values every cancellation, ranked by how often', () => {
+    const report = salesReport(
+      [
+        cancelled('kitchen_error'),
+        cancelled('customer_changed_mind'),
+        cancelled('kitchen_error'),
+        cancelled('too_busy'),
+        cancelled('other', 'power cut'),
+        cancelled('out_of_item'),
+      ],
+      LA,
+    );
+
+    // Five reasons over six orders, the doubled one first. $10.83 a ticket.
+    expect(report.cancellations).toEqual([
+      { reason: 'kitchen_error', orders: 2, totalCents: 2166, notes: [] },
+      { reason: 'customer_changed_mind', orders: 1, totalCents: 1083, notes: [] },
+      { reason: 'other', orders: 1, totalCents: 1083, notes: ['power cut'] },
+      { reason: 'out_of_item', orders: 1, totalCents: 1083, notes: [] },
+      { reason: 'too_busy', orders: 1, totalCents: 1083, notes: [] },
+    ]);
+  });
+
+  it('keeps the cancelled money out of every other number on the page', () => {
+    // The table exists BECAUSE these orders count toward nothing else. If
+    // adding it ever books a cancelled ticket as a sale, this fails first.
+    const report = salesReport([cancelled('kitchen_error')], LA);
+    expect(report.totals).toEqual({ subtotalCents: 0, taxCents: 0, totalCents: 0 });
+    expect(report.topItems).toEqual([]);
+    expect(report.days).toEqual([]);
+    expect(report.cancellations[0]?.totalCents).toBe(1083);
+  });
+
+  it('reports a cancellation with no stored reason rather than dropping it', () => {
+    // Nothing writes a null today — but a table whose counts do not add up to
+    // the number of orders cancelled is worse than one that says "other".
+    const report = salesReport([cancelled(null), cancelled('other', 'delivery driver no-show')], LA);
+    expect(report.cancellations).toEqual([
+      { reason: 'other', orders: 2, totalCents: 2166, notes: ['delivery driver no-show'] },
+    ]);
+  });
+
+  it('says nothing at all when nothing was cancelled', () => {
+    expect(salesReport([order(utc(2026, 7, 14, 19), [line('Burrito', 1, 1095)])], LA).cancellations)
+      .toEqual([]);
   });
 });
 

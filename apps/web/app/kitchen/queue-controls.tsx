@@ -11,9 +11,9 @@ import {
   canCollectPayment,
   CANCEL_REASONS,
   STATUS_FACTS,
-  type CancelReason,
   type OrderStatus,
 } from '@countertop/core';
+import { CANCEL_REASON_LABEL } from '@/lib/status-labels';
 import {
   abandonOrder,
   advanceOrder,
@@ -35,12 +35,6 @@ const ADVANCE_LABEL: Record<OrderStatus, string> = {
   picked_up: '',
   cancelled: '',
   abandoned: '',
-};
-
-const REASON_LABEL: Record<CancelReason, string> = {
-  out_of_item: 'Out of an item',
-  too_busy: 'Too busy',
-  other: 'Other',
 };
 
 export function QueueControls({
@@ -175,13 +169,13 @@ export function QueueControls({
                   onClick={() => act(() => cancelOrder(orderId, reason))}
                   className="min-h-12 rounded-lg border border-red-400 px-4 text-red-800"
                 >
-                  {REASON_LABEL[reason]}
+                  {CANCEL_REASON_LABEL[reason]}
                 </button>
               ))}
               {/* "Other" with no text is the reason nobody can act on later,
                   so the engine refuses it — the input is not optional here. */}
               <label className="flex flex-col gap-1">
-                <span>{REASON_LABEL.other} — say what happened</span>
+                <span>{CANCEL_REASON_LABEL.other} — say what happened</span>
                 <input
                   value={otherNote}
                   maxLength={140}

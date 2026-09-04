@@ -31,7 +31,7 @@ import {
 } from '@countertop/db/report';
 import { formatCents } from '@/lib/money';
 import { Section, Stat } from '@/lib/panels';
-import { STATUS_LABEL } from '@/lib/status-labels';
+import { CANCEL_REASON_LABEL, STATUS_LABEL } from '@/lib/status-labels';
 
 export const metadata = { title: 'Sales — Firebird Kitchen' };
 
@@ -369,6 +369,51 @@ export default async function ReportPage({
             )}
           </Section>
         </>
+      )}
+
+      {/* P0-6. Outside the sales branch for a blunter reason than the tally
+          below it: a window where everything was cancelled has no sales at
+          all, and that is precisely the window somebody needs this table on.
+          Rendered only when there were cancellations — a table of zeroes is
+          not a measurement. */}
+      {report.cancellations.length > 0 && (
+        <Section title="Cancellations">
+          <p className="text-lg text-neutral-700">
+            These orders count toward nothing else on this page — no sales, no items, no attach
+            rate — which is correct, and is why they need their own table. Value is what the
+            ticket would have been charged, tax included; none of it was taken.
+          </p>
+          <div className="mt-3">
+            <Table
+              headers={['Reason', 'Orders', 'Ticket value']}
+              label="Cancellations by reason"
+              rows={report.cancellations.map((row) => [
+                CANCEL_REASON_LABEL[row.reason],
+                String(row.orders),
+                formatCents(row.totalCents),
+              ])}
+            />
+          </div>
+          {/* The free text, listed rather than folded into the table: a count
+              of "Other" is the question and this is the answer, and the whole
+              point of the two reasons added at C-057 is that this list should
+              get shorter. */}
+          {report.cancellations.some((row) => row.notes.length > 0) && (
+            <>
+              <p className="mt-3 text-lg text-neutral-700">What staff wrote:</p>
+              <ul className="mt-1 list-disc pl-6 text-lg" data-testid="cancel-notes">
+                {report.cancellations.flatMap((row) =>
+                  row.notes.map((note, index) => (
+                    <li key={`${row.reason}-${index}`}>
+                      <span className="text-neutral-600">{CANCEL_REASON_LABEL[row.reason]}</span>{' '}
+                      &mdash; {note}
+                    </li>
+                  )),
+                )}
+              </ul>
+            </>
+          )}
+        </Section>
       )}
 
       {/* Outside the "nothing sold" branch on purpose: a report run mid-service

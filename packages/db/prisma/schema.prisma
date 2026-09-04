@@ -97,6 +97,12 @@ enum PaymentState {
 enum CancelReason {
   out_of_item
   too_busy
+  // C-057. The two the operator names most and could count least — both were
+  // being typed into `other`'s free text. Declared BEFORE `other` so the
+  // enum's sort order matches `CANCEL_REASONS`, which the vocabulary test
+  // compares position for position.
+  customer_changed_mind
+  kitchen_error
   other
 }
 

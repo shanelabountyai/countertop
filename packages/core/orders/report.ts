@@ -13,7 +13,12 @@
 // month's menu, and a deleted item would vanish from its own history.
 import { restaurantClock } from './business-day';
 import { orderBalance, paymentTotals, type MoneyEvent } from './payment';
-import { salesRoleOf, type OrderStatus, type PaymentState } from './state-machine';
+import {
+  salesRoleOf,
+  type CancelReason,
+  type OrderStatus,
+  type PaymentState,
+} from './state-machine';
 
 /** What a report needs off an order. A subset of the snapshot, so a database
  *  row satisfies it structurally and no mapping layer can drift. */
@@ -28,6 +33,14 @@ export type ReportableOrder = {
   /** The money events, so the split below asks `orderBalance` rather than the
    *  enum (C-064). The third of that function's three readers. */
   events: readonly MoneyEvent[];
+  /** Why it was cancelled, on the orders that were (P0-6). Nullable because
+   *  the column is: every other order in the window has nothing to say here,
+   *  and an `abandoned` no-show is not a cancellation and never carries one. */
+  cancelReason: CancelReason | null;
+  /** What staff typed, when they typed anything. The whole reason `other` is
+   *  worth showing at all — a count of `other` is the question, not the
+   *  answer. Capped at 140 characters by the column. */
+  cancelNote: string | null;
   subtotalCents: number;
   taxCents: number;
   totalCents: number;
@@ -161,6 +174,31 @@ export type PaymentSplit = {
   unpaidRate: number | null;
 };
 
+/**
+ * One reason, and what it cost (P0-6).
+ *
+ * Counted over the orders the sales numbers deliberately DROP — a cancelled
+ * order contributes to nothing else on this report, which is correct and is
+ * also why "we cancelled eleven tickets on Friday" was a fact the product
+ * held and could not say. The two grains a decision needs are both here: how
+ * often, and how much walked out the door.
+ *
+ * `totalCents` is the gross the ticket would have been charged, summed. Not
+ * revenue and never labelled as such (P0-1) — it is money that was never
+ * taken, and the subtotal/tax split of a sale that did not happen is a
+ * distinction with nothing behind it.
+ */
+export type CancellationReason = {
+  reason: CancelReason;
+  orders: number;
+  totalCents: number;
+  /** The free text, in the order the cancellations happened. Empty for the
+   *  reasons nobody wrote on, which in practice is every one but `other` —
+   *  collected off the NOTE rather than off the reason, so a note typed
+   *  beside a preset reason is not silently dropped. */
+  notes: string[];
+};
+
 export type NoShowRate = {
   sold: number;
   noShow: number;
@@ -185,6 +223,12 @@ export type SalesReport = {
    *  a midday report explains its own missing money instead of quietly
    *  under-reporting. */
   inFlight: number;
+  /**
+   * Why the cancelled orders were cancelled (P0-6), ranked by how many.
+   *
+   * The only place on this page that reports on orders the rest of it drops.
+   */
+  cancellations: CancellationReason[];
   /**
    * "We remade six tickets Friday" (PRD 3 P0-3, C-066) — the number the shop
    * had no way to produce, because the only record was somebody telling the GM
@@ -218,6 +262,7 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
   const hours = new Map<number, HourBucket>();
   const items = new Map<string, TopItem>();
   const attached = new Map<string, number>();
+  const cancelled = new Map<CancelReason, CancellationReason>();
   const outstanding: OutstandingOrder[] = [];
   let sold = 0;
   let noShow = 0;
@@ -238,7 +283,21 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
       continue;
     }
     const role = salesRoleOf(order.status);
-    if (role === 'cancelled') continue;
+    if (role === 'cancelled') {
+      // `other` for a row with no stored reason, and that is not a
+      // reclassification: the only writer of this column sets it on every
+      // cancel, so a null is an order from before that path existed and
+      // "no reason recorded" is exactly what `other` means. Dropping it
+      // instead would make the table's counts disagree with the number of
+      // orders cancelled, which is the one thing this table has to get right.
+      const reason = order.cancelReason ?? 'other';
+      const row = cancelled.get(reason) ?? { reason, orders: 0, totalCents: 0, notes: [] };
+      row.orders += 1;
+      row.totalCents += order.totalCents;
+      if (order.cancelNote) row.notes.push(order.cancelNote);
+      cancelled.set(reason, row);
+      continue;
+    }
     if (role === 'in_flight') {
       inFlight += 1;
       continue;
@@ -378,6 +437,13 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
       unpaidRate: sold === 0 ? null : outstanding.length / sold,
     },
     inFlight,
+    // Ranked by count, because "which of these keeps happening" is the
+    // question — the value column says what it cost, and the two do not
+    // always agree about which row matters. Ties break on the reason so the
+    // shape is stable rather than insertion-ordered.
+    cancellations: [...cancelled.values()].sort(
+      (a, b) => b.orders - a.orders || a.reason.localeCompare(b.reason),
+    ),
     remakes,
   };
 }

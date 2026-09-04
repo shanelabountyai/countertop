@@ -348,3 +348,23 @@ test('the headline is net sales, with tax as its own number', async ({ page }) =
   expect(tax).toBeGreaterThan(0);
   expect(net + tax).toBe(gross);
 });
+
+// P0-6. The whole path in one test, because the two halves fail differently:
+// `kitchen_error` is a value the Postgres enum did not hold until C-057's
+// migration (the write fails), and the report renders a section that did not
+// exist (the read shows nothing). Neither is visible from the other end.
+test('a cancellation is reported under the reason the kitchen picked', async ({ page }) => {
+  await page.goto('/kitchen');
+  await card(page, 'Morgan Ellis').getByText('Cancel…').click();
+  await card(page, 'Morgan Ellis').getByRole('button', { name: 'Kitchen error' }).click();
+  await expect(page.getByText('Morgan Ellis')).toHaveCount(0);
+
+  await page.goto('/kitchen/report');
+  const row = page.getByRole('row').filter({ hasText: 'Kitchen error' });
+  await expect(row).toContainText('1');
+  // The section exists at all on a window with no sales — which is exactly
+  // the window somebody opens it on.
+  await expect(page.getByText('No orders were picked up in this window.')).toBeVisible();
+  // And the cancelled ticket's money stayed out of the sales figures.
+  await expect(page.getByTestId('report-net-sales')).toHaveText('$0.00');
+});

@@ -9,6 +9,7 @@
 // same trick `STATUS_FACTS` uses, applied to the words.
 import type {
   AdjustmentReason,
+  CancelReason,
   EventActor,
   OrderEventKind,
   OrderStatus,
@@ -23,6 +24,26 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
   picked_up: 'Picked up',
   cancelled: 'Cancelled',
   abandoned: 'No-show',
+};
+
+/**
+ * The cancellation preset, in words.
+ *
+ * Here rather than in the queue since C-057, because the report now names the
+ * same reasons the cancel buttons do — and a screen that says "Kitchen error"
+ * beside a button that said something else is two names for one row. Staff
+ * facing; the customer gets `CANCEL_EXPLANATION` on the status page, which is
+ * deliberately different wording for a different audience.
+ *
+ * A `Record<CancelReason, …>`, so a sixth reason cannot ship without the
+ * compiler asking what it reads as.
+ */
+export const CANCEL_REASON_LABEL: Record<CancelReason, string> = {
+  out_of_item: 'Out of an item',
+  too_busy: 'Too busy',
+  customer_changed_mind: 'Customer changed their mind',
+  kitchen_error: 'Kitchen error',
+  other: 'Other',
 };
 
 /**

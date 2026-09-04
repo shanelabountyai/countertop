@@ -96,6 +96,12 @@ const STATUS_VIEW: Record<OrderStatus, { headline: string; detail: string; tone:
 const CANCEL_EXPLANATION: Record<CancelReason, string> = {
   out_of_item: 'The kitchen ran out of something in this order.',
   too_busy: 'The kitchen was too backed up to make it in time.',
+  // C-057's two. Said in the second person where the customer was the one who
+  // acted, and admitted plainly where the shop was — "kitchen error" is the
+  // staff's word for a row on a report, not something to tell the person who
+  // is not getting their food.
+  customer_changed_mind: 'This order was cancelled at your request.',
+  kitchen_error: 'Something went wrong in the kitchen with this order.',
   other: 'The restaurant cancelled this order.',
 };
 

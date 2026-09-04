@@ -3,6 +3,7 @@ import {
   salesReport,
   serviceTimes,
   timeInState,
+  type CancelReason,
   type Cart,
 } from '@countertop/core';
 import { readFileSync } from 'node:fs';
@@ -232,6 +233,42 @@ describe('the sales report, against the database', () => {
     ]);
     expect(report.payment.unpaidRate).toBe(1 / 2);
   });
+
+  it('reports each cancellation under the reason it was stored with (P0-6)', async () => {
+    // Through the REAL cancel path, which is the whole point of doing this at
+    // the database grain: `kitchen_error` is a value that did not exist in the
+    // Postgres enum until C-057's migration, and an engine test cannot tell
+    // you whether the migration ran.
+    const cancel = async (reason: CancelReason, note?: string) => {
+      const id = await place();
+      const result = await applyOrderAction(
+        id,
+        { kind: 'cancel', actor: 'staff', reason, ...(note && { note }) },
+        AT,
+      );
+      if (!result.ok) throw new Error(`cancel refused: ${result.failure.message}`);
+    };
+
+    await cancel('kitchen_error');
+    await cancel('kitchen_error');
+    await cancel('customer_changed_mind');
+    // The two that predate the migration. Neither is reclassified into a
+    // finer new reason — the requirement is that history keeps the reason it
+    // was cancelled under, and `other` stays `other` however rare it is meant
+    // to become.
+    await cancel('out_of_item');
+    await cancel('other', 'card reader died');
+
+    const report = await reportSince();
+    expect(report.cancellations).toEqual([
+      { reason: 'kitchen_error', orders: 2, totalCents: 2912, notes: [] },
+      { reason: 'customer_changed_mind', orders: 1, totalCents: 1456, notes: [] },
+      { reason: 'other', orders: 1, totalCents: 1456, notes: ['card reader died'] },
+      { reason: 'out_of_item', orders: 1, totalCents: 1456, notes: [] },
+    ]);
+    // And none of that money reached the sales numbers.
+    expect(report.totals.totalCents).toBe(0);
+  });
 });
 
 // C-020: the time-in-state loader. The tally's arithmetic is proved in
@@ -410,6 +447,7 @@ describe('the quote samples (P1-4, C-042)', () => {
       sqlDialect.map((sample) => sample.actualMinutes).sort(ascending),
     );
   });
+
 });
 
 // P0-6: loyalty is PROVABLY invisible to the order snapshot and the sales

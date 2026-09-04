@@ -1741,3 +1741,26 @@ literally the same rule, read from one place.
 **And the slowest tickets are named.** Order number, day, and how long it took
 — because "six ran late" is a fact and "#003 took 31 minutes on the 14th" is
 something you can go and find out about.
+
+## C-057 — Why the cancelled ones were cancelled
+
+**Cancelled orders count toward nothing on the sales report, and that is
+exactly why nobody could count them.** No sale, no items, no attach rate —
+correct on every line, and it meant "we killed eleven tickets on Friday" was
+something the system knew and never said.
+
+**Two new reasons on the cancel buttons: "Customer changed their mind" and
+"Kitchen error".** They were the two most common things that happened and the
+two least countable, because both were being typed into "Other" as free text —
+so the difference between a demand problem and a kitchen problem was a pile of
+sentences nobody read.
+
+**A cancellations table on the report: how many, and what they were worth.**
+The money that never came in, beside the reason it did not.
+
+**And what staff wrote is listed underneath.** "Other" is meant to be the rare
+one now. Whether it is, is something you can see.
+
+**Nothing in history was reclassified.** An order cancelled last month under
+"Other" is still under "Other" — the new reasons apply from here, and the
+migration contains no update to any existing row.

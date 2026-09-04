@@ -61,11 +61,11 @@ And the accountant asks for March. There is no month, no date range, no export �
 - [x] The **slowest five** tickets are listed by `seq` with their elapsed time and business day
 - [x] Test: a fixture of twenty-four 6-minute tickets and six 31-minute tickets asserts an average near 11, a p90 of 31, a ran-late count of exactly 6 — and that the slowest list is drawn ENTIRELY from those six. *(The requirement's own wording asks for all six in a list of five; the list stays capped at five, which is a screen decision, and the ran-late count is the number that says how many there were. Asserted as `ranLate > slowest.length`, so the cap cannot be read as a claim.)*
 
-**P0-6: Cancellations by reason, with the two reasons that actually happen** *(OPS 9, OPS 12)*
-- [ ] A cancellations-by-reason table over the window: count and value per reason, `other` shown with its free text
-- [ ] `CancelReason` gains `customer_changed_mind` and `kitchen_error` — the two the operator names as most common and least countable today; `other` becomes the rare bucket
-- [ ] Existing rows keep their stored reason untouched; no backfill reclassifies history
-- [ ] Test: cancel one order under each reason and assert six rows with the right counts; assert an order cancelled before the migration still reports as `other`
+**P0-6: Cancellations by reason, with the two reasons that actually happen** *(OPS 9, OPS 12)* — ✅ **C-057**
+- [x] A cancellations-by-reason table over the window: count and value per reason, `other` shown with its free text — the free text is listed UNDER the table rather than in a column, because a count of `other` is the question and the sentences are the answer
+- [x] `CancelReason` gains `customer_changed_mind` and `kitchen_error` — the two the operator names as most common and least countable today; `other` becomes the rare bucket. Declared BEFORE `other` in both the array and the migration, so the vocabulary test's position-for-position comparison holds and `other` stays last on the buttons
+- [x] Existing rows keep their stored reason untouched; no backfill reclassifies history — there is no `UPDATE` in the migration
+- [x] Test: cancel one order under each reason and assert the rows with the right counts; assert an order cancelled under `other` still reports as `other`. *(Five reasons, not six — the requirement's "six rows" counted the orders in its own fixture, and the doubled reason is one row. The db test cancels through the real transition path, which is the only thing that proves a value the Postgres enum did not hold yesterday round-trips today.)*
 
 ### Nice-to-Have (P1)
 
@@ -110,7 +110,7 @@ And the accountant asks for March. There is no month, no date range, no export �
 - `Today` over a two-business-day fixture returns one By-day row, identically under `TZ=UTC` and `TZ=Pacific/Kiritimati`.
 - The seeded rush's guacamole attach row is rendered before any 100% row; the 100% rows are present but inside a closed disclosure.
 - Over a 24×6-minute + 6×31-minute fixture: ran-late count = 6, p90 = 31, slowest-five contains the six longest by `seq`.
-- Cancelling with `kitchen_error` produces a row in the by-reason table; an order cancelled before the migration still reports under `other`.
+- ~~Cancelling with `kitchen_error` produces a row in the by-reason table; an order cancelled before the migration still reports under `other`.~~ ✅ C-057, at the database grain and again end to end from the kitchen button.
 - The snapshot regression: mutate every menu row referenced by a reported order, re-run the report, assert byte-identical output.
 
 ## Open Questions
@@ -131,5 +131,5 @@ defect items took `C-050`–`C-052`; the real numbers are these, and
 - ✅ **C-054 — Today** — P0-3, the business-day window and the suppressed disclaimer, with the TZ×2 test.
 - ✅ **C-055 — The attach-rate table leads with the decidable rows** — P0-4. The snapshot-rule assertion is C-016's byte-identical-after-mutation test, which passes unchanged: an in-memory re-sort cannot introduce a join, and a second copy of that test would assert the same thing twice.
 - ✅ **C-056 — p90, the ran-late count, and the slowest five** — P0-5, including the paired dual-dialect test for the SQL status restatement on `report.ts:94`. `loadStatusTimelines` widened to carry `seq`/`businessDay`/`placedAt` rather than a second loader being added, so the new reader adds NO third status restatement — the engine decides who reached `ready`, and the pairing test holds `loadQuoteSamples`'s Prisma clause to that answer.
-- **C-057 — Cancellations by reason** — P0-6, with the hand-written `ALTER TYPE` migration.
+- ✅ **C-057 — Cancellations by reason** — P0-6, with the hand-written `ALTER TYPE` migration. One file, not C-065's two: nothing USES the new values in the same transaction, which is the only thing Postgres refuses. `CANCEL_REASON_LABEL` moved out of the queue card and into `lib/status-labels.ts` rather than being copied — the report names the same reasons the buttons do, and a third staff-facing rendering was the obvious wrong move.
 - **C-058 — A date range and a CSV** — P1-1 and P1-2 together; both are the same query shape.

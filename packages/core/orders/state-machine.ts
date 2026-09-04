@@ -20,8 +20,28 @@ export const ORDER_STATUSES = [
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
-/** The short preset list staff pick from (P0-4). `other` requires a note. */
-export const CANCEL_REASONS = ['out_of_item', 'too_busy', 'other'] as const;
+/**
+ * The short preset list staff pick from (P0-4). `other` requires a note.
+ *
+ * Five since C-057, and the two new ones are the report's whole point (PRD 1
+ * P0-6): "the customer changed their mind" and "we got it wrong" were the two
+ * things that actually happened most, and both were being typed into `other`
+ * as free text — which is a bucket nobody can count, so nobody could tell a
+ * demand problem from a kitchen problem. `other` stays last because it is now
+ * meant to be the rare one.
+ *
+ * ORDER IS THE DATABASE'S ORDER. `snapshot.test.ts` compares this array
+ * against `pg_enum` by `enumsortorder`, so appending here means appending in
+ * the migration too — the new values go BEFORE `other` with `ADD VALUE ...
+ * BEFORE`, not at the end.
+ */
+export const CANCEL_REASONS = [
+  'out_of_item',
+  'too_busy',
+  'customer_changed_mind',
+  'kitchen_error',
+  'other',
+] as const;
 export type CancelReason = (typeof CANCEL_REASONS)[number];
 
 export const EVENT_ACTORS = ['customer', 'staff', 'system'] as const;

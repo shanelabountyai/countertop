@@ -5195,3 +5195,107 @@ customer waited and no state on its own is.
   not in the sample at all — correctly, by the same rule C-042 grades quotes
   by, but it means the section cannot show the worst thing that happened in a
   service. Cancellations by reason (P0-6, C-057) is where that lands.
+
+## C-057 — Cancellations by reason (PRD 1 P0-6)
+
+A cancelled order counts toward nothing on the sales report, which is correct
+— nobody took the food and no money moved — and it is also why the shop had no
+way to say what it cancelled. "We killed eleven tickets on Friday" was a fact
+the product held, in a column, on every one of those orders, and never showed.
+
+Worse, the three reasons on the cancel buttons were `out_of_item`, `too_busy`
+and `other`, and the two things that actually happened most were neither: the
+customer changed their mind, and the kitchen got it wrong. Both went into
+`other` as free text. So the one bucket nobody can count was the one filling
+up, and the difference between a demand problem and a kitchen problem — which
+is the difference between two completely different fixes — was a stack of
+typed sentences nobody read.
+
+**Built:**
+- `CANCEL_REASONS` gains `customer_changed_mind` and `kitchen_error`, declared
+  BEFORE `other` so the array and the Postgres enum sort the same way.
+- One hand-written migration, two `ALTER TYPE ... ADD VALUE ... BEFORE 'other'`
+  statements, no `UPDATE` of any kind.
+- `CancellationReason` and `SalesReport.cancellations` in `packages/core`:
+  count, ticket value and the free text per reason, ranked by count.
+- `loadReportOrders` selects `cancelReason` and `cancelNote` — two scalars on
+  the order, no join.
+- A "Cancellations" section on `/kitchen/report`, rendered outside the
+  "nothing sold" branch, with the notes listed under the table.
+- `CANCEL_REASON_LABEL` moved out of the queue card into `lib/status-labels.ts`,
+  because the report now names the same reasons the buttons do.
+- Four engine tests, one db test through the real cancel path, one e2e from the
+  kitchen button to the report row.
+
+**Decided:**
+- **The migration adds values BEFORE `other`, and that is not cosmetic.**
+  `snapshot.test.ts` compares `CANCEL_REASONS` against `pg_enum` position for
+  position, so appending in TypeScript and appending in SQL are the same edit
+  or the vocabulary test fails. Appending at the END would also have put
+  `other` in the middle of the cancel buttons, on the one screen where it
+  belongs last.
+- **One migration file, not C-065's two.** The pair was needed because a CHECK
+  constraint *used* the new enum value in the same transaction, which Postgres
+  refuses. Nothing here uses these values — no constraint names them — so the
+  rule that produced two files does not apply, and inventing a second empty
+  file to look consistent would be cargo cult.
+- **No backfill, stated as a requirement.** There is no `UPDATE` in the
+  migration and there must never be one. An order cancelled last month under
+  `other` was cancelled under `other`; reclassifying it into a reason the staff
+  never picked would invent history to make a new table look tidier.
+- **Value is the ticket's gross, and it is deliberately not split into net and
+  tax.** P0-1 made those three different numbers because a sale's tax is a
+  liability owed to the state — but no tax is owed on a sale that did not
+  happen. The subtotal/tax split of a cancellation is a distinction with
+  nothing behind it, so the column is one number and the prose says what it is.
+- **A cancellation with no stored reason lands in `other` rather than being
+  dropped.** Nothing writes a null today (the one cancel path always sets the
+  column), so this is a guard rather than a behaviour. It is there because the
+  alternative — a table whose counts do not add up to the number of orders
+  cancelled — is the failure mode nobody notices, and "no reason recorded" is
+  what `other` already means. There is a test.
+- **The section renders outside the "no orders were picked up" branch.** A
+  window where everything was cancelled has no sales at all, and that is
+  precisely the window somebody opens this table on. Everything under the sales
+  branch would have hidden the table exactly when it mattered most.
+- **The free text is a list under the table, not a column in it.** A count of
+  `other` is the question; the sentences are the answer, and one of them
+  wrapped into a right-aligned numeric cell is neither. The list is also the
+  thing that should get shorter now that two of its most common contents have
+  buttons — which is how you can tell whether this item worked.
+- **The label map moved rather than being copied.** There were already two
+  renderings of a cancel reason (the queue's buttons, the customer's status
+  page) and they are deliberately different — "Out of an item" is a kitchen
+  note, not an apology. Adding a third staff-facing copy for the report was the
+  obvious next step and the wrong one; the queue and the report now share one
+  `Record<CancelReason, string>`, and the compiler asked for the two new words
+  once. The customer's map is still separate and still worded for the person
+  who is not getting their food.
+- **The db test is not a duplicate of the engine test.** `kitchen_error` is a
+  value Postgres did not hold until this migration ran, and an engine test
+  cannot tell you whether it ran. Cancelling through the real transition path
+  and reading the report back is the only thing that proves the write and the
+  read agree.
+
+**Left behind:**
+- **A remade order that is later cancelled is counted as a remake, not as a
+  cancellation.** The remake check runs first in the engine loop, deliberately
+  and for a load-bearing reason (C-066), and it `continue`s — so the second
+  ticket's cancellation is invisible to this table. It is a narrow case and it
+  is wrong in the honest direction (the remake count is the one that must not
+  drift), but it is a real gap.
+- **The notes list is uncapped.** A 90-day window with fifty `other`
+  cancellations renders fifty lines. That is the correct behaviour today, when
+  the point is to read them all and see the list shrink; it becomes a screen
+  problem the moment it does not.
+- **The reasons are still an enum and still a migration.** The PRD's own open
+  question — convert to a lookup table so the next two reasons are a row — is
+  answered "not yet" for the reason it names: a table invites free-form
+  reasons, which is the uncountable `other` bucket this item exists to drain.
+- **No trend.** "Were Friday's eleven cancellations unusual?" is still a memory
+  question; the by-day version of this table is the same shape as P1-3's
+  ran-late trend line and should arrive with it, not before it.
+- **Cancellation value is not reconciled against refunds.** A cancelled order
+  that was paid for writes a refund, and the refunded total is on a different
+  section of the same page. Two numbers about the same event, neither pointing
+  at the other.
