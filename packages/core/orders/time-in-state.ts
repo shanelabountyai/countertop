@@ -9,6 +9,7 @@
 // twice, and only the log still knows that.
 //
 // Pure. `now` is a parameter, and the events arrive as data.
+import { DEFAULT_AGING, elapsedMinutes, isOverdue, type AgingThresholds } from './queue';
 import { isTerminal, ORDER_STATUSES, type OrderStatus } from './state-machine';
 
 /** Enough of an `OrderEvent` row to place it on a timeline. A database row
@@ -78,7 +79,39 @@ export type TimeInStateRow = {
    *  0, for the same reason the no-show rate is (C-016): an average over
    *  nothing is unknown, and a screen printing "0 min" says something false. */
   averageMs: number | null;
+  /**
+   * The distribution, not just its middle (P0-5).
+   *
+   * An average of 11 minutes hides twenty-four six-minute tickets and six
+   * half-hour ones, and it is the six that a customer remembers and that a
+   * staffing decision turns on. `p90Ms` is the nearest-rank ninetieth
+   * percentile over the orders that ENTERED the status — the same denominator
+   * the average uses, so the two numbers describe one set — and `worstMs` is
+   * the single longest, which is the one an operator can go and look up.
+   *
+   * Null exactly when `averageMs` is: no order entered, so there is no
+   * distribution rather than a flat one.
+   */
+  p90Ms: number | null;
+  worstMs: number | null;
 };
+
+/**
+ * Nearest-rank percentile: the smallest value at or above the given fraction
+ * of the sample, by position.
+ *
+ * Nearest-rank rather than interpolated, deliberately. Every number this
+ * returns is a duration some ticket actually took, so "p90 is 31 minutes"
+ * names a real ticket somebody can go and find — an interpolated 28.4 names
+ * nothing, and on the small samples a single service produces the
+ * interpolation is invented precision.
+ */
+export function percentileMs(values: readonly number[], fraction: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = Math.ceil(fraction * sorted.length);
+  return sorted[Math.min(sorted.length, Math.max(1, rank)) - 1]!;
+}
 
 export type TimeInStateReport = TimeInStateRow[];
 
@@ -93,13 +126,118 @@ export function timeInStateReport(
   );
 
   return ORDER_STATUSES.map((status) => {
-    const count = visited.filter((statuses) => statuses.has(status)).length;
+    // The per-order durations, over the orders that entered the status. The
+    // average could be had from the total alone; p90 and the worst cannot —
+    // they need the sample, and an order that never entered must not enter it
+    // as a zero (it would drag the ninetieth percentile down by padding the
+    // low end with fictions).
+    const durations = tallies
+      .map((tally, index) => (visited[index]!.has(status) ? tally[status] : null))
+      .filter((ms): ms is number => ms !== null);
+    const count = durations.length;
     const totalMs = tallies.reduce((sum, tally) => sum + tally[status], 0);
     return {
       status,
       orders: count,
       totalMs,
       averageMs: count === 0 ? null : Math.round(totalMs / count),
+      p90Ms: percentileMs(durations, 0.9),
+      worstMs: count === 0 ? null : Math.max(...durations),
     };
   });
+}
+
+/**
+ * One ticket, as the service-time numbers need it (P0-5).
+ *
+ * `seq` and `businessDay` are here because the slowest-five list is something
+ * an operator acts on: "#047 on the 14th" is a ticket they can go and find,
+ * and "31 minutes" on its own is a number they can only feel bad about.
+ */
+export type TicketTimeline = {
+  seq: number;
+  businessDay: string;
+  placedAt: Date;
+  events: readonly StatusEvent[];
+};
+
+/** A ticket that took too long, said the way the queue card says it. */
+export type SlowTicket = {
+  seq: number;
+  businessDay: string;
+  minutes: number;
+};
+
+export type ServiceTimes = {
+  /** Tickets that reached `ready` in the window — the denominator. */
+  tickets: number;
+  /** Of those, the ones past the threshold the queue card turns red at. */
+  ranLate: number;
+  /** Stated, not assumed: a count against an unnamed threshold is unreadable. */
+  lateAfterMinutes: number;
+  /** Longest first, `seq` breaking ties so the list is stable across reloads. */
+  slowest: SlowTicket[];
+};
+
+/**
+ * The LAST `ready`, in the one dialect the engine speaks.
+ *
+ * Last and not first, for `loadQuoteSamples`'s reason (C-042): an order
+ * advanced by mistake and sent back was not ready the first time somebody
+ * said so, and the append-only log is the only thing that still knows both
+ * happened.
+ *
+ * This is also the TypeScript half of the pair `loadQuoteSamples` writes in
+ * Prisma. The db test asserts the two select the same orders — a status
+ * restated in a query language is the drift this codebase has already had to
+ * come back and undo once.
+ */
+function readyAt(events: readonly StatusEvent[]): Date | null {
+  const readies = events.filter((event) => event.toStatus === 'ready');
+  if (readies.length === 0) return null;
+  return readies.reduce((latest, event) => (event.at > latest.at ? event : latest)).at;
+}
+
+/**
+ * How long tickets took from the counter to the shelf, and which ones ran late.
+ *
+ * Placed -> ready, floored to whole minutes by `elapsedMinutes` — the same
+ * arithmetic the kitchen card ages a ticket by, so "18 min" on the card and
+ * "18 min" here are one rule rather than two that agree today.
+ *
+ * A ticket that never reached `ready` is not in the sample at all. A cancelled
+ * order and one still on the grill are not evidence that service was slow, in
+ * exactly the way C-042 already refuses to grade them.
+ */
+export function serviceTimes(
+  timelines: readonly TicketTimeline[],
+  thresholds: AgingThresholds = DEFAULT_AGING,
+  limit = 5,
+): ServiceTimes {
+  const finished = timelines.flatMap((ticket) => {
+    const ready = readyAt(ticket.events);
+    if (ready === null) return [];
+    return [
+      {
+        seq: ticket.seq,
+        businessDay: ticket.businessDay,
+        minutes: elapsedMinutes(ticket.placedAt, ready),
+      },
+    ];
+  });
+
+  return {
+    tickets: finished.length,
+    ranLate: finished.filter((ticket) => isOverdue(ticket.minutes, thresholds)).length,
+    lateAfterMinutes: thresholds.queueFlagMinutes,
+    slowest: finished
+      .slice()
+      .sort(
+        (a, b) =>
+          b.minutes - a.minutes ||
+          a.businessDay.localeCompare(b.businessDay) ||
+          a.seq - b.seq,
+      )
+      .slice(0, limit),
+  };
 }

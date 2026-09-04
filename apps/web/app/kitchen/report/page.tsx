@@ -16,6 +16,7 @@ import {
   instantDaysBefore,
   isTerminal,
   salesReport,
+  serviceTimes,
   timeInStateReport,
   type AccuracyGroup,
   type AttachRate,
@@ -91,7 +92,16 @@ export default async function ReportPage({
   // Same window, same `now`, and derived from the append-only event log rather
   // than from `statusChangedAt` — which holds one instant and cannot know that
   // a reverted ticket was on the grill twice.
-  const timeInState = timeInStateReport(await loadStatusTimelines(bounds), now);
+  const timelines = await loadStatusTimelines(bounds);
+  const timeInState = timeInStateReport(
+    timelines.map((ticket) => ticket.events),
+    now,
+  );
+  // Same timelines, a different question: not "how long is a state" but "how
+  // long did a TICKET take", which is the one a customer felt. The threshold
+  // is the queue card's own, unstated here so the report and the red card
+  // cannot drift (P0-5).
+  const service = serviceTimes(timelines);
   // P1-4. Graded against the quote each order CARRIES, not against a quote
   // recomputed now — which is why this needs a snapshot column and not a
   // cleverer query (C-042).
@@ -375,15 +385,58 @@ export default async function ReportPage({
           <p className="mt-3 text-lg">No orders in this window.</p>
         ) : (
           <Table
-            headers={['State', 'Orders', 'Average', 'Total']}
+            headers={['State', 'Orders', 'Average', 'p90', 'Worst', 'Total']}
             label="Time in each state"
             rows={timeInStateRows.map((row) => [
               STATUS_LABEL[row.status],
               String(row.orders),
               row.averageMs === null ? '—' : formatDuration(row.averageMs),
+              row.p90Ms === null ? '—' : formatDuration(row.p90Ms),
+              row.worstMs === null ? '—' : formatDuration(row.worstMs),
               formatDuration(row.totalMs),
             ])}
           />
+        )}
+      </Section>
+
+      {/* P0-5. The tally above is per STATE; this is per TICKET, which is the
+          grain a customer waited at and a staffing decision is made on. */}
+      <Section title="How long tickets took">
+        <p className="text-lg text-neutral-700">
+          Order to Ready, for every ticket that got there — measured off the order log, floored to
+          whole minutes, the same way the kitchen card counts a ticket up. An order that was
+          cancelled or is still cooking is not counted: it is not evidence that service was slow.
+          &ldquo;Ran late&rdquo; is the same {service.lateAfterMinutes}-minute mark the card turns
+          red at.
+        </p>
+        {service.tickets === 0 ? (
+          <p className="mt-3 text-lg">No ticket has reached Ready in this window yet.</p>
+        ) : (
+          <>
+            {/* Two tiles and not three: the slowest ticket is the first row of
+                the table below, and a headline restating a row is one more
+                place for the two to disagree. */}
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <Stat label="Tickets" value={String(service.tickets)} note="Reached Ready" />
+              <Stat
+                label="Ran late"
+                value={String(service.ranLate)}
+                note={`Over ${service.lateAfterMinutes} min to Ready`}
+                testId="ran-late"
+              />
+            </div>
+            <div className="mt-3">
+              <Table
+                headers={['Order', 'Day', 'Order to Ready']}
+                label="Slowest tickets"
+                rows={service.slowest.map((ticket) => [
+                  formatOrderNumber(ticket.seq),
+                  ticket.businessDay,
+                  `${ticket.minutes} min`,
+                ])}
+              />
+            </div>
+          </>
         )}
       </Section>
 

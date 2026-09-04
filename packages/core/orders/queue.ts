@@ -38,6 +38,25 @@ export function elapsedMinutes(since: Date, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - since.getTime()) / 60_000));
 }
 
+/**
+ * The one comparison behind "this ticket took too long" (P0-5).
+ *
+ * `>=`, not `>`: a threshold of 15 means "flag it at fifteen minutes". A card
+ * that waits until 16 is a threshold nobody can verify against a clock on the
+ * wall.
+ *
+ * Two readers, deliberately: the card that turns red mid-service, and the
+ * report's ran-late count after it. They are the same sentence about the same
+ * minutes, and a report that restated the comparison would drift from the
+ * screen the operator formed the expectation on.
+ */
+export function isOverdue(
+  waitingMinutes: number,
+  thresholds: AgingThresholds = DEFAULT_AGING,
+): boolean {
+  return waitingMinutes >= thresholds.queueFlagMinutes;
+}
+
 /** Enough of an order to age it. A row, not an ORM object. */
 export type AgeableOrder = {
   status: OrderStatus;
@@ -65,9 +84,7 @@ export function queueAging(
   const waitingMinutes = elapsedMinutes(order.placedAt, now);
   const readyMinutes = order.status === 'ready' ? elapsedMinutes(order.statusChangedAt, now) : null;
 
-  // `>=`, not `>`: a threshold of 15 means "flag it at fifteen minutes". A
-  // card that waits until 16 is a threshold nobody can verify against a clock
-  // on the wall.
+  // `>=` here too, for `isOverdue`'s reason: a mark of 10 fires at ten.
   const noShowLevel =
     readyMinutes === null
       ? 0
@@ -75,7 +92,7 @@ export function queueAging(
 
   return {
     waitingMinutes,
-    overdue: waitingMinutes >= thresholds.queueFlagMinutes,
+    overdue: isOverdue(waitingMinutes, thresholds),
     readyMinutes,
     noShowLevel,
   };

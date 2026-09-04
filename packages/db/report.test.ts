@@ -1,4 +1,10 @@
-import { instantMinutesAfter, salesReport, timeInState, type Cart } from '@countertop/core';
+import {
+  instantMinutesAfter,
+  salesReport,
+  serviceTimes,
+  timeInState,
+  type Cart,
+} from '@countertop/core';
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
@@ -249,8 +255,10 @@ describe('loadStatusTimelines', () => {
     const timelines = await loadStatusTimelines(EPOCH);
     expect(timelines).toHaveLength(2);
     // Just placed: one event each, and it is the placement.
-    expect(timelines.map((events) => events.length)).toEqual([1, 1]);
-    expect(timelines[0]![0]).toMatchObject({ toStatus: 'placed', at: AT });
+    expect(timelines.map((ticket) => ticket.events.length)).toEqual([1, 1]);
+    expect(timelines[0]!.events[0]).toMatchObject({ toStatus: 'placed', at: AT });
+    // And the ticket's own identity, which the slowest-five list names (P0-5).
+    expect(timelines[0]).toMatchObject({ seq: 1, businessDay: '2026-07-14', placedAt: AT });
   });
 
   it('carries both visits when a wrong advance was undone', async () => {
@@ -266,8 +274,8 @@ describe('loadStatusTimelines', () => {
     );
     if (!undone.ok) throw new Error(undone.failure.message);
 
-    const [events] = await loadStatusTimelines(EPOCH);
-    const tally = timeInState(events!, min(20));
+    const [ticket] = await loadStatusTimelines(EPOCH);
+    const tally = timeInState(ticket!.events, min(20));
 
     // preparing: 3 → 11, then 12 → 20 (still there). Two visits, 8 + 8.
     expect(tally.preparing).toBe(16 * 60_000);
@@ -354,6 +362,53 @@ describe('the quote samples (P1-4, C-042)', () => {
     await readyAt(await place(1, AT), min(18));
 
     expect(await loadQuoteSamples(new Date(Date.UTC(2026, 6, 10, 0, 0, 0)))).toHaveLength(1);
+  });
+
+  // The dual-dialect pairing (P0-5, and the systems review's finding on this
+  // file). "Reached ready" is written twice — once as Prisma's
+  // `events: { some: { toStatus: 'ready' } }` in `loadQuoteSamples`, once as
+  // the engine's `serviceTimes` walking the whole log — and the mitigation is
+  // the one `isLeftOver` already has: a test that the two select the same
+  // orders. Written against a fixture where every interesting case is
+  // present, because a pair that agrees only on the easy row proves nothing.
+  it('selects the same orders in SQL as the engine does in TypeScript', async () => {
+    const ready = await place(1, AT, { name: 'Reached ready' });
+    await readyAt(ready, min(18));
+
+    // Advanced to ready, sent back, and still cooking: the SQL `some` says it
+    // reached ready and so does the engine, because the log kept both.
+    const reverted = await place(1, AT, { name: 'Sent back' });
+    await readyAt(reverted, min(6));
+    const undone = await applyOrderAction(
+      reverted,
+      { kind: 'revert', actor: 'staff', reason: 'wrong card' },
+      min(7),
+    );
+    if (!undone.ok) throw new Error(undone.failure.message);
+
+    // Never got there, and a cancelled one that never will.
+    await place(1, AT, { name: 'Still cooking' });
+    const gone = await place(1, AT, { name: 'Cancelled' });
+    const cancelled = await applyOrderAction(
+      gone,
+      { kind: 'cancel', actor: 'staff', reason: 'too_busy' },
+      min(3),
+    );
+    if (!cancelled.ok) throw new Error(cancelled.failure.message);
+
+    const sqlDialect = await loadQuoteSamples(EPOCH);
+    const engineDialect = serviceTimes(await loadStatusTimelines(EPOCH));
+
+    expect(engineDialect.tickets).toBe(2);
+    expect(sqlDialect).toHaveLength(engineDialect.tickets);
+    // Not just the same count — the same minutes, ticket for ticket. The
+    // engine takes the LAST ready and so does the query's `orderBy`, and a
+    // pair that agreed on how many but not on which would be the drift this
+    // test exists to catch.
+    const ascending = (a: number, b: number) => a - b;
+    expect(engineDialect.slowest.map((ticket) => ticket.minutes).sort(ascending)).toEqual(
+      sqlDialect.map((sample) => sample.actualMinutes).sort(ascending),
+    );
   });
 });
 

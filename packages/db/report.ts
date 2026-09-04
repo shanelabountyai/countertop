@@ -11,7 +11,12 @@
 // them. `customerName` and `seq` ARE selected, and only since C-051: the
 // outstanding list is a chase list, and "$14.30 is owed" with nobody to ask
 // is not one. They are snapshot columns like the rest of this select.
-import { elapsedMinutes, type QuoteSample, type ReportableOrder, type StatusEvent } from '@countertop/core';
+import {
+  elapsedMinutes,
+  type QuoteSample,
+  type ReportableOrder,
+  type TicketTimeline,
+} from '@countertop/core';
 import { Prisma, prisma } from './index';
 
 /**
@@ -97,25 +102,36 @@ export function loadReportOrders(window: ReportWindow): Promise<ReportableOrder[
 }
 
 /**
- * One timeline per order in the window, for the time-in-state tally (C-020).
+ * One timeline per order in the window, for the time-in-state tally (C-020)
+ * and the service times beside it (P0-5, C-056).
  *
  * The EVENTS, not `statusChangedAt`. That column holds a single instant — the
  * current status's — so it can answer "how long has this been ready?" and
  * nothing else. An order that was advanced by mistake and sent back visited a
  * status twice, and only the append-only log still knows that.
  *
- * `toStatus` and `at` are the only columns selected: a tally has no business
- * reading the actor, the reason or the detail payload.
+ * `toStatus` and `at` are the only EVENT columns selected: a tally has no
+ * business reading the actor, the reason or the detail payload. `seq` and
+ * `businessDay` are on the order because the slowest-five list names tickets —
+ * "#047 on the 14th" is something an operator can go and look up, and both are
+ * snapshot columns like the rest of this file's reads.
+ *
+ * NO status filter in this query, deliberately. Which orders reached `ready`
+ * is decided by `serviceTimes` in the engine, over the whole log — so this
+ * path adds no third restatement of a status in Prisma's dialect, and the
+ * engine's answer is the one the paired test holds `loadQuoteSamples` to.
  */
-export async function loadStatusTimelines(window: ReportWindow): Promise<StatusEvent[][]> {
-  const orders = await prisma.order.findMany({
+export async function loadStatusTimelines(window: ReportWindow): Promise<TicketTimeline[]> {
+  return prisma.order.findMany({
     where: windowWhere(window),
     orderBy: { placedAt: 'asc' },
     select: {
+      seq: true,
+      businessDay: true,
+      placedAt: true,
       events: { orderBy: { at: 'asc' }, select: { at: true, toStatus: true } },
     },
   });
-  return orders.map((order) => order.events);
 }
 
 /**
@@ -137,6 +153,12 @@ export async function loadQuoteSamples(window: ReportWindow): Promise<QuoteSampl
     where: {
       ...windowWhere(window),
       quotedLowMinutes: { not: null },
+      // "Reached ready", written a second time in the one dialect Prisma
+      // speaks — the same shape as `isLeftOver`'s SQL half (C-039), and the
+      // same mitigation: a db test asserts this clause and the engine's
+      // `serviceTimes` select exactly the same orders. It is a filter and not
+      // a projection, so it cannot be lifted into the engine without loading
+      // every order in the window to throw most of them away.
       events: { some: { toStatus: 'ready' } },
     },
     orderBy: { placedAt: 'asc' },

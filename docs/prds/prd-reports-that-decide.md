@@ -55,11 +55,11 @@ And the accountant asks for March. There is no month, no date range, no export �
 - [x] Negations (`intensity: none`) stay excluded from attach counts — asserted across BOTH tables, because a fold that hides a negation is the same defect as a table that counts one
 - [x] Test: against the seeded rush, the guacamole row renders above the fold and no 100% row precedes it
 
-**P0-5: Distribution, not just the average** *(OPS 9)*
-- [ ] Each time-in-state row gains a **p90** beside its average and a **worst** value
-- [ ] A "**Ran late**" count: tickets whose placed→ready elapsed exceeded the configured queue flag threshold (default 15 min), computed from the append-only event log — the same threshold the queue card turns red at, read from one place, not restated
-- [ ] The **slowest five** tickets are listed by `seq` with their elapsed time and business day
-- [ ] Test: a fixture of twenty-four 6-minute tickets and six 31-minute tickets asserts an average near 11, a p90 of 31, a ran-late count of exactly 6, and that all six appear in the slowest list
+**P0-5: Distribution, not just the average** *(OPS 9)* — ✅ **C-056**
+- [x] Each time-in-state row gains a **p90** beside its average and a **worst** value
+- [x] A "**Ran late**" count: tickets whose placed→ready elapsed exceeded the configured queue flag threshold (default 15 min), computed from the append-only event log — the same threshold the queue card turns red at, read from one place, not restated
+- [x] The **slowest five** tickets are listed by `seq` with their elapsed time and business day
+- [x] Test: a fixture of twenty-four 6-minute tickets and six 31-minute tickets asserts an average near 11, a p90 of 31, a ran-late count of exactly 6 — and that the slowest list is drawn ENTIRELY from those six. *(The requirement's own wording asks for all six in a list of five; the list stays capped at five, which is a screen decision, and the ran-late count is the number that says how many there were. Asserted as `ranLate > slowest.length`, so the cap cannot be read as a claim.)*
 
 **P0-6: Cancellations by reason, with the two reasons that actually happen** *(OPS 9, OPS 12)*
 - [ ] A cancellations-by-reason table over the window: count and value per reason, `other` shown with its free text
@@ -130,6 +130,6 @@ defect items took `C-050`–`C-052`; the real numbers are these, and
 - ✅ **C-053 — Net sales, tax, and gross are three different numbers** — P0-1, plus the reconciliation assertion in the test.
 - ✅ **C-054 — Today** — P0-3, the business-day window and the suppressed disclaimer, with the TZ×2 test.
 - ✅ **C-055 — The attach-rate table leads with the decidable rows** — P0-4. The snapshot-rule assertion is C-016's byte-identical-after-mutation test, which passes unchanged: an in-memory re-sort cannot introduce a join, and a second copy of that test would assert the same thing twice.
-- **C-056 — p90, the ran-late count, and the slowest five** — P0-5, including the paired dual-dialect test for the SQL status restatement on `report.ts:94`.
+- ✅ **C-056 — p90, the ran-late count, and the slowest five** — P0-5, including the paired dual-dialect test for the SQL status restatement on `report.ts:94`. `loadStatusTimelines` widened to carry `seq`/`businessDay`/`placedAt` rather than a second loader being added, so the new reader adds NO third status restatement — the engine decides who reached `ready`, and the pairing test holds `loadQuoteSamples`'s Prisma clause to that answer.
 - **C-057 — Cancellations by reason** — P0-6, with the hand-written `ALTER TYPE` migration.
 - **C-058 — A date range and a CSV** — P1-1 and P1-2 together; both are the same query shape.

@@ -1722,3 +1722,22 @@ was meant to be optional.
 **The removals are still nowhere near it.** "NO onions" has never counted as an
 onion order, and it now has to stay uncounted in both tables — asserted
 including inside the fold.
+
+## C-056 — How long tickets actually took
+
+**An average is the one number that can be true of a service nobody had.**
+Twenty-four six-minute tickets and six half-hour ones average eleven minutes.
+The report said eleven, and the six customers who waited half an hour were not
+on the screen anywhere.
+
+**Every state now states its spread.** Beside the average, a p90 and the single
+worst — so "most tickets are quick and a few are terrible" is something the
+table can say instead of hiding.
+
+**"Ran late" is a count, at the same mark the kitchen card turns red at.** Not
+a second threshold that drifts from the screen the number was learned on: it is
+literally the same rule, read from one place.
+
+**And the slowest tickets are named.** Order number, day, and how long it took
+— because "six ran late" is a fact and "#003 took 31 minutes on the 14th" is
+something you can go and find out about.

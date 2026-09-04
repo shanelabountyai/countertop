@@ -5097,3 +5097,101 @@ could turn on sat below all of them.
 - **Attach is still counted over units, not over orders.** "Half the burritos
   took guacamole" and "half the customers ordering burritos took guacamole" are
   different numbers on a two-burrito ticket; this is the first.
+
+## C-056 — p90, the ran-late count, and the slowest five (PRD 1 P0-5)
+
+The time-in-state table has stated an average since C-020, and an average is
+the one summary that can be true of a service nobody had. Twenty-four
+six-minute tickets and six half-hour ones average eleven minutes; the screen
+said "11 min" and the six customers who waited half an hour were not on it
+anywhere. Those six are the ones who remember, the ones who call, and the ones
+a Thursday-night staffing decision is actually about — and the report that
+exists to change a decision was quietly averaging them away.
+
+Three numbers, at two different grains, and the grain is the point. The
+distribution columns are per STATE — how long is a ticket on the grill —
+because that is what the tally has always measured. The ran-late count and the
+slowest list are per TICKET, placed to ready, because that is the number a
+customer waited and no state on its own is.
+
+**Built:**
+- `TimeInStateRow` gains `p90Ms` and `worstMs` beside `averageMs`, from the
+  per-order durations rather than from the total: an average is derivable from
+  a sum, a percentile is not. `percentileMs` is nearest-rank, so every number
+  it returns is a duration some ticket really took.
+- `serviceTimes` in `packages/core`: placed → last `ready`, floored by the
+  queue's own `elapsedMinutes`, counted late by the queue's own threshold, with
+  the slowest five by `seq` and business day.
+- `isOverdue` extracted from `queueAging` — the one comparison the red card and
+  the report's count both make, rather than two that agree today.
+- `loadStatusTimelines` widened to a `TicketTimeline` (`seq`, `businessDay`,
+  `placedAt`, `events`) instead of a second loader beside it.
+- `/kitchen/report` grows two columns on the existing table and a new section,
+  "How long tickets took": two tiles and the slowest-five table.
+- The PRD's fixture as a core test (24 × 6 min, 6 × 31 min → average 11, p90
+  31, ran late 6), the paired dual-dialect db test, and two e2e tests.
+
+**Decided:**
+- **The percentile's sample is the orders that ENTERED the status**, the same
+  denominator the average already used. Padding it with zeros for the orders
+  that never got there would drag p90 toward the low end by adding fictions,
+  and on a mid-service window — where most orders have not reached most states
+  — it would report a p90 of zero for a kitchen that is visibly behind. There
+  is a test that fails under exactly that implementation.
+- **Nearest-rank, not interpolated.** An interpolated p90 of 28.4 minutes names
+  no ticket. A nearest-rank 31 names one somebody can go and look up, and on
+  the sample size a single service produces the interpolation is invented
+  precision.
+- **The threshold is not restated, it is asked for.** "Ran late" is
+  `isOverdue`, which is the function the queue card's red state is, including
+  its `>=`. A report that said 16 where the card said 15 would be a number the
+  operator cannot reconcile against the screen they formed the expectation on.
+  The e2e proves the boundary end to end, because the seeded Priya Shah took
+  exactly fifteen minutes.
+- **The new reader adds no third status restatement.** The obvious shape was a
+  second loader with `events: { some: { toStatus: 'ready' } }` in it — a third
+  copy of a status in Prisma's dialect, on the path the systems review had
+  already flagged for having two. Instead `loadStatusTimelines` widened, and
+  the engine decides who reached `ready` by walking the log it already loads.
+- **The pairing test holds the remaining restatement to the engine's answer.**
+  `loadQuoteSamples` still filters in SQL, and it has to: it is a filter, not a
+  projection, and lifting it would mean loading every order in the window to
+  throw most of them away. So it gets `isLeftOver`'s mitigation (C-039) — one
+  db test asserting the Prisma clause and `serviceTimes` select the same
+  orders, over a fixture containing a reverted ready and a cancelled order,
+  and asserting the same minutes ticket for ticket rather than just the same
+  count.
+- **The slowest list stays capped at five even though the PRD's own fixture has
+  six late tickets.** The cap is a screen decision; the ran-late count is what
+  says how many there were. The test asserts `ranLate > slowest.length`, so the
+  list can never be read as the whole story.
+- **Two tiles, not three.** A "slowest ticket" headline would restate the first
+  row of the table underneath it, which is one more place for two renderings of
+  one fact to disagree.
+
+**Found:**
+- **The `>=` comment in `queueAging` was doing double duty.** It sat above
+  `noShowLevel` and explained the threshold rule for both that filter and the
+  `overdue` comparison two lines down. Extracting `isOverdue` would have taken
+  the rationale with it and left the surviving `>=` bare — the ordinary way a
+  comment stops covering the code beneath it. Both now carry it, one by
+  reference.
+
+**Left behind:**
+- **One threshold serves attention and staffing.** The PRD's own open question:
+  the queue flag is about what to look at now, the report line is about how the
+  week went, and they are the same 15 minutes. Splitting them means a second
+  setting on a screen where nobody can see the first one's effect.
+- **No p90 on the ticket grain.** The distribution columns are per state; "the
+  p90 ticket took 31 minutes" is not on the screen, only its worst five are.
+  The function that would compute it is `percentileMs` over `serviceTimes`'s
+  own sample and is two lines; it was left off because the slowest list already
+  answers the question the operator opens the section with.
+- **The slowest list has no link.** "#003 on 2026-07-14" is a ticket someone
+  looks up by hand on `/kitchen/orders`, and the report has never linked to an
+  order. Making it one is a route change, not a report change.
+- **Ran late counts tickets that reached `ready`, so a disaster is invisible.**
+  An order that was cancelled at minute forty because the kitchen lost it is
+  not in the sample at all — correctly, by the same rule C-042 grades quotes
+  by, but it means the section cannot show the worst thing that happened in a
+  service. Cancellations by reason (P0-6, C-057) is where that lands.

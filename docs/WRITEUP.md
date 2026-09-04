@@ -346,6 +346,11 @@ Recorded as they are made, with the ceiling each one has.
 
 - **The check for "this code cannot see that code" has to read the code** (C-106). P0-6 requires that the sales report reads no loyalty table, and no runtime test can hold that: a report rendered with an empty loyalty table and a report that cannot see one produce identical output. So the check reads `packages/db/report.ts` and the report page as TEXT and fails if the word appears in either. Two things about it are deliberate. It is blunt rather than an import parse, because a join added through a relation name and a hand-widened `select` contain the same seven letters an import does and a cleverer check would pass both. And it was verified against a deliberately broken copy before being trusted — one line appended to `report.ts`, run, seen to fail, reverted — because a guard nobody has watched fail is a guard nobody has tested. The general shape is worth keeping: a requirement phrased as *this must remain absent* is a static assertion, and writing it as a behavioural test produces something that passes for the wrong reason.
 
+- **One threshold does two jobs: what to look at now, and how the week went** (C-056). "Ran late" on the report is `isOverdue` — the same 15-minute comparison, `>=` and all, that turns a kitchen card red mid-service. That is deliberate, because a report saying 16 where the screen says 15 is a number nobody can reconcile against the thing they formed the expectation on. But the two questions are genuinely different: the card's threshold is about attention and wants to fire early, the report's is about staffing and wants to describe the outlier. The PRD raised it as an open question and it stays open — splitting them means a second setting on a screen where nobody can see the first one's effect, and one honest number beats two nobody has calibrated.
+- **The distribution is per state; the ticket has no p90** (C-056). Every time-in-state row states an average, a p90 and a worst. The service-time section beside it states a count and the slowest five, and no percentile — so "the p90 ticket took 31 minutes" is a sentence the screen cannot say. The function is `percentileMs` over `serviceTimes`'s own sample and it is two lines; it was left off because the slowest list already answers what an operator opens the section for. Recorded because the asymmetry looks like an oversight and is a choice.
+- **"Ran late" cannot show the worst thing that happened** (C-056). The sample is tickets that reached `ready`, by the same rule C-042 grades quotes by: an order still on the grill is not evidence of slow service. The consequence is that an order the kitchen lost and cancelled at minute forty is in no number in the section — the single worst outcome of the service, invisible to the screen reporting on it. Cancellations by reason (P0-6) is where it becomes visible, and until then the honest reading of "six ran late" is "six of the ones that made it".
+- **A percentile's denominator is a design decision, not an implementation detail** (C-056). `timeInStateReport` averages over the orders that ENTERED a status, and p90 and worst had to use the same sample — the alternative, treating every order in the window as having spent zero time in states it never reached, is arithmetically defensible and produces a p90 of zero for a kitchen that is visibly behind, because mid-service most orders have not reached most states. Both readings are "the ninetieth percentile"; only one of them is about the kitchen. Worth recording as a shape: when a statistic gains a second summary, the question is not how to compute it, it is whose numbers are in the set.
+
 ## Defects Found
 
 **C-001 — the drift check could never have passed.** CI's schema-drift step runs
@@ -1445,6 +1450,21 @@ absence assertion that matches page copy is one that can never fail either.
 
 **The generalisation: hiding something in the UI silently narrows every
 role-based assertion about it, and the narrowing shows up as green.**
+
+### A comment that covered two things, moved with one of them (C-056)
+
+`queueAging` had one comment explaining the `>=` rule — "a threshold of 15
+means flag it at fifteen minutes" — and it sat above the no-show filter while
+also being the reason the `overdue` comparison two lines below used `>=`.
+Extracting `isOverdue` so the report could not restate the threshold moved the
+comment into the new function, and left the surviving `>=` bare.
+
+Nothing broke and no test noticed, which is the whole point: this is the
+ordinary way a comment stops covering the code beneath it, and it happens
+during exactly the refactor that is supposed to reduce duplication. The check
+worth having is not "did I move the comment" but "what else was this comment
+load-bearing for" — asked at the moment of the cut, when the answer is still on
+the screen.
 
 ## Skills Learned / Functions Unlocked
 

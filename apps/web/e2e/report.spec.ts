@@ -209,6 +209,43 @@ test('a ticket sent back counts both visits to preparing', async ({ page }) => {
   ).toContainText('2');
 });
 
+// C-056: the distribution, and the tickets that ran late (P0-5).
+//
+// The seeded queue makes the boundary case for free: Priya Shah was placed 40
+// minutes ago and reached Ready 25 minutes ago, so #003 took exactly 15 — the
+// flag threshold itself. `>=` means it counts, which is the rule the kitchen
+// card turns red by, and a `>` here would silently disagree with the screen
+// the operator learned the number on.
+const service = (page: Page) => page.getByRole('region', { name: 'Slowest tickets' });
+
+test('a ticket that took exactly the flag threshold counts as having run late', async ({ page }) => {
+  await page.goto('/kitchen/report');
+
+  await expect(page.getByTestId('ran-late')).toHaveText('1');
+  await expect(service(page).getByRole('row').filter({ hasText: '#003' })).toContainText('15 min');
+
+  // The other three never reached Ready, and are not evidence of anything:
+  // a ticket still on the grill is not a slow ticket.
+  await expect(service(page).getByRole('row')).toHaveCount(2);
+});
+
+test('the time-in-state table states the spread, not just the middle', async ({ page }) => {
+  await page.goto('/kitchen/report');
+
+  const headers = await timeInState(page).getByRole('columnheader').allInnerTexts();
+  expect(headers).toEqual(['State', 'Orders', 'Average', 'p90', 'Worst', 'Total']);
+
+  // Two orders reached `preparing` and they did not sit there equally: Priya
+  // spent ten minutes on the grill, Morgan has been on it for twenty and is
+  // still there. An average of fifteen describes neither of them, which is
+  // exactly why the two columns beside it exist.
+  const preparing = timeInState(page).getByRole('row').filter({ hasText: 'Preparing' });
+  const [, , average, p90, worst] = await preparing.getByRole('cell').allInnerTexts();
+  expect(Number.parseFloat(worst!)).toBeGreaterThan(Number.parseFloat(average!));
+  expect(Number.parseFloat(p90!)).toBeLessThanOrEqual(Number.parseFloat(worst!));
+  expect(Number.parseFloat(p90!)).toBeGreaterThanOrEqual(Number.parseFloat(average!));
+});
+
 // C-042: "were we honest?" (P1-4).
 //
 // The arithmetic is proved in packages/core/orders/estimate.test.ts and the
