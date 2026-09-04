@@ -198,7 +198,7 @@ describe('the sales report, against the database', () => {
     await advanceTo(await place(1, dinnerOnThe14th), 'picked_up', dinnerOnThe14th);
     await advanceTo(await place(1, lunchOnThe15th), 'picked_up', lunchOnThe15th);
 
-    const today = salesReport(await loadReportOrders({ businessDay: '2026-07-14' }), LA);
+    const today = salesReport(await loadReportOrders({ from: '2026-07-14', to: '2026-07-14' }), LA);
     // ONE row, and it is the 14th. Two rows means the window took a slice of
     // instants; one row dated the 15th means it bucketed in UTC.
     expect(today.days.map((day) => day.day)).toEqual(['2026-07-14']);
@@ -208,9 +208,27 @@ describe('the sales report, against the database', () => {
 
     // And the neighbouring day is a clean split, not an overlap: the same two
     // orders, one on each side, with nothing counted twice.
-    const nextDay = salesReport(await loadReportOrders({ businessDay: '2026-07-15' }), LA);
+    const nextDay = salesReport(await loadReportOrders({ from: '2026-07-15', to: '2026-07-15' }), LA);
     expect(nextDay.days.map((day) => day.day)).toEqual(['2026-07-15']);
     expect(nextDay.days[0]).toMatchObject({ orders: 1 });
+
+    // C-058 / P1-1. The same two orders, asked for as a RANGE: both ends
+    // inclusive, so a range spanning them returns both days and neither is
+    // dropped for sitting on a boundary. The `from` end is the one a `gt`
+    // would silently lose and the `to` end is the one a `lt` would.
+    const span = salesReport(
+      await loadReportOrders({ from: '2026-07-14', to: '2026-07-15' }),
+      LA,
+    );
+    expect(span.days.map((day) => day.day)).toEqual(['2026-07-14', '2026-07-15']);
+
+    // And a range that ends before the orders start reaches neither — the
+    // window is bounded at BOTH ends, not just opened at the near one.
+    const earlier = salesReport(
+      await loadReportOrders({ from: '2026-07-01', to: '2026-07-13' }),
+      LA,
+    );
+    expect(earlier.days).toEqual([]);
   });
 
   // C-051 / defect D2. The engine's arithmetic is proved in packages/core; what

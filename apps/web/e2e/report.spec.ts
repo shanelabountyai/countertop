@@ -368,3 +368,57 @@ test('a cancellation is reported under the reason the kitchen picked', async ({ 
   // And the cancelled ticket's money stayed out of the sales figures.
   await expect(page.getByTestId('report-net-sales')).toHaveText('$0.00');
 });
+
+// P1-1 + P1-2 / C-058. Both halves in one test on purpose: the CSV's entire
+// job is to hold the days the screen is showing, so an export asserted against
+// a window nobody looked at proves the half that cannot break.
+test('a typed date range bounds the report, and the CSV holds the same days', async ({ page }) => {
+  await page.goto('/kitchen');
+  await pickUp(page, 'Dana Reyes'); // 2x Burrito — the only sale in the window
+
+  await page.goto('/kitchen/report');
+  // `exact`, because "Top sellers" is a labelled scroll region further down
+  // the page and getByLabel matches on substring.
+  await page.getByLabel('From', { exact: true }).fill('2020-01-01');
+  await page.getByLabel('To', { exact: true }).fill('2099-12-31');
+  await page.getByRole('button', { name: 'Show range' }).click();
+
+  // The range is in force: the window buttons are all unlit and the label is
+  // the pair that was typed, not "Today".
+  await expect(page).toHaveURL(/from=2020-01-01&to=2099-12-31/);
+  await expect(page.getByText('2020-01-01 to 2099-12-31')).toBeVisible();
+  await expect(stat(page, 'Orders sold')).toContainText('1');
+
+  // Both ends are real bounds. A range that closes before today reaches the
+  // same order and must not: a `gte`-only window would still find it.
+  await page.goto('/kitchen/report?from=2020-01-01&to=2020-01-02');
+  await expect(page.getByText('No orders were picked up in this window.')).toBeVisible();
+
+  // The CSV, requested the way the link on the page requests it — same params,
+  // same resolution, so this cannot pass while the screen shows another set of
+  // days.
+  const response = await page.request.get('/kitchen/report/export?from=2020-01-01&to=2099-12-31');
+  expect(response.status()).toBe(200);
+  expect(response.headers()['content-type']).toContain('text/csv');
+  // The window in the filename — the reason this is a route handler and not a
+  // string handed back to a component.
+  expect(response.headers()['content-disposition']).toBe(
+    'attachment; filename="countertop-sales-2020-01-01_2099-12-31.csv"',
+  );
+
+  const [header, ...rows] = (await response.text()).split('\r\n');
+  expect(header).toBe('Business day,Orders,Items,Net sales,Tax,Gross');
+  expect(rows).toHaveLength(1);
+
+  // Plain decimals, not "$1,234.56" — a currency symbol and a thousands
+  // separator both arrive in a spreadsheet as text, and the column a
+  // bookkeeper opened the file to sum would not sum.
+  const [day, orders, items, net, tax, gross] = rows[0]!.split(',');
+  expect(day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  expect(orders).toBe('1');
+  expect(items).toBe('2');
+  // The same reconciliation P0-1 asserts on the screen, per row, in the file.
+  expect(Math.round(Number(net) * 100) + Math.round(Number(tax) * 100)).toBe(
+    Math.round(Number(gross) * 100),
+  );
+});

@@ -23,19 +23,22 @@ import {
 import { Prisma, prisma } from './index';
 
 /**
- * What bounds a report (P0-3).
+ * What bounds a report (P0-3, widened at P1-1).
  *
  * Two shapes because there are genuinely two questions. The rolling windows
  * ask "the last 30 days", which is 30 x 24 hours from an instant and is
  * deliberately generous — the engine does the exact day bucketing afterwards,
- * and the oldest local day comes out partial. `Today` asks "this business
- * day", which is not a 24-hour range at all: it is the restaurant's own
- * calendar day, the same one the order numbers reset on.
+ * and the oldest local day comes out partial. The other asks for the
+ * restaurant's own calendar days by name, which is not a 24-hour range at all.
+ *
+ * `Today` and `March` are the SAME shape and not two, deliberately: one
+ * business day is a range whose ends are equal, and a third arm would have
+ * been a second string-matching path to keep in step with the first.
  *
  * A `Date` here still means the instant lower bound, so every existing caller
  * reads the same as it did.
  */
-export type ReportWindow = Date | { businessDay: string };
+export type ReportWindow = Date | { from: string; to: string };
 
 /**
  * The window as a `where` fragment, in ONE place, so the three loaders below
@@ -45,12 +48,16 @@ export type ReportWindow = Date | { businessDay: string };
  * parsing, no local -> instant conversion, the same trick `historyWhere` uses.
  * The column was written by `restaurantClock` at placement, so "today" on this
  * screen is the same day the order number came from, by construction rather
- * than by two computations agreeing.
+ * than by two computations agreeing. `gte`/`lte` on that string is a real
+ * range only because the format is "YYYY-MM-DD", where lexicographic order IS
+ * calendar order — the same property `isLeftOver` already leans on. Both ends
+ * are INCLUSIVE, because a person who types the 14th to the 20th means seven
+ * days and would have to be told otherwise.
  */
 const windowWhere = (window: ReportWindow): Prisma.OrderWhereInput =>
   window instanceof Date
     ? { placedAt: { gte: window } }
-    : { businessDay: window.businessDay };
+    : { businessDay: { gte: window.from, lte: window.to } };
 
 /**
  * Every order in the window, in the shape the engine buckets.
@@ -65,9 +72,10 @@ const windowWhere = (window: ReportWindow): Prisma.OrderWhereInput =>
  * The cost is that the oldest day in such a window can be partial. The screen
  * says so rather than pretending otherwise.
  *
- * `Today` (P0-3) has no such cost and needs no such conversion: the business
- * day is already a string on every order, so the day is MATCHED rather than
- * bounded, and the window is exactly one restaurant day whatever DST did.
+ * A named-day window (P0-3, P1-1) has no such cost and needs no such
+ * conversion: the business day is already a string on every order, so the days
+ * are MATCHED rather than bounded, and the window is exactly the restaurant
+ * days asked for whatever DST did.
  */
 export function loadReportOrders(window: ReportWindow): Promise<ReportableOrder[]> {
   return prisma.order.findMany({

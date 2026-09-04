@@ -162,3 +162,36 @@ export function instantMinutesAfter(instant: Date, minutes: number): Date {
     ),
   );
 }
+
+/**
+ * Two business days a person typed, ordered, or `null` (P1-1).
+ *
+ * The pair the report's date range is bounded on, and the ONE decision in
+ * that feature — which is why it lives here with a test rather than inline in
+ * a page that cannot have one. Both ends inclusive; both must be well formed,
+ * because half a range is not a narrower question, it is a different one.
+ *
+ * A backwards pair is SORTED rather than refused. `<input type="date">` gives
+ * two independent fields with no relationship between them, so typing the end
+ * first is a normal thing to do, and the screen renders the range it used —
+ * an empty report for a pair that clearly meant seven days is the unhelpful
+ * kind of correct.
+ *
+ * The month and day bounds are in the regex so a hand-typed "2026-13-99"
+ * cannot over-match a whole December. February the 30th still gets through and
+ * that is fine: it sits where February sits and matches nothing.
+ *
+ * ponytail: no cap on the span. A five-year range is a full scan, which is
+ * what every window on this report already is (C-016, recorded in the
+ * WRITEUP); the cap arrives with the pagination, not before it.
+ */
+const BUSINESS_DAY = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+export function businessDayRange(
+  from: string | undefined,
+  to: string | undefined,
+): { from: string; to: string } | null {
+  if (from === undefined || to === undefined) return null;
+  if (!BUSINESS_DAY.test(from) || !BUSINESS_DAY.test(to)) return null;
+  return from <= to ? { from, to } : { from: to, to: from };
+}

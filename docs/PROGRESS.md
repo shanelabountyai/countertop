@@ -5300,3 +5300,89 @@ typed sentences nobody read.
   that was paid for writes a refund, and the refunded total is on a different
   section of the same page. Two numbers about the same event, neither pointing
   at the other.
+
+## C-058 — A date range and a CSV (PRD 1 P1-1, P1-2)
+
+The last item of PRD 1, and the two halves are the same query shape, which is
+why they are one session. The report has had five windows since C-054 and
+every one of them is a shape the code chose: today, or a multiple of
+twenty-four hours counted back from now. "March" was not on the screen and
+could not be typed. And the person who most needs March — the bookkeeper —
+does not want a screen at all; they want the rows in a spreadsheet.
+
+**Built:**
+- **`businessDayRange` in `packages/core`, and it is the only decision here.**
+  Two `YYYY-MM-DD` strings in, an ordered inclusive pair or `null` out. It
+  lives in the engine with a test rather than inline in a page that cannot
+  have one, because everything else in this item is plumbing and this is the
+  part with judgement in it: what counts as a pair of days, and what a
+  backwards pair means.
+- **`ReportWindow`'s object arm became a RANGE rather than gaining a third
+  arm.** `{ businessDay: string }` is now `{ from: string; to: string }`, and
+  `Today` resolves to a range whose ends are equal. One string-matching path
+  below the type instead of two that have to be kept in step; the `Date` arm
+  is untouched and still means the generous instant lower bound the rolling
+  windows want.
+- **`apps/web/app/kitchen/report/window.ts`** — the resolution (params → the
+  bounds, the label, the query string, the filename slug) in one module,
+  because this item creates the report's SECOND reader. The screen and the
+  export must bound the same days or the export is worse than nothing.
+- **A plain GET form with two `<input type="date">`**, submitting to the same
+  route. The browser already owns a date picker, a calendar, and the locale it
+  renders in. A bookmarked range is a working link.
+- **`/kitchen/report/export`, a route handler returning `text/csv`** with the
+  window in the `Content-Disposition` filename. It is under `/kitchen`, so
+  `middleware.ts` guards it with the same single check every other staff
+  surface gets.
+- **Tests:** eleven engine assertions on the range (the sort, the refusals,
+  the regex bounds), a db test that both ends are real bounds — a `gte`-only
+  window passes half of it — and one e2e that types a range, checks the screen
+  narrowed, then downloads the CSV and reconciles `net + tax = gross` on the
+  row.
+
+**Decided:**
+- **The typed range wins over the window buttons, and a broken one falls back
+  silently.** The form has two independent date inputs; landing on the page
+  with one filled is a normal state, not a mistake to interrupt somebody over.
+  A valid pair is the more specific thing and it is the thing the person just
+  typed.
+- **A backwards pair is sorted, not refused.** `<input type="date">` gives two
+  fields with no relationship between them, so typing the end first is
+  ordinary. The rendered label is the range that was used, so the correction is
+  visible rather than silent.
+- **The month and day bounds are in the regex.** `2026-13-99` sorts above
+  every real day in 2026, so a loose pattern does not fail — it quietly widens
+  the window past what was asked for. February the 30th still gets through and
+  is harmless: it sits where February sits and matches nothing.
+- **The CSV deliberately does not match the screen's strings.** `formatCents`
+  renders `$1,234.56` for a person; a currency symbol and a thousands
+  separator both arrive in a spreadsheet as text, and the column will not sum
+  — which is the only thing the file was opened to do. Plain decimals, and the
+  one place in the product where the screen's formatter is the wrong answer.
+- **A route handler, not a server action.** An action can only hand a string
+  back to a component, which then needs client JavaScript, a Blob and a
+  synthesised anchor click to become a download. `Content-Disposition` has
+  done this since 1998, works with JavaScript off, and the link can be pasted
+  into a mail.
+- **The By-day rows only, and no totals row.** They are the rows a month is
+  reconciled against, and the three money columns are the ones that have to
+  add up. A footer makes the file need re-parsing around it, and a spreadsheet
+  sums a column better than a file can.
+
+**Left behind:**
+- **The export covers one of the report's nine sections.** The outstanding
+  chase list is the strongest candidate for the second — it is a list of
+  people to ring, which is exactly the sort of thing that wants to leave the
+  screen — and it should arrive as a second link, not as more columns on this
+  one.
+- **No cap on the span.** A five-year range is a full scan, which is what
+  every window on this report already is (C-016, recorded in the WRITEUP). The
+  cap belongs with the pagination, not before it.
+- **The range and the rolling windows still bucket differently.** A range is
+  whole business days, matched on the column; `Last 30 days` is an instant
+  slice whose oldest day is partial. Both say which they are, and the screen
+  now has two kinds of window where it had one.
+- **P1-3, the ran-late trend line, is the last thing in PRD 1 and is not
+  built.** It is the by-day version of C-056's count, and the by-day
+  cancellation trend C-057 left behind is the same shape — they should arrive
+  together.

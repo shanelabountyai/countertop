@@ -1764,3 +1764,25 @@ one now. Whether it is, is something you can see.
 **Nothing in history was reclassified.** An order cancelled last month under
 "Other" is still under "Other" — the new reasons apply from here, and the
 migration contains no update to any existing row.
+
+## C-058 — March, and a file the bookkeeper can open
+
+**You can now ask the report for any two dates.** From and to, both included,
+whole business days in the restaurant's own calendar. The five buttons are
+still there for the questions you ask every day; the date fields are for the
+one you ask at month end.
+
+**Type the dates the wrong way round and it still works.** Two date boxes have
+no idea which is which — the report sorts them and shows you the range it
+used.
+
+**And any window can be downloaded as a CSV.** One click, the days you are
+looking at, with the window in the filename — so a downloads folder full of
+these tells you which month is which.
+
+**The numbers in the file are numbers.** Not "$1,234.56". A spreadsheet cannot
+add up a dollar sign, and adding the column up is the entire reason anyone
+opens it.
+
+**A link, not a button.** It works with JavaScript off, and you can paste it
+into an email to your bookkeeper.

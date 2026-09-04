@@ -13,7 +13,6 @@ import {
   businessDayOf,
   estimateAccuracy,
   formatOrderNumber,
-  instantDaysBefore,
   isTerminal,
   salesReport,
   serviceTimes,
@@ -27,27 +26,16 @@ import {
   loadQuoteSamples,
   loadReportOrders,
   loadStatusTimelines,
-  type ReportWindow,
 } from '@countertop/db/report';
 import { formatCents } from '@/lib/money';
 import { Section, Stat } from '@/lib/panels';
 import { CANCEL_REASON_LABEL, STATUS_LABEL } from '@/lib/status-labels';
+import { resolveWindow, WINDOWS, windowLabel, type ReportParams } from './window';
 
 export const metadata = { title: 'Sales — Firebird Kitchen' };
 
 // Never prerendered: a report baked at build time is a report about the build.
 export const dynamic = 'force-dynamic';
-
-// `today` is not "1 day" and is deliberately not spelled as one: the rolling
-// windows are 24-hour multiples from `now`, and this one is the restaurant's
-// own business day (P0-3). It leads because it is the question the screen is
-// opened to answer during a service.
-const WINDOWS = ['today', 1, 7, 30, 90] as const;
-type ReportChoice = (typeof WINDOWS)[number];
-const DEFAULT_WINDOW: ReportChoice = 'today';
-
-const windowLabel = (choice: ReportChoice): string =>
-  choice === 'today' ? 'Today' : choice === 1 ? 'Last 24 hours' : `Last ${choice} days`;
 
 const percent = (fraction: number) => `${(fraction * 100).toFixed(1)}%`;
 
@@ -73,21 +61,18 @@ function formatDuration(ms: number): string {
 export default async function ReportPage({
   searchParams,
 }: {
-  searchParams: Promise<{ days?: string }>;
+  searchParams: Promise<ReportParams>;
 }) {
   // Read once, here. Everything below is a parameter (CLAUDE.md time rules).
   const now = new Date();
-  const requested = (await searchParams).days;
-  const choice = WINDOWS.find((option) => String(option) === requested) ?? DEFAULT_WINDOW;
+  const params = await searchParams;
 
   const { timezone } = await loadSettings();
-  // The business day the order numbers reset on, matched as a string against
-  // the column placement wrote — never a pair of instants around local
-  // midnight (P0-3). Everything else stays the generous instant bound.
-  const bounds: ReportWindow =
-    choice === 'today'
-      ? { businessDay: businessDayOf(now, timezone) }
-      : instantDaysBefore(now, choice);
+  const today = businessDayOf(now, timezone);
+  // Resolved in one place shared with the CSV route, so the file a bookkeeper
+  // downloads covers the days they are looking at (P1-1, P1-2).
+  const view = resolveWindow(params, now, today);
+  const { bounds, choice } = view;
   const report = salesReport(await loadReportOrders(bounds), timezone);
   // Same window, same `now`, and derived from the append-only event log rather
   // than from `statusChangedAt` — which holds one instant and cannot know that
@@ -144,15 +129,77 @@ export default async function ReportPage({
         ))}
       </nav>
 
+      {/* P1-1. A plain GET form and two native date inputs — the browser
+          already owns a date picker, a calendar and the locale it renders in,
+          and it works with JavaScript off, which is the state this page is in
+          for the first second of every load. The submitted `from`/`to` are the
+          same two params the window resolver reads, so a bookmarked range is
+          a working link. */}
+      <form
+        method="get"
+        action="/kitchen/report"
+        aria-label="Report date range"
+        className="mt-3 flex flex-wrap items-end gap-3"
+      >
+        <label className="flex flex-col text-base text-neutral-700">
+          From
+          <input
+            type="date"
+            name="from"
+            defaultValue={view.range?.from ?? ''}
+            className="min-h-12 rounded-lg border-2 border-neutral-400 px-3 text-lg"
+          />
+        </label>
+        <label className="flex flex-col text-base text-neutral-700">
+          To
+          <input
+            type="date"
+            name="to"
+            defaultValue={view.range?.to ?? ''}
+            className="min-h-12 rounded-lg border-2 border-neutral-400 px-3 text-lg"
+          />
+        </label>
+        <button
+          type="submit"
+          className="min-h-12 rounded-lg border-2 border-neutral-900 bg-neutral-900 px-5 py-3 text-lg font-bold text-white"
+        >
+          Show range
+        </button>
+        {/* Only when a range is in force: a button that undoes nothing is a
+            button to read and decide about on every other load. */}
+        {view.range !== null && (
+          <Link
+            href="/kitchen/report"
+            className="min-h-12 rounded-lg border-2 border-neutral-400 px-5 py-3 text-lg font-bold"
+          >
+            Clear
+          </Link>
+        )}
+      </form>
+
       {/* A rolling window is an INSTANT range, so its oldest local day is
           usually a partial one. Saying so costs a line and stops someone
           reading a half day as a bad day — and `Today` must NOT say it, because
           a business day is whole by definition and a disclaimer that is always
           on is a disclaimer nobody reads (P0-3). */}
       <p className="mt-2 text-base text-neutral-600">
-        {choice === 'today'
-          ? `The restaurant's business day in ${timezone} — the same day the order numbers reset on, not the last 24 hours.`
-          : `Counted from exactly ${choice === 1 ? '24 hours' : `${choice} days`} ago, so the earliest day shown may be partial.`}
+        {choice === null
+          ? `${view.label} — whole business days in ${timezone}, both ends included. No day here is partial.`
+          : choice === 'today'
+            ? `The restaurant's business day in ${timezone} — the same day the order numbers reset on, not the last 24 hours.`
+            : `Counted from exactly ${choice === 1 ? '24 hours' : `${choice} days`} ago, so the earliest day shown may be partial.`}
+      </p>
+
+      {/* P1-2. A link, not a button with a blob behind it: the export is a GET
+          of the same window this page resolved, so it downloads with
+          JavaScript off and can be pasted into a mail to the bookkeeper. */}
+      <p className="mt-3">
+        <a
+          href={`/kitchen/report/export?${view.query}`}
+          className="inline-flex min-h-12 items-center text-lg underline underline-offset-4"
+        >
+          Download these days as CSV
+        </a>
       </p>
 
       {/* Three money numbers, because they are three different facts (P0-1).

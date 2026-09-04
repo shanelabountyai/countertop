@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   businessDayOf,
+  businessDayRange,
   formatMinuteOfDay,
   instantDaysBefore,
   instantMinutesAfter,
@@ -137,5 +138,47 @@ describe('instantMinutesAfter', () => {
     // The whole point of the UTC-field form: the result is the same instant
     // whatever TZ the suite runs under, which CI checks by running it twice.
     expect(instantMinutesAfter(noon, 30).getTime() - noon.getTime()).toBe(30 * 60_000);
+  });
+});
+
+// P1-1 / C-058. The one decision in the report's date range: what counts as a
+// pair of days, and what a backwards pair means.
+describe('a typed business-day range (P1-1)', () => {
+  it('takes two well-formed days and keeps them inclusive', () => {
+    expect(businessDayRange('2026-07-14', '2026-07-20')).toEqual({
+      from: '2026-07-14',
+      to: '2026-07-20',
+    });
+  });
+
+  it('is a single day when both ends are the same', () => {
+    expect(businessDayRange('2026-07-14', '2026-07-14')).toEqual({
+      from: '2026-07-14',
+      to: '2026-07-14',
+    });
+  });
+
+  it('sorts a backwards pair rather than reporting on nothing', () => {
+    expect(businessDayRange('2026-07-20', '2026-07-14')).toEqual({
+      from: '2026-07-14',
+      to: '2026-07-20',
+    });
+  });
+
+  it('refuses half a range — one end missing is a different question', () => {
+    expect(businessDayRange('2026-07-14', undefined)).toBeNull();
+    expect(businessDayRange(undefined, '2026-07-20')).toBeNull();
+    expect(businessDayRange(undefined, undefined)).toBeNull();
+    expect(businessDayRange('2026-07-14', '')).toBeNull();
+  });
+
+  it('refuses a month or a day that could over-match a whole December', () => {
+    // The reason the bounds are in the regex: "2026-13-99" sorts ABOVE every
+    // real day in 2026, so a loose pattern would quietly widen the window
+    // past what was asked for instead of failing.
+    expect(businessDayRange('2026-07-14', '2026-13-99')).toBeNull();
+    expect(businessDayRange('2026-00-01', '2026-07-20')).toBeNull();
+    expect(businessDayRange('2026-7-14', '2026-07-20')).toBeNull();
+    expect(businessDayRange('14/07/2026', '2026-07-20')).toBeNull();
   });
 });
