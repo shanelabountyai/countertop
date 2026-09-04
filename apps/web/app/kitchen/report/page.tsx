@@ -18,6 +18,7 @@ import {
   salesReport,
   timeInStateReport,
   type AccuracyGroup,
+  type AttachRate,
   type QuoteAdjustment,
 } from '@countertop/core';
 import { loadSettings } from '@countertop/db/menu';
@@ -48,6 +49,16 @@ const windowLabel = (choice: ReportChoice): string =>
   choice === 'today' ? 'Today' : choice === 1 ? 'Last 24 hours' : `Last ${choice} days`;
 
 const percent = (fraction: number) => `${(fraction * 100).toFixed(1)}%`;
+
+/** One row shape, two tables — the visible rates and the folded-away 100% ones
+ *  are the same fact and must read identically (P0-4). */
+const attachRows = (rates: AttachRate[]): string[][] =>
+  rates.map((rate) => [
+    rate.itemName,
+    `${rate.groupName}: ${rate.optionName}`,
+    `${rate.withOption} of ${rate.ofTotal}`,
+    percent(rate.rate),
+  ]);
 
 /** Minutes up to an hour and a half, then hours and minutes. A 90-day window's
  *  total in `preparing` is five figures of minutes, which is a number nobody
@@ -317,20 +328,35 @@ export default async function ReportPage({
 
           <Section title="Modifier attach rates">
             <p className="text-lg text-neutral-700">
-              Of every unit of an item sold, the share that took each option. A removal
-              (&ldquo;NO onions&rdquo;) is a choice about an option, not an order of one, and is
-              never counted here.
+              Of every unit of an item sold, the share that took each option, most-ordered first. A
+              removal (&ldquo;NO onions&rdquo;) is a choice about an option, not an order of one,
+              and is never counted here.
             </p>
             <Table
               headers={['Item', 'Option', 'Attached', 'Rate']}
               label="Modifier attach rates"
-              rows={report.attachRates.map((rate) => [
-                rate.itemName,
-                `${rate.groupName}: ${rate.optionName}`,
-                `${rate.withOption} of ${rate.ofTotal}`,
-                percent(rate.rate),
-              ])}
+              rows={attachRows(report.attachRates.filter((rate) => rate.rate < 1))}
             />
+            {/* The 100% rows, folded away rather than dropped (P0-4). Every one
+                of them is a required group — the menu gave no choice, so the
+                number is a restatement of the menu and not a fact about a
+                customer. They are still here because "guacamole is at 100%"
+                and "guacamole is required" are answered by the same row, and
+                the second reading is the one that catches a mis-built group. */}
+            {report.attachRates.some((rate) => rate.rate >= 1) && (
+              <details className="mt-4">
+                <summary className="cursor-pointer p-2 text-lg text-neutral-700">
+                  Always taken (required choices) — show
+                </summary>
+                <div className="mt-2">
+                  <Table
+                    headers={['Item', 'Option', 'Attached', 'Rate']}
+                    label="Always taken (required choices)"
+                    rows={attachRows(report.attachRates.filter((rate) => rate.rate >= 1))}
+                  />
+                </div>
+              </details>
+            )}
           </Section>
         </>
       )}

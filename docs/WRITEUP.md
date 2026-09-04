@@ -1421,6 +1421,31 @@ does everywhere, and for good reasons — that is a recurring cost, and the
 mitigation is to assert the name only where exactly one constraint can produce
 it.
 
+### The fold took the rows out of the test's reach (C-055)
+
+**A `<details>` that is closed does not render its contents to the
+accessibility tree.** P0-4 folds the 100%-attach rows behind a disclosure, and
+the existing negation e2e — the one asserting that "NO onions" is never counted
+as an onion order — located its rows with `getByRole('table')`. The guacamole
+row it asserts on moved inside the fold, so the role query stopped seeing it.
+
+**The failure was loud, and the passing version of it would have been silent.**
+That test's other half is `toHaveCount(0)` on onions: a locator scoped to a
+table the query can no longer see returns zero rows, and zero rows is exactly
+what the assertion wants. A negation could have started being counted in the
+folded table and the test would have gone on passing, in the one place in this
+product where a mis-counted negation is the founding defect.
+
+**Two rules came out of it.** An assertion that something is *absent* must be
+scoped to a container that can see the hidden state — CSS locators match hidden
+elements, role queries do not — so the absence claim now matches `td` cells
+across the whole section and covers both tables. And the first rewrite matched
+the section's own prose, which says "NO onions" in the explanatory copy: an
+absence assertion that matches page copy is one that can never fail either.
+
+**The generalisation: hiding something in the UI silently narrows every
+role-based assertion about it, and the narrowing shows up as green.**
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

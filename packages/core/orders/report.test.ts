@@ -229,6 +229,22 @@ describe('salesReport — modifier attach rates', () => {
     );
     expect(report.attachRates[0]).toMatchObject({ withOption: 3, ofTotal: 3, rate: 1 });
   });
+
+  // P0-4. The bowl's guacamole is 100% and the burrito's is 50%, and the
+  // burrito's is the row worth reading: twice the units, and a rate that could
+  // have come out otherwise. A rate sort leads with the 100% row every time,
+  // which is how a table of required groups pushes the one decidable line off
+  // the screen.
+  it('ranks by attached volume, so a 100% row does not lead', () => {
+    const ranked = salesReport(orders, LA).attachRates.map(
+      (rate) => `${rate.itemName}: ${rate.optionName}`,
+    );
+    expect(ranked).toEqual([
+      'Burrito: Guacamole', // 2 units, 50%
+      'Burrito: Queso', // 1 unit, 25% — ties break on the item name
+      'Burrito bowl: Guacamole', // 1 unit, 100%, and last
+    ]);
+  });
 });
 
 describe('salesReport — the rankings and the money', () => {

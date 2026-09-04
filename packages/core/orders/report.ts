@@ -115,7 +115,10 @@ export type AttachRate = {
   /** Every unit of the item sold. */
   ofTotal: number;
   /** `withOption / ofTotal`, 0-1. `ofTotal` is never 0 — a rate exists only
-   *  because the item sold. */
+   *  because the item sold. A rate of exactly 1 is the tell for a REQUIRED
+   *  group: every unit took it because the menu gave no choice. The screen
+   *  folds those away (P0-4); they stay in this list because a rate that is
+   *  uninteresting to read is not a rate that is wrong. */
   rate: number;
 };
 
@@ -354,9 +357,15 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     topItems: [...items.values()].sort(
       (a, b) => b.quantity - a.quantity || a.itemName.localeCompare(b.itemName),
     ),
+    // Ranked by ATTACHED VOLUME, not by rate (P0-4). Sorting by rate puts the
+    // required choices first — every one of them is 100% by construction, and
+    // a required group is not a decision anybody can act on. The row worth
+    // reading is the optional one lots of people took, and under a rate sort
+    // it lands below every group the menu forces. Ties break on the units
+    // first so the shape survives: same volume, then item, then option.
     attachRates: attachRates.sort(
       (a, b) =>
-        b.rate - a.rate ||
+        b.withOption - a.withOption ||
         a.itemName.localeCompare(b.itemName) ||
         a.optionName.localeCompare(b.optionName),
     ),

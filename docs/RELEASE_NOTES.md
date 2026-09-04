@@ -1702,3 +1702,23 @@ what it is instead, and the caveat stays where it is true.
 **The whole page moves together.** Sales, time-in-state and the quote grades
 are bounded by one window, not three — so nothing on the screen is describing
 a different stretch of time than the tiles at the top.
+
+## C-055 — The attach table leads with what you can act on
+
+**Every required choice is 100%, and the table led with all of them.** If the
+menu makes you pick a protein, then 100% of burritos took a protein — a true
+number that tells nobody anything. Sorted by rate, those rows filled the top of
+the table and the one row worth reading, *how many people paid extra for
+guacamole*, sat underneath them.
+
+**The table now ranks by how many were actually ordered.** The busiest optional
+add-on leads, and the rows that could only ever have come out one way are
+folded behind "Always taken (required choices)".
+
+**Folded away, not thrown away.** One click opens them — because "this option
+is at 100%" is also how you notice a group that was built as required when it
+was meant to be optional.
+
+**The removals are still nowhere near it.** "NO onions" has never counted as an
+onion order, and it now has to stay uncounted in both tables — asserted
+including inside the fold.

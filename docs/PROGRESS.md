@@ -5027,3 +5027,72 @@ that matches the shop's own day was the one missing.
   day and assert them on the next. Not new — the same window the seeded
   fixtures always ran against — but the default window is now the one that
   notices.
+
+## C-055 — The attach-rate table leads with the decidable rows (PRD 1 P0-4)
+
+The attach table answers one question worth money: *of everyone who bought a
+burrito, how many paid the extra $2.50 for guacamole* — the row that decides
+whether next week's avocado order goes up or down. It was sorted by rate,
+descending, and a required modifier group is 100% by construction: every unit
+took a protein because the menu gave no choice. So the screen led with a
+column of rows that are restatements of the menu, and the one row a decision
+could turn on sat below all of them.
+
+**Built:**
+- `salesReport` ranks `attachRates` by **attached volume**, not by rate. Ties
+  break on units first, then item, then option, so the shape is stable.
+- `/kitchen/report` splits the section in two: the table shows the rates
+  strictly under 100%, and the 100% rows go into a closed `<details>` labelled
+  "Always taken (required choices) — show". One `attachRows` helper builds
+  both, so the two tables cannot drift into two renderings of one fact.
+- A core test that fails under the old comparator: a 100% row with one unit
+  ranks *last*, below a 50% row with two.
+- Two e2e tests — the seeded rush renders guacamole with no 100% row above it
+  and the required rows folded away; and the negation assertion, rewritten to
+  cover **both** tables.
+- No migration, and no new query. The rate has been computed since C-016; this
+  item only changed which end of it leads.
+
+**Decided:**
+- **The split is a rendering decision; the sort is an engine one.** `salesReport`
+  still returns every row, including the 100% ones — a rate that is
+  uninteresting to read is not a rate that is wrong, and P1-2's CSV will want
+  all of them. What the engine owes the screen is the ranking, which is the
+  half that is arithmetic and therefore testable without a browser.
+- **Folded, not dropped.** "Guacamole is at 100%" and "guacamole is required on
+  this item" are the same row read two ways, and the second reading is what
+  catches a group built as required that was meant to be optional. Dropping the
+  rows would have removed the only place that shows up.
+- **"Always taken" is inferred from the rate, not read from the menu.** The
+  honest alternative is `ItemModifierGroup.minSelect >= 1`, which is a menu
+  join — on the one page whose whole discipline is that it never joins to a
+  menu table. A required group and an optional one everybody took render the
+  same here, and that is the correct trade: the report describes what was
+  ordered, and the menu it was ordered from may not exist any more.
+- **The snapshot-rule assertion is the test that already existed.** C-016's
+  byte-identical-after-mutation test in `packages/db/report.test.ts` is exactly
+  the assertion P0-4 asks for, and it passes unchanged — a re-sort of an
+  in-memory list cannot introduce a join. A second copy of it would have
+  asserted the same thing twice.
+
+**Found:**
+- **A closed `<details>` takes its rows out of the accessibility tree**, so the
+  existing negation test — `getByRole('table')` — stopped seeing the guacamole
+  row it asserted on, and a laxer version of that test would have gone green by
+  finding nothing. The negation assertion now matches `td` cells by CSS across
+  the whole section, which sees hidden rows too: "NO onions appears nowhere"
+  has to mean nowhere, including inside the fold. The first rewrite of it
+  matched the section's own prose — the copy says "NO onions" — which is the
+  other way to write an assertion that cannot fail.
+
+**Left behind:**
+- **A 100% row with one sale is folded away like a required group.** An option
+  ordered once, on the only unit of an item sold that week, is "always taken"
+  by this rule. A minimum-units floor would fix it and would also be the first
+  threshold on this page nobody can see; the row is one click away either way.
+- **No column sort and no filter.** The order is the engine's and cannot be
+  changed from the screen, which is fine for a table of a dozen rows and will
+  not be at a hundred.
+- **Attach is still counted over units, not over orders.** "Half the burritos
+  took guacamole" and "half the customers ordering burritos took guacamole" are
+  different numbers on a two-burrito ticket; this is the first.

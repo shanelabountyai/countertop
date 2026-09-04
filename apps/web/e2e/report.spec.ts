@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { card, pickUp, reseed } from './fixtures';
+import { card, pickUp, reseed, seedFinishedRush } from './fixtures';
 
 // C-016: the sales report (P1-1).
 //
@@ -62,16 +62,45 @@ test('a removal is never counted as a modifier attach', async ({ page }) => {
   await pickUp(page, 'Dana Reyes');
 
   await page.goto('/kitchen/report');
-  const attachSection = page
-    .getByRole('table')
-    .filter({ has: page.getByRole('columnheader', { name: 'Attached' }) });
+  // Onions were REMOVED from both, so they appear in NEITHER table — the
+  // visible one or the folded-away one. Asserted at the section, not at one
+  // table, so P0-4's disclosure cannot hide a negation instead of dropping it.
+  // Matched as CELLS and by CSS, not by role: the folded table's rows are out
+  // of the accessibility tree while it is closed, and the section's own copy
+  // says "NO onions" in prose.
+  const attachSection = page.locator('section').filter({ hasText: 'Modifier attach rates' });
+  await expect(attachSection.locator('td', { hasText: 'Onions' })).toHaveCount(0);
 
-  // Guacamole was genuinely ordered on both units, so it is 100%.
-  await expect(attachSection.getByRole('row').filter({ hasText: 'Guacamole' })).toContainText(
-    '100.0%',
-  );
-  // Onions were REMOVED from both, so they appear nowhere.
-  await expect(attachSection.getByRole('row').filter({ hasText: 'Onions' })).toHaveCount(0);
+  // Guacamole was genuinely ordered on both units, so it is 100% — which since
+  // P0-4 means it is inside the closed disclosure, not on the table above it.
+  await page.getByText('Always taken (required choices)').click();
+  await expect(
+    page
+      .getByRole('region', { name: 'Always taken (required choices)' })
+      .getByRole('row')
+      .filter({ hasText: 'Guacamole' }),
+  ).toContainText('100.0%');
+});
+
+// P0-4. The table someone opens mid-week to decide whether to keep buying
+// avocados: every required group is 100% by construction, and sorted by rate
+// they bury the one row that could have come out another way.
+test('the attach table leads with the rows a decision can turn on', async ({ page }) => {
+  seedFinishedRush();
+
+  await page.goto('/kitchen/report');
+  const visible = page.getByRole('region', { name: 'Modifier attach rates' });
+  // The decidable row, on screen without opening anything.
+  await expect(visible.getByRole('row').filter({ hasText: 'Guacamole' }).first()).toBeVisible();
+  // And nothing at 100% above it — those are all folded away.
+  await expect(visible.getByRole('row').filter({ hasText: '100.0%' })).toHaveCount(0);
+
+  // Folded, not dropped: the region is not in the accessibility tree until the
+  // disclosure is opened, and the required rows are all in it.
+  const always = page.getByRole('region', { name: 'Always taken (required choices)' });
+  await expect(always).toHaveCount(0);
+  await page.getByText('Always taken (required choices)').click();
+  await expect(always.getByRole('row').filter({ hasText: '100.0%' }).first()).toBeVisible();
 });
 
 test('a no-show is rated against finished orders, and is not revenue', async ({ page }) => {
