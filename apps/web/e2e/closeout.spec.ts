@@ -66,16 +66,23 @@ test('closing one out clears it from the count', async ({ page }) => {
   await card(page, 'Priya Shah').getByRole('button', { name: 'No-show' }).click();
 
   await expect(page.getByText('3 orders are still open from an earlier day')).toBeVisible();
-  // `abandoned` is not a queue status, so the card leaves the QUEUE — the
-  // assertion is on the card, not on its badge, which would pass against a
-  // card that had merely lost its flag. It is off the screen entirely only
-  // once its five-second undo has run out: closing out a leftover is as
-  // mis-tappable as any other advance, so for that window it sits in the
-  // "Just finished" strip, which is the only place that undo can live (P0-4).
+  // `abandoned` is not a queue status, so the card leaves the QUEUE and the
+  // section's count says so. What stays for five seconds is its SLOT (handoff
+  // P0-3): closing out a leftover is as mis-tappable as any other advance, so
+  // the place it was tapped holds a tile carrying the undo, and the strip
+  // holds a second copy for a cook who has already looked away.
   await expect(page.getByRole('heading', { name: 'Ready for pickup (0)' })).toBeVisible();
-  await expect(
-    page.locator('section:not([aria-label])').getByText('Priya Shah'),
-  ).toHaveCount(0);
+  // A TILE, not a card: the assertion is that the controls that move an order
+  // are gone, which is what "it left the queue" has to mean once the slot
+  // survives. Asserting the name was absent would now pass only by deleting
+  // the undo the cook is reaching for.
+  const held = page
+    .locator('section:not([aria-label])')
+    .getByRole('listitem')
+    .filter({ hasText: 'Priya Shah' });
+  await expect(held).toHaveCount(1);
+  await expect(held.getByRole('button', { name: /^Undo/ })).toBeVisible();
+  await expect(held.getByRole('button', { name: 'No-show' })).toHaveCount(0);
   await expect(
     page.getByRole('region', { name: 'Just finished' }).getByText('Priya Shah'),
   ).toBeVisible();

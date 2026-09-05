@@ -111,15 +111,26 @@ export type QueueGroup<T> = { status: OrderStatus; orders: T[] };
  * The sections come back in `QUEUE_SECTION_ORDER` — Ready first (handoff
  * P0-1) — not in lifecycle order. The order WITHIN a group is unchanged:
  * placement time ascending, oldest ticket first.
+ *
+ * `holdingSlots` (handoff P0-3) are orders that have just LEFT the queue with
+ * their undo still live. They keep the slot they were tapped in: sorted in
+ * with the live cards of the section they came FROM, which is
+ * `previousStatus` asked of the status module rather than a literal, so a card
+ * that leaves at the bottom of Ready leaves its undo at the bottom of Ready.
+ * An order with no `previous` — `cancelled`, which cannot be undone — matches
+ * no section and holds no slot. The caller decides which entries are tiles
+ * rather than cards; it is the same question `isTerminal` already answers.
  */
 export function groupQueue<T extends { status: OrderStatus; placedAt: Date }>(
   orders: readonly T[],
+  holdingSlots: readonly T[] = [],
 ): QueueGroup<T>[] {
   return QUEUE_SECTION_ORDER.map((status) => ({
     status,
-    orders: orders
-      .filter((order) => order.status === status)
-      .sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime()),
+    orders: [
+      ...orders.filter((order) => order.status === status),
+      ...holdingSlots.filter((order) => previousStatus(order.status) === status),
+    ].sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime()),
   }));
 }
 

@@ -12,6 +12,7 @@ import {
   groupQueue,
   checkoutGate,
   isLeftOver,
+  isTerminal,
   matchesLookup,
   needsAcknowledgment,
   orderBalance,
@@ -96,7 +97,11 @@ export default async function KitchenPage({
   // screen. Every card stays drawn and exactly the matches are ringed.
   const searching = query.trim() !== '';
   const matches = searching ? orders.filter((order) => matchesLookup(order, query)) : [];
-  const groups = groupQueue(orders);
+  // Handoff P0-3: the just-finished orders are passed in as HOLDING SLOTS, so
+  // the card that was tapped is replaced in place by a tile carrying its undo
+  // rather than vanishing from under the hand that tapped it. They are not
+  // queue orders and nothing else on this page counts them.
+  const groups = groupQueue(orders, justFinished);
   // P1-6, off the UNFILTERED list for the same reason the alert count is: a
   // chore a search can hide is a chore nobody does.
   const leftOver = orders.filter((order) => isLeftOver(order, clock.day));
@@ -278,9 +283,14 @@ export default async function KitchenPage({
 
       {groups.map(({ status, orders: inGroup }) => (
         <section key={status} className="mt-8">
+          {/* The count is LIVE cards. A tile is an order that has left the
+              queue holding its slot for five seconds, and a section heading
+              that counted it would say the shelf still has food on it. */}
           <h2 className="text-xl font-semibold">
             {STATUS_LABEL[status]}{' '}
-            <span className="font-normal text-neutral-600">({inGroup.length})</span>
+            <span className="font-normal text-neutral-600">
+              ({inGroup.filter((order) => !isTerminal(order.status)).length})
+            </span>
           </h2>
 
           {inGroup.length === 0 ? (
@@ -288,6 +298,39 @@ export default async function KitchenPage({
           ) : (
             <ul className="mt-3 grid gap-4 md:grid-cols-2">
               {inGroup.map((order) => {
+                // Handoff P0-3. The undo lived only in the strip at the top of
+                // the page, which is the right place to FIND it and the wrong
+                // place to REACH it: the tap that starts the five seconds is
+                // often at the bottom of a board eleven cards deep, and the
+                // control it starts was a scroll away. The slot stays, holding
+                // the same order number, the same name and the undo — asked of
+                // the status module, because a terminal order in a queue
+                // section can only have got here as a holding slot.
+                if (isTerminal(order.status)) {
+                  return (
+                    <li
+                      key={order.id}
+                      className="rounded-xl border-2 border-dashed border-amber-600 bg-amber-50 p-4"
+                    >
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <h3 className="text-3xl font-bold tabular-nums">
+                          {formatOrderNumber(order.seq)}
+                        </h3>
+                        <p className="text-2xl font-semibold">{order.customerName}</p>
+                      </div>
+                      <p className="mt-1 text-lg font-semibold text-amber-900">
+                        {STATUS_LABEL[order.status]} — undo if that was a mistake
+                      </p>
+                      <QueueControls
+                        orderId={order.id}
+                        status={order.status}
+                        outstandingCents={orderBalance(order).outstandingCents}
+                        undoMs={undoRemainingMs(order.status, order.events[0], now)}
+                      />
+                    </li>
+                  );
+                }
+
                 const aging = queueAging(order, now, DEFAULT_AGING);
                 const undoMs = undoRemainingMs(order.status, order.events[0], now);
                 const leftOverCard = isLeftOver(order, clock.day);

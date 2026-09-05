@@ -45,9 +45,9 @@ The product is excellent up to the moment the food is cooked and completely abse
 - [x] Test: with 22 live orders, searching a name that matches one order still renders 22 cards, with exactly one carrying the match style
 
 **P0-3: The undo stays where the tap was** *(DX 1)*
-- [ ] After an advance into a terminal state (`picked_up`, `abandoned`), the card's grid slot keeps a placeholder tile — same position, same size — carrying the undo control, for as long as `undoRemainingMs > 0`
-- [ ] The "Just finished" strip stays as it is; this adds the in-place tile, it does not move the strip
-- [ ] Test: with 20 seeded orders, tap "Picked up" on the **last** card in the Ready section and assert the undo control is inside the viewport with no scrolling, and that tapping it restores the order
+- [x] After an advance into a terminal state (`picked_up`, `abandoned`), the card's grid slot keeps a placeholder tile — same position, same size — carrying the undo control, for as long as `undoRemainingMs > 0`
+- [x] The "Just finished" strip stays as it is; this adds the in-place tile, it does not move the strip
+- [x] Test: with 20 seeded orders, tap "Picked up" on the **last** card in the Ready section and assert the undo control is inside the viewport with no scrolling, and that tapping it restores the order
 
 **P0-4: The revert control follows the order past the queue card** *(OPS 4)*
 - [ ] The staff receipt at `/kitchen/orders/[id]` carries the same explicit, logged revert the engine already permits, for `picked_up` and `abandoned` — reached at any time, not for five seconds

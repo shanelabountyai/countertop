@@ -3,6 +3,7 @@ import {
   ORDER_STATUSES,
   QUEUE_SECTION_ORDER,
   QUEUE_STATUSES,
+  UNDOABLE_EXIT_STATUSES,
   type OrderStatus,
 } from './state-machine';
 import { formatOrderNumber } from './placement';
@@ -112,6 +113,41 @@ describe('grouping (P0-4)', () => {
   it('leaves terminal orders off the screen entirely', () => {
     const groups = groupQueue([order({ status: 'picked_up' }), order({ status: 'cancelled' })]);
     expect(groups.every((group) => group.orders.length === 0)).toBe(true);
+  });
+
+  // Handoff P0-3. A terminal order reaches a section ONLY as a holding slot,
+  // and only through the second argument — the test above is what says so.
+  describe('holding slots (handoff P0-3)', () => {
+    it('holds the slot in the section the order LEFT, never the one it is in', () => {
+      const groups = groupQueue([], [order({ status: 'picked_up' })]);
+      expect(groups.find((group) => group.status === 'ready')?.orders).toHaveLength(1);
+      expect(groups.flatMap((group) => group.orders)).toHaveLength(1);
+    });
+
+    it('keeps the tile where the card was — sorted in, not appended', () => {
+      const oldest = order({ status: 'ready', placedAt: minutesBefore(30) });
+      const tapped = order({ status: 'picked_up', placedAt: minutesBefore(20) });
+      const newest = order({ status: 'ready', placedAt: minutesBefore(2) });
+      const groups = groupQueue([newest, oldest], [tapped]);
+      // Second of three, which is exactly where the card the cook tapped was.
+      expect(groups.find((group) => group.status === 'ready')?.orders).toEqual([
+        oldest,
+        tapped,
+        newest,
+      ]);
+    });
+
+    it('gives no slot to a status with nothing behind it — a cancel has no undo', () => {
+      const groups = groupQueue([], [order({ status: 'cancelled' })]);
+      expect(groups.every((group) => group.orders.length === 0)).toBe(true);
+    });
+
+    it('holds a slot for every undoable exit, derived rather than listed', () => {
+      for (const status of UNDOABLE_EXIT_STATUSES) {
+        const groups = groupQueue([], [order({ status })]);
+        expect(groups.flatMap((group) => group.orders)).toHaveLength(1);
+      }
+    });
   });
 });
 

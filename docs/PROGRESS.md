@@ -5464,3 +5464,81 @@ and still chiming.
   viewport**, which is a 1280×720 desktop and not a wall tablet. It is the
   viewport every existing size assertion in this repo uses, and moving it is a
   change to all of them.
+
+## C-060 — The undo stays where the tap was (PRD 2 P0-3)
+
+The second item of PRD 2, and the smallest defect in the document with the
+largest gap between "works" and "usable". The five-second undo has been real in
+the engine since C-004 and reachable on the screen since the "Just finished"
+strip in C-010. Reachable, not *reachable from where the tap was*: the strip
+lives above every section, and the card whose advance starts the countdown
+usually does not.
+
+Measured on the rush seed before anything was built: the last Ready card's
+"Picked up" button sits at page y=1806. Tap it, and the strip's undo is at
+viewport y=-1041 — a thousand pixels above the fold, on a five-second timer,
+found by a person holding a bag in one hand.
+
+**Built:**
+- **`groupQueue` takes a second list — `holdingSlots` — and not a widened
+  first one.** They are placed in the section they came FROM, which is
+  `previousStatus` asked of the status module rather than a literal, and
+  sorted in with the live cards by `placedAt`. A card that leaves at the
+  bottom of Ready leaves its undo at the bottom of Ready.
+- **The existing "terminal orders are off the screen entirely" test is what
+  keeps the first argument honest.** A terminal order reaches a section only by
+  being handed over as a slot; it can never get there by having a status.
+- **`cancelled` holds no slot, and no branch says so.** Its `previous` is null,
+  so it matches no section — the same fact that already keeps it out of
+  `UNDOABLE_EXIT_STATUSES`, doing the work a second time for free.
+- **The section heading counts live cards** (`!isTerminal`), so a tile cannot
+  make the shelf look like it still has food on it.
+- **`isTerminal` is the render branch too.** A terminal order inside a queue
+  section can only have arrived as a holding slot, so the tile needs no flag
+  threaded through the grouping and no second type.
+- **The tile renders the same `QueueControls` the strip does** — dashed amber,
+  the order number, the name, what just happened, and the undo — so the
+  countdown, its expiry and its refusal handling have one implementation.
+
+**Decisions:**
+- **The slot is held in the GROUPING, not faked on the page.** The obvious
+  cheap version is to rewrite the finished order's `status` to its previous one
+  before grouping, which puts the tile in the right place by telling the rest
+  of the page a lie — every reader below (`queueAging`, the collect badge, the
+  advance button) would then be reasoning about a `ready` order that is picked
+  up. Passing the slots as their own argument means every one of those readers
+  goes on seeing the truth, and the one question the page has to ask is which
+  entries are tiles.
+- **`isTerminal(order.status)` rather than a `heldSlot` flag on the entry.**
+  A flag would have to be produced by `groupQueue`, changing its element type
+  and every existing reader of it, to restate something the status module
+  already answers. A terminal order in a queue section is a holding slot by
+  construction, and that sentence is the code.
+- **The strip stays, and the duplication is deliberate.** For five seconds the
+  same order is on the screen twice. The PRD asks for exactly this — the strip
+  is where an undo can be FOUND when you have looked away, the tile is where it
+  can be REACHED when you have not — and deleting the strip would put the undo
+  back out of reach for the one case it was built for, a cook who tapped and
+  then looked up.
+- **The e2e measures the button's box against the viewport.** `toBeVisible`
+  is not this assertion: a control 3,000 pixels down the page is visible, and
+  is the entire defect. Verified by breaking it — the test fails on the
+  unfixed build, at the count assertion, before it ever gets to the geometry.
+
+**Found:** nothing new. The one thing worth recording is that the undo's
+countdown survived being rendered twice without a change, because
+`QueueControls` derives its expiry from a server-computed `undoMs` prop rather
+than from a click it saw — the C-010 decision paying out in an instance it was
+not written for.
+
+**Left behind:**
+- **An unpaid pickup briefly shows two "Collected — mark paid" buttons**, one
+  in the strip and one in the tile, for the length of the undo window. Both
+  work and both are idempotent; it is the visible cost of the strip staying.
+- **The tile is shorter than the card it replaces.** The slot keeps its
+  position and its width; it keeps its height only when a taller card shares
+  the grid row. A fixed minimum would hold the geometry exactly and would put
+  a magic number in the one place on this screen where card heights vary by
+  ticket size.
+- **The measurement is at the Playwright viewport**, 1280×720, which is the
+  same caveat C-059 left and moves with it.

@@ -65,6 +65,55 @@ test('Ready for pickup is the first section, and its first card needs no scroll'
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
 
+// Handoff P0-3, asserted at the depth it exists for: the undo is only out of
+// reach on a board deep enough that the tap was below the fold. The strip at
+// the top of the page is where the undo can be FOUND; the tile is where it can
+// be REACHED, and the difference is a scroll made with both hands full.
+// Measured on this seed before the tile existed: the last Ready card's button
+// sits at page y=1806, and the strip's undo then lands at viewport y=-1041 —
+// a thousand pixels above the fold, on a five-second timer.
+test('the undo stays where the tap was — the tile holds the slot', async ({ page }) => {
+  await page.goto('/kitchen');
+
+  const ready = page
+    .locator('main > section')
+    .filter({ has: page.getByRole('heading', { name: /^Ready for pickup \(/ }) });
+  const slots = ready.locator('> ul > li');
+  const before = await slots.count();
+  expect(before).toBeGreaterThan(1);
+
+  // The LAST card in the section — the one whose undo used to be furthest
+  // from it, all the way back up past every other Ready ticket.
+  const tapped = slots.last();
+  const number = (await tapped.getByRole('heading').first().innerText()).trim();
+  await tapped.getByRole('button', { name: 'Picked up' }).click();
+
+  // The slot did not close up: same count, same position, and the heading's
+  // count — which is LIVE cards — went down by one.
+  await expect(
+    page.getByRole('heading', { name: `Ready for pickup (${before - 1})` }),
+  ).toBeVisible();
+  await expect(slots).toHaveCount(before);
+  const tile = slots.last();
+  await expect(tile).toContainText(number);
+
+  // Inside the viewport, measured, with no scrolling of our own after the tap.
+  // `toBeVisible` is not this assertion: a control 3,000 pixels down the page
+  // is visible and is exactly the failure this item exists to fix.
+  const undo = tile.getByRole('button', { name: /^Undo/ });
+  const box = await undo.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  // Greasy gloves, unchanged by the tile being smaller than the card.
+  expect(box!.height).toBeGreaterThanOrEqual(48);
+
+  await undo.click();
+  await expect(page.getByRole('heading', { name: `Ready for pickup (${before})` })).toBeVisible();
+  await expect(slots.last()).toContainText(number);
+  await expect(slots.last().getByRole('button', { name: 'Picked up' })).toBeVisible();
+});
+
 test('the walk-up lookup marks one card and hides none of the other twenty-one', async ({
   page,
 }) => {

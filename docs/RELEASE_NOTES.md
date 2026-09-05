@@ -1807,3 +1807,22 @@ the same either way.
 an order left over from yesterday, an order running late — none of them fade
 because somebody typed a name in. The search can add a highlight; it cannot
 take one away.
+
+## C-060 — Undo where you tapped
+
+**Mark an order picked up by mistake and the undo is right there.** The ticket's
+place on the board is held for five seconds by a small amber tile with the
+order number, the name and one button: *Undo*. Same spot, same column, no
+scrolling.
+
+**It used to be at the top of the page.** The undo has always been there — in
+the "Just finished" strip — and on a busy board that is a thousand pixels above
+whatever you just tapped, on a five-second timer, with a bag in your other
+hand. The strip is still there for when you have looked away; the tile is for
+when you have not.
+
+**The section count does not lie about it.** "Ready for pickup (4)" means four
+tickets of food on the shelf. The tile holding a place is not one of them.
+
+**Undo puts the ticket back exactly where it was**, in the same slot, and it
+goes on aging from when it was really placed.
