@@ -14,7 +14,7 @@ import type {
   OrderStatus,
 } from '@countertop/core';
 import { Prisma, prisma } from './index';
-import { ORDER_RECEIPT, type OrderReceipt } from './placement';
+import { eventRow, ORDER_RECEIPT, type OrderReceipt } from './placement';
 
 /** A history search is a lookup, not a report — cap it so a bare search box
  *  cannot become an accidental "load every order this restaurant has ever
@@ -189,10 +189,66 @@ export async function loadRemakesOf(orderId: string): Promise<{ id: string; seq:
   return events.map((event) => event.order);
 }
 
+/**
+ * Somebody wrote on the ticket (PRD 2 P0-6, C-092).
+ *
+ * A write in the middle of a read module, like `setShelfLocation` in
+ * `queue.ts`, and for the same reason: this is where the note is READ back
+ * (`loadOrderActivity` below, `readNote` under it), and a writer that lives
+ * next to its reader cannot drift from the shape it writes.
+ *
+ * ONE ROW, APPENDED. There is no update path and there is not meant to be —
+ * the requirement is that a note never overwrites the note before it, and the
+ * append-only trigger on this table says the same thing a second time. Two
+ * counters typing at once produce two notes in the order they landed, which is
+ * the correct answer for a running commentary and the opposite of the shelf's
+ * last-write-wins.
+ *
+ * The order is re-read first rather than letting the foreign key throw: the id
+ * arrives from a form on a screen that may be minutes stale, and "that order is
+ * gone" is an answer, not a 500.
+ */
+export async function appendOrderNote(
+  orderId: string,
+  note: string,
+  now: Date,
+  /** Who wrote it (C-086). Null where no shift is signed on — an honest null;
+   *  the note still stands, unattributed, which is better than refusing it. */
+  staffId?: string | null,
+): Promise<boolean> {
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true } });
+  if (!order) return false;
+
+  await prisma.orderEvent.create({
+    data: {
+      orderId,
+      ...eventRow(
+        {
+          at: now,
+          kind: 'note',
+          // Nothing moved. The two status columns are null and that IS the
+          // fact: this is the one kind on this table that reports on the
+          // shift rather than on the order.
+          fromStatus: null,
+          toStatus: null,
+          actor: 'staff',
+          // The preset-key column, and a staff note has no preset. The text
+          // goes in `detail.note` where the revert's has gone since C-061, so
+          // `readNote` and the receipt's renderer need no second channel.
+          reason: null,
+          detail: { note },
+        },
+        staffId,
+      ),
+    },
+  });
+  return true;
+}
+
 /** `detail.note` when there is one, and null for every other payload shape.
  *  `detail` is untyped JSON, so this is the one place that asserts what is in
  *  it rather than every caller re-guessing. */
-function readNote(detail: Prisma.JsonValue | null): string | null {
+export function readNote(detail: Prisma.JsonValue | null): string | null {
   if (detail === null || typeof detail !== 'object' || Array.isArray(detail)) return null;
   const note = (detail as Prisma.JsonObject).note;
   return typeof note === 'string' && note !== '' ? note : null;

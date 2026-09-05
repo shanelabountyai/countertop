@@ -1869,3 +1869,30 @@ move the order backwards through anything.
 **The customer never sees it.** Where the food is sitting is the restaurant's
 business — it is not part of what was sold, it is not on any receipt, and it is
 in no report.
+
+## C-092 — Somebody can write on the ticket
+
+**Every order now takes a note from the shift.** "Customer called, arriving
+7:40." "No answer." "Allergy — kitchen told." Facts the counter has always had
+and has never had anywhere to put, so they were said out loud to whoever was
+standing there and lost when that person went on break.
+
+**A note never replaces the note before it.** Write a second one and both are
+there, oldest first — because "no answer" followed by "called, arriving 7:40"
+is a story, and a field that holds one line would keep the wrong half of it.
+
+**It reads as the restaurant's, not the customer's.** The card already renders
+what the customer typed in amber; a staff note sits in the same family with a
+dashed edge and the word "Staff" in front of it. A note about a customer,
+rendered as a note *from* the customer, is how a phone message ends up cooked.
+
+**Write it from the queue card or from the receipt.** The card is the rush; the
+receipt is the order the queue has already finished with — the same screen that
+can move an order back.
+
+**Every note is stamped and kept.** The receipt's activity log shows it with
+its time and who was signed on, beside the taps and the money. Nothing edits a
+note and nothing deletes one.
+
+**The customer never sees it.** Not by policy — the customer's page is built
+from a shape that has no note in it to render.

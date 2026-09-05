@@ -10,6 +10,7 @@
 import {
   ADJUSTMENT_KINDS,
   CANCEL_REASONS,
+  MAX_CANCEL_NOTE_LENGTH,
   ORDER_STATUSES,
   REVERT_REASONS,
   isStaffAdjustmentReason,
@@ -25,6 +26,7 @@ import {
 import { prisma } from '@countertop/db';
 import { adjustOrder } from '@countertop/db/adjustment';
 import { redeemReward } from '@countertop/db/loyalty';
+import { appendOrderNote } from '@countertop/db/history';
 import { forgetOrderCustomer } from '@countertop/db/retention';
 import { remakeOrder } from '@countertop/db/remake';
 import { collectOrderPayment } from '@countertop/db/payment';
@@ -143,6 +145,65 @@ export async function saveShelfLocation(
   await setShelfLocation(orderId, shelfLocation);
   revalidatePath('/kitchen');
   return { ok: true };
+}
+
+/**
+ * Somebody wrote on the ticket (PRD 2 P0-6).
+ *
+ * THE TRUST BOUNDARY for the note's text, and the only one: the length is
+ * checked here rather than in the engine, exactly as `revertOrderForm` checks
+ * the reason preset there and not in the state machine. A note is not a
+ * transition — the engine has no rule to consult and inventing one would be a
+ * rule with a single caller.
+ *
+ * REFUSED WHEN TOO LONG, NOT TRUNCATED — the opposite of the shelf label one
+ * requirement above, deliberately. A shelf is a label whose only rule is the
+ * column width, and half of "the second warmer on the left" still finds the
+ * bag; half of "customer called, arriving 7:40" is a sentence that has changed
+ * its meaning, and the person who typed it will never know it was cut.
+ *
+ * Who wrote it comes from the shift cookie, never from the caller, for the
+ * reason `run` gives: a staff id in a form field is a staff id anybody can
+ * type.
+ */
+export async function addOrderNote(orderId: unknown, note: unknown): Promise<KitchenResult> {
+  if (typeof orderId !== 'string' || orderId === '' || typeof note !== 'string') {
+    return { ok: false, message: 'That order could not be read. Reload the queue.' };
+  }
+  const text = note.trim();
+  // An empty note is not an event. Nothing to append, and a blank row in the
+  // log is a row somebody later has to work out the meaning of.
+  if (text === '') return { ok: false, message: 'Type the note first.' };
+  if (text.length > MAX_CANCEL_NOTE_LENGTH) {
+    return { ok: false, message: `Keep the note to ${MAX_CANCEL_NOTE_LENGTH} characters.` };
+  }
+
+  const written = await appendOrderNote(orderId, text, new Date(), await currentShiftId());
+  if (!written) return { ok: false, message: 'That order could not be found. Reload the queue.' };
+
+  // The PAGE, not the layout — `saveShelfLocation`'s scope and not the
+  // revert's. A layout-wide revalidation remounts the queue's cards, which
+  // slams the note disclosure shut under whoever is still typing in it; the
+  // receipt needs no help either way, because it is `force-dynamic` and the
+  // form redirects back into a fresh render.
+  revalidatePath('/kitchen');
+  return { ok: true };
+}
+
+/** The same write, form-shaped, from the staff receipt — the screen that still
+ *  knows about an order the queue has finished with (PRD 2 P0-6). Same action
+ *  underneath, so there is one rule about what a note may be. */
+export async function addOrderNoteForm(formData: FormData): Promise<void> {
+  const orderId = formData.get('orderId');
+  if (typeof orderId !== 'string' || orderId === '') {
+    return redirect('/kitchen/orders');
+  }
+  const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
+  const result = await addOrderNote(orderId, formData.get('note'));
+  // Echoed whole, like the revert's: every message this can produce is built
+  // from server-side values and none of them quotes the caller.
+  if (!result.ok) return redirect(`${back}?noteError=${encodeURIComponent(result.message)}`);
+  redirect(back);
 }
 
 /** The explicit, logged backward move — and the 5-second undo, which is the

@@ -14,7 +14,9 @@ import {
   isLeftOver,
   matchesLookup,
   queueAging,
+  lastMovement,
   undoRemainingMs,
+  type LastOrderEvent,
 } from './queue';
 
 // Every instant is built with Date.UTC — the one form that provably cannot
@@ -206,6 +208,42 @@ describe('the five-second undo (P0-4)', () => {
     // ended somewhere else.
     expect(undoRemainingMs('ready', advanceTo('preparing', 'accepted', secondsBefore(1)), NOON)).toBe(0);
     expect(undoRemainingMs('preparing', undefined, NOON)).toBe(0);
+  });
+});
+
+// C-092. `undoRemainingMs` takes ONE event and asks whether it was a forward
+// advance; the queue used to hand it `events[0]`, which was the newest event of
+// ANY kind once C-064 widened the read. A staff note written straight after a
+// tap — the most natural thing a person does — then read as "the last thing
+// that happened was not an advance" and took the undo off the card.
+describe('the newest event that moved the order', () => {
+  const at = (seconds: number) => secondsBefore(seconds);
+
+  it('looks past a note, a payment and an adjustment to the transition beneath', () => {
+    const events: LastOrderEvent[] = [
+      { kind: 'note', fromStatus: null, toStatus: null, at: at(1) },
+      { kind: 'payment', fromStatus: null, toStatus: null, at: at(2) },
+      { kind: 'adjustment', fromStatus: null, toStatus: null, at: at(3) },
+      { kind: 'transition', fromStatus: 'accepted', toStatus: 'preparing', at: at(4) },
+    ];
+    expect(lastMovement(events)).toBe(events[3]);
+    // Which is the whole point: the undo is still on offer.
+    expect(undoRemainingMs('preparing', lastMovement(events), NOON)).toBe(1_000);
+  });
+
+  it('takes a revert, because that is a move too', () => {
+    const events: LastOrderEvent[] = [
+      { kind: 'note', fromStatus: null, toStatus: null, at: at(1) },
+      { kind: 'revert', fromStatus: 'ready', toStatus: 'preparing', at: at(2) },
+    ];
+    expect(lastMovement(events)?.kind).toBe('revert');
+  });
+
+  it('is undefined when nothing in the log moved anything', () => {
+    expect(
+      lastMovement([{ kind: 'note', fromStatus: null, toStatus: null, at: at(1) }]),
+    ).toBeUndefined();
+    expect(lastMovement([])).toBeUndefined();
   });
 });
 

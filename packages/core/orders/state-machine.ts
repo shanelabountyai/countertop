@@ -91,13 +91,24 @@ export const ORDER_EVENT_KINDS = [
    *  own ticket, so the link is what ties the two together. Carries no
    *  amount — the money is the full comp written beside it. */
   'remake',
+  /** Somebody wrote on the ticket (PRD 2 P0-6, C-092). The only kind here that
+   *  reports nothing about the ORDER — no status moved, no money moved, and
+   *  the log is the only place it could live, because a column would hold one
+   *  note and the operator's finding is that the second note matters ("called,
+   *  arriving 7:40" after "no answer"). Append-only is the whole feature: a
+   *  note never overwrites the note before it. */
+  'note',
 ] as const;
 export type OrderEventKind = (typeof ORDER_EVENT_KINDS)[number];
 
 export const PAYMENT_STATES = ['unpaid', 'paid', 'refunded'] as const;
 export type PaymentState = (typeof PAYMENT_STATES)[number];
 
-/** Matches the `cancelNote` / `orderNote` column width. */
+/** Matches the `cancelNote` / `orderNote` column width — and, deliberately,
+ *  every other free-text note somebody types about an order: the revert's, the
+ *  adjustment's, and the staff note of PRD 2 P0-6. One number, so "how long may
+ *  a note be" has one answer and none of them is refused at a different length
+ *  from its neighbour. */
 export const MAX_CANCEL_NOTE_LENGTH = 140;
 
 /** Matches the `Order.shelfLocation` column width (PRD 2 P0-5). Sixteen holds

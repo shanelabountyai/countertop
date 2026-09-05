@@ -1488,6 +1488,39 @@ worth having is not "did I move the comment" but "what else was this comment
 load-bearing for" — asked at the moment of the cut, when the answer is still on
 the screen.
 
+### A helper that stopped meaning what its name said (C-092)
+
+`undoRemainingMs` takes ONE event and asks whether it was a forward advance.
+Every caller answered by handing it `order.events[0]`, and that was exactly
+right for two items: the queue's read was `take: 1`, so `events[0]` was the
+newest event and the newest event was always a move.
+
+**C-064 widened the read and nobody re-read the call sites.** The card needed
+the money events to compute a balance, and one `events` key cannot be two
+queries, so `events[0]` quietly stopped meaning "the last move" and started
+meaning "the last thing of any kind". A `payment` or an `adjustment` landing
+inside the five seconds made `undoRemainingMs` return 0 and took the undo off
+the card. Latent for two items, because collecting payment or comping an order
+within five seconds of a tap is rare.
+
+**The staff note made it ordinary.** Writing on a ticket is the one thing a
+person does *immediately* after tapping it — so a feature whose whole purpose is
+"record what just happened" would have silently disarmed the control that fixes
+what just happened.
+
+**What found it was writing the test for something else.** Nothing failed. The
+question that surfaced it was "what else reads `events[0]`, now that a fourth
+kind can be first?" — which is the same question C-056's comment taught, asked
+about a subscript instead of a comment.
+
+**The fix names the thing the code actually wanted.** `lastMovement(events)`
+returns the newest `transition` or `revert`, and `undoRemainingMs` goes on
+taking one event, which is what its own tests and the rush script hand it. The
+generalisation: an index into a collection is an assumption about the
+collection, and widening a query is an edit to every one of those assumptions —
+none of which the compiler can see, because `events[0]` has the same type
+before and after.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

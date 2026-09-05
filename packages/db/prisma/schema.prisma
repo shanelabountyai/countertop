@@ -140,6 +140,18 @@ enum OrderEventKind {
   /// full comp written beside it, so this kind stays on the "must not" side of
   /// `order_event_amount_matches_kind` without that constraint changing.
   remake
+  /// PRD 2 P0-6 (C-092): somebody wrote on the ticket. The text is
+  /// `detail.note`, the instant is `at` and who wrote it is `staffId` — no new
+  /// column anywhere, because the log is the only shape that holds the
+  /// requirement: a note NEVER overwrites the note before it, and a column
+  /// would hold exactly one. Carries no amount, so it stays on the "must not"
+  /// side of `order_event_amount_matches_kind` with that constraint untouched.
+  ///
+  /// NEVER reaches the customer, and not by anybody remembering: `ORDER_RECEIPT`
+  /// selects `{ kind, amountCents }` off the event log, so the shape behind
+  /// `/status/[token]` has no `detail` to render — the same structural refusal
+  /// `omit: { shelfLocation: true }` makes one requirement above this one.
+  note
 }
 
 // ---------------------------------------------------------------------------

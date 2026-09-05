@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { adjustOrder } from './adjustment';
 import { enrolMember, redeemReward } from './loyalty';
+import { appendOrderNote } from './history';
 import { findOrderByStatusToken, placeOrder } from './placement';
 import { setShelfLocation } from './queue';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
@@ -239,6 +240,44 @@ describe('the snapshot rule', () => {
       taxCents,
       totalCents,
     ]);
+  });
+
+  it('is byte-identical after three notes are written on the ticket', async () => {
+    // PRD 2 P0-6's own acceptance criterion. A note is a fact about the SHIFT,
+    // not about what was sold, and it is written on an order that has already
+    // been placed — which is the same tension the shelf above resolves.
+    //
+    // TWO ASSERTIONS, BECAUSE A NOTE IS AN EVENT AND THE SHELF IS A COLUMN.
+    // The receipt is byte-identical, as it is for a comp and a refund — the
+    // append-only log grows, which it must, and nothing it says moves a
+    // snapshot column. What the requirement adds on top is that the note's
+    // TEXT never reaches the customer, and that holds structurally rather than
+    // by anyone remembering: `ORDER_RECEIPT` selects `{ kind, amountCents }`
+    // off the event log, so the shape behind `/status/[token]` has no `detail`
+    // to render. Widen that select and the second assertion fails.
+    const id = await placeSnapshotOrder();
+    const { statusToken } = await prisma.order.findUniqueOrThrow({ where: { id } });
+    const before = JSON.stringify(await readReceipt(id));
+
+    await appendOrderNote(id, 'no answer', AT, null);
+    await appendOrderNote(id, 'called, arriving 7:40', AT, null);
+    await appendOrderNote(id, 'allergy — kitchen told', AT, null);
+
+    expect(JSON.stringify(await readReceipt(id))).toBe(before);
+    // And the menu moves underneath it, as everywhere else in this file.
+    await prisma.menuItem.update({
+      where: { id: 'burrito' },
+      data: { name: 'RENAMED ITEM', basePriceCents: 9999 },
+    });
+    expect(JSON.stringify(await readReceipt(id))).toBe(before);
+
+    const customerSees = JSON.stringify(await findOrderByStatusToken(statusToken));
+    expect(customerSees).not.toContain('arriving 7:40');
+    expect(customerSees).not.toContain('allergy');
+
+    // Three rows really are there — so the assertions above pass for the right
+    // reason rather than because nothing was ever written.
+    expect(await prisma.orderEvent.count({ where: { orderId: id, kind: 'note' } })).toBe(3);
   });
 
   it('trims a shelf label, caps it at the column width, and clears on empty', async () => {

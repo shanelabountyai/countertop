@@ -13,6 +13,7 @@ import {
   checkoutGate,
   isLeftOver,
   isTerminal,
+  lastMovement,
   matchesLookup,
   needsAcknowledgment,
   orderBalance,
@@ -26,6 +27,7 @@ import {
   loadQueue,
   loadRecentlyFinished,
   queueCursor,
+  staffNotes,
   type QueueOrder,
 } from '@countertop/db/queue';
 import { LiveUpdates } from '@/lib/live-updates';
@@ -83,7 +85,7 @@ export default async function KitchenPage({
   // real in the engine and unreachable on the screen — the card carrying the
   // button stops being drawn by the very tap that starts the countdown.
   const justFinished = (await loadRecentlyFinished()).filter(
-    (order) => undoRemainingMs(order.status, order.events[0], now) > 0,
+    (order) => undoRemainingMs(order.status, lastMovement(order.events), now) > 0,
   );
   // The SAME gate the customer's checkout asks. Staff see the live answer —
   // including an auto-pause nobody switched on — rather than the switch's
@@ -274,7 +276,7 @@ export default async function KitchenPage({
                   orderId={order.id}
                   status={order.status}
                   outstandingCents={orderBalance(order).outstandingCents}
-                  undoMs={undoRemainingMs(order.status, order.events[0], now)}
+                  undoMs={undoRemainingMs(order.status, lastMovement(order.events), now)}
                   shelfLocation={order.shelfLocation}
                 />
               </li>
@@ -328,14 +330,14 @@ export default async function KitchenPage({
                         shelfLocation={order.shelfLocation}
                         status={order.status}
                         outstandingCents={orderBalance(order).outstandingCents}
-                        undoMs={undoRemainingMs(order.status, order.events[0], now)}
+                        undoMs={undoRemainingMs(order.status, lastMovement(order.events), now)}
                       />
                     </li>
                   );
                 }
 
                 const aging = queueAging(order, now, DEFAULT_AGING);
-                const undoMs = undoRemainingMs(order.status, order.events[0], now);
+                const undoMs = undoRemainingMs(order.status, lastMovement(order.events), now);
                 const leftOverCard = isLeftOver(order, clock.day);
                 const matched = searching && matchesLookup(order, query);
 
@@ -506,6 +508,29 @@ export default async function KitchenPage({
                         Order note: {order.orderNote}
                       </p>
                     )}
+
+                    {/* WHAT THE SHIFT WROTE (PRD 2 P0-6). Directly under the
+                        customer's own note, in the same amber the card already
+                        uses for notes — and DASHED where the customer's is
+                        solid, with its own label. The requirement is explicit
+                        that these are different facts and must not read as
+                        one: "customer called, arriving 7:40" is something the
+                        restaurant knows, and rendering it in the treatment
+                        that means "the customer asked for this" is how a cook
+                        ends up cooking a phone message.
+
+                        All of them, oldest first. A note never replaces the
+                        note before it — that is the whole reason this is an
+                        event and not a column. */}
+                    {staffNotes(order).map((entry) => (
+                      <p
+                        key={entry.at.getTime()}
+                        data-testid="staff-note"
+                        className="mt-2 rounded border-2 border-dashed border-amber-600 bg-amber-50 p-2 text-lg font-medium"
+                      >
+                        <span className="font-bold uppercase">Staff:</span> {entry.note}
+                      </p>
+                    ))}
 
                     <QueueControls
                       orderId={order.id}

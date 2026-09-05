@@ -49,6 +49,7 @@ import {
   STATUS_LABEL,
 } from '@/lib/status-labels';
 import {
+  addOrderNoteForm,
   adjustOrderForm,
   collectPayment,
   forgetCustomerForm,
@@ -68,11 +69,12 @@ export default async function OrderHistoryDetailPage({
     adjustError?: string;
     redeemError?: string;
     revertError?: string;
+    noteError?: string;
     forget?: string;
   }>;
 }) {
   const { id } = await params;
-  const { adjustError, redeemError, revertError, forget } = await searchParams;
+  const { adjustError, redeemError, revertError, noteError, forget } = await searchParams;
   const [gateState, order, activity, remakes] = await Promise.all([
     loadGateState(new Date()),
     findOrderByIdForStaff(id),
@@ -552,6 +554,54 @@ export default async function OrderHistoryDetailPage({
       {order.orderNote && (
         <p className="mt-4 text-sm italic text-neutral-700">“{order.orderNote}”</p>
       )}
+
+      {/* Somebody can write on the ticket (PRD 2 P0-6).
+
+          On the receipt as well as the card because this is the screen that
+          still knows about an order the queue has finished with — the same
+          reason the revert lives here. No state guard and no panel of its own:
+          it sits above the log it writes into, so the note that was just added
+          appears directly below the box that added it.
+
+          A form and a redirect rather than the card's transition, because this
+          page is server-rendered throughout and one client component for one
+          text box would be a second write path to keep in step. */}
+      <section className="mt-6 rounded-lg border border-neutral-300 p-4">
+        <h2 className="font-semibold">Write on the ticket</h2>
+        <p className="mt-1 text-sm text-neutral-600">
+          Goes in the log below with the time, and on the card in the kitchen. The customer never
+          sees it.
+        </p>
+
+        {noteError && (
+          <p
+            role="status"
+            data-testid="note-error"
+            className="mt-3 rounded-lg border border-red-700 bg-red-50 p-3 text-sm font-semibold text-red-900"
+          >
+            {noteError}
+          </p>
+        )}
+
+        <form action={addOrderNoteForm} className="mt-3 flex flex-col gap-3">
+          <input type="hidden" name="orderId" value={order.id} />
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-medium">Note for the shift</span>
+            <input
+              name="note"
+              maxLength={MAX_CANCEL_NOTE_LENGTH}
+              placeholder="customer called, arriving 7:40"
+              className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+            />
+          </label>
+          <button
+            type="submit"
+            className="min-h-12 w-full rounded-lg border-2 border-neutral-900 px-4 text-lg font-bold"
+          >
+            Add note
+          </button>
+        </form>
+      </section>
 
       {/* The append-only log, finally read by somebody (C-086). It has been
           written since C-003 and looked at only by the report's tally and by

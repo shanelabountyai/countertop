@@ -1,7 +1,7 @@
 import type { Cart } from '@countertop/core';
 import { beforeEach, expect, it } from 'vitest';
 import { placeOrder } from './placement';
-import { queueCursor } from './queue';
+import { queueCursor, staffNotes } from './queue';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 import { applyOrderAction } from './transitions';
 
@@ -78,4 +78,28 @@ it('moves for a second event written at the very same instant', async () => {
 
   await applyOrderAction(second, { kind: 'advance', actor: 'staff' }, LUNCH);
   expect(await queueCursor()).not.toBe(afterOne);
+});
+
+// C-092. Pure, so it needs no database: the events come off the card's own
+// read, which is newest-first for the undo, and the card reads notes in the
+// order they were written because two notes are a story told forwards.
+it('reads the shift\'s notes oldest first and ignores every other kind', () => {
+  const at = (minute: number) => new Date(Date.UTC(2026, 6, 5, 19, minute, 0));
+  const notes = staffNotes({
+    events: [
+      { at: at(58), kind: 'note', detail: { note: 'called, arriving 7:40' } },
+      { at: at(56), kind: 'transition', detail: null },
+      { at: at(52), kind: 'note', detail: { note: 'no answer' } },
+      // A revert's note goes in the same `detail.note`, and is NOT this. The
+      // receipt renders it beside the revert it explains; the card would
+      // otherwise show "came back at 8" as something somebody wrote today.
+      { at: at(50), kind: 'revert', detail: { note: 'came back at 8' } },
+      // A payload that is not a note at all, from the mismatch log.
+      { at: at(48), kind: 'total_mismatch', detail: { claimedCents: 100 } },
+    ],
+  });
+  expect(notes).toEqual([
+    { at: at(52), note: 'no answer' },
+    { at: at(58), note: 'called, arriving 7:40' },
+  ]);
 });

@@ -10,6 +10,7 @@ import { useEffect, useState, useTransition } from 'react';
 import {
   canCollectPayment,
   CANCEL_REASONS,
+  MAX_CANCEL_NOTE_LENGTH,
   MAX_SHELF_LOCATION_LENGTH,
   STATUS_FACTS,
   type OrderStatus,
@@ -17,6 +18,7 @@ import {
 import { CANCEL_REASON_LABEL } from '@/lib/status-labels';
 import {
   abandonOrder,
+  addOrderNote,
   advanceOrder,
   cancelOrder,
   markOrderPaid,
@@ -63,6 +65,7 @@ export function QueueControls({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState('');
   const [otherNote, setOtherNote] = useState('');
+  const [note, setNote] = useState('');
   // What is in the shelf box right now. Seeded from the server's value and
   // re-seeded when the server sends a different one, so a poll that lands
   // between two taps does not overwrite what somebody is mid-way through
@@ -90,11 +93,12 @@ export function QueueControls({
     return () => clearTimeout(timer);
   }, [undoMs]);
 
-  function act(run: () => Promise<KitchenResult>) {
+  function act(run: () => Promise<KitchenResult>, onOk?: () => void) {
     setError('');
     startTransition(async () => {
       const result = await run();
-      if (!result.ok) setError(result.message);
+      if (result.ok) onOk?.();
+      else setError(result.message);
     });
   }
 
@@ -230,6 +234,47 @@ export function QueueControls({
           </button>
         )}
 
+        {/* Somebody can write on the ticket (PRD 2 P0-6).
+
+            On EVERY card, with no `facts` guard, and that is the point: the
+            operator's finding is a note about a customer who has not turned
+            up, which is a `ready` order, and one about a substitution, which
+            is a `preparing` one. There is no state where "write down what
+            just happened" is meaningless — including the just-finished tile,
+            where the note is how the next person learns why.
+
+            Behind a disclosure like the cancel control, because it is typing
+            and the card is read at arm's length: the tap targets that matter
+            on this screen are the ones a gloved knuckle hits without looking,
+            and a text box is never one of them. */}
+        <details className="w-full">
+          <summary className="flex min-h-12 w-fit cursor-pointer list-none items-center rounded-lg border border-neutral-400 px-4">
+            Add note…
+          </summary>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <label className="flex flex-1 flex-col gap-1">
+              <span className="text-sm font-medium">Note for the shift</span>
+              <input
+                value={note}
+                maxLength={MAX_CANCEL_NOTE_LENGTH}
+                placeholder="customer called, arriving 7:40"
+                onChange={(event) => setNote(event.target.value)}
+                className="min-h-12 w-full rounded-lg border border-neutral-400 px-3 text-lg"
+              />
+            </label>
+            {/* Cleared only on success, so a refused note is still in the box
+                to fix rather than retyped. */}
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => act(() => addOrderNote(orderId, note), () => setNote(''))}
+              className="min-h-12 rounded-lg border border-neutral-400 px-4 font-semibold disabled:opacity-60"
+            >
+              Save note
+            </button>
+          </div>
+        </details>
+
         {facts.cancellableByStaff && (
           <details className="w-full">
             <summary className="flex min-h-12 w-fit cursor-pointer list-none items-center rounded-lg border border-neutral-400 px-4">
@@ -253,7 +298,7 @@ export function QueueControls({
                 <span>{CANCEL_REASON_LABEL.other} — say what happened</span>
                 <input
                   value={otherNote}
-                  maxLength={140}
+                  maxLength={MAX_CANCEL_NOTE_LENGTH}
                   onChange={(event) => setOtherNote(event.target.value)}
                   className="min-h-12 rounded-lg border border-neutral-400 px-3"
                 />

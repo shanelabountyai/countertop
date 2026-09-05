@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { historyWhere, loadOrderActivity } from './history';
+import { appendOrderNote, historyWhere, loadOrderActivity } from './history';
 import { placeOrder } from './placement';
-import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
+import {
+  resetDatabase,
+  seedSampleMenu,
+  seedSettings,
+  seedStaff,
+  seedStoreHours,
+} from './testing/index';
 import { applyOrderAction } from './transitions';
 
 // `historyWhere` is the one decision in the history search (name vs. order
@@ -176,5 +182,102 @@ describe('the revert past the queue card', () => {
     const revert = (await loadOrderActivity(orderId)).at(-1)!;
     expect(revert.toStatus).toBe('ready');
     expect(revert.note).toBeNull();
+  });
+});
+
+// Somebody can write on the ticket (PRD 2 P0-6, C-092).
+//
+// The claim is about ROWS, so it is asserted against rows: a note is an event
+// on the append-only log, which is what makes "never overwriting a previous
+// note" a property of the table rather than of the code that writes it.
+describe('the staff note', () => {
+  const CLOSED = new Date(Date.UTC(2026, 6, 5, 19, 48, 0));
+  const FIRST = new Date(Date.UTC(2026, 6, 5, 19, 52, 0));
+  const SECOND = new Date(Date.UTC(2026, 6, 5, 19, 58, 0));
+
+  let keyCounter = 0;
+  async function readyOrder(): Promise<string> {
+    const result = await placeOrder({
+      cart: {
+        lines: [
+          {
+            id: 'line-1',
+            unitPriceAtAddCents: 1495,
+            composition: {
+              itemId: 'burrito',
+              quantity: 1,
+              selections: [
+                { groupId: 'protein', optionId: 'carnitas' },
+                { groupId: 'addons', optionId: 'guacamole' },
+              ],
+            },
+          },
+        ],
+      },
+      customerName: 'Dana',
+      idempotencyKey: `note-${(keyCounter += 1)}`,
+      now: CLOSED,
+    });
+    if (!result.ok) throw new Error(`placement failed: ${JSON.stringify(result.errors)}`);
+    for (let step = 0; step < 3; step += 1) {
+      await applyOrderAction(result.order.id, { kind: 'advance', actor: 'staff' }, CLOSED);
+    }
+    return result.order.id;
+  }
+
+  beforeEach(async () => {
+    await resetDatabase();
+    await seedSampleMenu();
+    await seedSettings();
+    await seedStoreHours();
+    await seedStaff();
+  });
+
+  it('appends beside the transitions with its instant, its actor and a name', async () => {
+    const orderId = await readyOrder();
+
+    expect(await appendOrderNote(orderId, 'no answer', FIRST, 'staff-noor')).toBe(true);
+    expect(await appendOrderNote(orderId, 'called, arriving 7:40', SECOND, 'staff-theo')).toBe(true);
+
+    const activity = await loadOrderActivity(orderId);
+    // The four transitions are untouched and the two notes sit after them, in
+    // the order they were written. NEITHER overwrote the other, which is the
+    // requirement and the reason this is an event and not a column.
+    expect(activity.map((entry) => entry.kind)).toEqual([
+      'transition',
+      'transition',
+      'transition',
+      'transition',
+      'note',
+      'note',
+    ]);
+
+    const [first, second] = activity.slice(-2);
+    expect(first).toMatchObject({
+      at: FIRST,
+      actor: 'staff',
+      staffName: 'Noor Haddad',
+      note: 'no answer',
+      // Nothing moved. Both status columns null is the fact, not an omission.
+      fromStatus: null,
+      toStatus: null,
+      amountCents: null,
+    });
+    expect(second).toMatchObject({ at: SECOND, staffName: 'Theo Barnes', note: 'called, arriving 7:40' });
+  });
+
+  it('stands unattributed when no shift is signed on', async () => {
+    // An honest null, the C-086 rule: a note nobody signed for is still worth
+    // more than a refusal at the moment somebody is typing it.
+    const orderId = await readyOrder();
+    expect(await appendOrderNote(orderId, 'walked off', FIRST, null)).toBe(true);
+
+    const note = (await loadOrderActivity(orderId)).at(-1)!;
+    expect(note.kind).toBe('note');
+    expect(note.staffName).toBeNull();
+  });
+
+  it('answers false for an order that is not there rather than throwing', async () => {
+    expect(await appendOrderNote('no-such-order', 'anything', FIRST, null)).toBe(false);
   });
 });

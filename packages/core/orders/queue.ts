@@ -171,6 +171,29 @@ export type LastOrderEvent = {
 };
 
 /**
+ * The newest event that MOVED the order, out of a newest-first log.
+ *
+ * `undoRemainingMs` asks "was the last thing that happened a forward advance",
+ * and until C-092 its callers answered by handing it `events[0]` — which was
+ * exactly right while the queue loaded one event, and stopped being right when
+ * C-064 widened the read to every kind. A `payment` or an `adjustment` landing
+ * inside the five seconds already read as "not an advance" and took the undo
+ * off the card; the staff note makes that plausible rather than theoretical,
+ * because writing on a ticket is the one thing a person does immediately after
+ * tapping it.
+ *
+ * A note is not a move, and the undo is about moves. Filtering here rather
+ * than inside `undoRemainingMs` keeps that function taking ONE event, which is
+ * what its own tests and the rush script hand it.
+ */
+export function lastMovement<E extends { kind: OrderEventKind }>(
+  /** Newest first — the order `QUEUE_ORDER` reads them in. */
+  events: readonly E[],
+): E | undefined {
+  return events.find((event) => event.kind === 'transition' || event.kind === 'revert');
+}
+
+/**
  * Milliseconds left on the undo, or 0 when there is nothing to undo.
  *
  * Derived from the event log rather than from a client-side "I just tapped

@@ -1,0 +1,26 @@
+-- ---------------------------------------------------------------------------
+-- PRD 2 P0-6 (C-092): somebody can write on the ticket — the `note` event kind.
+--
+-- The operator's finding: "customer called, arriving 7:40" is a fact the shift
+-- has no way to record, so it is said out loud to whoever is standing there and
+-- is gone when that person goes on break. Every other product in this space
+-- calls it a ticket note; here it is an EVENT, for the reason the requirement
+-- gives: a note never overwrites the note before it. A column would hold one
+-- note, and the second one — "no answer", then "called, arriving 7:40" — is the
+-- one that carries the story.
+--
+-- ONE STATEMENT AND NOTHING ELSE, and the two things that could have been here
+-- are both deliberately absent:
+--
+--   * No CHECK, and none needs changing. A note moves no money, so it stays on
+--     the "must not carry an amount" side of `order_event_amount_matches_kind`
+--     for free — C-066's rule, and the reason this is one file where C-065 was
+--     two: nothing here USES the value it adds, and Postgres refuses that
+--     inside the transaction Prisma runs a migration in.
+--   * No column for the text. It goes in `detail.note`, which the revert has
+--     used since C-061 and which `readNote` already lifts back out.
+--
+-- Nothing is backfilled. Every note said out loud before today was said out
+-- loud; there is no row that could honestly be written for it.
+-- ---------------------------------------------------------------------------
+ALTER TYPE "OrderEventKind" ADD VALUE 'note';

@@ -63,10 +63,10 @@ The product is excellent up to the moment the food is cooked and completely abse
 - [x] Test: mark an order ready with "shelf 3", assert the string renders on the Ready card at the queue's minimum type size and in the lookup result
 
 **P0-6: Somebody can write on the ticket** *(OPS 3)*
-- [ ] A staff note control on the queue card and the staff receipt, appended to the append-only event log with its instant and actor, never overwriting a previous note
-- [ ] Notes render on the card in the same amber treatment customer notes already use, visually distinguished from the customer's own text — a staff note and a customer note are different facts and must not read as one
-- [ ] Notes are never shown to the customer on the status page
-- [ ] Test: write "customer called, arriving 7:40" on a ready order, reload the queue, assert it renders on the card, is attributed as staff, and appears in the event log with its instant
+- [x] A staff note control on the queue card and the staff receipt, appended to the append-only event log with its instant and actor, never overwriting a previous note
+- [x] Notes render on the card in the same amber treatment customer notes already use, visually distinguished from the customer's own text — a staff note and a customer note are different facts and must not read as one
+- [x] Notes are never shown to the customer on the status page
+- [x] Test: write "customer called, arriving 7:40" on a ready order, reload the queue, assert it renders on the card, is attributed as staff, and appears in the event log with its instant
 
 **P0-7: A ready order past an hour stops looking like one past thirty minutes** *(OPS 11)*
 - [ ] A fourth escalation level past a configurable threshold (default 60 min) visually separates "past an hour" from the existing 10/20/30 flags

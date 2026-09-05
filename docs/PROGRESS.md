@@ -5734,3 +5734,103 @@ item is where it is *not* allowed to appear.
   different shelves at once produce whichever saved second, with no refusal —
   correct for a label describing one physical object, and a genuinely different
   answer from every other write on this screen.
+
+## C-092 — Somebody can write on the ticket (PRD 2 P0-6)
+
+The operator's finding is a sentence: "customer called, arriving 7:40." The
+shift has nowhere to put it, so it is said out loud to whoever is standing
+there and is gone when that person goes on break. Every product in this space
+calls this a ticket note and gives it a text column; the requirement's own
+wording — *appended to the append-only event log, never overwriting a previous
+note* — rules that out in the first line, and the reason is the second note
+rather than the first.
+
+**Built:**
+- **`note` on `OrderEventKind`, and no column anywhere.** One hand-written
+  `ALTER TYPE ... ADD VALUE`, one statement, no CHECK touched: a note moves no
+  money, so it stays on the "must not carry an amount" side of
+  `order_event_amount_matches_kind` for free — C-066's rule, and why this is
+  one migration file where C-065's was two. The text goes in `detail.note`,
+  where the revert's has gone since C-061, so `readNote` already lifts it back
+  out and the receipt's activity log already renders it.
+- **`appendOrderNote` in `packages/db/history.ts` — the one writer, next to
+  the reader.** Two call sites, the queue card and the staff receipt, and one
+  row appended per note. There is no update path and there is not meant to be:
+  the requirement is the append-only trigger stated in English, and the trigger
+  says it a second time in SQL.
+- **The length is REFUSED, not truncated** — deliberately the opposite of the
+  shelf label one requirement above it, and the boundary is the server action,
+  where `revertOrderForm` already checks its preset. `MAX_CANCEL_NOTE_LENGTH`
+  is reused rather than a fourth note constant added, and its doc comment now
+  says that is on purpose.
+- **The card renders every note, oldest first, in dashed amber with "Staff:"
+  in front.** Same colour family as the customer's own note, deliberately
+  distinguishable: the requirement is explicit that these are two facts and
+  must not read as one. `staffNotes` in `packages/db/queue.ts` does the
+  filtering and the reversal, off the events the card already loads.
+- **A `lastMovement` guard on the undo** — see *Found* below.
+
+**Decided:**
+- **An event, not a column, and the second note is the whole argument.** A
+  column holds one note; the operator's example is two — "no answer", then
+  "called, arriving 7:40" — and the second is the one that changes what the
+  counter does. Append-only also means the log answers "what did we know, and
+  when", which a mutable field cannot.
+- **The note is never shown to the customer STRUCTURALLY, and it cost nothing
+  to make it so.** `ORDER_RECEIPT` selects `{ kind, amountCents }` off the
+  event log — two scalars chosen in C-064 for the balance — so the shape behind
+  `/status/[token]` has no `detail` to render. Same guarantee C-062 bought with
+  `omit: { shelfLocation: true }`, already paid for.
+- **On every card, with no `facts` guard.** A note about a customer who has not
+  turned up is a `ready` order; a note about a substitution is a `preparing`
+  one; a note explaining why an order was closed out is a finished one. There
+  is no state where "write down what just happened" is meaningless.
+- **Behind a disclosure on the card, in the open on the receipt.** The queue is
+  read at arm's length with greasy gloves and a text box is never a knuckle
+  tap; the receipt is a screen somebody is already standing still at.
+- **No note preset and no `reason`.** Every other free-text field on this
+  screen sits beside a preset key so the report can `GROUP BY` it. A note has
+  nothing to group — the point of it is that it is the thing no dropdown
+  anticipated.
+
+**Found:**
+- **A note written straight after a tap was eating the five-second undo.**
+  `undoRemainingMs` takes ONE event and asks whether it was a forward advance;
+  the queue handed it `events[0]`, which stopped meaning "the last move" in
+  C-064 when the card's read widened from `take: 1` to every kind. A `payment`
+  or an `adjustment` inside the window already read as "not an advance" and
+  took the undo off the card — latent since C-064, and a staff note makes it
+  ordinary, because writing on a ticket is the one thing a person does
+  immediately after tapping it. Fixed with `lastMovement` in `packages/core`,
+  used at all four call sites; the function still takes one event, which is
+  what its own tests and the rush script hand it.
+- **The byte-identical claim had to be split, and the shelf's version would
+  have been a lie.** C-062 compared the CUSTOMER'S own loader across a shelf
+  edit, which works because a column change shows up there or does not. A note
+  is an event, and the customer's loader legitimately grows by
+  `{"kind":"note","amountCents":null}` — so the receipt is compared byte for
+  byte (as it is for a comp and a refund) and the customer's read is asserted
+  not to contain the TEXT. Both assertions are needed and neither is the
+  other's weaker form.
+- **A `<details>` survives the save.** The disclosure stays open across the
+  server re-render, because React keeps the DOM node and `open` is not a
+  controlled prop — so a second note needs no second tap. The e2e asserts it by
+  *not* reopening the box, which is the only way that claim can be tested. It
+  is also why `revalidatePath` here is page-scoped like the shelf's and not
+  layout-scoped like the revert's: the layout version remounts the cards and
+  slams the box shut under whoever is typing.
+
+**Left behind:**
+- **A note cannot be corrected, only followed.** Append-only in both
+  directions: a typo stands and the fix is another note. Correct for a log and
+  genuinely annoying at 7pm.
+- **No note is ever surfaced anywhere but the card and the receipt.** Nothing
+  searches them, nothing reports on them, and an order that leaves the queue
+  takes its notes out of anyone's sight until somebody looks the order up.
+- **Nothing marks a note as read or acted on.** "Called, arriving 7:40" stays
+  exactly as loud at 8:15 as it was at 7:35, and P0-7's fourth escalation is
+  the item that gives that order a different treatment.
+- **No per-note delete for the retention sweep to reach.** C-091 strips
+  identity from the order's columns; a phone number typed INTO a note is text
+  in an append-only log and the sweep does not touch it. Worth naming now that
+  there is a free-text field on a screen where staff know the customer's name.

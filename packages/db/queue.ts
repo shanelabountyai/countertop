@@ -9,6 +9,7 @@ import {
   UNDOABLE_EXIT_STATUSES,
 } from '@countertop/core';
 import { Prisma, prisma } from './index';
+import { readNote } from './history';
 import { ORDER_RECEIPT } from './placement';
 
 /**
@@ -38,7 +39,18 @@ export const QUEUE_ORDER = {
     ...ORDER_RECEIPT.include,
     events: {
       orderBy: { at: 'desc' },
-      select: { at: true, kind: true, fromStatus: true, toStatus: true, amountCents: true },
+      select: {
+        at: true,
+        kind: true,
+        fromStatus: true,
+        toStatus: true,
+        amountCents: true,
+        // The staff note's text (PRD 2 P0-6, C-092). A third reader on the
+        // same events, and still one round trip. `ORDER_RECEIPT` deliberately
+        // does NOT select this — that is what keeps a note off the customer's
+        // status page structurally rather than by anyone remembering.
+        detail: true,
+      },
     },
   },
 } as const satisfies Prisma.OrderDefaultArgs;
@@ -110,6 +122,29 @@ export function loadRecentlyFinished(): Promise<QueueOrder[]> {
     take: 10,
     ...QUEUE_ORDER,
   });
+}
+
+/**
+ * What the shift has written on this ticket, oldest first (PRD 2 P0-6, C-092).
+ *
+ * The card reads notes in the order they were written, because two notes are a
+ * story — "no answer", then "called, arriving 7:40" — and newest-first tells it
+ * backwards. The query's own order is newest-first for the undo, so the
+ * reversal is here rather than in a second query.
+ *
+ * `readNote` is the same lifter the receipt's activity log uses: `detail` also
+ * carries a mismatch payload and a refund's provider, and neither is a note.
+ */
+export function staffNotes(order: {
+  events: readonly { at: Date; kind: string; detail: Prisma.JsonValue | null }[];
+}): { at: Date; note: string }[] {
+  const notes: { at: Date; note: string }[] = [];
+  for (const event of order.events) {
+    if (event.kind !== 'note') continue;
+    const note = readNote(event.detail);
+    if (note !== null) notes.push({ at: event.at, note });
+  }
+  return notes.reverse();
 }
 
 /**

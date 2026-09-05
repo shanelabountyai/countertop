@@ -64,7 +64,7 @@ export const PAYMENT_LABEL: Record<PaymentState, string> = {
 /**
  * What one entry in an order's log says, in a sentence (C-086).
  *
- * A `switch` over the event kind with no default, so a sixth kind cannot ship
+ * A `switch` over the event kind with no default, so a further kind cannot ship
  * without the compiler asking what it reads as — the same discipline
  * `STATUS_LABEL` applies to the states.
  *
@@ -98,6 +98,11 @@ export function describeEvent(entry: {
       // event's `relatedOrderId` — a sentence naming an order the reader
       // cannot click is a sentence that sends them to the search box.
       return 'Remade from';
+    case 'note':
+      // The text is rendered beside this, off `detail.note`, the way an
+      // adjustment's amount is. "Note" alone would be a log entry that says a
+      // note exists without saying what it says.
+      return 'Note';
     case 'adjustment':
       // Deliberately not "Comped" or "Discounted": the amount is rendered
       // beside this on the receipt, and the log entry has to read the same for

@@ -537,3 +537,92 @@ test.describe('the shelf', () => {
     await expect(ticket().getByLabel('Shelf', { exact: true })).toHaveValue('');
   });
 });
+
+// Somebody can write on the ticket (PRD 2 P0-6, C-092).
+//
+// The operator's finding: "customer called, arriving 7:40" is a fact the shift
+// has nowhere to put, so it is said out loud to whoever is standing there and
+// is gone when that person goes on break. Half of what this asserts is where a
+// note does NOT go — it is written on an order that has already been placed,
+// and the customer must never see it.
+test.describe('the staff note', () => {
+  test.beforeEach(() => {
+    reseed();
+  });
+
+  test('lands on the card, survives a reload, and reads as the shift not the customer', async ({
+    page,
+  }) => {
+    const link = await placeOrderFor(page, 'Ottoline Vance');
+    await page.goto('/kitchen');
+    const ticket = () => card(page, 'Ottoline Vance');
+
+    await ticket().getByText('Add note…').click();
+    await ticket().getByLabel('Note for the shift').fill('no answer');
+    await ticket().getByRole('button', { name: 'Save note' }).click();
+    await expect(ticket().getByTestId('staff-note')).toHaveText(/no answer/);
+
+    // The second note does not replace the first. This is the requirement the
+    // whole event-not-a-column decision exists for.
+    //
+    // No second tap on the disclosure, deliberately: the save re-renders the
+    // card from the server and the box stays open, because `<details>` holds
+    // its state in the DOM and React keeps the node. Asserted by not reopening
+    // it — a card that slammed shut on every save would fail here, and doing
+    // that to somebody mid-rush is exactly the papercut this feature is for.
+    await ticket().getByLabel('Note for the shift').fill('called, arriving 7:40');
+    await ticket().getByRole('button', { name: 'Save note' }).click();
+
+    await page.reload();
+    // Oldest first: two notes are a story, and newest-first tells it backwards.
+    await expect(ticket().getByTestId('staff-note')).toHaveText([
+      /no answer/,
+      /called, arriving 7:40/,
+    ]);
+
+    // Distinct from the customer's own words, which the requirement is
+    // explicit about: a staff note rendered like a customer note is how a cook
+    // ends up cooking a phone message. Sam's card carries the seeded order
+    // note, and the two treatments are asserted against each other rather than
+    // against a hard-coded class.
+    const staff = await ticket().getByTestId('staff-note').first().getAttribute('class');
+    const customer = await card(page, 'Sam Okafor')
+      .getByText('Order note: Picking up for the whole shop')
+      .getAttribute('class');
+    expect(staff).not.toBe(customer);
+    await expect(ticket().getByTestId('staff-note').first()).toContainText('Staff:');
+
+    // And the customer is told none of it. Structural, not conventional: the
+    // shape behind this page selects no `detail` off the event log.
+    await page.goto(link);
+    await expect(page.getByText('arriving 7:40')).toHaveCount(0);
+    await expect(page.getByText('no answer')).toHaveCount(0);
+  });
+
+  test('is written from the receipt too, into the log with its instant', async ({ page }) => {
+    await placeOrderFor(page, 'Casimir Rhodes');
+    await page.goto('/kitchen/orders?q=Casimir Rhodes');
+    await page.getByRole('link', { name: /Casimir Rhodes/ }).click();
+
+    await page.getByLabel('Note for the shift').fill('allergy — kitchen told');
+    await page.getByRole('button', { name: 'Add note' }).click();
+
+    // In the append-only log the receipt renders, with a time beside it and
+    // attributed — the acceptance criterion, read off the screen.
+    const entry = page.getByTestId('order-activity').locator('li').last();
+    await expect(entry).toContainText('Note');
+    await expect(entry).toContainText('allergy — kitchen told');
+    await expect(entry).toContainText(/\d{1,2}:\d{2}/);
+  });
+
+  test('refuses an empty note rather than writing a blank row', async ({ page }) => {
+    await placeOrderFor(page, 'Wilhelmina Stack');
+    await page.goto('/kitchen');
+    const ticket = () => card(page, 'Wilhelmina Stack');
+
+    await ticket().getByText('Add note…').click();
+    await ticket().getByRole('button', { name: 'Save note' }).click();
+    await expect(ticket().getByText('Type the note first.')).toBeVisible();
+    await expect(ticket().getByTestId('staff-note')).toHaveCount(0);
+  });
+});
