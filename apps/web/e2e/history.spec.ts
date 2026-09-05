@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { backdateQueue, placeOrderFor, reseed, seedFinishedRush } from './fixtures';
+import { backdateQueue, card, placeOrderFor, reseed, seedFinishedRush } from './fixtures';
 
 // Staff order history (post-queue receipt lookup): every status, any day —
 // the other half of P0-11's lookup, which is scoped to today's open orders.
@@ -143,4 +143,64 @@ test('the back links clear the same tap-target bar as the queue', async ({ page 
   await page.getByRole('link', { name: /#001/ }).click();
   const toHistory = await page.getByRole('link', { name: '← Order history' }).boundingBox();
   expect(toHistory?.height ?? 0).toBeGreaterThanOrEqual(48);
+});
+
+// The revert past the queue card (PRD 2 P0-4, C-061).
+//
+// The operator's finding: an order tapped picked-up by mistake is correctable
+// for five seconds and then never again. The card is gone, and the one screen
+// that still knows the order exists could not move it.
+test('moves a no-show back onto the queue from its receipt, long after the undo', async ({
+  page,
+}) => {
+  await placeOrderFor(page, 'Marguerite Okonkwo');
+
+  // Out of the queue through the real buttons, ending on the no-show.
+  await page.goto('/kitchen');
+  const queueCard = card(page, 'Marguerite Okonkwo');
+  for (const label of ['Accept', 'Start cooking', 'Food is ready']) {
+    await queueCard.getByRole('button', { name: label, exact: true }).click();
+  }
+  await queueCard.getByRole('button', { name: 'No-show', exact: true }).click();
+
+  // The five-second undo has expired by the time the receipt is read — which
+  // is the whole premise. A reload is what a person actually does, and it
+  // clears the holding slot and the "Just finished" strip together.
+  await page.waitForTimeout(5_500);
+  await page.reload();
+  await expect(card(page, 'Marguerite Okonkwo')).toHaveCount(0);
+
+  await page.goto('/kitchen/orders?q=Marguerite Okonkwo');
+  await page.getByRole('link', { name: /Marguerite Okonkwo/ }).first().click();
+  await expect(page.getByText('No-show', { exact: true })).toBeVisible();
+
+  const revert = page.getByTestId('revert-panel');
+  await revert.getByLabel('Why it is going back').selectOption('customer_returned');
+  await revert.getByLabel('Anything to add (optional)').fill('came back at 8');
+  await revert.getByRole('button', { name: 'Move back to Ready for pickup' }).click();
+
+  // The order is back, and the log kept both facts rather than swapping one
+  // for the other — the append-only trigger is the mechanism, this is the
+  // screen that proves a person can see it.
+  await expect(page.getByText('Ready for pickup', { exact: true }).first()).toBeVisible();
+  const activity = page.getByTestId('order-activity');
+  await expect(activity).toContainText('No-show');
+  await expect(activity).toContainText('Moved back to Ready for pickup');
+  await expect(activity).toContainText('Customer came back');
+  await expect(activity).toContainText('came back at 8');
+
+  // And it is on the live queue again, which is the point of moving it.
+  await page.goto('/kitchen');
+  await expect(card(page, 'Marguerite Okonkwo')).toBeVisible();
+});
+
+test('offers no revert on an order that is still in the queue', async ({ page }) => {
+  await placeOrderFor(page, 'Tomas Lindqvist');
+  await page.goto('/kitchen/orders?q=Tomas Lindqvist');
+  await page.getByRole('link', { name: /Tomas Lindqvist/ }).first().click();
+
+  // The queue card already carries "Move back" for an order it is drawing.
+  // This control is the one for orders it is NOT — asked of the status
+  // module, so `cancelled` (no previous status) never offers it either.
+  await expect(page.getByTestId('revert-panel')).toHaveCount(0);
 });

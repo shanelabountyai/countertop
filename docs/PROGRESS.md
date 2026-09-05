@@ -5543,3 +5543,105 @@ not written for.
   ticket size.
 - **The measurement is at the Playwright viewport**, 1280×720, which is the
   same caveat C-059 left and moves with it.
+
+## C-061 — The revert follows the order (PRD 2 P0-4)
+
+The operator's finding, and the smallest gap between a rule and a shift: an
+order tapped picked-up by mistake is correctable for five seconds and then
+never again. The card is gone from the queue, and the one screen that still
+knows the order exists — the staff receipt — was, by its own header comment,
+"read-only about the ORDER: no advance button, no undo, nothing that moves it
+through the state machine."
+
+The engine has permitted this move since C-004. It has no undo *window* at
+all: the five seconds is the queue card's UI, and 19:48 → 20:05 is the same
+transition. So the whole item is a control on a screen and a trust boundary
+under it — no migration, no new engine rule, no new status.
+
+**Built:**
+- **`UNDOABLE_EXIT_STATUSES` decides which orders offer it, not a pair of
+  literals.** "Left the queue, and has somewhere to go back to" was already a
+  derived list (C-010 built it for the "Just finished" strip), and it answers
+  exactly the requirement's `picked_up` and `abandoned`. `cancelled` is
+  excluded by having no `previous` rather than by being named anywhere — the
+  same reason the strip never held it. The target is `previousStatus(status)`,
+  so the button says "Move back to Ready for pickup" without the page knowing
+  what ready is.
+- **The reason is a preset the SCREEN owns and the ACTION enforces —
+  deliberately not an engine check.** `REVERT_REASONS` sits beside
+  `CANCEL_REASONS` in core, but the engine goes on taking free text: the
+  five-second undo writes `undo`, the rush script writes its scripted string,
+  and the db tests write sentences. Validating the array in `applyTransition`
+  would have meant either forcing `undo` into the product's vocabulary or
+  churning four callers, for a check the trust boundary has to do anyway.
+  `revertOrderForm` refuses anything not in the list, which is the shape
+  `isStaffAdjustmentReason` already guards the comp form with.
+- **The optional text rides in `detail`, and the reader was the actual work.**
+  `OrderEvent.detail` has carried the cancel note since C-003 and is read by
+  nothing a person looks at — which is exactly the mistake C-066 had to come
+  back and fix on the remake's correction ("the field was wired into the comp's
+  `detail`, where nothing on the kitchen card renders it"). So
+  `loadOrderActivity` lifts `detail.note` onto the entry it already returns,
+  and the receipt renders it under the preset. Lifted rather than passed
+  through: `detail` also carries a mismatch payload and a refund's provider,
+  and a receipt has no business rendering either. The cancel note reaches a
+  staff screen for the first time as a side effect, which is the right kind of
+  side effect.
+- **The form posts the status the page was DRAWN against.** D1's rule applied
+  to the second mover on this product: a receipt left open in a tab must not
+  walk an order back out of a state whoever is tapping never saw. The engine's
+  `unexpected_target` refusal is what catches it, and the re-render shows the
+  truth.
+- **`cancel_note_too_long` became `note_too_long`.** The revert's note takes
+  the same bound as the cancel note — one rule, one place — and a test
+  asserting a *revert* refused by `cancel_note_too_long` is a test that reads
+  as a bug. Five edits, all found by the compiler.
+
+**Decided:**
+- **Optional text, not a required one on "other".** The cancel form requires a
+  sentence when the reason is `other`, and that is right: a cancellation is
+  final and the reason is the only thing left. A revert is undone by a second
+  revert, and a required sentence on the control that fixes a fat finger is a
+  control the counter routes around at the exact moment it is needed.
+- **The panel does not appear on an order still in the queue.** The queue card
+  already carries "Move back" for those; this is the one for the orders the
+  queue is not drawing, which is the requirement's own framing ("past the
+  queue card").
+- **The label is "Why it is going back", not "Reason".** "Make it right" owns
+  that word on this page, and two selects labelled identically are one control
+  to a screen reader and to a Playwright locator alike — see below.
+
+**Found — two, both from running the suite rather than from reading it:**
+- **A second "Reason" select broke three unrelated specs.** `adjustment`,
+  `kitchen` and `loyalty` all drove `getByLabel('Reason')` unscoped on a
+  picked-up order's receipt, and a strict-mode violation is what a duplicate
+  accessible name looks like from the outside. Renaming the new label was one
+  word against patching three files, and it fixes the accessibility smell
+  rather than routing around it.
+- **`kitchen.spec.ts` had a hidden dependency on the previous FILE's end
+  state.** Its first test asserts "New (1)" and never reseeds; it stayed green
+  only because `history.spec.ts` — the file immediately before it — happened
+  to end on a test that places no orders. Appending two tests that do turned
+  that into a failure with no connection to what changed. Fixed at the root
+  with one `beforeAll(reseed)`, which is the rule `fixtures.ts` already states
+  in a comment ("every spec file that follows reseeds, which is what makes that
+  safe") and this file was quietly the exception to.
+
+**Left behind:**
+- **The revert is not attributable on the customer's side and does not need to
+  be**, but the customer's status page says nothing at all about an order that
+  came back — it simply reads `ready` again. A no-show who returns sees a live
+  order with no explanation of the gap; PRD 2 P1-1 and the SMS work are where
+  that conversation lives.
+- **A revert out of `abandoned` still counts the no-show in the report.** That
+  is PRD 2's own open question, unresolved on purpose: the append-only
+  philosophy says leave it recorded with a revert beside it, and the GM cashing
+  up on Sunday probably wants the opposite. Nothing here picks a side.
+- **The note is capped at 140 characters and truncation is refused, not
+  silent** — but the refusal only happens after a round trip, because the
+  `maxLength` on the input is the client-side half and a hand-made POST is the
+  other.
+- **Two reverts in a row are two rows and no summary.** An order moved back and
+  forward three times reads as six lines in the activity log, in order, with no
+  "this happened repeatedly" flag. That is the honest rendering of an
+  append-only log and it is also the one a dispute is hardest to read.

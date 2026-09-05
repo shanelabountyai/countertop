@@ -44,6 +44,30 @@ export const CANCEL_REASONS = [
 ] as const;
 export type CancelReason = (typeof CANCEL_REASONS)[number];
 
+/**
+ * Why an order was moved back (PRD 2 P0-4).
+ *
+ * A PRESET LIST AND NOT AN ENGINE CHECK, unlike `CANCEL_REASONS` above. The
+ * revert's `reason` has been free text since C-004 and has three callers that
+ * do not pick from a list: the five-second undo writes `undo`, the rush script
+ * writes its scripted string, and the db tests write sentences. Making the
+ * engine validate this array would either force `undo` into the product's
+ * vocabulary or churn those callers for a check the trust boundary has to do
+ * anyway — so the screen offers these and `revertOrderForm` refuses anything
+ * else, the same shape `isStaffAdjustmentReason` guards the comp form with.
+ *
+ * `other` is last and, unlike the cancel list's, carries no note requirement:
+ * a revert is reversible by a second revert, and a required sentence on the
+ * control that fixes a fat finger is a control the counter routes around.
+ */
+export const REVERT_REASONS = [
+  'wrong_order',
+  'customer_returned',
+  'not_collected_yet',
+  'other',
+] as const;
+export type RevertReason = (typeof REVERT_REASONS)[number];
+
 export const EVENT_ACTORS = ['customer', 'staff', 'system'] as const;
 export type EventActor = (typeof EVENT_ACTORS)[number];
 
@@ -322,7 +346,7 @@ export type OrderState = {
 
 export type OrderAction =
   | { kind: 'advance'; actor: EventActor; to?: OrderStatus }
-  | { kind: 'revert'; actor: EventActor; to?: OrderStatus; reason?: string }
+  | { kind: 'revert'; actor: EventActor; to?: OrderStatus; reason?: string; note?: string }
   | { kind: 'cancel'; actor: EventActor; reason: CancelReason; note?: string }
   | { kind: 'abandon'; actor: EventActor };
 
@@ -374,7 +398,7 @@ export type RefusalReason =
   | 'customer_cancel_too_late'
   | 'unknown_cancel_reason'
   | 'cancel_note_required'
-  | 'cancel_note_too_long'
+  | 'note_too_long'
   | 'abandon_not_allowed';
 
 /** Refusals carry the REASON, not just the failure — a test asserting only
@@ -549,6 +573,16 @@ export function applyTransition(
           action.to,
         );
       }
+      // Same bound and same refusal as the cancel note below: both end up in
+      // the same place, and a note is a note.
+      if ((action.note?.length ?? 0) > MAX_CANCEL_NOTE_LENGTH) {
+        return refuse(
+          'note_too_long',
+          `Keep the note to ${MAX_CANCEL_NOTE_LENGTH} characters.`,
+          from,
+          to,
+        );
+      }
       return {
         ok: true,
         status: to,
@@ -560,6 +594,7 @@ export function applyTransition(
             toStatus: to,
             actor: 'staff',
             reason: action.reason ?? null,
+            ...(action.note && { detail: { note: action.note } }),
           },
         ],
       };
@@ -599,7 +634,7 @@ export function applyTransition(
       }
       if ((action.note?.length ?? 0) > MAX_CANCEL_NOTE_LENGTH) {
         return refuse(
-          'cancel_note_too_long',
+          'note_too_long',
           `Keep the cancel note to ${MAX_CANCEL_NOTE_LENGTH} characters.`,
           from,
           'cancelled',

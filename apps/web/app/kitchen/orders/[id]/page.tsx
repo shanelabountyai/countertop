@@ -26,8 +26,12 @@ import {
   LOYALTY_REWARD_REASON,
   orderBalance,
   paymentTotals,
+  MAX_CANCEL_NOTE_LENGTH,
   planRedemption,
   pointsToNextReward,
+  previousStatus,
+  REVERT_REASONS,
+  UNDOABLE_EXIT_STATUSES,
 } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
 import { findOrderByIdForStaff, loadOrderActivity, loadRemakesOf } from '@countertop/db/history';
@@ -41,6 +45,7 @@ import {
   describeEvent,
   describeEventReason,
   PAYMENT_LABEL,
+  REVERT_REASON_LABEL,
   STATUS_LABEL,
 } from '@/lib/status-labels';
 import {
@@ -49,6 +54,7 @@ import {
   forgetCustomerForm,
   redeemRewardForm,
   remakeOrderForm,
+  revertOrderForm,
 } from '../../actions';
 
 export const dynamic = 'force-dynamic';
@@ -58,10 +64,15 @@ export default async function OrderHistoryDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ adjustError?: string; redeemError?: string; forget?: string }>;
+  searchParams: Promise<{
+    adjustError?: string;
+    redeemError?: string;
+    revertError?: string;
+    forget?: string;
+  }>;
 }) {
   const { id } = await params;
-  const { adjustError, redeemError, forget } = await searchParams;
+  const { adjustError, redeemError, revertError, forget } = await searchParams;
   const [gateState, order, activity, remakes] = await Promise.all([
     loadGateState(new Date()),
     findOrderByIdForStaff(id),
@@ -80,6 +91,14 @@ export default async function OrderHistoryDetailPage({
     gateState.loyalty.offered && order.customerPhone
       ? await memberByPhone(order.customerPhone)
       : null;
+
+  // Where a revert would put this order, or null where the receipt offers no
+  // such control (PRD 2 P0-4). Two questions, both derived: has the order left
+  // the queue with somewhere to go back to, and where is that. Neither names a
+  // status, so a new terminal state joins or stays out by its own facts.
+  const revertTo = UNDOABLE_EXIT_STATUSES.includes(order.status)
+    ? previousStatus(order.status)
+    : null;
 
   // Both read from the SAME events the balance is summed from, so the figure
   // the form bounds itself by and the figure the server enforces cannot drift.
@@ -214,6 +233,91 @@ export default async function OrderHistoryDetailPage({
               {redemption.message}
             </p>
           )}
+        </section>
+      )}
+
+      {/* Move it back (PRD 2 P0-4). The five-second undo on the queue card is
+          reachable for five seconds; this is the same transition reached at
+          any time, from the one screen that still knows a closed order exists.
+          The operator's finding was an order tapped picked-up by mistake at
+          19:48 and discovered at 20:05, with nothing on any screen able to
+          move it.
+
+          WHICH STATUSES OFFER IT IS `UNDOABLE_EXIT_STATUSES`, not a pair of
+          literals: "left the queue, and has somewhere to go back to" is
+          already a derived list, and `cancelled` is excluded by having no
+          previous rather than by being named here. The engine is asked again
+          on the write, so this is which control to draw and never whether the
+          move is allowed. */}
+      {revertTo && (
+        <section className="mt-6 rounded-lg border border-neutral-300 p-4" data-testid="revert-panel">
+          <h2 className="font-semibold">Move it back</h2>
+          <p className="mt-1 text-sm text-neutral-600">
+            Puts this order back on the queue as {STATUS_LABEL[revertTo].toLowerCase()}. The
+            original tap stays in the log — nothing is removed.
+          </p>
+
+          {revertError && (
+            <p
+              role="status"
+              data-testid="revert-error"
+              className="mt-3 rounded-lg border border-red-700 bg-red-50 p-3 text-sm font-semibold text-red-900"
+            >
+              {revertError}
+            </p>
+          )}
+
+          <form action={revertOrderForm} className="mt-3 flex flex-col gap-3">
+            <input type="hidden" name="orderId" value={order.id} />
+            {/* The status this page was DRAWN against (D1). A receipt left
+                open in a tab must not move an order out of a state whoever is
+                tapping never saw — the engine refuses by `unexpected_target`
+                and the re-render shows the truth. */}
+            <input type="hidden" name="to" value={revertTo} />
+
+            {/* NOT "Reason". "Make it right" below already owns that word on
+                this page, and two selects labelled the same thing is one
+                control to a screen reader and to a Playwright locator alike —
+                three existing specs found that out. */}
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium">Why it is going back</span>
+              <select
+                name="reason"
+                required
+                defaultValue=""
+                className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+              >
+                <option value="" disabled>
+                  Pick one
+                </option>
+                {REVERT_REASONS.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {REVERT_REASON_LABEL[reason]}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {/* Optional, unlike the cancel form's "other" note. A revert is
+                undone by a second revert, and a required sentence on the
+                control that fixes a fat finger is a control the counter routes
+                around at the exact moment it is needed. */}
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium">Anything to add (optional)</span>
+              <input
+                name="note"
+                maxLength={MAX_CANCEL_NOTE_LENGTH}
+                className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+              />
+            </label>
+
+            <button
+              type="submit"
+              className="min-h-12 w-full rounded-lg border-2 border-neutral-900 px-4 text-lg font-bold"
+            >
+              Move back to {STATUS_LABEL[revertTo]}
+            </button>
+          </form>
         </section>
       )}
 
@@ -485,6 +589,12 @@ export default async function OrderHistoryDetailPage({
                 <span className="text-sm italic text-neutral-600">
                   “{describeEventReason(entry)}”
                 </span>
+              )}
+              {/* What somebody typed, beside the preset they picked. Written
+                  since C-003 for the cancel note and read here for the first
+                  time — a note nothing renders is the C-066 mistake. */}
+              {entry.note && (
+                <span className="w-full text-sm text-neutral-700">{entry.note}</span>
               )}
             </li>
           ))}

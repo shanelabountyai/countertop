@@ -11,6 +11,7 @@ import {
   ADJUSTMENT_KINDS,
   CANCEL_REASONS,
   ORDER_STATUSES,
+  REVERT_REASONS,
   isStaffAdjustmentReason,
   parsePriceInput,
   type AdjustmentKind,
@@ -19,6 +20,7 @@ import {
   type CancelReason,
   type OrderAction,
   type OrderStatus,
+  type RevertReason,
 } from '@countertop/core';
 import { prisma } from '@countertop/db';
 import { adjustOrder } from '@countertop/db/adjustment';
@@ -106,6 +108,7 @@ export async function revertOrder(
   orderId: string,
   reason?: string,
   to?: unknown,
+  note?: string,
 ): Promise<KitchenResult> {
   const target = readTarget(to);
   if (target === 'invalid') {
@@ -116,7 +119,60 @@ export async function revertOrder(
     actor: 'staff',
     ...(reason ? { reason } : {}),
     ...(target ? { to: target } : {}),
+    ...(note ? { note } : {}),
   });
+}
+
+/**
+ * The same move, form-shaped, from the staff receipt (PRD 2 P0-4).
+ *
+ * The operator's finding: an order tapped picked-up by mistake is correctable
+ * for five seconds and then never again — the card is gone, and the one screen
+ * that still knows the order exists had no way to move it. This is that
+ * control, reached at any time, and it is deliberately the SAME action the
+ * undo button calls rather than a second write path: a revert is a revert, and
+ * the engine has permitted this one since C-004.
+ *
+ * `to` is the status the receipt was RENDERED against, carried for D1's reason
+ * — a tab left open on a receipt must not walk an order back out of a state
+ * whoever is tapping never saw.
+ *
+ * The reason is checked HERE and not in the engine. `REVERT_REASONS` is a
+ * screen's preset list; the engine's `reason` is free text with three callers
+ * that do not pick from it (the undo writes `undo`, the rush script writes its
+ * own string, the db tests write sentences), so this is the trust boundary and
+ * the only place a typed value arrives.
+ */
+export async function revertOrderForm(formData: FormData): Promise<void> {
+  const orderId = formData.get('orderId');
+  if (typeof orderId !== 'string' || orderId === '') {
+    return redirect('/kitchen/orders');
+  }
+  const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
+  const refuse = (message: string): never =>
+    redirect(`${back}?revertError=${encodeURIComponent(message)}`);
+
+  const reason = formData.get('reason');
+  if (typeof reason !== 'string' || !REVERT_REASONS.includes(reason as RevertReason)) {
+    return refuse('Pick a reason.');
+  }
+  const note = formData.get('note');
+  const to = formData.get('to');
+
+  const result = await revertOrder(
+    orderId,
+    reason,
+    to,
+    typeof note === 'string' && note.trim() !== '' ? note.trim() : undefined,
+  );
+  // Echoed whole. Every refusal this can produce is composed of server-side
+  // values — a status name, a length — and none of them quotes the caller.
+  if (!result.ok) return refuse(result.message);
+
+  // The subtree: the order is back on the queue AND back in the open list on
+  // the history page, and this receipt's own header changed.
+  revalidatePath('/kitchen', 'layout');
+  redirect(back);
 }
 
 export async function cancelOrder(

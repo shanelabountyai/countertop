@@ -13,6 +13,16 @@ import { card, reseed } from './fixtures';
 //   #003 Priya Shah   ready, 25m      — past the second no-show mark
 //   #004 Sam Okafor   accepted        — five lines, none hidden
 
+// C-026's rule, stated for this file rather than assumed: every spec file
+// reseeds, because the app under test shares one Postgres and one queue with
+// every file before it. This one relied on whatever the previous file happened
+// to leave behind, and stayed green only because history.spec.ts's last test
+// happened to place no orders — until C-061 appended two that do. Once, not
+// per test: the file's own tests are written to run in order against one seed.
+test.beforeAll(() => {
+  reseed();
+});
+
 const heightOf = async (locator: Locator): Promise<number> => {
   const box = await locator.boundingBox();
   expect(box).not.toBeNull();

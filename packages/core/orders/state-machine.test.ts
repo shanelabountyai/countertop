@@ -290,6 +290,41 @@ describe('undo is a logged revert', () => {
     );
     expect(!result.ok && result.refusal.reason).toBe('unexpected_target');
   });
+
+  // PRD 2 P0-4: the receipt's revert asks for a preset AND optional text, and
+  // the text has to survive to a screen. It rides in `detail` beside the
+  // preset rather than being concatenated into `reason`, so the reason column
+  // stays a countable key.
+  it('carries the optional text beside the preset reason', () => {
+    const result = applyTransition(
+      order('picked_up'),
+      { kind: 'revert', actor: 'staff', reason: 'wrong_order', note: 'bag still on shelf 3' },
+      NOW,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.status).toBe('ready');
+    expect(result.events).toEqual([
+      {
+        at: NOW,
+        kind: 'revert',
+        fromStatus: 'picked_up',
+        toStatus: 'ready',
+        actor: 'staff',
+        reason: 'wrong_order',
+        detail: { note: 'bag still on shelf 3' },
+      },
+    ]);
+  });
+
+  it('refuses a note longer than the column takes', () => {
+    const result = applyTransition(
+      order('picked_up'),
+      { kind: 'revert', actor: 'staff', note: 'x'.repeat(MAX_CANCEL_NOTE_LENGTH + 1) },
+      NOW,
+    );
+    expect(!result.ok && result.refusal.reason).toBe('note_too_long');
+  });
 });
 
 describe('cancellation', () => {
@@ -354,7 +389,7 @@ describe('cancellation', () => {
       { kind: 'cancel', actor: 'staff', reason: 'too_busy', note: 'x'.repeat(MAX_CANCEL_NOTE_LENGTH + 1) },
       NOW,
     );
-    expect(!result.ok && result.refusal.reason).toBe('cancel_note_too_long');
+    expect(!result.ok && result.refusal.reason).toBe('note_too_long');
   });
 });
 

@@ -130,6 +130,19 @@ export type ActivityEntry = {
    *  what a person reads and a receipt that names an order nobody can click
    *  sends them back to the search box. */
   relatedOrder: { id: string; seq: number } | null;
+  /**
+   * What somebody typed, out of the event's `detail` payload (PRD 2 P0-4).
+   *
+   * The column has been written since C-003 — the cancel note goes in it — and
+   * read by nothing a person looks at, which is the exact mistake C-066 had to
+   * come back and fix on the remake's correction. A revert's optional text has
+   * only one place it could ever be read, and this is it, so the note is
+   * lifted out here rather than a second channel being invented for it.
+   *
+   * Lifted, not passed through: `detail` also carries a mismatch payload and a
+   * refund's provider, and a receipt has no business rendering either.
+   */
+  note: string | null;
 };
 
 export async function loadOrderActivity(orderId: string): Promise<ActivityEntry[]> {
@@ -144,11 +157,16 @@ export async function loadOrderActivity(orderId: string): Promise<ActivityEntry[
       actor: true,
       reason: true,
       amountCents: true,
+      detail: true,
       staff: { select: { name: true } },
       relatedOrder: { select: { id: true, seq: true } },
     },
   });
-  return events.map(({ staff, ...event }) => ({ ...event, staffName: staff?.name ?? null }));
+  return events.map(({ staff, detail, ...event }) => ({
+    ...event,
+    staffName: staff?.name ?? null,
+    note: readNote(detail),
+  }));
 }
 
 /**
@@ -169,4 +187,13 @@ export async function loadRemakesOf(orderId: string): Promise<{ id: string; seq:
     select: { order: { select: { id: true, seq: true } } },
   });
   return events.map((event) => event.order);
+}
+
+/** `detail.note` when there is one, and null for every other payload shape.
+ *  `detail` is untyped JSON, so this is the one place that asserts what is in
+ *  it rather than every caller re-guessing. */
+function readNote(detail: Prisma.JsonValue | null): string | null {
+  if (detail === null || typeof detail !== 'object' || Array.isArray(detail)) return null;
+  const note = (detail as Prisma.JsonObject).note;
+  return typeof note === 'string' && note !== '' ? note : null;
 }

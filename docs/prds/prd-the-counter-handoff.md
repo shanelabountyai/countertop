@@ -50,10 +50,10 @@ The product is excellent up to the moment the food is cooked and completely abse
 - [x] Test: with 20 seeded orders, tap "Picked up" on the **last** card in the Ready section and assert the undo control is inside the viewport with no scrolling, and that tapping it restores the order
 
 **P0-4: The revert control follows the order past the queue card** *(OPS 4)*
-- [ ] The staff receipt at `/kitchen/orders/[id]` carries the same explicit, logged revert the engine already permits, for `picked_up` and `abandoned` — reached at any time, not for five seconds
-- [ ] The control asks for a reason (short preset + optional text) and writes a `revert` event; it never deletes and never rewrites the original transition — the append-only trigger is the mechanism
-- [ ] The receipt refuses to offer a revert the engine would refuse; the button's presence is derived from `STATUS_FACTS`, never from a status literal on the page
-- [ ] Test: abandon an order, revert it from the receipt at T+30 minutes, assert it is `ready` and on the queue, and assert the event log holds transition → transition → revert with nothing removed
+- [x] The staff receipt at `/kitchen/orders/[id]` carries the same explicit, logged revert the engine already permits, for `picked_up` and `abandoned` — reached at any time, not for five seconds
+- [x] The control asks for a reason (short preset + optional text) and writes a `revert` event; it never deletes and never rewrites the original transition — the append-only trigger is the mechanism
+- [x] The receipt refuses to offer a revert the engine would refuse; the button's presence is derived from `STATUS_FACTS`, never from a status literal on the page
+- [x] Test: abandon an order, revert it from the receipt at T+30 minutes, assert it is `ready` and on the queue, and assert the event log holds transition → transition → revert with nothing removed
 
 **P0-5: Where the bag is** *(OPS 6)*
 - [ ] The `ready` transition captures an optional **shelf location** (free text, ≤16 chars: "shelf 3", "warmer left"), entered on the same tap that marks the order ready

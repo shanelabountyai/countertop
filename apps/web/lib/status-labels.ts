@@ -14,6 +14,7 @@ import type {
   OrderEventKind,
   OrderStatus,
   PaymentState,
+  RevertReason,
 } from '@countertop/core';
 
 export const STATUS_LABEL: Record<OrderStatus, string> = {
@@ -114,6 +115,20 @@ export function describeEvent(entry: {
  * facing — the customer never sees these, and the status page is written so it
  * structurally cannot.
  */
+/**
+ * Why an order was moved back, in words (PRD 2 P0-4).
+ *
+ * Written from the counter's side rather than the machine's: the question the
+ * receipt is answering is "why is this order back on the queue", and "wrong
+ * order" is what somebody says out loud.
+ */
+export const REVERT_REASON_LABEL: Record<RevertReason, string> = {
+  wrong_order: 'Tapped the wrong order',
+  customer_returned: 'Customer came back',
+  not_collected_yet: 'Not actually collected',
+  other: 'Other',
+};
+
 export const ADJUSTMENT_REASON_LABEL: Record<AdjustmentReason, string> = {
   wrong_item: 'Wrong item',
   late: 'Took too long',
@@ -162,6 +177,11 @@ export function describeEventReason(entry: {
   reason: string | null;
 }): string | null {
   if (entry.reason === null) return null;
+  // Falls back to the raw string on purpose, for both maps: a revert written
+  // before this item says `undo`, and the rush script writes a sentence.
+  if (entry.kind === 'revert') {
+    return REVERT_REASON_LABEL[entry.reason as RevertReason] ?? entry.reason;
+  }
   if (entry.kind !== 'adjustment' && entry.kind !== 'remake') return entry.reason;
   return ADJUSTMENT_REASON_LABEL[entry.reason as AdjustmentReason] ?? entry.reason;
 }

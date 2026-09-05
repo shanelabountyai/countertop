@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { historyWhere } from './history';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { historyWhere, loadOrderActivity } from './history';
+import { placeOrder } from './placement';
+import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
+import { applyOrderAction } from './transitions';
 
 // `historyWhere` is the one decision in the history search (name vs. order
 // number) — pure, so it gets a test that never touches Postgres.
@@ -75,5 +78,103 @@ describe('historyWhere', () => {
         customerName: { contains: 'Dana', mode: 'insensitive' },
       });
     }
+  });
+});
+
+// PRD 2 P0-4: the receipt's revert, and the reader that has to show it.
+//
+// Database-backed, unlike everything above, because the claim is about rows
+// that survive — an append-only log with nothing taken out of it — and the
+// only honest way to assert "nothing was removed" is to count what is there.
+describe('the revert past the queue card', () => {
+  // The operator's own clock: abandoned at 19:48, discovered at 20:05. The
+  // engine has no undo WINDOW — the five seconds is the queue card's UI — and
+  // seventeen minutes is what proves it.
+  const CLOSED = new Date(Date.UTC(2026, 6, 5, 19, 48, 0));
+  const FOUND = new Date(Date.UTC(2026, 6, 5, 20, 5, 0));
+
+  let keyCounter = 0;
+  async function readyOrder(): Promise<string> {
+    const result = await placeOrder({
+      cart: {
+        lines: [
+          {
+            id: 'line-1',
+            unitPriceAtAddCents: 1495,
+            composition: {
+              itemId: 'burrito',
+              quantity: 1,
+              selections: [
+                { groupId: 'protein', optionId: 'carnitas' },
+                { groupId: 'addons', optionId: 'guacamole' },
+              ],
+            },
+          },
+        ],
+      },
+      customerName: 'Dana',
+      idempotencyKey: `revert-${(keyCounter += 1)}`,
+      now: CLOSED,
+    });
+    if (!result.ok) throw new Error(`placement failed: ${JSON.stringify(result.errors)}`);
+    for (let step = 0; step < 3; step += 1) {
+      await applyOrderAction(result.order.id, { kind: 'advance', actor: 'staff' }, CLOSED);
+    }
+    return result.order.id;
+  }
+
+  beforeEach(async () => {
+    await resetDatabase();
+    await seedSampleMenu();
+    await seedSettings();
+    await seedStoreHours();
+  });
+
+  it('puts a no-show back on the queue seventeen minutes later, taking nothing out of the log', async () => {
+    const orderId = await readyOrder();
+    await applyOrderAction(orderId, { kind: 'abandon', actor: 'staff' }, CLOSED);
+
+    const result = await applyOrderAction(
+      orderId,
+      { kind: 'revert', actor: 'staff', reason: 'customer_returned', note: 'came back at 8' },
+      FOUND,
+    );
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.order.status).toBe('ready');
+
+    const activity = await loadOrderActivity(orderId);
+    // Four forward transitions, the abandon, then the revert. The abandon is
+    // still there, at its own instant, with the revert beside it — the append-
+    // only trigger is the mechanism and this is the assertion that it held.
+    expect(activity.map((entry) => [entry.kind, entry.toStatus])).toEqual([
+      ['transition', 'placed'],
+      ['transition', 'accepted'],
+      ['transition', 'preparing'],
+      ['transition', 'ready'],
+      ['transition', 'abandoned'],
+      ['revert', 'ready'],
+    ]);
+
+    const revert = activity.at(-1)!;
+    expect(revert.at).toEqual(FOUND);
+    expect(revert.fromStatus).toBe('abandoned');
+    expect(revert.reason).toBe('customer_returned');
+    // The typed text, out of `detail` and onto the entry the receipt renders.
+    // It was written to that column since C-003 and read by nothing until now.
+    expect(revert.note).toBe('came back at 8');
+  });
+
+  it('leaves the note null when nobody typed one', async () => {
+    const orderId = await readyOrder();
+    await applyOrderAction(orderId, { kind: 'advance', actor: 'staff' }, CLOSED);
+    await applyOrderAction(
+      orderId,
+      { kind: 'revert', actor: 'staff', reason: 'wrong_order' },
+      FOUND,
+    );
+
+    const revert = (await loadOrderActivity(orderId)).at(-1)!;
+    expect(revert.toStatus).toBe('ready');
+    expect(revert.note).toBeNull();
   });
 });

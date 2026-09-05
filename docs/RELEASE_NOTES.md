@@ -1826,3 +1826,27 @@ tickets of food on the shelf. The tile holding a place is not one of them.
 
 **Undo puts the ticket back exactly where it was**, in the same slot, and it
 goes on aging from when it was really placed.
+
+## C-061 — Move it back, hours later
+
+**An order marked picked up by mistake can be put back on the queue from its
+receipt, at any time.** Look it up by name or number, pick why it is going
+back, add a line if there is something to say, and it is on the board again as
+Ready for pickup.
+
+**Before this, you had five seconds.** The undo on the queue card is for the
+tap you just made. This is for the one you made at 19:48 and found out about at
+20:05 — when a customer turns up for a bag the board says somebody already
+took.
+
+**Nothing is erased.** The receipt's activity log keeps the original tap, at
+its own time, with the move back beside it and the reason on it. The order's
+history reads as what happened, not as what somebody wishes had happened.
+
+**It only offers the move where the move is real.** A cancelled order does not
+come back — that has always been true and stays true — and an order still on
+the queue is handled by the card, not here.
+
+**A note somebody typed finally shows up.** Cancellation notes have been
+recorded since the first week and read by nobody; they are now on the receipt
+alongside everything else.
