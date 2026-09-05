@@ -49,7 +49,16 @@ test('the status moves under the customer without anyone reloading', async ({ pa
   await kitchen.goto('/kitchen');
   const theirs = card(kitchen, 'Casey Lin');
   for (const label of ['Accept', 'Start cooking', 'Food is ready']) {
-    await theirs.getByRole('button', { name: label }).click();
+    const advance = theirs.getByRole('button', { name: label });
+    await advance.click();
+    // Wait for the tap to LAND before making the next one. Without this the
+    // three clicks race the re-render each one causes: a click that arrives
+    // while React has the control disabled mid-transition is swallowed, and
+    // the failure surfaces fifteen seconds later as "the customer's page
+    // never said ready" — which points at the polling this spec is about
+    // rather than at the tap that never happened. Seen once under a full
+    // sweep and never in isolation (C-092).
+    await expect(advance).toHaveCount(0);
   }
   await kitchen.close();
 

@@ -5812,6 +5812,14 @@ rather than the first.
   byte (as it is for a comp and a refund) and the customer's read is asserted
   not to contain the TEXT. Both assertions are needed and neither is the
   other's weaker form.
+- **A three-tap loop in `status.spec.ts` was racing its own re-renders.** It
+  advances an order Accept → Start cooking → Food is ready with no wait
+  between the clicks, and a click landing while React has the control disabled
+  mid-transition is swallowed — the failure then surfaces fifteen seconds
+  later as "the customer's page never said ready", pointing at the polling the
+  spec is about rather than at the tap that never happened. It failed once in
+  the pre-push sweep and never in isolation (5/5, then 15/15 after). Each tap
+  now waits for its own button to disappear, which is the proof it landed.
 - **A `<details>` survives the save.** The disclosure stays open across the
   server re-render, because React keeps the DOM node and `open` is not a
   controlled prop — so a second note needs no second tap. The e2e asserts it by
