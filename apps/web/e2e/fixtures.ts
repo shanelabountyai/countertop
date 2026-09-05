@@ -235,3 +235,44 @@ export async function adjustLoyaltyPoints(points: number): Promise<void> {
     await prisma.$disconnect();
   }
 }
+
+/**
+ * Cancel a paid order with a refund provider that refuses (PRD 3 P0-4, C-067).
+ *
+ * THE REAL PATH, not a fabricated row. `applyOrderAction` takes the provider as
+ * a default parameter for exactly this — so the cancellation, the
+ * `refund_requested` written inside its transaction and the `refund_failed`
+ * written after it are all produced by the code that runs in production, and
+ * only the thing on the far side of the network boundary is substituted.
+ *
+ * A failing refund is not reachable through the screens by design: the mock
+ * provider always succeeds, and an app-wide "make refunds fail" switch would be
+ * a production code path that exists for the tests. This is the one thing a
+ * fixture may do that a spec may not, like `backdateQueue`.
+ *
+ * Same Prisma client discipline as the other db fixtures: import late,
+ * disconnect immediately, because the next `reseed()` TRUNCATEs these tables.
+ */
+export async function failRefundFor(customerName: string): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  const { applyOrderAction } = await import('@countertop/db/transitions');
+  try {
+    const order = await prisma.order.findFirstOrThrow({
+      where: { customerName },
+      orderBy: { placedAt: 'desc' },
+      select: { id: true },
+    });
+    const result = await applyOrderAction(
+      order.id,
+      { kind: 'cancel', actor: 'staff', reason: 'out_of_item' },
+      new Date(),
+      null,
+      async () => {
+        throw new Error('card network declined');
+      },
+    );
+    if (!result.ok) throw new Error(`cancel refused: ${result.failure.message}`);
+  } finally {
+    await prisma.$disconnect();
+  }
+}

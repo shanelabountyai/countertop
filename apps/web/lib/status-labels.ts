@@ -91,6 +91,17 @@ export function describeEvent(entry: {
       return entry.actor === 'customer' ? 'Paid at checkout' : 'Payment collected at the counter';
     case 'refund':
       return 'Refunded';
+    case 'refund_requested':
+      // "Refund owed" and not "Refund started": this row is written by the
+      // cancellation and outlives every failed attempt under it, so a reader
+      // scrolling the log a day later is being told what the restaurant owes,
+      // not what a process was doing at 19:41.
+      return 'Refund owed';
+    case 'refund_failed':
+      // The provider's own words are rendered beside this off `detail.note`,
+      // the way an adjustment's amount is. "Refund failed" alone is a row that
+      // starts the argument rather than settling it.
+      return 'Refund did not go through';
     case 'total_mismatch':
       return 'Total mismatch recorded';
     case 'remake':

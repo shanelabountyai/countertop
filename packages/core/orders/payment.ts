@@ -79,6 +79,49 @@ export function derivePaymentState(events: readonly MoneyEvent[]): PaymentState 
   return refundedCents >= capturedCents ? 'refunded' : 'paid';
 }
 
+/**
+ * Where a refund got to (PRD 3 P0-4, C-067).
+ *
+ * The state `PaymentState` could not hold. Its three values are terminal facts
+ * — unpaid, paid, refunded — and the one the systems review asked for is
+ * "we tried". A refund that failed is not `refunded` (the customer has not been
+ * paid) and it is not nothing (the restaurant owes it), so it is a dimension of
+ * its own rather than a fourth value on an enum whose other three are about
+ * what the till did.
+ */
+export const REFUND_STATES = ['requested', 'failed', 'succeeded'] as const;
+export type RefundState = (typeof REFUND_STATES)[number];
+
+/**
+ * The refund's state, from the log, or null where none was ever asked for.
+ *
+ * BY PRECEDENCE AND NOT BY ORDER, which is what makes it safe. The obvious
+ * version reads the last refund-ish event, and "last" needs an ordering the
+ * receipt's event select does not impose — worse, a retry that succeeds in the
+ * same millisecond as its request shares an instant with it, which every test
+ * with a frozen `now` does by construction. Precedence has no such tie: a
+ * `refund` on the order means the money went back, whatever failed before it.
+ *
+ * ONE REFUND PER ORDER is the assumption underneath, and it holds because the
+ * only thing that requests one is cancelling a paid order — which can happen
+ * once. A partial refund would need the attempts linked to their requests; it
+ * does not exist, and this function is where that would be noticed.
+ */
+export function deriveRefundState(events: readonly MoneyEvent[]): RefundState | null {
+  const has = (kind: OrderEventKind): boolean => events.some((event) => event.kind === kind);
+  if (has('refund')) return 'succeeded';
+  if (has('refund_failed')) return 'failed';
+  return has('refund_requested') ? 'requested' : null;
+}
+
+/** A refund that was asked for and has not landed — the exceptions list's own
+ *  predicate (P0-4), so the screen and the query cannot disagree about what
+ *  counts as needing a person. `requested` is on this side as well as `failed`:
+ *  a request whose attempt never returned is money owed with nothing chasing
+ *  it, which is the failure mode a crash mid-call produces. */
+export const refundNeedsAttention = (state: RefundState | null): boolean =>
+  state === 'requested' || state === 'failed';
+
 /** Enough of an order to say what is still owed on it. A database row
  *  satisfies it structurally, like every other input in this package. */
 export type OrderMoney = {

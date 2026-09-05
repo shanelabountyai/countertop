@@ -21,8 +21,10 @@ import {
   formatOrderNumber,
   isOpen,
   isTerminal,
+  deriveRefundState,
   orderBalance,
   paymentTotals,
+  refundNeedsAttention,
   remainingEstimate,
   type CancelReason,
   type OrderStatus,
@@ -125,6 +127,11 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
   // calculation of it (C-065).
   const { adjustedCents } = paymentTotals(order.events);
   const balance = orderBalance(order);
+  // The customer's half of PRD 3 P0-4. A refund that was asked for and has not
+  // landed is neither "Paid" nor "Refunded", and both of those are lies in a
+  // different direction — the first tells somebody watching for their money
+  // that nothing is coming, the second tells them it has already arrived.
+  const refundPending = refundNeedsAttention(deriveRefundState(order.events));
   // The gate is NOT asked here (decided C-013): an order already cooking still
   // has a ready time after the restaurant stops taking new ones. The estimate
   // is recalculated on every render, and this page re-renders on every poll
@@ -258,11 +265,19 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
             somebody to bring $34.20 for an order that has been comped to zero
             is the same defect as not mentioning the comp at all. */}
         <p className="mt-3 font-semibold" data-testid="status-payment">
-          {order.paymentState === 'unpaid'
-            ? balance.outstandingCents > 0
-              ? `${PAYMENT_LABEL.unpaid} — ${formatCents(balance.outstandingCents)} due`
-              : 'Nothing to pay'
-            : PAYMENT_LABEL[order.paymentState]}
+          {refundPending
+            ? // NOT the reason, and not "we tried and the card was refused".
+              // Whether a processor said no is the restaurant's problem to fix
+              // and the customer's only question is whether the money is
+              // coming. Checked FIRST, so the failed attempt can never render
+              // as "Refunded" (P0-4) — the column still says `paid`, which is
+              // true and is exactly what would otherwise be shown.
+              `Refund pending — ${formatCents(balance.collectedCents)} coming back`
+            : order.paymentState === 'unpaid'
+              ? balance.outstandingCents > 0
+                ? `${PAYMENT_LABEL.unpaid} — ${formatCents(balance.outstandingCents)} due`
+                : 'Nothing to pay'
+              : PAYMENT_LABEL[order.paymentState]}
         </p>
 
         {order.orderNote && (

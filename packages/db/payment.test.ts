@@ -213,11 +213,12 @@ describe('a payment is something that happened (PRD 6 P0-3)', () => {
     // over the new one. It does — `toStatus` is null, which is what makes
     // `timeInState` skip it.
     //
-    // `refund` is deliberately NOT asserted null here: the engine gives it the
-    // `cancelled` it accompanied, which contradicted `time-in-state.ts`'s own
-    // comment until this item corrected it. Harmless (a zero-length span, and
-    // a Set-deduplicated visit) and left for PRD 3 to settle with the rest of
-    // the money events rather than changed under this one.
+    // C-067 settled the odd one out this comment used to describe: the engine
+    // gave `refund` the `cancelled` it accompanied, contradicting
+    // `time-in-state.ts`'s own promise. The refund is no longer written by the
+    // engine at all — it is written after the provider answers, outside the
+    // transition — so both money events now carry null statuses, and the
+    // assertion below is on both rather than on one.
     const order = await place({ paidNow: true });
     await applyOrderAction(
       order.id,
@@ -230,7 +231,7 @@ describe('a payment is something that happened (PRD 6 P0-3)', () => {
       orderBy: { at: 'asc' },
     });
     expect(money.map((event) => event.kind)).toEqual(['payment', 'refund']);
-    expect(money.find((event) => event.kind === 'payment')?.toStatus).toBeNull();
+    expect(money.map((event) => event.toStatus)).toEqual([null, null]);
   });
 });
 
@@ -243,9 +244,10 @@ describe('the balance, against the database', () => {
     const order = await place({ paidNow: true });
     const before = { subtotal: order.subtotalCents, tax: order.taxCents, total: order.totalCents };
 
-    // Nothing WRITES a partial refund yet — C-067 does. Inserted directly, as
-    // an append (which the append-only trigger permits), because the balance
-    // has to be right on the day something does.
+    // Nothing writes a PARTIAL refund even now: C-067 sends back what the
+    // restaurant is holding, in full. Inserted directly, as an append (which
+    // the append-only trigger permits), because the balance has to be right on
+    // the day something does.
     await prisma.orderEvent.create({
       data: {
         orderId: order.id,

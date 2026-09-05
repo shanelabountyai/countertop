@@ -1896,3 +1896,36 @@ note and nothing deletes one.
 
 **The customer never sees it.** Not by policy — the customer's page is built
 from a shape that has no note in it to render.
+
+## C-067 — A refund that can fail
+
+**The product can now say "we tried and it did not go through."** Until this
+release it could say three things about money — nothing paid, paid, refunded —
+and cancelling a paid order simply asserted the third one. No processor was
+ever asked, so nothing could fail, so a refund that never reached the customer
+looked identical to one that did.
+
+**Cancelling a paid order now records that the money is owed, and then sends
+it.** Two separate facts, two separate writes. The cancellation lands whatever
+happens next, so a refund the bank refuses does not un-cancel an order the
+counter has already told the customer about.
+
+**Refunds that did not go through are on their own list.** It sits at the top
+of Order history, unfiltered, and it does not expire: a customer whose card was
+never credited turns up in no other list on any day, and a refund that failed on
+Friday is still owed on Monday. Each row is the number, the name, and what is
+still held.
+
+**Send it again, from the receipt.** The button carries the same key the first
+attempt used, so a retry after a lost reply cannot pay somebody twice — and the
+amount is whatever the restaurant is actually holding at that moment, not a
+figure written down earlier.
+
+**The customer is told the truth in the meantime.** Their page says *Refund
+pending — $11.85 coming back*, never "Refunded" and never "Paid". Why a card
+was refused is the restaurant's problem; whether the money is coming is the
+customer's question.
+
+**Whoever taps Retry is on the row.** The automatic attempt after a
+cancellation is the system's; a retry is somebody's decision about money, and
+the log says whose.

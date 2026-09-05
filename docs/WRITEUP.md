@@ -1521,6 +1521,60 @@ collection, and widening a query is an edit to every one of those assumptions �
 none of which the compiler can see, because `events[0]` has the same type
 before and after.
 
+### The state that was recorded before it happened (C-067)
+
+`applyTransition` pushed a `refund` event inside the cancellation's own
+transaction and `transitions.ts` set `paymentState = 'refunded'` from it. Both
+lines are two years of restaurant software in miniature: the code was correct
+about *what should happen* and recorded it as *what did happen*.
+
+**Nothing was wrong with the write.** The event had an instant, an actor, an
+amount and a `provider: 'mock'` in its detail that honestly said no call was
+made. It was append-only, it was attributed, it summed into the balance
+correctly. Every rule this codebase enforces was satisfied.
+
+**What was wrong was the tense.** A `refund` row is a claim that money moved,
+and the only thing behind this one was a decision to move it. The gap does not
+show up while the provider is a mock that cannot fail — it shows up the first
+day one can, and by then eleven screens read a column that has been lying
+whenever the network did.
+
+**The fix is a second kind, not a second column.** `refund_requested` says the
+restaurant owes it; `refund` says it went; `refund_failed` says an attempt came
+back refused. The generalisation: **when a write is inside a transaction that
+cannot know the outcome, the thing it is allowed to record is the decision, not
+the result.** Deciding to refund is part of cancelling. Sending is not, and the
+requirement's own wording — *they are not one fact* — is the test for where the
+line goes.
+
+**The corollary is which failure you choose.** Making the refund atomic with the
+cancellation sounds safer and is worse: a bank timeout would roll the
+cancellation back and leave the counter looking at an order they have already
+told the customer is cancelled. The same shape as C-062's shelf write, where the
+atomic version would have said cooked food was not cooked.
+
+### The idempotency key that was already in the table (C-067)
+
+The requirement asks for a refund attempt to carry "an idempotency key of its
+own, so a retry cannot double-refund", and the obvious build is a column, a
+uuid, and a unique index — the shape placement has used since C-003.
+
+**The request event already has one.** Its primary key is a uuid, it is unique
+because it is a primary key, and — the part that actually matters — it is
+durable *before* the first provider call is made. A key generated in the
+attempt is a key that does not exist if the process dies before writing it.
+
+**The general form: an idempotency key needs three properties, and one of them
+is usually free.** Unguessable, unique-constrained, and written down before the
+side effect. A row that already exists for the decision satisfies all three, and
+a second column would be a second thing that has to stay in step with the first.
+
+**Where it stops being free** is the day a refund can be partial. Then attempts
+have to name the request they belong to, one order holds several, and the row id
+is a key to the wrong grain. That is written into `deriveRefundState`'s comment
+rather than built, because the product has no partial refund and a link nothing
+follows is a link that rots.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

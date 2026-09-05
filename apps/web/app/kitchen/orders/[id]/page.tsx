@@ -21,6 +21,7 @@ import {
   FORGOTTEN_CUSTOMER_NAME,
   adjustableRemainingCents,
   canCollectPayment,
+  deriveRefundState,
   formatOrderNumber,
   hasReward,
   LOYALTY_REWARD_REASON,
@@ -29,6 +30,7 @@ import {
   MAX_CANCEL_NOTE_LENGTH,
   planRedemption,
   pointsToNextReward,
+  refundNeedsAttention,
   previousStatus,
   REVERT_REASONS,
   UNDOABLE_EXIT_STATUSES,
@@ -54,6 +56,7 @@ import {
   collectPayment,
   forgetCustomerForm,
   redeemRewardForm,
+  retryRefundForm,
   remakeOrderForm,
   revertOrderForm,
 } from '../../actions';
@@ -69,12 +72,14 @@ export default async function OrderHistoryDetailPage({
     adjustError?: string;
     redeemError?: string;
     revertError?: string;
+    refundError?: string;
     noteError?: string;
     forget?: string;
   }>;
 }) {
   const { id } = await params;
-  const { adjustError, redeemError, revertError, noteError, forget } = await searchParams;
+  const { adjustError, redeemError, revertError, refundError, noteError, forget } =
+    await searchParams;
   const [gateState, order, activity, remakes] = await Promise.all([
     loadGateState(new Date()),
     findOrderByIdForStaff(id),
@@ -107,6 +112,12 @@ export default async function OrderHistoryDetailPage({
   const { adjustedCents } = paymentTotals(order.events);
   const remainingCents = adjustableRemainingCents(order);
   const balance = orderBalance(order);
+
+  // Where the refund got to (PRD 3 P0-4, C-067). Derived from the SAME events
+  // the balance is summed from, so the panel below and the exceptions list on
+  // the history page cannot disagree about which orders still owe money —
+  // `refundNeedsAttention` is the one predicate both ask.
+  const refundState = deriveRefundState(order.events);
 
   // Whether the reward can be spent, asked of the SAME function the write
   // asks (C-104) — so a button that renders is a button that works, and a
@@ -398,6 +409,56 @@ export default async function OrderHistoryDetailPage({
               Collected — mark paid
             </button>
           </form>
+        )}
+
+        {/* A refund the restaurant owes and has not sent (PRD 3 P0-4).
+            `PAYMENT_LABEL` above still says "Paid", correctly and on purpose:
+            the money is still in the restaurant's hands, and the requirement is
+            that a failed attempt does NOT set the refunded copy. This is the
+            fact the enum cannot hold, rendered where the money is read.
+
+            BOTH unsettled states, from one predicate: a request whose attempt
+            never came back is money owed with nothing chasing it, and it looks
+            exactly like nothing having happened. */}
+        {refundNeedsAttention(refundState) && (
+          <div
+            data-testid="refund-panel"
+            className="mt-3 rounded-lg border-2 border-red-700 bg-red-50 p-3"
+          >
+            <p className="font-semibold text-red-900">
+              Refund owed — {formatCents(balance.collectedCents)} not sent
+            </p>
+            <p className="mt-1 text-sm text-red-900">
+              {refundState === 'failed'
+                ? 'The last attempt was refused. The reason is in the activity log below.'
+                : 'Asked for and never confirmed. Send it again — the same key goes to the provider, so this cannot pay twice.'}
+            </p>
+
+            {refundError && (
+              <p
+                role="status"
+                data-testid="refund-error"
+                className="mt-3 rounded-lg border border-red-700 bg-white p-3 text-sm font-semibold text-red-900"
+              >
+                {refundError}
+              </p>
+            )}
+
+            {/* Its own form, like the remake's and the redemption's: this page
+                already has forms whose first submit button is not this one, and
+                a form's implicit submission would make Enter in the adjustment
+                note send a customer's money back. */}
+            <form action={retryRefundForm} className="mt-3">
+              <input type="hidden" name="orderId" value={order.id} />
+              <button
+                type="submit"
+                data-testid="retry-refund"
+                className="min-h-12 w-full rounded-lg border-2 border-red-700 bg-red-700 px-4 text-lg font-bold text-white"
+              >
+                Send the refund again
+              </button>
+            </form>
+          </div>
         )}
       </section>
 

@@ -1,0 +1,42 @@
+-- ---------------------------------------------------------------------------
+-- PRD 3 P0-4 (C-067): a refund is attempted, then recorded — and the attempt
+-- is allowed to fail.
+--
+-- What shipped before this: cancelling a paid order pushed a `refund` event
+-- INSIDE the cancellation's own transaction and flipped `paymentState` to
+-- `refunded` on the strength of it. No provider was called, so nothing could
+-- fail, so the product could express three terminal facts about money and none
+-- of them was "we tried and it did not go through". The systems review's
+-- finding, and the one state a restaurant actually needs at 7:40 on a Friday.
+--
+-- TWO VALUES, ONE FILE, and the reason it is one file rather than C-065's two
+-- is the reason C-092's was one: nothing here USES the values it adds, and
+-- Postgres only refuses a value used in the transaction that created it.
+-- Two `ADD VALUE`s in one transaction is fine — C-057 added two cancel reasons
+-- the same way.
+--
+-- NO CHECK CHANGES, and that falls out of the design rather than being an
+-- omission. Neither kind carries an amount:
+--
+--   * `refund_requested` records a DECISION, not a movement. What is
+--     refundable is what the restaurant is holding, which `orderBalance`
+--     computes from this same log at the moment of the attempt — an amount
+--     frozen at request time is a number a later comp or payment makes wrong,
+--     and recomputing is also what makes a duplicate attempt refund zero
+--     instead of twice.
+--   * `refund_failed` records that nothing moved. An amount on it would sum
+--     into a balance as money that went back, which is the exact opposite of
+--     what happened.
+--
+-- So both stay on the "must not carry an amount" side of
+-- `order_event_amount_matches_kind`, untouched, and `refund` keeps its place
+-- on the other side — where it now means what its name says, because it is
+-- only written after a provider says yes.
+--
+-- NOTHING IS BACKFILLED. Every `refund` row already on this table was written
+-- by the old path and did complete as far as the product was concerned; there
+-- is no request event that could honestly be invented behind it, and inventing
+-- one would put a decision instant on a row nobody recorded.
+-- ---------------------------------------------------------------------------
+ALTER TYPE "OrderEventKind" ADD VALUE 'refund_requested';
+ALTER TYPE "OrderEventKind" ADD VALUE 'refund_failed';

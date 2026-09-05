@@ -51,11 +51,11 @@ The system offers exactly nothing here. `cancelled` is unreachable from `ready` 
 - [ ] Test: comp a `picked_up` $13.75 order; assert `totalCents` is still 1375, the balance is 0, the report's net sales drops by the comped amount, and the comps line shows one entry
 
 **P0-4: A refund is attempted, then recorded — with a state for the attempt that failed** *(SYS 2)*
-- [ ] `PaymentState` (or the event stream that supersedes it) can express **requested**, **succeeded** and **failed** — today it can express only three terminal facts and none of them is "we tried"
-- [ ] The provider call is made **outside** the status transaction. The status change and the refund attempt are not one atomic write, because they are not one fact
-- [ ] A failed attempt surfaces on a staff-visible exceptions list and does **not** set the customer-facing "Refunded" copy
-- [ ] The refund attempt carries an idempotency key of its own, so a retry cannot double-refund
-- [ ] Test: stub a provider that throws; assert the order shows *refund pending*, appears on the exceptions list, and that `paymentState` is not `refunded`
+- [x] `PaymentState` (or the event stream that supersedes it) can express **requested**, **succeeded** and **failed** — today it can express only three terminal facts and none of them is "we tried"
+- [x] The provider call is made **outside** the status transaction. The status change and the refund attempt are not one atomic write, because they are not one fact
+- [x] A failed attempt surfaces on a staff-visible exceptions list and does **not** set the customer-facing "Refunded" copy
+- [x] The refund attempt carries an idempotency key of its own, so a retry cannot double-refund
+- [x] Test: stub a provider that throws; assert the order shows *refund pending*, appears on the exceptions list, and that `paymentState` is not `refunded`
 
 **P0-5: A cooked order can be made whole without being cancelled** *(OPS 2, SYS 1)*
 - [ ] The state machine's refusal to cancel from `ready` and `picked_up` is **unchanged** — it is correct and both evaluators agree

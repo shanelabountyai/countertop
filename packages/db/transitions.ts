@@ -15,6 +15,7 @@ import {
 import { prisma } from './index';
 import { earnForOrder } from './loyalty';
 import { eventRow, ORDER_RECEIPT, type OrderReceipt } from './placement';
+import { mockRefundProvider, settleRefund, type RefundProvider } from './refund';
 
 export type OrderActionFailure =
   | { kind: 'unknown_order'; message: string }
@@ -47,6 +48,15 @@ export async function applyOrderAction(
    * whoever is on shift, and nobody is a permanent, honest null.
    */
   staffId?: string | null,
+  /**
+   * The refund processor, for the attempt a cancelled paid order triggers
+   * (PRD 3 P0-4, C-067).
+   *
+   * A default parameter and nothing more. The db test and the e2e fixture hand
+   * in one that throws, so the failure path is exercised through THIS function
+   * rather than around it; no other caller passes it.
+   */
+  refundProvider: RefundProvider = mockRefundProvider,
 ): Promise<OrderActionResult> {
   const current = await prisma.order.findUnique({
     where: { id: orderId },
@@ -76,11 +86,12 @@ export async function applyOrderAction(
     };
   }
 
-  // The engine decided whether the money goes back — it pushed the `refund`
-  // event, and that event IS the decision (P1-8). The column follows the log
-  // rather than re-deriving the rule here, so there is one place that knows
-  // when a cancellation refunds and one place that knows what it cost.
-  const refunded = decision.events.some((event) => event.kind === 'refund');
+  // The engine decided whether the money goes back — it pushed a
+  // `refund_requested`, and that event IS the decision (P0-4). What it is NOT
+  // is the refund: `paymentState` no longer moves here, because a column
+  // saying `refunded` before anybody has called a processor is the defect this
+  // item exists to remove. The attempt happens below, after the commit.
+  const refundRequested = decision.events.some((event) => event.kind === 'refund_requested');
 
   const order = await prisma.$transaction(async (tx) => {
     const guard = await tx.order.updateMany({
@@ -88,7 +99,6 @@ export async function applyOrderAction(
       data: {
         status: decision.status,
         statusChangedAt: now,
-        ...(refunded && { paymentState: 'refunded' as const }),
         ...(action.kind === 'cancel' && {
           cancelReason: action.reason,
           cancelNote: action.note ?? null,
@@ -118,6 +128,22 @@ export async function applyOrderAction(
 
     return tx.order.findUniqueOrThrow({ where: { id: orderId }, ...ORDER_RECEIPT });
   });
+
+  // OUTSIDE the transaction, and only once it committed (P0-4): the status
+  // change and the refund attempt are not one atomic write because they are not
+  // one fact. The failure mode this ordering chooses is deliberate — a refund
+  // that fails leaves a cancelled order and an entry on the exceptions list,
+  // where the atomic version would roll the cancellation back and leave the
+  // counter looking at an order they just cancelled. C-062's argument about
+  // the shelf write, on money.
+  //
+  // NO STAFF ID: the cook cancelled, the system sent. Retrying is the tap that
+  // gets a name on it, from the receipt.
+  //
+  // The result is deliberately not returned to the caller. A refusal here is
+  // never the cancellation's refusal — the cancellation worked — and the one
+  // outcome a person has to act on is on a list built for it.
+  if (order && refundRequested) await settleRefund(orderId, now, null, refundProvider);
 
   return order
     ? { ok: true, order }

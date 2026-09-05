@@ -5842,3 +5842,143 @@ rather than the first.
   identity from the order's columns; a phone number typed INTO a note is text
   in an append-only log and the sweep does not touch it. Worth naming now that
   there is a free-text field on a screen where staff know the customer's name.
+
+## C-067 — A refund that can fail (PRD 3 P0-4)
+
+The systems review's finding, and it is about a state rather than a feature:
+`PaymentState` holds three terminal facts — `unpaid`, `paid`, `refunded` — and
+none of them is *we tried*. What shipped underneath that was worse than the
+missing state. Cancelling a paid order pushed a `refund` event **inside the
+cancellation's own transaction** and set `paymentState = 'refunded'` beside it,
+with no processor called and nothing that could fail. The product recorded a
+completed refund on the strength of having decided to make one.
+
+**Built:**
+- **Two event kinds, one migration file, no CHECK touched.**
+  `refund_requested` is written inside the cancellation — deciding to refund
+  *is* part of cancelling a paid order — and `refund_failed` is written when an
+  attempt comes back refused. Neither carries an amount, which is what keeps
+  them on the "must not" side of `order_event_amount_matches_kind` for free and
+  makes this one file where C-065's was two. `refund` keeps its place on the
+  other side and now means what its name says: it is only written after a
+  provider has answered.
+- **`packages/db/refund.ts` — `settleRefund`, the one attempt, two callers.**
+  The automatic attempt after a cancellation and the staff tap on a failed one
+  run the same function with the same key. A retry path that differs from the
+  path that failed is a second thing to get right, and the one that gets
+  exercised least.
+- **The provider is a default parameter.** `RefundProvider` is
+  `(idempotencyKey, amountCents) => Promise<string>`; it resolves with the
+  reference or it throws. The db test hands in one that throws, the e2e fixture
+  hands in the same through `applyOrderAction`'s own default parameter, and
+  nothing in the product ever passes it. That is the whole of the dependency
+  injection this needed — no module, no registry, no environment variable.
+- **`deriveRefundState` and `refundNeedsAttention` in `packages/core`.** Pure,
+  over the same events the balance is summed from. One predicate answers "does
+  this order still owe money" for the receipt's panel and for the exceptions
+  query, so the screen and the list cannot disagree.
+- **The exceptions list, above the search on `/kitchen/orders`.** Unfiltered
+  and unbounded by any window: a customer whose card was never credited appears
+  in no other list, on any day, under any status, and a refund that failed on
+  Friday is still owed on Monday.
+- **A retry on the staff receipt**, and the customer's status page reading
+  `Refund pending — $11.85 coming back` instead of `Paid`.
+
+**Decided:**
+- **The split is by FACT, not by tidiness.** Deciding to refund is part of the
+  cancellation and belongs in its transaction. Sending the money is a network
+  call to somebody else's server and belongs outside every transaction — a
+  provider that takes nine seconds otherwise holds a row lock for nine seconds.
+  The failure mode this ordering chooses is deliberate: a refund that fails
+  leaves a cancelled order and an exceptions entry, where the atomic version
+  would roll the cancellation back and leave the counter looking at an order
+  they have already told the customer about. C-062's shelf-write argument, on
+  money.
+- **The idempotency key is the request event's own row id.** It is a uuid, it
+  is unique because it is a primary key, and it is durable *before* the first
+  provider call is made. A second key column with a second unique index would
+  be a second thing to keep true; the constraint that already exists is the
+  cheapest true one. Every attempt against a request presents it, which is
+  asserted rather than described — the retry test compares the keys the failing
+  stub saw against the keys the working one saw.
+- **The amount is recomputed at every attempt and frozen nowhere.** What is
+  refundable is what the restaurant is holding — `orderBalance`'s
+  `collectedCents`, read from the order's own log at the moment of the attempt.
+  Two consequences, both wanted: a comp or a counter payment landing between the
+  request and the retry cannot make a stored figure stale, and a duplicate
+  attempt after a success refunds **zero** rather than twice, because the first
+  refund is in the sum it reads. The server-is-the-price-authority rule, applied
+  to money going the other way.
+- **`refundState` is derived and NOT cached on `Order`.** `paymentState` earned
+  its cache because eleven screens read it on every render; this is read by one
+  screen and bounded by the number of cancelled paid orders, which is a handful
+  a week. A third column that can disagree with the events, for no query it
+  makes cheaper, is the cache nobody asked for.
+- **`deriveRefundState` reads by PRECEDENCE, not by order.** The obvious version
+  takes the last refund-ish event, and "last" needs an ordering `ORDER_RECEIPT`
+  does not impose — worse, a retry that succeeds in the same millisecond as the
+  failure before it shares an instant with it, which every test with a frozen
+  `now` does by construction. A `refund` on the order means the money went back,
+  whatever failed under it. The test asserts the property by reversing the array.
+- **A `requested` that never settled is on the exceptions list too.** A process
+  that died mid-call leaves money owed with nothing chasing it, and it looks
+  exactly like nothing having happened. Both unsettled states come from one
+  predicate rather than two conditions on two screens.
+- **The retry gets a name on it; the automatic attempt does not.** `eventRow`'s
+  comment has parked this since C-086 — the cook who cancelled did not decide to
+  send the money, so their name on the refund the engine triggered would be a
+  name on a row they did not write. A retry is somebody's deliberate tap on a
+  money control, which is the row PRD 6 P0-2 most wants a name on. Asserted both
+  ways in one test.
+- **The customer is told the money is coming, never why it has not arrived.**
+  Whether a processor said no is the restaurant's problem; the customer's only
+  question is whether they are getting their money back. Checked before the
+  payment state, so a failed attempt structurally cannot render as "Refunded".
+
+**Found:**
+- **The new kinds had to go at the END of `ORDER_EVENT_KINDS`, not beside
+  `refund` where they read best.** `snapshot.test.ts` compares the engine's
+  array against `pg_enum` position for position, and `ALTER TYPE ... ADD VALUE`
+  appends. The readable placement failed immediately, which is the vocabulary
+  test doing its job — C-057 bought a `BEFORE` clause to keep that alignment
+  because `CANCEL_REASONS` renders in array order; nothing renders these, so the
+  right answer here is the plain append and a comment saying the position is
+  load-bearing.
+- **A spec that shared a name with the seed asserted against the wrong order.**
+  The refund e2e used "Sam Okafor", which is one of the four seeded customers.
+  `card()` and the history links both end in `.first()`, so nothing throws on a
+  duplicate — the spec silently picks whichever order is higher up the page.
+  The cancel landed on the right one (the new order sorts into "New", above the
+  seed's "Accepted") and the assertion that the card was gone then failed on the
+  seed's card, which had never moved. It reads exactly like a broken cancel and
+  is a broken locator. The lesson is not about this spec: **`.first()` turns a
+  strict-mode violation into a coin flip**, and the four seeded names are a
+  reserved list every spec that places its own order has to avoid.
+- **C-085's parked comment came due.** `time-in-state.ts` said `refund` was the
+  odd money event out — the engine gave it the `cancelled` it accompanied — and
+  named PRD 3 as where that would be settled. It settled itself: the engine no
+  longer writes a refund at all, and the one it does write is a decision with
+  null statuses. The rule that comment describes now has no exception, and
+  `payment.test.ts` asserts both money events rather than one.
+
+**Left behind:**
+- **A refund still cannot be issued on purpose.** The only thing that requests
+  one is cancelling a paid order. A comp on an order that already paid still
+  reads as a zero balance rather than as money owed back — C-065 named this as
+  C-067's to make expressible, and this item made it *expressible* without
+  shipping the control: `settleRefund` sends what the restaurant is holding, and
+  a manual refund needs a form, a bound, and its own refusal. It is the next
+  money item, with the reversing adjustment C-065 and C-066 both deferred.
+- **The attempt is awaited inside the cancel action.** A provider that hangs
+  hangs the button, even though the cancellation itself has already committed.
+  There is no timeout and no background job — a real processor gets both, and
+  the mock cannot motivate either.
+- **A partial refund has no way in.** `deriveRefundState` assumes one refund per
+  order, which holds because only a cancellation requests one. Anything partial
+  needs the attempts linked back to their requests, and this function is where
+  that would first be noticed.
+- **The report says nothing about it.** Money still held on a cancelled order is
+  neither revenue nor outstanding, so the only screen that knows about it is the
+  exceptions list. That is the same gap PRD 3 P1-3's comps line is for.
+- **Nothing retries on its own, and nothing ages.** A failed refund sits on the
+  list looking identical on day one and day nine.

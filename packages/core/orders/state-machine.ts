@@ -75,6 +75,10 @@ export const ORDER_EVENT_KINDS = [
   'transition',
   'revert',
   'total_mismatch',
+  /** Money going back, and it MEANS the money went back (PRD 3 P0-4, C-067).
+   *  Written only after the provider said yes — before this item the engine
+   *  pushed it inside the cancellation's own transaction, which recorded a
+   *  refund nobody had attempted. */
   'refund',
   /** Money arriving (C-085). The mirror of `refund`, and added for the same
    *  reason that one exists: a payment is something that HAPPENED, at a time,
@@ -98,6 +102,24 @@ export const ORDER_EVENT_KINDS = [
    *  arriving 7:40" after "no answer"). Append-only is the whole feature: a
    *  note never overwrites the note before it. */
   'note',
+  // AT THE END, and the position is load-bearing rather than tidy: the
+  // vocabulary test in `snapshot.test.ts` compares this array against
+  // `pg_enum` position for position, and `ALTER TYPE ... ADD VALUE` appends.
+  // Reading better beside `refund` would have cost a `BEFORE` clause in the
+  // migration to buy nothing — unlike `CANCEL_REASONS`, nothing renders these
+  // in array order.
+  /** The restaurant owes this money back and has not sent it yet (PRD 3 P0-4,
+   *  C-067). Written INSIDE the cancellation, because deciding to refund is
+   *  part of cancelling a paid order; the attempt that follows is a separate
+   *  fact and a separate write. Its own row id is the idempotency key every
+   *  attempt against it carries, so a retry cannot double-refund. */
+  'refund_requested',
+  /** We tried and the provider refused (PRD 3 P0-4, C-067). The state the
+   *  product could not express: three terminal facts and none of them was "we
+   *  tried". Carries no amount — nothing moved — and the provider's own words
+   *  go in `detail.note`, where `readNote` already lifts them onto the
+   *  receipt. A retry appends another one, or a `refund` above it. */
+  'refund_failed',
 ] as const;
 export type OrderEventKind = (typeof ORDER_EVENT_KINDS)[number];
 
@@ -688,18 +710,35 @@ export function applyTransition(
           ...(action.note && { detail: { note: action.note } }),
         },
       ];
-      // The mock provider's refund record (P0-4). It is an event, not a
-      // column: refunding is something that happened at a time, by someone.
+      // The money has to go back — and that is ALL this says (PRD 3 P0-4,
+      // C-067). Until this item the engine pushed a `refund` here, inside the
+      // cancellation's own transaction, which recorded a completed refund that
+      // nobody had attempted: no provider was called, nothing could fail, and
+      // `paymentState` went to `refunded` on the strength of it. The requirement
+      // is that the status change and the refund attempt are not one atomic
+      // write, BECAUSE THEY ARE NOT ONE FACT. Deciding is part of cancelling;
+      // sending is what happens next and is allowed to fail.
+      //
+      // NO AMOUNT, deliberately, and it is the price-authority rule rather than
+      // an omission: what is refundable is what the restaurant is actually
+      // holding, which `orderBalance` computes from this same log at the moment
+      // of the attempt. An amount frozen here would be a number a later comp,
+      // payment or partial refund could make wrong — and the recomputation is
+      // also what makes a duplicate attempt refund zero rather than twice.
+      //
+      // Null on both statuses, like `payment` and `adjustment`: money marks the
+      // timeline, it does not divide it. The old `refund` draft carried the
+      // cancellation's statuses and `time-in-state.ts` has had a comment since
+      // C-085 saying that was the odd one out and that PRD 3 was where it got
+      // settled. This is that.
       if (order.paymentState === 'paid') {
         events.push({
           at: now,
-          kind: 'refund',
-          fromStatus: from,
-          toStatus: 'cancelled',
+          kind: 'refund_requested',
+          fromStatus: null,
+          toStatus: null,
           actor: 'system',
           reason: action.reason,
-          amountCents: order.totalCents,
-          detail: { amountCents: order.totalCents, provider: 'mock' },
         });
       }
       return { ok: true, status: 'cancelled', events };

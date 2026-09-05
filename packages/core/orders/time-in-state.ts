@@ -17,18 +17,16 @@ import { isTerminal, ORDER_STATUSES, type OrderStatus } from './state-machine';
 export type StatusEvent = {
   at: Date;
   /**
-   * Null on events that did not move the order — `total_mismatch` and
-   * `payment`. They are skipped: they mark the timeline, they do not divide
-   * it.
+   * Null on every event that did not move the order — `total_mismatch`,
+   * `payment`, `adjustment`, `note` and all three refund kinds. They are
+   * skipped: they mark the timeline, they do not divide it.
    *
-   * `refund` is the odd one out and this comment used to claim otherwise: the
-   * engine gives it the `cancelled` it accompanied. That is harmless today —
-   * the span it opens is zero-length because it shares an instant with the
-   * transition it follows, and `visited` is a Set so the duplicate cannot
-   * inflate an entry count — but it is inconsistent with the two kinds above,
-   * and C-085 noticed it only by asserting the property this comment
-   * promised. Left as it is rather than changed under an unrelated item;
-   * PRD 3's payment rework is where the money events get settled together.
+   * `refund` used to be the odd one out, and C-085's comment here named PRD 3
+   * as where it would be settled. C-067 settled it: the engine no longer
+   * writes a refund at all — a `refund_requested` records the decision inside
+   * the cancellation and the refund itself is written afterwards, outside the
+   * transition, once a provider has answered. Both carry null statuses, so the
+   * rule this comment describes now has no exception.
    */
   toStatus: OrderStatus | null;
 };

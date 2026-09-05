@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { derivePaymentState, orderBalance, paymentTotals, type MoneyEvent } from './payment';
+import {
+  derivePaymentState,
+  deriveRefundState,
+  orderBalance,
+  paymentTotals,
+  refundNeedsAttention,
+  type MoneyEvent,
+} from './payment';
 
 // PRD 3 P0-1 (C-063). The event stream is the truth; `Order.paymentState` is a
 // derived cache over it. These prove the derivation. That the CACHE actually
@@ -16,6 +23,11 @@ const move = (): MoneyEvent => ({ kind: 'transition', amountCents: null });
  *  other two: nothing moved, so netting it against a capture would claim the
  *  till did something it did not. */
 const adjustment = (amountCents: number): MoneyEvent => ({ kind: 'adjustment', amountCents });
+/** The refund's own two kinds (C-067). Neither carries an amount: a request is
+ *  a decision and a failure is a non-event, and the database's CHECK says the
+ *  same thing. */
+const requested = (): MoneyEvent => ({ kind: 'refund_requested', amountCents: null });
+const failed = (): MoneyEvent => ({ kind: 'refund_failed', amountCents: null });
 
 describe('paymentTotals', () => {
   it('sums each direction separately, never nets them into one number', () => {
@@ -136,5 +148,60 @@ describe('orderBalance', () => {
       collectedCents: 3000,
       outstandingCents: 420,
     });
+  });
+});
+
+// PRD 3 P0-4 (C-067). The state `PaymentState` could not hold — three terminal
+// facts and none of them "we tried". These prove the derivation; that the real
+// write paths produce these event sequences is proved in packages/db.
+describe('deriveRefundState', () => {
+  it('is null when nobody ever asked for one', () => {
+    expect(deriveRefundState([payment(3420), move()])).toBeNull();
+  });
+
+  it('is requested once the cancellation recorded the debt', () => {
+    expect(deriveRefundState([payment(3420), requested()])).toBe('requested');
+  });
+
+  it('is failed once an attempt came back refused', () => {
+    expect(deriveRefundState([payment(3420), requested(), failed()])).toBe('failed');
+  });
+
+  it('is succeeded once the money actually went back', () => {
+    expect(deriveRefundState([payment(3420), requested(), refund(3420)])).toBe('succeeded');
+  });
+
+  // THE PROPERTY THAT MAKES THIS SAFE. The obvious version reads the last
+  // refund-ish event, and "last" needs an ordering the receipt's event select
+  // does not impose — worse, a retry that succeeds in the same millisecond as
+  // the failure before it shares an instant with it, which every test with a
+  // frozen `now` does by construction. Precedence has no such tie.
+  it('reads succeeded whatever order a retry lands in', () => {
+    const events = [payment(3420), requested(), failed(), refund(3420)];
+    expect(deriveRefundState(events)).toBe('succeeded');
+    expect(deriveRefundState([...events].reverse())).toBe('succeeded');
+  });
+
+  it('reads failed after a second attempt also failed', () => {
+    expect(deriveRefundState([payment(3420), requested(), failed(), failed()])).toBe('failed');
+  });
+
+  // The enum stays honest through all of it: a refund that has not landed is
+  // money the restaurant is still holding, so the customer-facing copy says
+  // `paid` and never `refunded` (P0-4's third bullet).
+  it('leaves the payment state alone until the money is actually back', () => {
+    expect(derivePaymentState([payment(3420), requested(), failed()])).toBe('paid');
+    expect(derivePaymentState([payment(3420), requested(), refund(3420)])).toBe('refunded');
+  });
+});
+
+describe('refundNeedsAttention', () => {
+  // One predicate for the exceptions query and the receipt's panel, so the
+  // screen and the list cannot disagree about which orders still owe money.
+  it('names both unsettled states and neither settled one', () => {
+    expect(refundNeedsAttention('requested')).toBe(true);
+    expect(refundNeedsAttention('failed')).toBe(true);
+    expect(refundNeedsAttention('succeeded')).toBe(false);
+    expect(refundNeedsAttention(null)).toBe(false);
   });
 });

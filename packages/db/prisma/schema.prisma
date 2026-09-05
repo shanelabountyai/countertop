@@ -119,8 +119,31 @@ enum OrderEventKind {
   revert
   /// P0-2: what the client claimed vs. what the server computed.
   total_mismatch
-  /// P0-4: the mock provider's refund record for a cancelled paid order.
+  /// P0-4: money going back — and after C-067 it MEANS the money went back.
+  /// Written only once the provider has said yes, outside the status
+  /// transaction, so a refund row is evidence rather than an intention.
   refund
+  /// PRD 3 P0-4 (C-067): the restaurant owes this money back and has not sent
+  /// it yet. Written inside the cancellation — deciding to refund is part of
+  /// cancelling a paid order — while the attempt that follows is a separate
+  /// fact and a separate write, because they are not one fact and must not be
+  /// one atomic write.
+  ///
+  /// Its own row `id` is the refund's idempotency key: every attempt against
+  /// this request carries it to the provider, so a retry after a lost response
+  /// cannot pay the customer twice. The unique constraint behind it is the
+  /// primary key, which is the cheapest true one available.
+  ///
+  /// Carries NO amount. What is refundable is what the restaurant is holding,
+  /// recomputed by `orderBalance` at the moment of each attempt — an amount
+  /// frozen here is one a later comp or payment can make wrong.
+  refund_requested
+  /// PRD 3 P0-4 (C-067): we tried and the provider refused. The state
+  /// `PaymentState` cannot hold — its three values are terminal facts and none
+  /// of them is "we tried". Carries no amount because nothing moved; the
+  /// provider's own words go in `detail.note`, which `readNote` already lifts
+  /// onto the receipt. A retry appends another one of these, or a `refund`.
+  refund_failed
   /// PRD 6 P0-3 (C-085): money arriving, with its instant and its amount. The
   /// mirror of `refund`. Before it, an order collected at the counter had a
   /// `paymentState` of `paid` and nothing anywhere saying when.

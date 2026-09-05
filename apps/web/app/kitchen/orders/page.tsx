@@ -5,9 +5,10 @@
 // order last week" moment works before hydration, and the result is a URL a
 // second screen can be opened on.
 import Link from 'next/link';
-import { formatOrderNumber } from '@countertop/core';
+import { formatOrderNumber, orderBalance } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
 import { searchOrderHistory } from '@countertop/db/history';
+import { loadRefundExceptions } from '@countertop/db/refund';
 import { formatCents } from '@/lib/money';
 import { formatPlacedAt } from '@/lib/format-time';
 import { STATUS_LABEL } from '@/lib/status-labels';
@@ -25,9 +26,10 @@ export default async function OrderHistoryPage({
   const { q, day: dayParam } = await searchParams;
   const query = q ?? '';
   const day = dayParam ?? '';
-  const [gateState, orders] = await Promise.all([
+  const [gateState, orders, refundExceptions] = await Promise.all([
     loadGateState(new Date()),
     searchOrderHistory(query, day),
+    loadRefundExceptions(),
   ]);
 
   // `seq` recurs every business day, so a bare number legitimately matches
@@ -50,6 +52,61 @@ export default async function OrderHistoryPage({
       <p className="mt-1 text-neutral-600">
         Every order, any status, any day — for the receipt a live queue search can no longer find.
       </p>
+
+      {/* Refunds that need a person (PRD 3 P0-4, C-067).
+          ABOVE THE SEARCH AND OUTSIDE IT, deliberately. This is the one screen
+          in the product that knows about an order after the queue has finished
+          with it, and money the restaurant owes and has not sent is not
+          something anybody is going to think to search for — a customer whose
+          card was never credited does not appear in any other list, on any day,
+          under any status. It is also not bounded by the report's window: a
+          refund that failed on Friday is still owed on Monday.
+
+          Unfiltered by the form below for the same reason: narrowing the
+          exceptions to whatever somebody happened to type would hide the ones
+          they did not. */}
+      {refundExceptions.length > 0 && (
+        <section
+          data-testid="refund-exceptions"
+          className="mt-6 rounded-lg border-2 border-red-700 bg-red-50 p-4"
+        >
+          <h2 className="font-semibold text-red-900">
+            Refunds not sent ({refundExceptions.length})
+          </h2>
+          <p className="mt-1 text-sm text-red-900">
+            Money the restaurant owes back. Open the order and send it again — the same key
+            goes to the provider, so a retry cannot pay twice.
+          </p>
+          <ul className="mt-3 flex flex-col gap-2">
+            {refundExceptions.map((order) => (
+              <li key={order.id}>
+                <Link
+                  href={`/kitchen/orders/${order.id}`}
+                  className="flex min-h-14 flex-wrap items-center justify-between gap-2 rounded-lg border border-red-700 bg-white px-4 py-2 hover:border-red-900"
+                >
+                  <span className="flex items-baseline gap-3">
+                    <span className="font-semibold tabular-nums">
+                      {formatOrderNumber(order.seq)}
+                    </span>
+                    <span>{order.customerName}</span>
+                  </span>
+                  <span className="flex items-baseline gap-3 text-sm">
+                    <span className="text-neutral-600">
+                      {formatPlacedAt(order.placedAt, gateState.timezone)}
+                    </span>
+                    {/* What is still held, not the order total: a comp or a
+                        partial refund in between makes those two different
+                        numbers, and this list is about the money. */}
+                    <span className="font-semibold tabular-nums text-red-900">
+                      {formatCents(orderBalance(order).collectedCents)} owed
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <form className="mt-6 flex flex-wrap gap-2">
         <label className="flex flex-1 flex-col gap-1">

@@ -27,6 +27,7 @@
     "./gate": "./gate.ts",
     "./transitions": "./transitions.ts",
     "./payment": "./payment.ts",
+    "./refund": "./refund.ts",
     "./adjustment": "./adjustment.ts",
     "./remake": "./remake.ts",
     "./staff": "./staff.ts",

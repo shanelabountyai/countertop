@@ -30,6 +30,7 @@ import { appendOrderNote } from '@countertop/db/history';
 import { forgetOrderCustomer } from '@countertop/db/retention';
 import { remakeOrder } from '@countertop/db/remake';
 import { collectOrderPayment } from '@countertop/db/payment';
+import { settleRefund } from '@countertop/db/refund';
 import { setShelfLocation } from '@countertop/db/queue';
 import { isStaffPin, staffByPin } from '@countertop/db/staff';
 import { cookies } from 'next/headers';
@@ -396,6 +397,46 @@ export async function redeemRewardForm(formData: FormData): Promise<void> {
 
   // The subtree, for the same reason the adjustment revalidates it: a
   // redemption is an adjustment, so the queue card's "still owed" moved too.
+  revalidatePath('/kitchen', 'layout');
+  redirect(back);
+}
+
+/**
+ * Send a refund that has not landed (PRD 3 P0-4, C-067).
+ *
+ * THE ORDER ID IS THE ONLY INPUT, like the redemption's. There is no amount
+ * here for a hand-crafted POST to inflate: `settleRefund` recomputes what the
+ * restaurant is holding from the order's own log, and the idempotency key it
+ * sends is the request event's row id, which no caller can choose. The server
+ * is the price authority applied to money going the other way.
+ *
+ * The same function the automatic attempt runs, not a second one — a retry
+ * path that differs from the path that failed is a second thing to get right,
+ * and the one that gets exercised least.
+ *
+ * WHO tapped it comes from the shift cookie and is stamped on the event. This
+ * is the one attempt somebody decided to make, which is exactly the row PRD 6
+ * P0-2 exists to put a name on; the automatic attempt passes null and stays
+ * `system`.
+ *
+ * Every refusal is echoed. All six messages are strings written in
+ * `settleRefund` or composed from a provider's reply, and none of them quotes
+ * anything this caller supplied.
+ */
+export async function retryRefundForm(formData: FormData): Promise<void> {
+  const orderId = formData.get('orderId');
+  if (typeof orderId !== 'string' || orderId === '') {
+    return redirect('/kitchen/orders');
+  }
+  const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
+
+  const result = await settleRefund(orderId, new Date(), await currentShiftId());
+  if (!result.ok) {
+    return redirect(`${back}?refundError=${encodeURIComponent(result.message)}`);
+  }
+
+  // The subtree: a settled refund takes the order off the exceptions list on
+  // the history page as well as changing this receipt's own payment line.
   revalidatePath('/kitchen', 'layout');
   redirect(back);
 }

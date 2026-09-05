@@ -340,7 +340,12 @@ describe('cancellation', () => {
     expect(result.events[0]?.detail).toEqual({ note: 'no carnitas left' });
   });
 
-  it('writes a mock refund record when the order was paid', () => {
+  // C-067 rewrote what this asserts, and the rewrite IS the requirement: the
+  // engine records that the money is owed, and records nothing about it having
+  // gone anywhere. The old version expected a `refund` event with an amount on
+  // it — a completed refund, written inside the cancellation's transaction,
+  // before any processor had been asked.
+  it('records that a refund is owed when the order was paid — and claims nothing more', () => {
     const result = applyTransition(
       order('preparing', { paymentState: 'paid', totalCents: 2_350 }),
       { kind: 'cancel', actor: 'staff', reason: 'too_busy' },
@@ -348,12 +353,20 @@ describe('cancellation', () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.events.map((e) => e.kind)).toEqual(['transition', 'refund']);
+    expect(result.events.map((e) => e.kind)).toEqual(['transition', 'refund_requested']);
     expect(result.events[1]).toMatchObject({
       at: NOW,
       actor: 'system',
-      detail: { amountCents: 2_350, provider: 'mock' },
+      reason: 'too_busy',
+      // Null on both, like every other money event: it marks the timeline, it
+      // does not divide it.
+      fromStatus: null,
+      toStatus: null,
     });
+    // NO AMOUNT. What is refundable is recomputed from the log at the moment of
+    // the attempt, so a comp landing in between cannot make a frozen figure
+    // wrong — and a duplicate attempt refunds zero rather than twice.
+    expect(result.events[1]?.amountCents).toBeUndefined();
   });
 
   it('writes no refund for an unpaid order', () => {
