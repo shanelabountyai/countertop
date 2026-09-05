@@ -432,6 +432,10 @@ test('the punch card is invisible on the sales report (P0-6)', async ({ page }) 
   await adjustLoyaltyPoints(90);
   await openReceipt(page, 'Ivy Castellanos');
   await page.getByTestId('redeem-reward').click();
+  // Same reason as menu-editing's snapshot test: everything below is a
+  // `toHaveCount(0)`, so a redemption that never landed passes this test
+  // without proving anything.
+  await expect(page.getByTestId('redeem-reward')).toHaveCount(0);
 
   await page.goto('/kitchen/report?days=1');
   await expect(page.getByRole('heading', { name: 'Sales' })).toBeVisible();

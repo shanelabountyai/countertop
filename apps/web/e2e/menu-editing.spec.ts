@@ -177,6 +177,11 @@ test('an order already placed keeps the price it was placed at', async ({ page }
   // Reprice AND rename the thing it was composed from, after the fact.
   await retype(page, 'Burrito', '99.00');
   await page.getByRole('button', { name: 'Save new price for Burrito', exact: true }).click();
+  // Wait for the write to LAND before navigating (the same comment as the
+  // Guacamole test above, and this is the site that was missing it). Vacuous
+  // rather than flaky is what makes it worth fixing: the assertions below say
+  // the receipt did NOT move, and a save that never happened satisfies them.
+  await expect(page.getByRole('status')).toContainText('Burrito is now priced at $99.00');
 
   // THE SNAPSHOT RULE. The receipt is a copy; the menu row is not its source.
   await page.goto(statusUrl);

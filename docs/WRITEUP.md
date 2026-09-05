@@ -1605,6 +1605,38 @@ of what the test says. It is not in `reseed()` — `kitchen.spec.ts` calls that
 from `beforeAll`, where `test.slow()` throws, and the ordinary seed is the fast
 one anyway.
 
+### Two tests that could not fail (C-067)
+
+The staff-note test failed the pre-push hook on a loaded machine: it clicked
+*Save note* a second time and reloaded the page without waiting for the write,
+so the reload aborted the server action and the note it then asserted was never
+there. That is the defect class `e2e/fixtures.ts`'s header was written for, five
+specs on — worth a one-line fix and not worth writing up.
+
+**What was worth writing up is what the grep for it found.** Two other specs
+have the same shape — a click that triggers a server action, then a `goto` —
+and in both, everything after the navigation is a **negative** assertion:
+
+- `menu-editing.spec.ts` reprices a Burrito to $99.00 and asserts the placed
+  order's receipt still says $11.85. **This is the snapshot rule's regression
+  test**, the one CLAUDE.md names as load-bearing.
+- `loyalty.spec.ts` redeems a reward and asserts the sales report shows no
+  loyalty words at all.
+
+A flaky test is loud. These are silent: if the write loses the race, the menu
+price never changes and the receipt trivially still says $11.85; the redemption
+never happens and the report trivially mentions no rewards. **The test passes,
+and it passed *because* the thing it was testing did not happen.** Both had been
+green for weeks.
+
+**The tell is structural and greppable: an unawaited write followed by
+`toHaveCount(0)` or an unchanged-value assertion.** A positive assertion after a
+lost write fails and gets fixed the same week. A negative one is a green tick
+that means nothing, and nothing about the run says so. The fix in both is the
+idiom already in the file — assert the write landed *before* navigating — and
+the reason to record it is that the strongest invariant in the project was being
+guarded by a test that could not fail.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

@@ -572,6 +572,15 @@ test.describe('the staff note', () => {
     // that to somebody mid-rush is exactly the papercut this feature is for.
     await ticket().getByLabel('Note for the shift').fill('called, arriving 7:40');
     await ticket().getByRole('button', { name: 'Save note' }).click();
+    // Wait for the second save to land BEFORE reloading. The first save is
+    // awaited by the assertion above it; this one was not, and a reload that
+    // beats the server action loses the note it is about to assert. It passed
+    // for weeks and failed under a loaded machine — the fixtures header's
+    // defect class exactly, five specs on.
+    await expect(ticket().getByTestId('staff-note')).toHaveText([
+      /no answer/,
+      /called, arriving 7:40/,
+    ]);
 
     await page.reload();
     // Oldest first: two notes are a story, and newest-first tells it backwards.
