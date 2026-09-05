@@ -5645,3 +5645,91 @@ under it — no migration, no new engine rule, no new status.
   forward three times reads as six lines in the activity log, in order, with no
   "this happened repeatedly" flag. That is the honest rendering of an
   append-only log and it is also the one a dispute is hardest to read.
+
+## C-062 — Where the bag is (PRD 2 P0-5)
+
+The number and the name get an order to the counter. Then somebody has to find
+the physical bag, and that was a fact no screen in this product held — it lived
+in whoever put it down. One nullable column, and the interesting half of the
+item is where it is *not* allowed to appear.
+
+**Built:**
+- **`Order.shelfLocation String? @db.VarChar(16)`, and the width is the only
+  constraint worth having.** Sixteen characters holds "warmer left" and refuses
+  a sentence; a shelf label that has become a paragraph is a staff note, which
+  is P0-6's field and not this one. One additive migration, no CHECK, NULL for
+  every order that already exists — a backfill would be inventing a location
+  for food that left the building months ago.
+- **`ORDER_RECEIPT` omits it, so no reader of a placed order can render it.**
+  This is the whole answer to the snapshot tension. "Never appears on a
+  customer receipt" as a convention lasts until the next person adds a field to
+  a receipt; as a Prisma `omit` it is a TYPE that does not have the property,
+  and the customer's status page, the staff receipt and the placement
+  confirmation cannot show it even by accident. `QUEUE_ORDER` spreads only
+  `ORDER_RECEIPT.include`, so the kitchen card — the one screen that is about
+  where food physically is — still gets it, and that asymmetry is now
+  load-bearing rather than incidental.
+- **`onShelf` is a new fact on `STATUS_FACTS`, not `status === 'ready'` on two
+  screens.** The field is CAPTURED on the tap into the state and DISPLAYED
+  while the order is in it — two readers, on the page whose whole discipline is
+  that no screen spells a status out. The compiler asked all seven states to
+  answer; `ready` is the only `true`. P1-1's "waiting at counter" joins both
+  surfaces by setting the fact.
+- **`setShelfLocation` is the one writer, and it truncates rather than
+  refusing.** Two call sites — the ready tap and the edit afterwards — one
+  normalisation rule (trim, cap, empty means cleared). The truncation is
+  deliberately the opposite of how this repo treats a money bound: the
+  precedent is `setOrderingPaused`'s pause message, and the reason is the same
+  — a free-text operational label typed mid-rush, whose only rule is the column
+  width, and a cook who gets an error instead of a shelf note writes the shelf
+  on their hand.
+
+**Decided:**
+- **The shelf write is NOT in the transition's transaction, deliberately.** The
+  atomic version has the wrong failure mode: a failed shelf write would roll
+  back the ready transition, and the screen would say cooked food is not
+  cooked. Written after, the worst case is a ready order with no shelf note —
+  self-correcting, because the card it lands on carries the edit control by
+  requirement. C-101's argument about enrolment and placement, with the sides
+  the other way round.
+- **The chip is bordered, not filled.** Red is the aging alarm, amber is money
+  and notes, sky is new and matched. A fourth filled colour on this card is a
+  fourth thing shouting; the shelf is loud by SIZE (`text-2xl`, asserted in
+  pixels), which is the right axis for a label read across a pass.
+- **The input sits above the advance button and never blocks it.** "Food is
+  ready" is the one control on this screen that must not wait for a text field.
+  Blank marks the order ready with no shelf, which is exactly what happens
+  today.
+- **No event is written for a shelf edit.** It is a mutable operational field,
+  not something that happened to the order; logging every correction would grow
+  the append-only log the reports read for a fact that is meaningless an hour
+  later.
+
+**Found:**
+- **The requirement's two render surfaces are one surface now.** P0-5 asks for
+  the shelf "on the Ready card and in the walk-up lookup result", which was two
+  places when the lookup filtered the board. C-059 made the lookup mark cards
+  in place, so the result IS the card. One render satisfies both, and the e2e
+  asserts it found twice rather than pretending there are two components.
+- **The strong test and the visible test are different tests.** The e2e's
+  "the customer status page contains no such string" would pass even without
+  the `omit`, because nothing renders the column either way. The assertion that
+  actually holds the line is in `snapshot.test.ts`, comparing the CUSTOMER'S
+  OWN loader byte for byte across set → move → clear — verified by commenting
+  the `omit` out, where it fails and the other twelve cases stay green.
+
+**Left behind:**
+- **Nothing clears the shelf when the order is collected.** A picked-up order
+  keeps whatever label it had, invisibly, until retention forgets it. Harmless
+  (no surface reads it off the queue) and worth naming, because "where the food
+  is" on an order that left is a stale fact by definition.
+- **The label is free text, per the requirement, so "shelf 3" and "Shelf 3" are
+  two shelves.** The PRD's open question — free text or a picker from
+  configured slots — is answered by its own P0 bullet, and the picker's cost is
+  a settings screen that goes stale the day somebody adds a warmer.
+- **No reverse lookup.** "Whose is the bag on shelf 3?" is P1-2 and needs the
+  search to read this field; today the Find box searches name and number only.
+- **A shelf edit races nothing and is last-write-wins.** Two counters typing
+  different shelves at once produce whichever saved second, with no refusal —
+  correct for a label describing one physical object, and a genuinely different
+  answer from every other write on this screen.

@@ -56,11 +56,11 @@ The product is excellent up to the moment the food is cooked and completely abse
 - [x] Test: abandon an order, revert it from the receipt at T+30 minutes, assert it is `ready` and on the queue, and assert the event log holds transition → transition → revert with nothing removed
 
 **P0-5: Where the bag is** *(OPS 6)*
-- [ ] The `ready` transition captures an optional **shelf location** (free text, ≤16 chars: "shelf 3", "warmer left"), entered on the same tap that marks the order ready
-- [ ] It renders in large type on the Ready card and in the walk-up lookup result — the two places a person is holding a bag
-- [ ] It is editable afterwards from the card, because the bag moves
-- [ ] It is a **live operational field, not part of the order snapshot**: it describes where the food is now, not what was ordered. It never appears on a customer-facing receipt and never enters a report
-- [ ] Test: mark an order ready with "shelf 3", assert the string renders on the Ready card at the queue's minimum type size and in the lookup result
+- [x] The `ready` transition captures an optional **shelf location** (free text, ≤16 chars: "shelf 3", "warmer left"), entered on the same tap that marks the order ready
+- [x] It renders in large type on the Ready card and in the walk-up lookup result — the two places a person is holding a bag
+- [x] It is editable afterwards from the card, because the bag moves
+- [x] It is a **live operational field, not part of the order snapshot**: it describes where the food is now, not what was ordered. It never appears on a customer-facing receipt and never enters a report
+- [x] Test: mark an order ready with "shelf 3", assert the string renders on the Ready card at the queue's minimum type size and in the lookup result
 
 **P0-6: Somebody can write on the ticket** *(OPS 3)*
 - [ ] A staff note control on the queue card and the staff receipt, appended to the append-only event log with its instant and actor, never overwriting a previous note

@@ -39,6 +39,22 @@ import { loadMenu } from './menu';
  * snapshot rule quietly stops holding.
  */
 export const ORDER_RECEIPT = {
+  /**
+   * Where the bag is, structurally out of reach (PRD 2 P0-5, C-062).
+   *
+   * `shelfLocation` is the one mutable column on `Order` and the requirement
+   * says it never appears on a customer-facing receipt. "Nobody renders it" is
+   * a convention that lasts until the next person adds a field to a receipt;
+   * omitting it here means the TYPE does not have it, so the customer's status
+   * page, the staff receipt and the placement confirmation cannot render it
+   * even by accident — and the snapshot regression test's byte-identical
+   * assertion goes on holding across a shelf edit by construction rather than
+   * by remembering to check.
+   *
+   * `QUEUE_ORDER` spreads only `.include`, so the kitchen card — the one
+   * screen that is about where the food physically is — still gets it.
+   */
+  omit: { shelfLocation: true },
   include: {
     lines: {
       orderBy: { lineNumber: 'asc' },

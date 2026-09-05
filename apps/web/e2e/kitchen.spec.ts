@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { STAFF_AUTH_FILE } from './auth-file';
-import { card, reseed } from './fixtures';
+import { card, placeOrderFor, reseed } from './fixtures';
 
 // C-008: the kitchen queue (P0-4, P0-11).
 //
@@ -453,5 +453,87 @@ test.describe('a new order announces itself', () => {
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
       .analyze();
     expect(results.violations).toEqual([]);
+  });
+});
+
+// Where the bag is (PRD 2 P0-5, C-062).
+//
+// The operator's finding: the number and the name get an order to the counter
+// and then the counter has to find the physical bag, which is a fact no screen
+// held. The field is written on the tap that puts the food on a shelf, and it
+// is the one mutable column on a snapshot table — so half of what these assert
+// is where it does NOT appear.
+test.describe('the shelf', () => {
+  test.beforeEach(() => {
+    reseed();
+  });
+
+  test('is captured on the ready tap, read at arm\'s length, and moves with the bag', async ({
+    page,
+  }) => {
+    const link = await placeOrderFor(page, 'Ondine Marchetti');
+    await page.goto('/kitchen');
+
+    const ticket = () => card(page, 'Ondine Marchetti');
+    await ticket().getByRole('button', { name: 'Accept', exact: true }).click();
+    await ticket().getByRole('button', { name: 'Start cooking', exact: true }).click();
+
+    // Typed on the PREPARING card, before the tap — the same tap that marks it
+    // ready is the one that records where it went.
+    await ticket().getByLabel('Shelf (optional)').fill('shelf 3');
+    await ticket().getByRole('button', { name: 'Food is ready', exact: true }).click();
+
+    const shelf = ticket().getByTestId('shelf-location');
+    await expect(shelf).toHaveText('shelf 3');
+
+    // The queue's own bar: this is read across a pass by someone holding a
+    // bag, so it is asserted in pixels rather than trusted to a class name.
+    const size = await shelf.evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize));
+    expect(size).toBeGreaterThanOrEqual(18);
+
+    // The walk-up lookup. Since C-059 the result IS the marked card rather
+    // than a separate panel, so "renders in the lookup result" is the same
+    // chip found a second way — and that is the assertion worth making,
+    // because a search that dropped the shelf would be a counter answering
+    // "which bag?" with the board in front of them.
+    await page.getByRole('searchbox').fill('Ondine');
+    await page.getByRole('button', { name: 'Find' }).click();
+    await expect(ticket()).toHaveClass(/ring-4/);
+    await expect(ticket().getByTestId('shelf-location')).toHaveText('shelf 3');
+
+    // The bag moves, and the correction needs no state change.
+    await page.goto('/kitchen');
+    await ticket().getByLabel('Shelf', { exact: true }).fill('warmer left');
+    await ticket().getByRole('button', { name: 'Save shelf' }).click();
+    await expect(ticket().getByTestId('shelf-location')).toHaveText('warmer left');
+
+    // And the customer is told none of it. Where the food is sitting is the
+    // restaurant's business; it is not part of what was sold.
+    await page.goto(link);
+    await expect(page.getByText('warmer left')).toHaveCount(0);
+    await expect(page.getByText('shelf 3')).toHaveCount(0);
+  });
+
+  test('is offered only where there is a bag to put somewhere', async ({ page }) => {
+    await placeOrderFor(page, 'Bertrand Quayle');
+    await page.goto('/kitchen');
+    const ticket = () => card(page, 'Bertrand Quayle');
+
+    // A new order is not cooked; there is nothing to put on a shelf and no
+    // box asking where it went. Derived from `onShelf`, so this holds for
+    // every state that is not the one holding food.
+    await expect(ticket().getByLabel(/Shelf/)).toHaveCount(0);
+    await ticket().getByRole('button', { name: 'Accept', exact: true }).click();
+    await expect(ticket().getByLabel(/Shelf/)).toHaveCount(0);
+
+    // One state before ready, the box appears — because the next tap is the
+    // one that lands it on a shelf.
+    await ticket().getByRole('button', { name: 'Start cooking', exact: true }).click();
+    await expect(ticket().getByLabel('Shelf (optional)')).toBeVisible();
+
+    // Ready with nothing typed stays blank rather than inventing a location.
+    await ticket().getByRole('button', { name: 'Food is ready', exact: true }).click();
+    await expect(ticket().getByTestId('shelf-location')).toHaveCount(0);
+    await expect(ticket().getByLabel('Shelf', { exact: true })).toHaveValue('');
   });
 });

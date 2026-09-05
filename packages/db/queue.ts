@@ -3,7 +3,11 @@
 // One query, and the statuses it asks for come from THE status module — not a
 // list spelled out here. That is the whole point of `QUEUE_STATUSES`: adding a
 // state changes the screen without changing this file.
-import { QUEUE_STATUSES, UNDOABLE_EXIT_STATUSES } from '@countertop/core';
+import {
+  MAX_SHELF_LOCATION_LENGTH,
+  QUEUE_STATUSES,
+  UNDOABLE_EXIT_STATUSES,
+} from '@countertop/core';
 import { Prisma, prisma } from './index';
 import { ORDER_RECEIPT } from './placement';
 
@@ -105,5 +109,30 @@ export function loadRecentlyFinished(): Promise<QueueOrder[]> {
     orderBy: { statusChangedAt: 'desc' },
     take: 10,
     ...QUEUE_ORDER,
+  });
+}
+
+/**
+ * Where the bag is (PRD 2 P0-5). THE ONE WRITER of `shelfLocation`.
+ *
+ * Two call sites — the tap that marks an order ready, and the edit afterwards
+ * because a bag gets moved — and one function, so the normalisation rule
+ * cannot end up stated twice and differently. Trim, cap, and an empty string
+ * means cleared rather than a row holding `""`.
+ *
+ * TRUNCATED, NOT REFUSED, which is the opposite of how this repo treats a
+ * money bound. The precedent is `setOrderingPaused`'s pause message, and the
+ * reason is the same: this is a free-text operational label typed mid-rush,
+ * the column width is the only rule there is, and a cook who gets an error
+ * instead of a shelf note writes the shelf on their hand.
+ *
+ * `updateMany`, not `update`: a card open on a second screen naming an order
+ * that has since been deleted should change nothing, not throw at a cook.
+ */
+export async function setShelfLocation(orderId: string, input: string): Promise<void> {
+  const trimmed = input.trim();
+  await prisma.order.updateMany({
+    where: { id: orderId },
+    data: { shelfLocation: trimmed === '' ? null : trimmed.slice(0, MAX_SHELF_LOCATION_LENGTH) },
   });
 }

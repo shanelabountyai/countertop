@@ -100,6 +100,11 @@ export type PaymentState = (typeof PAYMENT_STATES)[number];
 /** Matches the `cancelNote` / `orderNote` column width. */
 export const MAX_CANCEL_NOTE_LENGTH = 140;
 
+/** Matches the `Order.shelfLocation` column width (PRD 2 P0-5). Sixteen holds
+ *  "warmer left" and refuses a sentence — a shelf label that has become a
+ *  paragraph is a staff note, which is a different field. */
+export const MAX_SHELF_LOCATION_LENGTH = 16;
+
 type StatusFacts = {
   /** The forward move an "advance" tap makes. Null where there is none. */
   next: OrderStatus | null;
@@ -117,6 +122,17 @@ type StatusFacts = {
   cancellableByCustomer: boolean;
   /** Staff closing out a no-show (P0-4). */
   abandonable: boolean;
+  /**
+   * There is a physical bag sitting somewhere (PRD 2 P0-5).
+   *
+   * A fact rather than `status === 'ready'` on two screens: the field is
+   * CAPTURED on the tap into this state and DISPLAYED while the order is in
+   * it, which is two readers, and the queue page's whole discipline is that no
+   * screen spells a status out. A second shelf-holding state — a "waiting at
+   * counter" (P1-1), a second pass — joins both surfaces by setting this, and
+   * the compiler asks every existing state to answer.
+   */
+  onShelf: boolean;
   /**
    * Which side of the sales report this order lands on (P1-1).
    *
@@ -159,6 +175,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     cancellableByStaff: true,
     cancellableByCustomer: true,
     abandonable: false,
+    onShelf: false,
     salesRole: 'in_flight',
   },
   accepted: {
@@ -173,6 +190,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     // phone call, not a button (P0-4).
     cancellableByCustomer: false,
     abandonable: false,
+    onShelf: false,
     salesRole: 'in_flight',
   },
   preparing: {
@@ -186,6 +204,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     cancellableByStaff: true,
     cancellableByCustomer: false,
     abandonable: false,
+    onShelf: false,
     salesRole: 'in_flight',
   },
   ready: {
@@ -202,6 +221,9 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     cancellableByStaff: false,
     cancellableByCustomer: false,
     abandonable: true,
+    // The one state with a bag on a shelf. Everything else is either not
+    // cooked yet or already gone (PRD 2 P0-5).
+    onShelf: true,
     salesRole: 'in_flight',
   },
   picked_up: {
@@ -216,6 +238,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     cancellableByStaff: false,
     cancellableByCustomer: false,
     abandonable: false,
+    onShelf: false,
     salesRole: 'sold',
   },
   cancelled: {
@@ -230,6 +253,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     cancellableByStaff: false,
     cancellableByCustomer: false,
     abandonable: false,
+    onShelf: false,
     salesRole: 'cancelled',
   },
   abandoned: {
@@ -242,6 +266,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
     cancellableByStaff: false,
     cancellableByCustomer: false,
     abandonable: false,
+    onShelf: false,
     salesRole: 'no_show',
   },
 };

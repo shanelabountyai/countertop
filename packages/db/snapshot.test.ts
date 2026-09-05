@@ -11,7 +11,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { adjustOrder } from './adjustment';
 import { enrolMember, redeemReward } from './loyalty';
-import { placeOrder } from './placement';
+import { findOrderByStatusToken, placeOrder } from './placement';
+import { setShelfLocation } from './queue';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
 // THE regression test this project exists to keep passing (CLAUDE.md, the
@@ -205,6 +206,56 @@ describe('the snapshot rule', () => {
     });
 
     expect(JSON.stringify(await readReceipt(id))).toBe(before);
+  });
+
+  it('is byte-identical while the bag is moved around the shelf', async () => {
+    // PRD 2 P0-5's own acceptance criterion. `shelfLocation` is the one
+    // MUTABLE column on this table, which is a genuine tension with everything
+    // above — and what resolves it is that no reader of a placed order can see
+    // it. So the comparison is made through the CUSTOMER'S OWN read, the real
+    // loader behind `/status/[token]`, rather than through this file's
+    // `RECEIPT_SHAPE`: that one selects every scalar and would go green the
+    // day `ORDER_RECEIPT` stopped omitting the column, which is the exact
+    // regression this is here to catch.
+    const id = await placeSnapshotOrder();
+    const { statusToken, totalCents, subtotalCents, taxCents } =
+      await prisma.order.findUniqueOrThrow({ where: { id } });
+    const before = JSON.stringify(await findOrderByStatusToken(statusToken));
+
+    // Set it, move it, and take it off the shelf again.
+    await setShelfLocation(id, 'shelf 3');
+    await setShelfLocation(id, 'warmer left');
+    await setShelfLocation(id, '');
+
+    expect(JSON.stringify(await findOrderByStatusToken(statusToken))).toBe(before);
+    // And nothing the customer can read ever carried the string, at any point.
+    await setShelfLocation(id, 'shelf 3');
+    expect(JSON.stringify(await findOrderByStatusToken(statusToken))).not.toContain('shelf 3');
+
+    // The money is untouched, which is the other half of the criterion.
+    const after = await prisma.order.findUniqueOrThrow({ where: { id } });
+    expect([after.subtotalCents, after.taxCents, after.totalCents]).toEqual([
+      subtotalCents,
+      taxCents,
+      totalCents,
+    ]);
+  });
+
+  it('trims a shelf label, caps it at the column width, and clears on empty', async () => {
+    const id = await placeSnapshotOrder();
+    const read = async () =>
+      (await prisma.order.findUniqueOrThrow({ where: { id } })).shelfLocation;
+
+    await setShelfLocation(id, '  shelf 3  ');
+    expect(await read()).toBe('shelf 3');
+
+    // Truncated rather than refused — the pause message's rule, not the money
+    // rules'. Seventeen characters in, sixteen stored, no error at a cook.
+    await setShelfLocation(id, 'the second warmer on the left');
+    expect(await read()).toBe('the second warme');
+
+    await setShelfLocation(id, '   ');
+    expect(await read()).toBeNull();
   });
 
   it('leaves the analytics ids dangling rather than mutating the order', async () => {

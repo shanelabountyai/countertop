@@ -10,6 +10,7 @@ import { useEffect, useState, useTransition } from 'react';
 import {
   canCollectPayment,
   CANCEL_REASONS,
+  MAX_SHELF_LOCATION_LENGTH,
   STATUS_FACTS,
   type OrderStatus,
 } from '@countertop/core';
@@ -20,6 +21,7 @@ import {
   cancelOrder,
   markOrderPaid,
   revertOrder,
+  saveShelfLocation,
   type KitchenResult,
 } from './actions';
 
@@ -42,6 +44,7 @@ export function QueueControls({
   status,
   outstandingCents,
   undoMs,
+  shelfLocation,
 }: {
   orderId: string;
   status: OrderStatus;
@@ -52,11 +55,24 @@ export function QueueControls({
   /** Milliseconds left on the undo, computed by the SERVER from the event log.
    *  A duration, not an instant — nothing here reads a clock to decide. */
   undoMs: number;
+  /** Where the bag is, on a card that is holding one (PRD 2 P0-5). The card
+   *  RENDERS it in large type; this component only edits it. */
+  shelfLocation: string | null;
 }) {
   const facts = STATUS_FACTS[status];
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState('');
   const [otherNote, setOtherNote] = useState('');
+  // What is in the shelf box right now. Seeded from the server's value and
+  // re-seeded when the server sends a different one, so a poll that lands
+  // between two taps does not overwrite what somebody is mid-way through
+  // typing — the same adjust-during-render pattern the undo countdown uses.
+  const [shelf, setShelf] = useState(shelfLocation ?? '');
+  const [shelfBaseline, setShelfBaseline] = useState(shelfLocation);
+  if (shelfLocation !== shelfBaseline) {
+    setShelfBaseline(shelfLocation);
+    setShelf(shelfLocation ?? '');
+  }
 
   // The undo hides itself when the window runs out. Adjusted DURING render on
   // a prop change (React's documented pattern) rather than in the effect: a
@@ -92,15 +108,74 @@ export function QueueControls({
           engine's `unexpected_target` refusal — which existed since C-004 and
           had never once fired from a screen — turns it into a message instead
           of a skipped state. */}
+      {/* Where the bag is GOING, typed before the tap that puts it there
+          (PRD 2 P0-5). Which card offers it is `onShelf` on the state this tap
+          leads to, never `status === 'preparing'` — a second shelf-holding
+          state joins this surface by setting the fact.
+
+          Optional, and above the button rather than blocking it: the tap that
+          marks food ready is the one control on this screen that must never
+          wait for a text field. Leaving it blank marks the order ready with no
+          shelf, which is what happens today. */}
+      {facts.next && STATUS_FACTS[facts.next].onShelf && (
+        <label className="flex flex-col gap-1">
+          <span className="text-sm font-medium">Shelf (optional)</span>
+          <input
+            value={shelf}
+            maxLength={MAX_SHELF_LOCATION_LENGTH}
+            placeholder="shelf 3"
+            onChange={(event) => setShelf(event.target.value)}
+            className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+          />
+        </label>
+      )}
+
       {facts.next && (
         <button
           type="button"
           disabled={pending}
-          onClick={() => act(() => advanceOrder(orderId, facts.next))}
+          onClick={() =>
+            act(() =>
+              // The shelf rides with the tap. It is only ever sent on the tap
+              // that lands the order on a shelf; the server ignores an empty
+              // one rather than clearing a value it was not asked about.
+              advanceOrder(
+                orderId,
+                facts.next,
+                STATUS_FACTS[facts.next!].onShelf ? shelf : undefined,
+              ),
+            )
+          }
           className="min-h-16 w-full rounded-lg bg-neutral-900 px-6 text-xl font-bold text-white disabled:opacity-60"
         >
           {ADVANCE_LABEL[status]}
         </button>
+      )}
+
+      {/* The bag moved (PRD 2 P0-5). Its own Save, because a shelf correction
+          is not a state change and must not need one — and because clearing
+          the box has to mean cleared, which a tap-to-advance cannot express. */}
+      {facts.onShelf && (
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex flex-1 flex-col gap-1">
+            <span className="text-sm font-medium">Shelf</span>
+            <input
+              value={shelf}
+              maxLength={MAX_SHELF_LOCATION_LENGTH}
+              placeholder="shelf 3"
+              onChange={(event) => setShelf(event.target.value)}
+              className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => act(() => saveShelfLocation(orderId, shelf))}
+            className="min-h-12 rounded-lg border border-neutral-400 px-4 font-semibold disabled:opacity-60"
+          >
+            Save shelf
+          </button>
+        </div>
       )}
 
       {/* Directly under the advance button, because "Picked up" is the tap

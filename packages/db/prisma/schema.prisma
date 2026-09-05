@@ -265,6 +265,21 @@ model Order {
   /// in front of this order. Without it the report can prove the quotes are
   /// wrong but not WHICH of the two P0-7 settings is wrong.
   quotedOpenWeight  Int?
+  /// WHERE THE BAG IS, RIGHT NOW (PRD 2 P0-5) — and the one mutable column on
+  /// this table that is deliberately outside the snapshot.
+  ///
+  /// Every other field here answers "what was sold": copied at placement,
+  /// write-once, and provably unmoved by a later menu edit. This one answers
+  /// "where is the food" — written after placement on the tap that marks the
+  /// order ready, edited freely afterwards because a bag gets moved, and
+  /// meaningless the moment the order is collected.
+  ///
+  /// What keeps the tension honest is that it is unreachable from every
+  /// snapshot reader rather than merely unused by them: `ORDER_RECEIPT` omits
+  /// it, so the customer's status page, the staff receipt and placement cannot
+  /// render it even by accident, and the queue read is the only shape that
+  /// carries it. No report reads it, and no price is computed from it.
+  shelfLocation   String?       @db.VarChar(16)
   paymentState    PaymentState  @default(unpaid)
   cancelReason    CancelReason?
   cancelNote      String?       @db.VarChar(140)

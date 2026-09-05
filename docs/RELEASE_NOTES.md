@@ -1850,3 +1850,22 @@ the queue is handled by the card, not here.
 **A note somebody typed finally shows up.** Cancellation notes have been
 recorded since the first week and read by nobody; they are now on the receipt
 alongside everything else.
+
+## C-062 — Which shelf the bag is on
+
+**Marking an order ready now asks where you put it.** Type "shelf 3" or "warmer
+left" before you tap — sixteen characters, optional, and skipping it works
+exactly as it did before.
+
+**It sits under the name in big type**, so the counter reads the number, the
+name and the shelf in one glance instead of asking the kitchen.
+
+**Searching for the customer shows it too.** Find "Ondine", and the card that
+lights up is carrying the answer to the question you were about to ask.
+
+**Bags move, so it is editable.** Change it on the card and save; no need to
+move the order backwards through anything.
+
+**The customer never sees it.** Where the food is sitting is the restaurant's
+business — it is not part of what was sold, it is not on any receipt, and it is
+in no report.

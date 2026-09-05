@@ -18,6 +18,7 @@ import {
   orderBalance,
   restaurantClock,
   queueAging,
+  STATUS_FACTS,
   undoRemainingMs,
 } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
@@ -274,6 +275,7 @@ export default async function KitchenPage({
                   status={order.status}
                   outstandingCents={orderBalance(order).outstandingCents}
                   undoMs={undoRemainingMs(order.status, order.events[0], now)}
+                  shelfLocation={order.shelfLocation}
                 />
               </li>
             ))}
@@ -323,6 +325,7 @@ export default async function KitchenPage({
                       </p>
                       <QueueControls
                         orderId={order.id}
+                        shelfLocation={order.shelfLocation}
                         status={order.status}
                         outstandingCents={orderBalance(order).outstandingCents}
                         undoMs={undoRemainingMs(order.status, order.events[0], now)}
@@ -402,6 +405,27 @@ export default async function KitchenPage({
                       </h3>
                       <p className="text-2xl font-semibold">{order.customerName}</p>
                     </div>
+
+                    {/* WHERE THE BAG IS (PRD 2 P0-5), directly under the name
+                        because the number, the name and the shelf are the
+                        three things said out loud at the counter and they
+                        should be read in one glance. Rendered on any card
+                        whose state `onShelf`, never on `status === 'ready'`.
+
+                        A bordered chip rather than a filled one: red is the
+                        aging alarm, amber is money and notes, sky is new and
+                        matched — a fourth filled colour on this card would be
+                        a fourth thing shouting. This one is loud by SIZE,
+                        which is the right axis for a label somebody is reading
+                        while holding a bag. */}
+                    {STATUS_FACTS[order.status].onShelf && order.shelfLocation && (
+                      <p
+                        data-testid="shelf-location"
+                        className="mt-2 w-fit rounded border-2 border-neutral-900 px-2 py-1 text-2xl font-bold"
+                      >
+                        {order.shelfLocation}
+                      </p>
+                    )}
 
                     {/* P1-8. The counter has to collect before the bag leaves,
                         and the amount is on the badge because a cook who has to
@@ -488,6 +512,7 @@ export default async function KitchenPage({
                       status={order.status}
                       outstandingCents={orderBalance(order).outstandingCents}
                       undoMs={undoMs}
+                      shelfLocation={order.shelfLocation}
                     />
                   </li>
                 );

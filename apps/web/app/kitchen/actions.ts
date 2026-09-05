@@ -28,6 +28,7 @@ import { redeemReward } from '@countertop/db/loyalty';
 import { forgetOrderCustomer } from '@countertop/db/retention';
 import { remakeOrder } from '@countertop/db/remake';
 import { collectOrderPayment } from '@countertop/db/payment';
+import { setShelfLocation } from '@countertop/db/queue';
 import { isStaffPin, staffByPin } from '@countertop/db/staff';
 import { cookies } from 'next/headers';
 import {
@@ -92,12 +93,56 @@ async function run(orderId: unknown, action: OrderAction): Promise<KitchenResult
  * engine refuses it by reason instead of advancing from wherever the order got
  * to in the meantime.
  */
-export async function advanceOrder(orderId: string, to?: unknown): Promise<KitchenResult> {
+export async function advanceOrder(
+  orderId: string,
+  to?: unknown,
+  /**
+   * Where the bag is going, typed on the card before the tap (PRD 2 P0-5).
+   *
+   * Written AFTER the transition and deliberately not inside its transaction.
+   * The atomic version has the wrong failure: a shelf write that fails would
+   * roll back the ready transition, and the screen would say food that is
+   * cooked is not. This way the worst case is a ready order with no shelf note
+   * — self-correcting, because the card it lands on carries the edit control
+   * by requirement. Same argument C-101 made for enrolment against placement,
+   * with the sides the other way round.
+   */
+  shelfLocation?: unknown,
+): Promise<KitchenResult> {
   const target = readTarget(to);
   if (target === 'invalid') {
     return { ok: false, message: 'That order could not be read. Reload the queue.' };
   }
-  return run(orderId, { kind: 'advance', actor: 'staff', ...(target ? { to: target } : {}) });
+  const result = await run(orderId, {
+    kind: 'advance',
+    actor: 'staff',
+    ...(target ? { to: target } : {}),
+  });
+  if (result.ok && typeof shelfLocation === 'string' && shelfLocation.trim() !== '') {
+    await setShelfLocation(orderId, shelfLocation);
+    revalidatePath('/kitchen');
+  }
+  return result;
+}
+
+/**
+ * The bag moved (PRD 2 P0-5).
+ *
+ * The same one writer the ready tap uses, so "shelf 3" typed at the pass and
+ * "shelf 3" corrected at the counter go through one rule. An empty string is a
+ * legitimate value here and means cleared — the order came off the shelf and
+ * is in somebody's hand.
+ */
+export async function saveShelfLocation(
+  orderId: unknown,
+  shelfLocation: unknown,
+): Promise<KitchenResult> {
+  if (typeof orderId !== 'string' || orderId === '' || typeof shelfLocation !== 'string') {
+    return { ok: false, message: 'That order could not be read. Reload the queue.' };
+  }
+  await setShelfLocation(orderId, shelfLocation);
+  revalidatePath('/kitchen');
+  return { ok: true };
 }
 
 /** The explicit, logged backward move — and the 5-second undo, which is the
