@@ -24,15 +24,22 @@ test('a pay-at-pickup order says so on the receipt and on the status page', asyn
   await expect(page.getByTestId('status-payment')).toHaveText('Pay at pickup — $11.85 due');
 });
 
+// The name was 'Sam Okafor' until C-067, which is one of the four SEEDED
+// customers — and the seed's Sam Okafor is a pay-at-pickup order. `card()` ends
+// in `.first()`, so a duplicate name is a coin flip rather than a strict-mode
+// violation: this passed only because a just-placed order sorts into "New",
+// above the seed's "Accepted", and the two negative assertions below would have
+// read the seeded card the moment that stopped being true. Found by the same
+// collision breaking the refund spec outright.
 test('a paid order says paid, and gives the counter nothing to collect', async ({ page }) => {
-  const link = await placeOrderFor(page, 'Sam Okafor');
+  const link = await placeOrderFor(page, 'Iris Lindqvist');
   await expect(page.getByTestId('confirmed-payment')).toHaveText('Paid');
 
   await page.goto(link);
   await expect(page.getByTestId('status-payment')).toHaveText('Paid');
 
   await page.goto('/kitchen');
-  const ticket = card(page, 'Sam Okafor');
+  const ticket = card(page, 'Iris Lindqvist');
   await expect(ticket).toBeVisible();
   await expect(ticket.getByText(/Pay at pickup/)).toHaveCount(0);
   await expect(ticket.getByRole('button', { name: /mark paid/i })).toHaveCount(0);
