@@ -1575,6 +1575,36 @@ is a key to the wrong grain. That is written into `deriveRefundState`'s comment
 rather than built, because the product has no partial refund and a link nothing
 follows is a link that rots.
 
+### The flaky test that was a budget, not a race (C-067)
+
+`report.spec.ts`'s attach-table test passed the gate and then failed the
+pre-push hook twenty minutes later, on the same commit, with the same code. The
+reflex reading of a test that fails only sometimes is a race — a write that had
+not landed, a poll that had not fired — and there is none here: the suite runs
+`workers: 1`, not `fullyParallel`, precisely so that nothing shares the database
+concurrently.
+
+**What actually varied was the machine.** The test calls `seedFinishedRush()`,
+which is a synchronous `npm run` — dotenv, tsx, and thirty orders of writes —
+billed to the test's 30-second budget. It measured **3.4s** in the clean gate
+run and **37.8s** during the push, where `ci:local` had just built and dropped
+two databases and a second Postgres client was still holding connections. The
+assertion never ran; the budget ran out first.
+
+**A duration that swings 10x is the evidence, and it is in the log already.**
+Playwright prints per-test seconds on every line, and comparing the same test
+across the two runs took one grep. The reason this is worth writing down is
+that "it passed in isolation" — which it did, at 18.9s — reads as *proof of a
+race* when it is equally the signature of a test that only fits its budget on a
+quiet machine.
+
+**The fix is `test.slow()` in the one function all three rush-seeding specs
+route through**, not in the specs. Tripling the budget rather than moving the
+seed out to global setup is deliberate: which seed a test starts from is part
+of what the test says. It is not in `reseed()` — `kitchen.spec.ts` calls that
+from `beforeAll`, where `test.slow()` throws, and the ordinary seed is the fast
+one anyway.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

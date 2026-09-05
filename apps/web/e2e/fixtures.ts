@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 // Shared e2e fixtures (C-025).
 //
@@ -58,6 +58,16 @@ export function seedFinishedRush(): void {
 }
 
 function runSeedScript(script: string): void {
+  // The rush seeds are a whole `npm run` — dotenv, tsx, and thirty orders of
+  // writes — billed to the calling test's 30s budget. Measured at 3.4s on an
+  // idle machine and 37.8s during a sweep that had ci:local's databases and a
+  // second Postgres client competing with it; the second number timed a test
+  // out that had passed minutes earlier, which reads as a flaky report and is
+  // an under-budgeted seed. `test.slow()` triples the budget rather than
+  // moving the seed, because the seed BEING part of the test is the point.
+  // Not in `reseed()`: kitchen.spec.ts calls that from `beforeAll`, where
+  // `test.slow()` throws — and the ordinary seed is the fast one anyway.
+  test.slow();
   try {
     execSync(`npm run ${script}`, { cwd: '../..', stdio: ['ignore', 'ignore', 'pipe'] });
   } catch (error) {
