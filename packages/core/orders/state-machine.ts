@@ -234,8 +234,26 @@ export const OPEN_STATUSES = statusesWhere('open');
 export const TERMINAL_STATUSES = statusesWhere('terminal');
 /** P0-12: chiming and flashing until acknowledged. */
 export const ALERT_STATUSES = statusesWhere('alerts');
-/** P0-4: the kitchen queue's groupings, in display order. */
+/** P0-4: the kitchen queue's groupings, in LIFECYCLE order. */
 export const QUEUE_STATUSES = statusesWhere('inQueue');
+/**
+ * Handoff P0-1: the order the queue's sections are DRAWN in, which is not the
+ * order an order moves through them.
+ *
+ * The counter reads "Ready for pickup" constantly — every walk-up is a
+ * question about that section — and it was last on a page eleven Preparing
+ * cards tall. The cook's sections are read by walking to the pass, so the
+ * scroll cost lands on the reader who already has the food in front of them.
+ *
+ * Partitioned rather than listed, so a new `inQueue` status joins the board by
+ * existing: it cannot be silently dropped (every queue status appears) and it
+ * cannot be silently duplicated (each appears once).
+ */
+const COUNTER_FIRST: readonly OrderStatus[] = ['ready'];
+export const QUEUE_SECTION_ORDER: readonly OrderStatus[] = [
+  ...QUEUE_STATUSES.filter((s) => COUNTER_FIRST.includes(s)),
+  ...QUEUE_STATUSES.filter((s) => !COUNTER_FIRST.includes(s)),
+];
 /**
  * P0-4: left the queue, but the last tap is still undoable.
  *

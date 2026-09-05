@@ -89,7 +89,14 @@ export default async function KitchenPage({
   const gateState = await loadGateState(now);
   const clock = restaurantClock(now, gateState.timezone);
   const gate = checkoutGate(gateState, clock);
-  const groups = groupQueue(orders.filter((order) => matchesLookup(order, query)));
+  // Handoff P0-2: the lookup MARKS, it does not filter. Danny answers Cass at
+  // the front while Ada waits behind her; a Find box that empties the board
+  // means the second question costs a re-type, and for the length of the first
+  // answer the whole queue — the new tickets, the aging shelf — is off the
+  // screen. Every card stays drawn and exactly the matches are ringed.
+  const searching = query.trim() !== '';
+  const matches = searching ? orders.filter((order) => matchesLookup(order, query)) : [];
+  const groups = groupQueue(orders);
   // P1-6, off the UNFILTERED list for the same reason the alert count is: a
   // chore a search can hide is a chore nobody does.
   const leftOver = orders.filter((order) => isLeftOver(order, clock.day));
@@ -212,7 +219,7 @@ export default async function KitchenPage({
         >
           Find
         </button>
-        {query !== '' && (
+        {searching && (
           <Link
             href="/kitchen"
             className="mt-6 flex min-h-12 items-center rounded-lg px-4 underline underline-offset-4"
@@ -221,6 +228,17 @@ export default async function KitchenPage({
           </Link>
         )}
       </form>
+
+      {/* The count is the answer to "did it find anything?", which a marked
+          card cannot give on its own once the board is 22 cards long and the
+          match is four sections down. Zero is the case that most needs saying:
+          a queue that looks exactly like it did before the search. */}
+      {searching && (
+        <p className="mt-2 text-lg font-semibold">
+          {matches.length === 1 ? '1 match' : `${matches.length} matches`} for &ldquo;
+          {query.trim()}&rdquo; &mdash; every order stays on the board.
+        </p>
+      )}
 
       {/* The undo strip (P0-4). Above the groups because five seconds is the
           whole window, and NOT filtered by the lookup box for the same reason
@@ -273,11 +291,19 @@ export default async function KitchenPage({
                 const aging = queueAging(order, now, DEFAULT_AGING);
                 const undoMs = undoRemainingMs(order.status, order.events[0], now);
                 const leftOverCard = isLeftOver(order, clock.day);
+                const matched = searching && matchesLookup(order, query);
 
                 return (
                   <li
                     key={order.id}
                     className={`rounded-xl border-2 p-4 ${
+                      // The match ring sits OUTSIDE the alarm colours below
+                      // rather than joining them: a card can be both the order
+                      // Cass is asking about and the one that has been on the
+                      // shelf 26 minutes, and a search must not be able to
+                      // repaint an alarm.
+                      matched ? 'ring-4 ring-sky-700 ring-offset-2 ' : ''
+                    }${
                       // Left over outranks everything, because it is the
                       // only one of the three whose answer is not a tap on
                       // this card's advance button (P1-6). Then
@@ -291,9 +317,27 @@ export default async function KitchenPage({
                           ? 'alert-pulse border-sky-700 bg-sky-50'
                           : aging.noShowLevel >= 2 || aging.overdue
                             ? 'border-red-500 bg-red-50'
-                            : 'border-neutral-300'
+                            : // Receding is a muted SURFACE, never a lowered
+                              // opacity. Dimming the card dims its text with
+                              // it, and 18px neutral-600 at 60% is under 3:1
+                              // on white — an unreadable ticket is a worse
+                              // answer than an un-dimmed one. A card carrying
+                              // an alarm never recedes at all: it is one of
+                              // the branches above.
+                              searching && !matched
+                              ? 'border-neutral-200 bg-neutral-100'
+                              : 'border-neutral-300'
                     }`}
                   >
+                    {/* The ring says "this one" in colour alone, which is
+                        nothing to a cook reading a glare-washed tablet at an
+                        angle, and nothing to anyone colour-blind. The badge is
+                        the same fact in words. */}
+                    {matched && (
+                      <p className="mb-2 w-fit rounded bg-sky-700 px-2 py-1 text-lg font-bold uppercase text-white">
+                        Match
+                      </p>
+                    )}
                     {/* P1-6. Above the new-order badge and never instead of
                         it: a leftover in `placed` is BOTH, and the older fact
                         is the one that explains why nothing chimed. */}

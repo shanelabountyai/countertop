@@ -44,6 +44,54 @@ test('every queue section is populated, and the counts are the orders', async ({
   expect(total).toBe(22);
 });
 
+// Handoff P0-1 and P0-2, both asserted at the depth they exist for: the
+// counter's two failures only happen on a board this long.
+test('Ready for pickup is the first section, and its first card needs no scroll', async ({
+  page,
+}) => {
+  await page.goto('/kitchen');
+
+  const sections = await page.getByRole('heading', { name: /\(\d+\)$/ }).allInnerTexts();
+  expect(sections[0]).toMatch(/^Ready for pickup/);
+
+  // "Above the fold" is the requirement, so it is measured rather than
+  // inferred from the section order: the first Ready card's top edge is inside
+  // the viewport with the page unscrolled.
+  // The first card on the page is therefore the first Ready card.
+  const first = page.locator('main > section > ul > li').first();
+  const box = await first.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.y).toBeLessThan(page.viewportSize()!.height);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+test('the walk-up lookup marks one card and hides none of the other twenty-one', async ({
+  page,
+}) => {
+  await page.goto('/kitchen');
+  const cards = page.locator('main > section > ul > li');
+  await expect(cards).toHaveCount(22);
+
+  // Cass Iverson is at the front asking about her order; Ada is behind her.
+  await page.getByRole('searchbox').fill('Cass');
+  await page.getByRole('button', { name: 'Find' }).click();
+
+  await expect(cards).toHaveCount(22);
+  await expect(page.getByText('1 match for')).toBeVisible();
+  const marked = page.locator('main > section > ul > li.ring-4');
+  await expect(marked).toHaveCount(1);
+  await expect(marked).toContainText('Cass Iverson');
+  // Ada's ticket — the next question — never left the screen.
+  await expect(card(page, 'Ada Nkemelu')).toBeVisible();
+
+  // The receded cards are muted by SURFACE, not by opacity, and this is what
+  // says so: a dimmed card is a card whose 18px body text drops under 3:1.
+  const results = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  expect(results.violations).toEqual([]);
+});
+
 test('the cancelled order is off the queue, and its cancel is on the record', async ({ page }) => {
   await page.goto('/kitchen');
   // Owen Brandt's guacamole burrito was cancelled at minute 9 when the kitchen

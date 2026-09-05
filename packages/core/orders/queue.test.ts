@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { ORDER_STATUSES, QUEUE_STATUSES, type OrderStatus } from './state-machine';
+import {
+  ORDER_STATUSES,
+  QUEUE_SECTION_ORDER,
+  QUEUE_STATUSES,
+  type OrderStatus,
+} from './state-machine';
 import { formatOrderNumber } from './placement';
 import {
   DEFAULT_AGING,
@@ -80,8 +85,15 @@ describe('queue aging (P0-4)', () => {
 });
 
 describe('grouping (P0-4)', () => {
-  it('gives every queue status a group, in the status module\'s order', () => {
-    expect(groupQueue([]).map((group) => group.status)).toEqual([...QUEUE_STATUSES]);
+  it('gives every queue status a group, in the status module\'s section order', () => {
+    expect(groupQueue([]).map((group) => group.status)).toEqual([...QUEUE_SECTION_ORDER]);
+  });
+
+  // Handoff P0-1. Asserted here as well as in the status module because this
+  // is the function the screen actually calls: the counter reads Ready
+  // constantly, and it used to be the last section on a 7,000-pixel page.
+  it('draws Ready for pickup first', () => {
+    expect(groupQueue([]).at(0)?.status).toBe('ready');
   });
 
   it('keeps empty groups — a section vanishing mid-tap moves the screen', () => {
@@ -93,7 +105,8 @@ describe('grouping (P0-4)', () => {
     const old = order({ status: 'placed', placedAt: minutesBefore(30) });
     const recent = order({ status: 'placed', placedAt: minutesBefore(2) });
     const groups = groupQueue([recent, old]);
-    expect(groups[0]?.orders).toEqual([old, recent]);
+    // The section ORDER moved (P0-1); the order within a section did not.
+    expect(groups.find((group) => group.status === 'placed')?.orders).toEqual([old, recent]);
   });
 
   it('leaves terminal orders off the screen entirely', () => {

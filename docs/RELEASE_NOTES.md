@@ -1786,3 +1786,24 @@ opens it.
 
 **A link, not a button.** It works with JavaScript off, and you can paste it
 into an email to your bookkeeper.
+
+## C-059 — The shelf is at the top, and Find stops emptying the board
+
+**"Ready for pickup" is now the first thing on the kitchen screen.** It used to
+be the last, under every ticket still being cooked — so the section the counter
+looks at all night was the one it scrolled furthest to reach. The cooks' three
+sections follow it, in the same order they always were.
+
+**Searching a name no longer hides the queue.** Type "Cass" and every ticket
+stays where it is; hers gets a blue ring and a "Match" label. The next customer
+in line is still on the screen, so answering one question does not cost you the
+board for the length of it.
+
+**It tells you how many it found.** One line under the box: "1 match for
+Cass". Nothing found says so too, which matters when the board looks exactly
+the same either way.
+
+**A ticket that is shouting keeps shouting.** A new order nobody has accepted,
+an order left over from yesterday, an order running late — none of them fade
+because somebody typed a name in. The search can add a highlight; it cannot
+take one away.

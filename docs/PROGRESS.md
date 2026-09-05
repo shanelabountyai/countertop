@@ -5386,3 +5386,81 @@ does not want a screen at all; they want the rows in a spreadsheet.
   built.** It is the by-day version of C-056's count, and the by-day
   cancellation trend C-057 left behind is the same shape — they should arrive
   together.
+
+## C-059 — Ready comes first, and the lookup stops hiding the queue (PRD 2 P0-1, P0-2)
+
+The first item of PRD 2, and the two requirements are one session because they
+are the same screen, neither needs a migration, and they are the two failures
+the operator and the DX lead reached independently from opposite ends — one
+looking at the shelf, one looking at the page.
+
+6:47pm. "Ready for pickup" was the LAST section of a 7,124-pixel page, under
+New, Accepted and eleven Preparing cards: the section the counter reads
+constantly was the one it scrolled furthest to reach. Three feet away, Danny
+answers Cass about `#003` by typing "Cass" into the Find box — which filtered
+everything — so for the length of that answer the queue was invisible, and
+Ada, standing behind her, cost a re-type.
+
+**Built:**
+- **`QUEUE_SECTION_ORDER` in the status module — a second list beside
+  `QUEUE_STATUSES`, not a reordering of it.** The order an order moves through
+  the states and the order the sections are drawn in stopped being the same
+  fact the moment the counter's section went to the top. `QUEUE_STATUSES` is
+  also the membership test `isLeftOver` asks; one array doing both jobs would
+  have let a display decision silently answer a data question.
+- **Partitioned, never listed.** `[...the counter's, ...the rest]`, both
+  filtered out of `QUEUE_STATUSES`, so a future `inQueue` status joins the
+  board by existing rather than by someone remembering the file. The test
+  asserts the two properties that makes true — every queue status appears, and
+  each appears once — as well as the literal.
+- **`groupQueue` is the one reader**, and the order WITHIN a section is
+  untouched: placement time ascending, oldest ticket first. The existing test
+  for that stopped being about the first group and now names the group it
+  means.
+- **P0-2 is the deletion of a filter.** `groupQueue(orders.filter(matchesLookup))`
+  became `groupQueue(orders)`, with the same predicate asked once per card to
+  decide the ring. Nothing about `matchesLookup` changed; it moved.
+- **The match count is its own line**, because zero matches on an unchanged
+  board is indistinguishable from not having searched, and that is the case
+  most in need of a sentence.
+- **A "Match" badge beside the ring**, because a ring is a colour, and a colour
+  is nothing to a cook reading a glare-washed tablet at an angle or to anyone
+  colour-blind.
+
+**Decisions:**
+- **The recede is a muted SURFACE, never a lowered opacity.** The obvious
+  reading of "dims non-matches" is `opacity-60`, and it takes an 18px
+  `neutral-600` line under 3:1 against white — the card that is hardest to read
+  is then the one nobody chose to look at, on a screen whose whole discipline
+  is arm's-length legibility. A `bg-neutral-100` card recedes without moving a
+  single text contrast ratio, and the new e2e runs axe *while a search is
+  active* so that stays true.
+- **A card carrying an alarm does not recede at all.** The leftover,
+  un-acknowledged and overdue branches sit above the recede in the same
+  expression, and the match ring sits outside all of them. A search must not be
+  able to repaint an alarm — the same reasoning that has kept the new-order
+  chime counting off the UNFILTERED list since C-010, arriving at the same
+  answer for the card colours.
+- **The cook pays the scroll, and that is the answer to the PRD's own open
+  question.** Neither evaluator addressed the cook's cost directly. The counter
+  reads Ready constantly and from a fixed spot; the cook reads their own
+  section by walking to the pass, where the tickets are in front of them
+  anyway. Chosen, not measured, and recorded here as chosen.
+
+**Found:** the e2e that had to be rewritten was this item in miniature. `a
+lookup filtering the card off screen does not silence the alert` proved the
+alert count came off the unfiltered list — by asserting the card was GONE. Its
+premise was the behaviour being deleted. The replacement is strictly stronger
+than the original: the un-accepted ticket is still on the screen, un-ringed,
+and still chiming.
+
+**Left behind:**
+- **The board no longer narrows.** Correct at 22 tickets, where every card is
+  worth keeping in view; wrong at a scale where one match hides in two hundred
+  cards. The upgrade is a jump-to-match control, not the filter coming back.
+- **The C-031 screenshots show the old section order** until they are
+  regenerated, which is what C-040 was.
+- **P0-1's "reachable without scrolling" is asserted at the Playwright
+  viewport**, which is a 1280×720 desktop and not a wall tablet. It is the
+  viewport every existing size assertion in this repo uses, and moving it is a
+  change to all of them.

@@ -9,6 +9,7 @@ import {
   ORDER_STATUSES,
   placementEvent,
   previousStatus,
+  QUEUE_SECTION_ORDER,
   QUEUE_STATUSES,
   TERMINAL_STATUSES,
   UNDOABLE_EXIT_STATUSES,
@@ -168,6 +169,16 @@ describe('the status lists every reader derives from', () => {
 
   it('groups the kitchen queue over the four live states, in flow order', () => {
     expect(QUEUE_STATUSES).toEqual(['placed', 'accepted', 'preparing', 'ready']);
+  });
+
+  // Handoff P0-1. The value of drawing Ready first is obvious; what has to be
+  // asserted is that reordering the board cannot lose or duplicate a section,
+  // because the partition is what makes a future `inQueue` status join it by
+  // existing rather than by someone remembering this file.
+  it('draws the queue counter-first, over exactly the same statuses', () => {
+    expect(QUEUE_SECTION_ORDER).toEqual(['ready', 'placed', 'accepted', 'preparing']);
+    expect([...QUEUE_SECTION_ORDER].sort()).toEqual([...QUEUE_STATUSES].sort());
+    expect(new Set(QUEUE_SECTION_ORDER).size).toBe(QUEUE_SECTION_ORDER.length);
   });
 
   it('names the states whose undo the queue can no longer draw a card for', () => {

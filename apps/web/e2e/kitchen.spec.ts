@@ -124,21 +124,36 @@ test('renders every line of the largest order', async ({ page }) => {
   await expect(card(page, 'Sam Okafor').locator('ul > li')).toHaveCount(5);
 });
 
-test('finds an order by name, and by the number printed on its own card', async ({ page }) => {
+// Handoff P0-2. This spec asserted the OPPOSITE until now — that searching a
+// name left the other cards off the screen — which is the behaviour the
+// operator's Finding 5 is about: answering Cass at the counter blinded the
+// board for Ada standing behind her.
+test('finds an order by name and by number, and marks it without hiding the queue', async ({
+  page,
+}) => {
   await page.goto('/kitchen');
+  const cards = page.locator('main > section > ul > li');
+  const onTheBoard = await cards.count();
+  expect(onTheBoard).toBeGreaterThan(1);
 
   await page.getByRole('searchbox').fill('Priya');
   await page.getByRole('button', { name: 'Find' }).click();
-  await expect(card(page, 'Priya Shah')).toBeVisible();
-  await expect(page.getByText('Dana Reyes')).toHaveCount(0);
+
+  await expect(cards).toHaveCount(onTheBoard);
+  await expect(card(page, 'Priya Shah')).toHaveClass(/ring-4/);
+  // The order the next customer is going to ask about is still readable.
+  await expect(card(page, 'Dana Reyes')).toBeVisible();
+  await expect(card(page, 'Dana Reyes')).not.toHaveClass(/ring-4/);
+  await expect(page.getByText('1 match for')).toBeVisible();
 
   // The number a cook reads off the screen is the number they type in.
   const number = await card(page, 'Priya Shah').getByRole('heading').first().innerText();
   await page.getByRole('link', { name: 'Show all' }).click();
+  await expect(page.getByText('match for')).toHaveCount(0);
   await page.getByRole('searchbox').fill(number);
   await page.getByRole('button', { name: 'Find' }).click();
-  await expect(card(page, 'Priya Shah')).toBeVisible();
-  await expect(page.getByText('Sam Okafor')).toHaveCount(0);
+  await expect(card(page, 'Priya Shah')).toHaveClass(/ring-4/);
+  await expect(card(page, 'Sam Okafor')).not.toHaveClass(/ring-4/);
 });
 
 test('the kitchen queue has no detectable accessibility violations', async ({ page }) => {
@@ -401,15 +416,21 @@ test.describe('a new order announces itself', () => {
     }
   });
 
-  test('a lookup filtering the card off screen does not silence the alert', async ({ page }) => {
+  test('a lookup for somebody else neither hides the new ticket nor silences its alert', async ({
+    page,
+  }) => {
     await page.addInitScript(countChimes);
     await page.goto('/kitchen');
 
-    // Searching for somebody else hides #001 — and would hide the fact that
-    // nobody has accepted it, if the count were taken off the filtered list.
+    // Searching for Priya used to take #001 off the screen entirely, and this
+    // test existed to prove the alert count was taken off the UNFILTERED list
+    // even so. Since C-059 the lookup marks instead of filtering, so the
+    // stronger assertion is available: the un-accepted ticket is still THERE,
+    // and it is still shouting.
     await page.getByRole('searchbox').fill('Priya');
     await page.getByRole('button', { name: 'Find' }).click();
-    await expect(page.getByText('Dana Reyes')).toHaveCount(0);
+    await expect(card(page, 'Dana Reyes')).toBeVisible();
+    await expect(card(page, 'Dana Reyes')).not.toHaveClass(/ring-4/);
 
     await expect(page.getByText('1 new order — tap Accept to acknowledge')).toBeVisible();
     await expect.poll(() => chimes(page)).toBeGreaterThanOrEqual(1);

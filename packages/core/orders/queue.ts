@@ -1,11 +1,12 @@
 // What the kitchen queue shows (P0-4, P0-11). Pure: no clock, no database.
 //
-// The groupings come from THE status module's `QUEUE_STATUSES` — this file
-// does not know which statuses belong on the screen, it asks. Adding a state
-// means the queue grows a section, without an edit here (CLAUDE.md, "One
-// status module").
+// The groupings come from THE status module's `QUEUE_SECTION_ORDER` — this
+// file does not know which statuses belong on the screen, nor which order they
+// are drawn in, it asks. Adding a state means the queue grows a section,
+// without an edit here (CLAUDE.md, "One status module").
 import {
   previousStatus,
+  QUEUE_SECTION_ORDER,
   QUEUE_STATUSES,
   type OrderEventKind,
   type OrderStatus,
@@ -106,11 +107,15 @@ export type QueueGroup<T> = { status: OrderStatus; orders: T[] };
  * Every queue status gets a group, empty ones included: a section that
  * disappears when it empties makes the screen jump under someone's hand
  * mid-tap, and "no orders ready" is information.
+ *
+ * The sections come back in `QUEUE_SECTION_ORDER` — Ready first (handoff
+ * P0-1) — not in lifecycle order. The order WITHIN a group is unchanged:
+ * placement time ascending, oldest ticket first.
  */
 export function groupQueue<T extends { status: OrderStatus; placedAt: Date }>(
   orders: readonly T[],
 ): QueueGroup<T>[] {
-  return QUEUE_STATUSES.map((status) => ({
+  return QUEUE_SECTION_ORDER.map((status) => ({
     status,
     orders: orders
       .filter((order) => order.status === status)

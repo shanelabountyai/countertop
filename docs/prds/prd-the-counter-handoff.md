@@ -34,15 +34,15 @@ The product is excellent up to the moment the food is cooked and completely abse
 ### Must-Have (P0)
 
 **P0-1: Ready is the section you can always see** *(OPS 5, DX 1)*
-- [ ] "Ready for pickup" renders **first** on the queue, above New/Accepted/Preparing — the counter reads it constantly and the kitchen reads its own section by walking to it
-- [ ] The section is reachable without scrolling at a 22-live-order queue depth, asserted by Playwright at the tablet viewport the existing size tests use
-- [ ] The existing order-within-a-state rule (placement time ascending) is unchanged; only the section order moves
-- [ ] Tap targets stay ≥48px and item lines ≥18px — the existing axe/Playwright size assertions run against the reordered page unchanged
+- [x] "Ready for pickup" renders **first** on the queue, above New/Accepted/Preparing — the counter reads it constantly and the kitchen reads its own section by walking to it
+- [x] The section is reachable without scrolling at a 22-live-order queue depth, asserted by Playwright at the tablet viewport the existing size tests use
+- [x] The existing order-within-a-state rule (placement time ascending) is unchanged; only the section order moves
+- [x] Tap targets stay ≥48px and item lines ≥18px — the existing axe/Playwright size assertions run against the reordered page unchanged
 
 **P0-2: Lookup highlights in place instead of hiding the queue** *(OPS 5)*
-- [ ] The Find box marks matching cards and dims non-matches, keeping every card on the page — answering one customer never blinds the screen for the next one
-- [ ] A match count is shown ("2 matches"), and clearing is one tap at ≥48px
-- [ ] Test: with 22 live orders, searching a name that matches one order still renders 22 cards, with exactly one carrying the match style
+- [x] The Find box marks matching cards and dims non-matches, keeping every card on the page — answering one customer never blinds the screen for the next one
+- [x] A match count is shown ("2 matches"), and clearing is one tap at ≥48px
+- [x] Test: with 22 live orders, searching a name that matches one order still renders 22 cards, with exactly one carrying the match style
 
 **P0-3: The undo stays where the tap was** *(DX 1)*
 - [ ] After an advance into a terminal state (`picked_up`, `abandoned`), the card's grid slot keeps a placeholder tile — same position, same size — carrying the undo control, for as long as `undoRemainingMs > 0`
@@ -130,9 +130,15 @@ P0-1, P0-2 and P0-3 need no migration at all.
 
 ## Phasing — one item per session
 
-- **C-057 — Ready comes first, and lookup stops hiding the queue** — P0-1 and P0-2 together; both are pure layout on one page, neither needs a migration, and they are the two cheapest wins in this document.
-- **C-058 — The undo where the tap was** — P0-3, the in-place placeholder tile, with the deep-queue Playwright test the existing wrong-advance spec never had.
-- **C-059 — The revert follows the order** — P0-4, the receipt-side revert with its reason, derived from `STATUS_FACTS` and guarded by the existing compare-and-set.
-- **C-060 — Where the bag is** — P0-5, the `shelfLocation` column with its schema comment and its extension to the snapshot regression test.
-- **C-061 — Somebody can write on the ticket** — P0-6, the `note` event kind and its rendering, hand-written `ALTER TYPE` migration.
-- **C-062 — A ready order past an hour** — P0-7, the fourth escalation and the pre-close closeout prompt.
+*(Renumbered 2026-09-04. This section was drafted as C-057–C-062; PRD 1 ranked
+ahead of it and shipped C-053–C-058 first, so the two lowest numbers were gone
+before this document's first item was built. Items 1–4 slide down into the free
+block, items 5–6 take the next free pair. The numbers are bookkeeping — the
+order and the dependencies below are not.)*
+
+- **C-059 — Ready comes first, and lookup stops hiding the queue** — P0-1 and P0-2 together; both are pure layout on one page, neither needs a migration, and they are the two cheapest wins in this document.
+- **C-060 — The undo where the tap was** — P0-3, the in-place placeholder tile, with the deep-queue Playwright test the existing wrong-advance spec never had.
+- **C-061 — The revert follows the order** — P0-4, the receipt-side revert with its reason, derived from `STATUS_FACTS` and guarded by the existing compare-and-set.
+- **C-062 — Where the bag is** — P0-5, the `shelfLocation` column with its schema comment and its extension to the snapshot regression test.
+- **C-092 — Somebody can write on the ticket** — P0-6, the `note` event kind and its rendering, hand-written `ALTER TYPE` migration.
+- **C-093 — A ready order past an hour** — P0-7, the fourth escalation and the pre-close closeout prompt.
