@@ -131,10 +131,46 @@ export const ORDER_EVENT_KINDS = [
    *  never in the column — `amountCents` is unsigned and the CHECK says so,
    *  and direction has been the kind since C-063. */
   'adjustment_reversed',
+  /** A hold on the customer's card, taken at checkout (PRD 3 P1-1, C-069).
+   *
+   *  NOT money. Until this kind, a `paidNow` checkout wrote a `payment` — the
+   *  restaurant had taken $34.20 before anybody had cooked anything, so a
+   *  no-show meant refunding money that never needed to leave the card. An
+   *  authorization is the pickup-shaped answer: the money is held, and it is
+   *  either CAPTURED at the counter or VOIDED, and a void costs nobody a
+   *  refund.
+   *
+   *  Carries the amount it holds, like `adjustment` and for the same reason:
+   *  the column is what anything sums, and `paymentTotals` needs the size of
+   *  the hold to know that nothing is owed at the counter. */
+  'authorization',
+  /** The hold, taken (PRD 3 P1-1, C-069). Money arriving, exactly as `payment`
+   *  is, and `paymentTotals` sums the two together — what differs is where it
+   *  came from, and that a capture SETTLES an authorization, which is a fact
+   *  the log has to carry so a second one cannot be written.
+   *
+   *  Its own kind rather than a `payment` with a link, so the balance stays
+   *  arithmetic over amounts: `MoneyEvent` is two scalars and every select in
+   *  the product already has them. A capture wearing `payment`'s name would
+   *  make "is this hold spent" a question about the SHAPE of the log, and
+   *  every one of those selects would have had to grow a column. */
+  'capture',
+  /** The hold, released (PRD 3 P1-1, C-069). The no-show's answer, and the
+   *  cancellation's: nothing was ever taken, so nothing goes back.
+   *
+   *  Carries the amount released, so `paymentTotals` can subtract it without
+   *  chasing the link. `reason` says why — `no_show`, `cancelled`, or
+   *  `capture_failed`, which is the honest name for a hold that could not be
+   *  turned into money and leaves the order owing at the counter. */
+  'authorization_voided',
 ] as const;
 export type OrderEventKind = (typeof ORDER_EVENT_KINDS)[number];
 
-export const PAYMENT_STATES = ['unpaid', 'paid', 'refunded'] as const;
+// `authorized` is LAST for the reason `ORDER_EVENT_KINDS` orders the way it
+// does: the vocabulary test compares this array against `pg_enum` position for
+// position, and `ALTER TYPE ... ADD VALUE` appends. Reading better between
+// `unpaid` and `paid` would have cost a `BEFORE` clause to buy nothing.
+export const PAYMENT_STATES = ['unpaid', 'paid', 'refunded', 'authorized'] as const;
 export type PaymentState = (typeof PAYMENT_STATES)[number];
 
 /** Matches the `cancelNote` / `orderNote` column width — and, deliberately,
@@ -433,9 +469,11 @@ export type OrderEventDraft = {
   /**
    * Money this event MOVED, in integer cents (PRD 3 P0-1, C-063).
    *
-   * Required on `payment` and `refund` and forbidden on everything else — the
+   * Required on the money-bearing kinds and forbidden on everything else — the
    * database says the same thing as a CHECK, written as an equivalence so the
-   * two halves cannot drift. Direction is the KIND and never the sign: a
+   * two halves cannot drift. "Money-bearing" is broader than "money moved":
+   * an `adjustment` is a decision and an `authorization` is a hold, and both
+   * carry an amount because the amount is the whole of what they say. Direction is the KIND and never the sign: a
    * refund of -300 and a payment of 300 would be the same row twice over.
    *
    * A field rather than a `detail` key because the event stream is now the
@@ -468,6 +506,17 @@ export type OrderEventDraft = {
    * is given: one value, two jobs, and no second column to keep true.
    */
   refundRequestId?: string;
+  /**
+   * The AUTHORIZATION this event settles (PRD 3 P1-1, C-069).
+   *
+   * Set on `capture` and `authorization_voided`, and it is the same idea as
+   * `refundRequestId` above pointed the other way: the hold's own row id, which
+   * is also the idempotency key the provider is given. What differs is the
+   * constraint behind it — a request may fail many times and succeed once, so
+   * its index is partial; a hold has exactly one exit, captured or released,
+   * so its index is plain.
+   */
+  authorizationId?: string;
   detail?: Record<string, unknown>;
 };
 

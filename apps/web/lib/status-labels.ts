@@ -59,6 +59,12 @@ export const PAYMENT_LABEL: Record<PaymentState, string> = {
   unpaid: 'Pay at pickup',
   paid: 'Paid',
   refunded: 'Refunded',
+  // "Card held" and deliberately not "Authorized" (C-069). The customer's own
+  // status page renders this, and `authorized` is a processor's word for a
+  // thing a person understands perfectly when it is said plainly: the money is
+  // set aside and has not been taken. "Charged at pickup" says WHEN, which is
+  // the half a customer standing in a queue actually wants.
+  authorized: 'Card held — charged at pickup',
 };
 
 /**
@@ -120,6 +126,18 @@ export function describeEvent(entry: {
       // a whole-order comp and a $3 partial. Which one it was is in `detail`,
       // and the amount is the thing a dispute is actually about.
       return 'Adjusted';
+    case 'authorization':
+      // "Card held", matching `PAYMENT_LABEL` word for word: the log and the
+      // payment line are read side by side on the same receipt, and two names
+      // for one fact is what sends somebody to ask which one is real.
+      return 'Card held at checkout';
+    case 'capture':
+      return 'Card charged at pickup';
+    case 'authorization_voided':
+      // The reason is rendered beside this — `no_show`, `cancelled` or
+      // `capture_failed` — and it is the whole of what a reader needs, because
+      // the third one is the only one where anybody owes anything.
+      return 'Card hold released';
     case 'adjustment_reversed':
       // "Put back" and not "Reversed" or "Undone": the log is append-only and
       // nothing was undone — the comp above this row is still there, still

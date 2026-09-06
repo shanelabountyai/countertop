@@ -28,6 +28,8 @@
     "./transitions": "./transitions.ts",
     "./payment": "./payment.ts",
     "./refund": "./refund.ts",
+    "./authorization": "./authorization.ts",
+    "./provider": "./provider.ts",
     "./adjustment": "./adjustment.ts",
     "./remake": "./remake.ts",
     "./staff": "./staff.ts",

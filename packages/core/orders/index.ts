@@ -10,4 +10,5 @@ export * from './observability';
 export * from './payment';
 export * from './adjustment';
 export * from './refund';
+export * from './authorization';
 export * from './retention';

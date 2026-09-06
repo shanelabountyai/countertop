@@ -266,12 +266,21 @@ export async function adjustLoyaltyPoints(points: number): Promise<void> {
 export async function failRefundFor(customerName: string): Promise<void> {
   const { prisma } = await import('@countertop/db');
   const { applyOrderAction } = await import('@countertop/db/transitions');
+  const { collectOrderPayment } = await import('@countertop/db/payment');
   try {
     const order = await prisma.order.findFirstOrThrow({
       where: { customerName },
       orderBy: { placedAt: 'desc' },
       select: { id: true },
     });
+    // MONEY, NOT A HOLD (C-069). A prepaid order carries an authorization now,
+    // and cancelling one releases it — there is nothing to refund, which is the
+    // point of P1-1. A refund needs money that actually arrived, so this takes
+    // it at the counter first, through the same write path the "Collected —
+    // mark paid" button uses.
+    const collected = await collectOrderPayment(order.id, new Date());
+    if (!collected.ok) throw new Error(`collection refused: ${collected.message}`);
+
     const result = await applyOrderAction(
       order.id,
       { kind: 'cancel', actor: 'staff', reason: 'out_of_item' },

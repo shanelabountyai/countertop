@@ -218,6 +218,7 @@ describe('what an adjustment does to the money', () => {
       capturedCents: 0,
       refundedCents: 0,
       adjustedCents: 1375,
+      authorizedCents: 0,
     });
   });
 });

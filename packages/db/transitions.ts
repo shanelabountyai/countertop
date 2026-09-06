@@ -15,7 +15,9 @@ import {
 import { prisma } from './index';
 import { earnForOrder } from './loyalty';
 import { eventRow, ORDER_RECEIPT, type OrderReceipt } from './placement';
-import { mockRefundProvider, settleRefund, type RefundProvider } from './refund';
+import { settleAuthorization } from './authorization';
+import { settleRefund } from './refund';
+import { mockPaymentProvider, type PaymentProvider } from './provider';
 
 export type OrderActionFailure =
   | { kind: 'unknown_order'; message: string }
@@ -56,7 +58,7 @@ export async function applyOrderAction(
    * in one that throws, so the failure path is exercised through THIS function
    * rather than around it; no other caller passes it.
    */
-  refundProvider: RefundProvider = mockRefundProvider,
+  provider: PaymentProvider = mockPaymentProvider,
 ): Promise<OrderActionResult> {
   const current = await prisma.order.findUnique({
     where: { id: orderId },
@@ -143,7 +145,23 @@ export async function applyOrderAction(
   // The result is deliberately not returned to the caller. A refusal here is
   // never the cancellation's refusal — the cancellation worked — and the one
   // outcome a person has to act on is on a list built for it.
-  if (order && refundRequested) await settleRefund(orderId, now, null, refundProvider);
+  if (order && refundRequested) await settleRefund(orderId, now, null, provider);
+
+  // THE HOLD, SETTLED (PRD 3 P1-1, C-069) — captured on the way into a sold
+  // state, released on the way into one that never sold. Unconditional and
+  // outside the transaction for the same two reasons the refund attempt above
+  // is: it makes a provider call, and an order with no hold answers
+  // `nothing_held` rather than failing, so there is nothing for this line to
+  // check first.
+  //
+  // AFTER the commit, so a capture cannot be recorded against a status change
+  // that lost the compare-and-set race. `order` is null in exactly that case.
+  //
+  // The result is deliberately not returned, exactly as the refund's is not: a
+  // failed capture is not the pickup's failure — the food went out and the
+  // transition is correct — and what it leaves behind is an order that owes
+  // money, which the counter's own control already surfaces.
+  if (order) await settleAuthorization(orderId, decision.status, now, provider);
 
   return order
     ? { ok: true, order }

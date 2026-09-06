@@ -44,7 +44,10 @@ async function openReceipt(page: import('@playwright/test').Page): Promise<void>
 }
 
 test('a refund that fails is money the shift can see, and send again', async ({ page }) => {
-  const link = await placeOrderFor(page, 'Wren Alvarez');
+  // Pay at pickup, collected at the counter by the fixture: since C-069 a
+  // prepaid order carries a HOLD, and a cancelled hold is released rather than
+  // refunded. A refund needs money that actually arrived.
+  const link = await placeOrderFor(page, 'Wren Alvarez', { payAtPickup: true });
   await failRefundFor('Wren Alvarez');
 
   // 1. THE EXCEPTIONS LIST. Unfiltered and above the search, because a
@@ -91,7 +94,9 @@ test('a refund that fails is money the shift can see, and send again', async ({ 
 });
 
 test('a refund that works leaves nothing for anybody to chase', async ({ page }) => {
-  const link = await placeOrderFor(page, 'Wren Alvarez');
+  const link = await placeOrderFor(page, 'Wren Alvarez', { payAtPickup: true });
+  await openReceipt(page);
+  await page.getByRole('button', { name: 'Collected — mark paid' }).click();
 
   // Cancelled through the real buttons, with the real provider.
   await page.goto('/kitchen');
@@ -107,8 +112,33 @@ test('a refund that works leaves nothing for anybody to chase', async ({ page })
   await expect(page.getByTestId('status-payment')).toHaveText('Refunded');
 });
 
+// PRD 3 P1-1 (C-069). The same cancellation on a PREPAID order costs nothing
+// to send back, because nothing was ever taken — which is the whole item.
+test('cancelling a prepaid order releases the hold instead of refunding it', async ({ page }) => {
+  const link = await placeOrderFor(page, 'Wren Alvarez');
+
+  await page.goto('/kitchen');
+  const ticket = card(page, 'Wren Alvarez');
+  await ticket.getByText('Cancel…').click();
+  await ticket.getByRole('button', { name: 'Out of an item' }).click();
+  await expect(ticket).toHaveCount(0);
+
+  await page.goto(link);
+  await expect(page.getByTestId('status-payment')).toHaveText(
+    'Card hold released — you were not charged',
+  );
+
+  // No refund was asked for, so there is nothing on the list of refunds the
+  // restaurant owes — no provider call to fail and nobody to chase.
+  await page.goto('/kitchen/orders');
+  await expect(page.getByTestId('refund-exceptions')).toHaveCount(0);
+  await openReceipt(page);
+  await expect(page.getByTestId('order-activity')).toContainText('Card hold released');
+  await expect(page.getByTestId('order-activity')).not.toContainText('Refund');
+});
+
 test('the exceptions list is readable to a screen reader too', async ({ page }) => {
-  await placeOrderFor(page, 'Wren Alvarez');
+  await placeOrderFor(page, 'Wren Alvarez', { payAtPickup: true });
   await failRefundFor('Wren Alvarez');
 
   await page.goto('/kitchen/orders');
@@ -124,8 +154,11 @@ test('the exceptions list is readable to a screen reader too', async ({ page }) 
 // refuses to cancel cooked food — so the orders where a refund is most
 // obviously right were exactly the ones nothing on any screen could reach.
 test('a comped order that already paid can actually get its money back', async ({ page }) => {
-  const link = await placeOrderFor(page, 'Wren Alvarez');
+  // Collected at the counter, because a HELD card is not money the restaurant
+  // can send back (C-069) — it is money it has not taken.
+  const link = await placeOrderFor(page, 'Wren Alvarez', { payAtPickup: true });
   await openReceipt(page);
+  await page.getByRole('button', { name: 'Collected — mark paid' }).click();
 
   const makeItRight = section(page, 'Make it right');
   const sendBack = section(page, 'Send money back');
@@ -176,7 +209,12 @@ test('a comped order that already paid can actually get its money back', async (
 // no-show is NOT automatically a refund — the food was made — so it has to be
 // an offer, and the offer needed this control to exist.
 test('a no-show is offered a refund rather than given one', async ({ page }) => {
-  await placeOrderFor(page, 'Wren Alvarez');
+  // Paid at the counter before the no-show, which since C-069 is the only way
+  // an abandoned order is holding money at all: a prepaid one has its hold
+  // released, and that is P1-1's answer to exactly this customer.
+  await placeOrderFor(page, 'Wren Alvarez', { payAtPickup: true });
+  await openReceipt(page);
+  await page.getByRole('button', { name: 'Collected — mark paid' }).click();
 
   await page.goto('/kitchen');
   const ticket = card(page, 'Wren Alvarez');

@@ -45,26 +45,8 @@ import {
   type RefundRequestInput,
 } from '@countertop/core';
 import { Prisma, prisma } from './index';
+import { mockPaymentProvider, type PaymentProvider } from './provider';
 import { eventRow, ORDER_RECEIPT, type OrderReceipt } from './placement';
-
-/**
- * The processor, as a function (P0-4's "the provider call").
- *
- * It RESOLVES with the provider's reference or it THROWS. One failure channel,
- * not two: a returned error object and a rejected promise are the same fact
- * wearing different clothes, and a caller that has to handle both eventually
- * handles one of them wrong. Every real SDK in this space throws.
- *
- * There is no real processor and the master PRD's Non-Goal says there will not
- * be one. What matters is that the SEAM is here and that everything on this
- * side of it — the request, the attempt, the failed state, the retry — is real.
- */
-export type RefundProvider = (idempotencyKey: string, amountCents: number) => Promise<string>;
-
-/** The mock. Always succeeds, and the reference it returns is the idempotency
- *  key it was given, which is the honest record of what was actually sent. */
-export const mockRefundProvider: RefundProvider = async (idempotencyKey) =>
-  `mock_${idempotencyKey}`;
 
 export type SettleRefundReason =
   | 'order_not_found'
@@ -141,7 +123,7 @@ export async function settleRefund(
    *  environment variable: the db test hands in one that throws, the e2e
    *  fixture hands in the same, and nothing else in the product ever passes
    *  it. That is the whole of the dependency injection this needs. */
-  provider: RefundProvider = mockRefundProvider,
+  provider: PaymentProvider = mockPaymentProvider,
   /**
    * WHICH request to settle, where the caller knows (C-071).
    *
@@ -209,7 +191,7 @@ export async function settleRefund(
     // OUTSIDE the transaction, and outside every transaction — this is a
     // network call, and a network call inside a database transaction holds a
     // row lock for as long as somebody else's server feels like taking.
-    providerRef = await provider(request.id, amountCents);
+    providerRef = await provider('refund', request.id, amountCents);
   } catch (error) {
     // The one place this product writes down that it tried and failed. The
     // provider's own words go in `detail.note`, where `readNote` already lifts
@@ -331,7 +313,7 @@ export async function requestRefund(
    *  cancellation's automatic attempt there is no honest reading of it as
    *  `system`. */
   staffId?: string | null,
-  provider: RefundProvider = mockRefundProvider,
+  provider: PaymentProvider = mockPaymentProvider,
 ): Promise<RequestRefundResult> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },

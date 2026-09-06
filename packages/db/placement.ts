@@ -14,7 +14,7 @@ import {
   checkClientTotal,
   totalTampering,
   normalizeIdentity,
-  paymentEvent,
+  authorizationEvent,
   placementEvent,
   readyEstimate,
   reviewCart,
@@ -72,7 +72,20 @@ export const ORDER_RECEIPT = {
     // and renders one boolean off it — the `detail` payload that carries the
     // provider's words and the counter's notes is still structurally out of
     // its reach, which is the property this select exists to keep.
-    events: { select: { id: true, kind: true, amountCents: true, refundRequestId: true } },
+    // `authorizationId` joined them in C-069, and it is structure in the same
+    // way `refundRequestId` is: `heldAuthorization` asks which hold is unspent,
+    // which is a question about the shape of the log. The customer's status
+    // page reads this same select and renders a payment line off it — the
+    // `detail` payload is still structurally out of its reach.
+    events: {
+      select: {
+        id: true,
+        kind: true,
+        amountCents: true,
+        refundRequestId: true,
+        authorizationId: true,
+      },
+    },
   },
 } as const satisfies Prisma.OrderDefaultArgs;
 
@@ -230,6 +243,9 @@ export const eventRow = (draft: OrderEventDraft, staffId?: string | null) => ({
   // The refund request this attempt was made against (C-071). Null on
   // everything but a `refund` or a `refund_failed`, and the CHECK says so.
   refundRequestId: draft.refundRequestId ?? null,
+  // The hold this event settles (C-069). Null on everything but a `capture` or
+  // an `authorization_voided`, and the CHECK says so in both directions.
+  authorizationId: draft.authorizationId ?? null,
   // WHICH staff member, where `actor` says what KIND (C-086). Stamped ONLY on
   // an event the engine attributes to staff: the customer's placement and the
   // system's refund are not somebody's tap, and putting the cook who cancelled
@@ -375,12 +391,15 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
       ? null
       : checkClientTotal(snapshot.totalCents, input.clientTotalCents);
   const events: OrderEventDraft[] = [placementEvent(now)];
-  // The charge the mock provider took at checkout (C-085). The column alone
-  // used to be the whole record, which meant half of all payments — the ones
-  // taken here rather than at the counter — had no instant either. Recording
-  // only the counter half would have made "every payment has a time" a claim
-  // that is false for most orders.
-  if (input.paidNow) events.push(paymentEvent(now, snapshot.totalCents, 'checkout'));
+  // A HOLD, NOT A CHARGE (PRD 3 P1-1, C-069). C-085 wrote a `payment` here,
+  // which meant the restaurant had taken the money before anybody had cooked
+  // anything — and in a pickup-only shop that puts the transaction at the wrong
+  // end: the customer who never comes has already been charged, so making them
+  // whole costs a refund that can fail. An authorization is taken here and
+  // CAPTURED at the counter (`transitions.ts`), or voided if the food never
+  // leaves. Nothing about the customer's experience changes; what changes is
+  // that a no-show costs a void.
+  if (input.paidNow) events.push(authorizationEvent(now, snapshot.totalCents));
   if (mismatch) {
     events.push({
       at: now,
@@ -412,7 +431,12 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
           quotedLowMinutes: quote.lowMinutes,
           quotedHighMinutes: quote.highMinutes,
           quotedOpenWeight: settings.openWeight,
-          paymentState: input.paidNow ? 'paid' : 'unpaid',
+          // `authorized` and not `paid` (C-069): the card is held and nothing
+          // has been taken. The column is a cache over the log either way —
+          // `derivePaymentState` returns exactly this for an order carrying one
+          // `authorization` and nothing else, and the seeded-rush agreement
+          // test is what holds the two together.
+          paymentState: input.paidNow ? 'authorized' : 'unpaid',
           statusToken: newStatusToken(),
           idempotencyKey,
           lines: {

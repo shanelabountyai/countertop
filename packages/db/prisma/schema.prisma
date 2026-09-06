@@ -92,6 +92,17 @@ enum PaymentState {
   unpaid
   paid
   refunded
+  /// PRD 3 P1-1 (C-069): the card is held and nothing has been taken.
+  ///
+  /// The value the enum could never say, and the one a pickup-only shop needs
+  /// most: between checkout and the counter the restaurant has a promise, not
+  /// money. Spelling that `paid` told the customer their card had been charged
+  /// before it had, and made a no-show cost a refund instead of a void.
+  ///
+  /// AT THE END, like every other value added since C-063: the vocabulary test
+  /// compares `PAYMENT_STATES` against `pg_enum` position for position, and
+  /// `ALTER TYPE ... ADD VALUE` appends.
+  authorized
 }
 
 enum CancelReason {
@@ -191,6 +202,37 @@ enum OrderEventKind {
   /// against `pg_enum` position for position, and `ALTER TYPE ... ADD VALUE`
   /// appends.
   adjustment_reversed
+  /// PRD 3 P1-1 (C-069): a hold on the customer's card, taken at checkout.
+  ///
+  /// NOT money. Its own row `id` is the idempotency key every settlement
+  /// against it carries to the provider — the same trick `refund_requested`
+  /// plays, and the reason neither needs a second unique column.
+  ///
+  /// Carries the amount held, so `paymentTotals` can answer "is anything owed
+  /// at the counter" by arithmetic rather than by following the link. Nothing
+  /// moved, and `adjustment` set the precedent for an amount-bearing kind that
+  /// moved nothing.
+  authorization
+  /// PRD 3 P1-1 (C-069): the hold, taken, on `ready -> picked_up`.
+  ///
+  /// Money arriving exactly as `payment` is — `paymentTotals` sums the two
+  /// together — and its own kind because it SETTLES an authorization, which a
+  /// `payment` row has no column to say. Names its hold in `authorizationId`,
+  /// and the unique index there is what stops a revert-and-re-advance charging
+  /// the same card twice.
+  capture
+  /// PRD 3 P1-1 (C-069): the hold, released. THE POINT OF THE ITEM — a no-show
+  /// costs a void, not a refund, because nothing ever left the card.
+  ///
+  /// `reason` says which of three: `no_show`, `cancelled`, or `capture_failed`
+  /// (the honest name for a hold that could not be turned into money, which
+  /// puts the order back to owing at the counter where the existing control
+  /// already is). Carries the amount released, for the arithmetic above.
+  ///
+  /// AT THE END, and the position is load-bearing rather than tidy: the
+  /// vocabulary test compares `ORDER_EVENT_KINDS` against `pg_enum` position
+  /// for position, and `ALTER TYPE ... ADD VALUE` appends.
+  authorization_voided
 }
 
 // ---------------------------------------------------------------------------
@@ -478,6 +520,31 @@ model OrderEvent {
   /// and what `loadRefundExceptions` asks: a request with `none` of these of
   /// kind `refund` is money owed and unsent.
   refundAttempts  OrderEvent[] @relation("RefundAttempt")
+  /// The AUTHORIZATION this event settles (PRD 3 P1-1, C-069).
+  ///
+  /// Non-null on `capture` and `authorization_voided`, null on everything
+  /// else, and `order_event_authorization_link_matches_kind` says the second
+  /// half. The value is the hold's own row id, which is ALSO the idempotency
+  /// key the provider is handed — one value doing two jobs, the same argument
+  /// `refundRequestId` makes above.
+  ///
+  /// `@unique` AND NOT AN INDEX, which is the whole guard: a hold has exactly
+  /// one exit, so at most one row may name it, and a captured authorization
+  /// cannot also be voided. The refund's equivalent has to be a partial index
+  /// because a request may fail many times before it succeeds; a capture that
+  /// fails releases the hold instead of retrying it, so there is nothing to
+  /// leave room for. Prisma can express this one, so it lives in the schema
+  /// rather than in the migration, and `prisma migrate diff` sees it.
+  ///
+  /// `Restrict`, like the other self-link: the append-only trigger already
+  /// refuses every delete on this table, and this says the same thing where a
+  /// future migration can see it.
+  authorizationId String?      @unique
+  authorization   OrderEvent?  @relation("AuthorizationSettlement", fields: [authorizationId], references: [id], onDelete: Restrict)
+  /// The one row that settled this hold — captured or released. The reverse of
+  /// the link above, and a `?` rather than a `[]` because the unique constraint
+  /// makes it at most one.
+  settlement      OrderEvent?  @relation("AuthorizationSettlement")
   detail     Json?
 
   @@index([orderId, at])

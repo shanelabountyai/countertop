@@ -125,6 +125,22 @@ jobs:
             ) THEN
               RAISE EXCEPTION 'the refund-link CHECK is missing';
             END IF;
+            -- C-069. A PLAIN unique index, so unlike the refund's it IS in
+            -- schema.prisma and `migrate diff` does see it — asserted here
+            -- anyway because it is what stops an undo-and-re-advance charging
+            -- the same card twice, and "the drift check would have caught it"
+            -- is one indirection away from the fact this file exists to state.
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_class WHERE relname='OrderEvent_authorizationId_key'
+            ) THEN
+              RAISE EXCEPTION 'the one-settlement-per-authorization unique index is missing';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='order_event_authorization_link_matches_kind'
+            ) THEN
+              RAISE EXCEPTION 'the authorization-link CHECK is missing';
+            END IF;
           END $$;
           EOSQL
 

@@ -22,6 +22,7 @@ import {
   isOpen,
   isTerminal,
   orderBalance,
+  releasedWithoutCapture,
   paymentTotals,
   refundNeedsAttention,
   remainingEstimate,
@@ -277,11 +278,19 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
               // as "Refunded" (P0-4) — the column still says `paid`, which is
               // true and is exactly what would otherwise be shown.
               `Refund pending — ${formatCents(balance.collectedCents)} coming back`
-            : order.paymentState === 'unpaid'
-              ? balance.outstandingCents > 0
-                ? `${PAYMENT_LABEL.unpaid} — ${formatCents(balance.outstandingCents)} due`
-                : 'Nothing to pay'
-              : PAYMENT_LABEL[order.paymentState]}
+            : releasedWithoutCapture(order.events)
+              ? // A held card that was let go (C-069): the no-show and the
+                // cancelled prepaid ticket. Checked BEFORE the enum, because a
+                // released hold leaves `paymentState` at `unpaid` with the whole
+                // total outstanding — both true, and together they read as "Pay
+                // at pickup — $11.85 due" to somebody who paid twenty minutes
+                // ago. That is the sentence that makes them phone.
+                'Card hold released — you were not charged'
+              : order.paymentState === 'unpaid'
+                ? balance.outstandingCents > 0
+                  ? `${PAYMENT_LABEL.unpaid} — ${formatCents(balance.outstandingCents)} due`
+                  : 'Nothing to pay'
+                : PAYMENT_LABEL[order.paymentState]}
         </p>
 
         {order.orderNote && (

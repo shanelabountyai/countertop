@@ -67,12 +67,19 @@ describe('payment state (P1-8)', () => {
     expect((await place({ paidNow: false })).paymentState).toBe('unpaid');
   });
 
-  it('records the mock charge taken at checkout', async () => {
-    expect((await place({ paidNow: true })).paymentState).toBe('paid');
+  // C-069 moved this. Paying at checkout HOLDS the card; it does not charge
+  // it, and the column says so rather than claiming money arrived that has not.
+  it('holds the card at checkout rather than charging it', async () => {
+    expect((await place({ paidNow: true })).paymentState).toBe('authorized');
   });
 
   it('refunds the column and logs the amount when a paid order is cancelled', async () => {
-    const order = await place({ paidNow: true });
+    // Collected at the counter while the food cooks, which is the path that
+    // still ends in real money before pickup (C-069). A PREPAID cancellation
+    // takes the void branch below instead, and that is the point of P1-1.
+    const order = await place();
+    expect(await collectOrderPayment(order.id, DINNER)).toEqual({ ok: true });
+
     const result = await applyOrderAction(
       order.id,
       { kind: 'cancel', actor: 'staff', reason: 'out_of_item' },
@@ -143,16 +150,41 @@ describe('a payment is something that happened (PRD 6 P0-3)', () => {
     });
   });
 
-  it('records the charge taken at checkout too, as the customer', async () => {
+  it('records the checkout hold as the customer, and its capture as the machine', async () => {
     // Recording only the counter half would have made "every payment has a
     // time" false for most orders — about two thirds of a service pays here.
+    // Since C-069 that half is two rows rather than one, and each has its own
+    // instant: the customer holds their card at checkout, the machine takes it
+    // when the bag leaves.
     const order = await place({ paidNow: true });
-    const [payment] = await paymentsOn(order.id);
-    expect(payment).toMatchObject({
+    expect(await paymentsOn(order.id)).toEqual([]);
+
+    const hold = await prisma.orderEvent.findFirstOrThrow({
+      where: { orderId: order.id, kind: 'authorization' },
+    });
+    expect(hold).toMatchObject({
       at: DINNER,
       actor: 'customer',
-      detail: { amountCents: order.totalCents, where: 'checkout' },
+      amountCents: order.totalCents,
     });
+
+    await toReady(order.id);
+    const pickedUpAt = instantMinutesAfter(DINNER, 14);
+    await applyOrderAction(order.id, { kind: 'advance', actor: 'staff' }, pickedUpAt);
+
+    const capture = await prisma.orderEvent.findFirstOrThrow({
+      where: { orderId: order.id, kind: 'capture' },
+    });
+    expect(capture).toMatchObject({
+      at: pickedUpAt,
+      // Nobody decided: the customer decided at checkout and this is the
+      // machine completing it. The cook who tapped "Picked up" did not choose
+      // to charge anybody's card.
+      actor: 'system',
+      amountCents: order.totalCents,
+      authorizationId: hold.id,
+    });
+    expect(await paymentStateOf(order.id)).toBe('paid');
   });
 
   it('writes nothing for a pay-at-pickup order until somebody collects', async () => {
@@ -195,7 +227,10 @@ describe('a payment is something that happened (PRD 6 P0-3)', () => {
     // restaurant's calendar. Asking the other way round — bucketing the
     // instant here — is the timezone mistake `business-day.ts` refuses to
     // make, and a payment taken at 11:40pm belongs to the service it was for.
-    const order = await place({ paidNow: true });
+    const order = await place();
+    await toReady(order.id);
+    await collectOrderPayment(order.id, instantMinutesAfter(DINNER, 11));
+
     const sameDay = await prisma.orderEvent.findMany({
       where: { kind: 'payment', order: { businessDay: order.businessDay } },
     });
@@ -219,7 +254,8 @@ describe('a payment is something that happened (PRD 6 P0-3)', () => {
     // engine at all — it is written after the provider answers, outside the
     // transition — so both money events now carry null statuses, and the
     // assertion below is on both rather than on one.
-    const order = await place({ paidNow: true });
+    const order = await place();
+    await collectOrderPayment(order.id, DINNER);
     await applyOrderAction(
       order.id,
       { kind: 'cancel', actor: 'staff', reason: 'out_of_item' },
@@ -241,7 +277,10 @@ describe('a payment is something that happened (PRD 6 P0-3)', () => {
 // the snapshot alone.
 describe('the balance, against the database', () => {
   it('survives a partial refund without touching a cent of the snapshot', async () => {
-    const order = await place({ paidNow: true });
+    // Collected rather than prepaid: a hold is not money, and a partial refund
+    // against one would be sending back something nobody took (C-069).
+    const order = await place();
+    await collectOrderPayment(order.id, DINNER);
     const before = { subtotal: order.subtotalCents, tax: order.taxCents, total: order.totalCents };
 
     // Nothing writes a PARTIAL refund even now: C-067 sends back what the

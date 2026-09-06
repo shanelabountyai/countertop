@@ -10,12 +10,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { placeOrder, type PlacementInput } from './placement';
 import { adjustOrder } from './adjustment';
-import {
-  loadRefundExceptions,
-  requestRefund,
-  settleRefund,
-  type RefundProvider,
-} from './refund';
+import { collectOrderPayment } from './payment';
+import { loadRefundExceptions, requestRefund, settleRefund } from './refund';
+import { type PaymentProvider } from './provider';
 import { applyOrderAction } from './transitions';
 import {
   resetDatabase,
@@ -49,7 +46,20 @@ const CART: Cart = {
 };
 
 let keyCounter = 0;
-async function place(overrides: Partial<PlacementInput> = {}) {
+/**
+ * A placed order, and — with `paidNow` — money the restaurant is actually
+ * HOLDING.
+ *
+ * C-069 changed what `paidNow` means at checkout: it is an authorization now,
+ * and a hold is not refundable, it is voided. Every test in this file is about
+ * money that has already arrived, so the helper takes it at the counter
+ * instead — the path that still ends in `paid` before pickup, and the one a
+ * shop uses when somebody hands over cash while the food is cooking.
+ *
+ * Through `collectOrderPayment` and not an inserted row, so what these tests
+ * refund is money a real write path put there.
+ */
+async function place({ paidNow, ...overrides }: Partial<PlacementInput> = {}) {
   const result = await placeOrder({
     cart: CART,
     customerName: 'Dana',
@@ -58,6 +68,10 @@ async function place(overrides: Partial<PlacementInput> = {}) {
     ...overrides,
   });
   if (!result.ok) throw new Error(`placement refused: ${JSON.stringify(result.errors)}`);
+  if (paidNow) {
+    const collected = await collectOrderPayment(result.order.id, DINNER);
+    if (!collected.ok) throw new Error(`collection refused: ${collected.message}`);
+  }
   return result.order;
 }
 
@@ -69,11 +83,11 @@ async function place(overrides: Partial<PlacementInput> = {}) {
  * separate stubs cannot make it. `fail` is the message it throws; without one
  * it behaves like the mock the product ships.
  */
-function stubProvider(fail?: string): { call: RefundProvider; keys: string[] } {
+function stubProvider(fail?: string): { call: PaymentProvider; keys: string[] } {
   const keys: string[] = [];
   return {
     keys,
-    call: async (idempotencyKey) => {
+    call: async (_operation, idempotencyKey) => {
       keys.push(idempotencyKey);
       if (fail !== undefined) throw new Error(fail);
       return `mock_${idempotencyKey}`;
@@ -91,7 +105,7 @@ const reload = (id: string) =>
     },
   });
 
-const cancel = (id: string, provider?: RefundProvider) =>
+const cancel = (id: string, provider?: PaymentProvider) =>
   applyOrderAction(id, { kind: 'cancel', actor: 'staff', reason: 'out_of_item' }, DINNER, null, provider);
 
 beforeEach(async () => {
@@ -291,7 +305,7 @@ describe('a refund issued on purpose', () => {
   const ask = (
     orderId: string,
     amountCents: number,
-    provider?: RefundProvider,
+    provider?: PaymentProvider,
     staffId: string | null = null,
   ) =>
     requestRefund(

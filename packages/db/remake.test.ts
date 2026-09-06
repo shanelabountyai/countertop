@@ -159,9 +159,11 @@ describe('remaking an order (P0-3, decision 7)', () => {
       collectedCents: 0,
       outstandingCents: 0,
     });
-    // And the original is untouched — it was paid, and it stays paid.
+    // And the original is untouched — its card is still held, and a hold is
+    // neither collected nor owed (C-069). Nothing about a remake settles it:
+    // the original order still has to reach a counter or a no-show for that.
     expect(orderBalance(await withEvents(original.id))).toEqual({
-      collectedCents: original.totalCents,
+      collectedCents: 0,
       outstandingCents: 0,
     });
   });

@@ -172,9 +172,11 @@ describe('a name on the row', () => {
   });
 
   it('stamps only what the actor actually did', async () => {
-    // A cancelled paid order writes two events: the staff transition and the
-    // system's refund. Stamping the refund would put Noor's name on a row she
-    // did not write — the engine wrote it, as a consequence.
+    // A cancelled PREPAID order writes two events: the staff transition and
+    // the system's release of the card hold. Stamping the release would put
+    // Noor's name on a row she did not write — the engine wrote it, as a
+    // consequence of her cancelling (C-069 moved this from a `refund` to an
+    // `authorization_voided`; the argument is unchanged and so is the rule).
     const order = await place(true);
     await applyOrderAction(
       order.id,
@@ -186,9 +188,9 @@ describe('a name on the row', () => {
     const events = await eventsOn(order.id);
     const cancel = events.find((event) => event.kind === 'transition' && event.actor === 'staff');
     expect(cancel?.staffId).toBe('staff-noor');
-    expect(events.find((event) => event.kind === 'refund')?.staffId).toBeNull();
-    // And the customer's own events — the placement, the checkout charge —
-    // were never candidates.
+    expect(events.find((event) => event.kind === 'authorization_voided')?.staffId).toBeNull();
+    // And the customer's own events — the placement, the checkout hold — were
+    // never candidates.
     expect(
       events.filter((event) => event.actor === 'customer').every((event) => event.staffId === null),
     ).toBe(true);

@@ -1,5 +1,6 @@
 import {
   derivePaymentState,
+  paymentTotals,
   estimateAccuracy,
   instantMinutesAfter,
   isOpen,
@@ -164,11 +165,16 @@ describe('ugly case 2 — a cook advances the wrong card', () => {
       reason: 'advanced the wrong card',
     });
 
-    // Placement + five moves + the revert, and — since C-085 — the payment
-    // Rae's checkout took. The mistake is still in the history, which is the
-    // whole point of an append-only log.
-    expect(events).toHaveLength(8);
-    expect(events.filter((e) => e.kind === 'payment')).toHaveLength(1);
+    // Placement + five moves + the revert, and — since C-069 — the hold Rae's
+    // checkout took plus the capture that took it at the counter. The mistake
+    // is still in the history, which is the whole point of an append-only log.
+    expect(events).toHaveLength(9);
+    // ONE capture, and the undo is the reason this assertion matters: Rae's
+    // ticket was advanced to `picked_up` in error, undone, and advanced again.
+    // The unique index on the settlement link is what stops the second advance
+    // charging the card a second time.
+    expect(events.filter((e) => e.kind === 'authorization')).toHaveLength(1);
+    expect(events.filter((e) => e.kind === 'capture')).toHaveLength(1);
     // The status walk, with the money event stepped over: it did not move the
     // order, so it does not belong in the sequence of states the order was in.
     expect(events.filter((e) => e.toStatus !== null).map((e) => e.toStatus)).toEqual([
@@ -434,37 +440,94 @@ describe('the payment column is a cache of the payment events', () => {
 
   it('gives every money event an amount and no other event one', async () => {
     // The database CHECK says this too. The test says it in the vocabulary of
-    // the rush, so a future writer that adds a third money kind fails here
+    // the rush, so a future writer that adds another money kind fails here
     // with a readable message rather than on a constraint name.
+    //
+    // "Money-bearing" is broader than "money moved" and has been since C-065:
+    // a hold and a release each carry the amount they are ABOUT, which is what
+    // lets `paymentTotals` answer "is anything owed at the counter" without
+    // following a link.
+    const bearing = ['payment', 'refund', 'authorization', 'capture', 'authorization_voided'];
     const events = await prisma.orderEvent.findMany({ select: { kind: true, amountCents: true } });
-    const money = events.filter((event) => event.kind === 'payment' || event.kind === 'refund');
+    const money = events.filter((event) => bearing.includes(event.kind));
 
     expect(money.length).toBeGreaterThan(0);
     expect(money.every((event) => typeof event.amountCents === 'number')).toBe(true);
     expect(
       events
-        .filter((event) => event.kind !== 'payment' && event.kind !== 'refund')
+        .filter((event) => !bearing.includes(event.kind))
         .every((event) => event.amountCents === null),
     ).toBe(true);
   });
 
-  it('refunds exactly what it captured on the cancelled prepaid ticket', async () => {
-    // The one order in the rush that goes all the way round: charged at
-    // checkout, cancelled, refunded. Captured and refunded must be the same
-    // number, or the balance P0-2 builds on this starts life wrong.
-    const refunded = await prisma.order.findFirstOrThrow({
-      where: { paymentState: 'refunded' },
-      select: { totalCents: true, events: { select: { kind: true, amountCents: true } } },
+});
+
+// PRD 3 P1-1 (C-069), against the WHOLE service and not the truncation the
+// describe above leaves behind. `stopping the rush mid-service` re-runs to
+// minute 12, so by the time anything after it reads the database there are no
+// pickups and no no-show — and those are exactly the two moments a hold is
+// settled. Its own `beforeAll` rather than a note about ordering: a test that
+// is correct only because of where it sits in a file is a test that breaks
+// when somebody adds one above it.
+describe('a card held at checkout, taken or let go', () => {
+  beforeAll(async () => {
+    await runRush(RUSH_ANCHOR);
+  }, 180_000);
+
+  // The two tickets in the rush that were prepaid and never handed over:
+  // Owen's cancellation and Cass's no-show. Before this item both were charged
+  // at checkout and refunded on the way out — a provider call that can fail,
+  // on money that never needed to leave the card.
+  it('releases the hold on the prepaid tickets that never left the building', async () => {
+    const released = await prisma.order.findMany({
+      where: { events: { some: { kind: 'authorization_voided' } } },
+      select: {
+        status: true,
+        paymentState: true,
+        totalCents: true,
+        events: { select: { kind: true, amountCents: true } },
+      },
     });
 
-    const captured = refunded.events
-      .filter((event) => event.kind === 'payment')
-      .reduce((sum, event) => sum + (event.amountCents ?? 0), 0);
-    const returned = refunded.events
-      .filter((event) => event.kind === 'refund')
-      .reduce((sum, event) => sum + (event.amountCents ?? 0), 0);
+    // One cancelled, one no-show — the two shapes, not one case twice.
+    expect(released.map((order) => order.status).sort()).toEqual(['abandoned', 'cancelled']);
 
-    expect(captured).toBe(refunded.totalCents);
-    expect(returned).toBe(captured);
+    for (const order of released) {
+      const totals = paymentTotals(order.events);
+      // NOTHING WAS TAKEN AND NOTHING WENT BACK. That is the whole sentence,
+      // and the reason there is no refund to fail, no exceptions list entry
+      // and nobody to chase.
+      expect(totals.capturedCents).toBe(0);
+      expect(totals.refundedCents).toBe(0);
+      // The hold was for the full ticket and all of it was let go.
+      expect(totals.authorizedCents).toBe(0);
+      expect(
+        order.events
+          .filter((event) => event.kind === 'authorization')
+          .reduce((sum, event) => sum + (event.amountCents ?? 0), 0),
+      ).toBe(order.totalCents);
+      expect(order.paymentState).toBe('unpaid');
+    }
+
+    // And no refund anywhere in the service. The rush's only prepaid exits are
+    // these two, so the refund machinery has nothing to do — which is exactly
+    // what P1-1 asked for. A deliberate refund is proved in refund.test.ts and
+    // through the screens in the e2e suite.
+    expect(await prisma.orderEvent.count({ where: { kind: 'refund' } })).toBe(0);
+  });
+
+  it('captures at the counter, once, for exactly what was held', async () => {
+    const captured = await prisma.order.findMany({
+      where: { events: { some: { kind: 'capture' } } },
+      select: { totalCents: true, paymentState: true, events: { select: { kind: true, amountCents: true } } },
+    });
+    expect(captured.length).toBeGreaterThan(0);
+
+    for (const order of captured) {
+      const totals = paymentTotals(order.events);
+      expect(totals.capturedCents).toBe(order.totalCents);
+      expect(totals.authorizedCents).toBe(0);
+      expect(order.paymentState).toBe('paid');
+    }
   });
 });

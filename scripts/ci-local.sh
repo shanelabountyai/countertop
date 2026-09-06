@@ -55,6 +55,18 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'the refund-link CHECK is missing';
   END IF;
+  -- C-069. One settlement per hold: what stops an undo-and-re-advance charging
+  -- the same card twice.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_class WHERE relname='OrderEvent_authorizationId_key'
+  ) THEN
+    RAISE EXCEPTION 'the one-settlement-per-authorization unique index is missing';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname='order_event_authorization_link_matches_kind'
+  ) THEN
+    RAISE EXCEPTION 'the authorization-link CHECK is missing';
+  END IF;
 END $$;
 EOSQL
 

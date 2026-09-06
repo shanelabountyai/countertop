@@ -6145,3 +6145,118 @@ is what sent Bea to the till with $13.75 that the report never heard about.
 - **The rush script does not exercise a deliberate refund.** The seeded rush
   covers the cancel path's refund; the new one is covered by db and e2e tests
   only. Worth adding when the rush is next revisited.
+
+## C-069 — Auth at placement, capture at pickup (PRD 3 P1-1)
+
+**Built:**
+- **`packages/core/orders/authorization.ts`** — the drafts (`authorizationEvent`,
+  `captureEvent`, `authorizationVoidedEvent`), the one function that follows
+  the settlement link (`heldAuthorization`), and the customer-facing predicate
+  `releasedWithoutCapture`. Pure, like everything else in that package. The
+  shape is `refund.ts` pointed the other way, deliberately: a durable row whose
+  own id is the idempotency key, settled later by a row that names it.
+- **Three event kinds and a fourth `PaymentState`.** `authorization` at
+  checkout, `capture` on the way into a sold state, `authorization_voided` on
+  the way into one that never sold; `authorized` is the column's word for "the
+  card is held and nothing has been taken". Two migrations, because Postgres
+  refuses a new enum value used in the transaction that created it — the same
+  split C-065 and C-071 each needed.
+- **`OrderEvent.authorizationId`, `@unique`.** The settlement link, and the
+  guard: a hold has exactly one exit. `picked_up` is revertable on purpose, so
+  "advance, undo, advance" is an ordinary counter sequence, and without the
+  constraint it charges the card twice. Plain unique rather than the refund's
+  partial one, because a capture that fails RELEASES the hold rather than
+  retrying it — there is nothing to leave room for. Prisma can express it, so
+  the drift check sees it; CI asserts it by name anyway.
+- **`paymentTotals.authorizedCents`, and `orderBalance` subtracting it from
+  what is OWED.** The third thing the enum could never say: not collected, not
+  owed. This is the line that stops the counter being offered "collect $11.85"
+  on a card that is already held — `canCollectPayment` reads
+  `outstandingCents`, so the subtraction closes that door structurally rather
+  than by a new check three screens have to remember.
+- **`packages/db/authorization.ts` — `settleAuthorization(orderId, status, now,
+  provider)`**, called unconditionally by `applyOrderAction` after the commit.
+  The outcome is derived from `salesRoleOf(status)`, never from
+  `=== 'picked_up'`, so a second sold status makes the compiler find this
+  reader. An order with no hold answers `nothing_held` rather than failing,
+  which is what lets the call be unconditional.
+- **`packages/db/provider.ts`** — `PaymentProvider` lifted out of `refund.ts`
+  now that three things go through it, and given a named `ProviderOperation`
+  (`authorize` / `capture` / `void` / `refund`). `(key, amount)` alone is a
+  shape, not a seam: a real adapter handed that function cannot tell whether
+  money is arriving or leaving.
+
+**Decided:**
+- **No provider call at authorization time.** The hold is recorded, with
+  `provider: 'mock'` in `detail` — which is exactly what `paymentEvent` has
+  done since C-063, because there is no processor and the Non-Goal says there
+  will not be one. The seam that matters is capture and void: both happen after
+  the order exists, outside its transaction, where a network call belongs.
+- **A failed capture RELEASES the hold** rather than getting a `capture_failed`
+  kind and an exceptions list of its own. The alternatives were machinery P1-1
+  did not ask for, or leaving the hold standing — which reads on every screen
+  as "the money is fine" while the card said no. Releasing it is the honest end
+  state: the order goes back to OWING, `canCollectPayment` lights up the
+  counter control that has existed since C-048, and the customer is standing
+  there with the food. `reason: 'capture_failed'` plus the provider's words in
+  `detail.note` is what tells the GM at close.
+- **`capture` is its own kind rather than a `payment` with a link.** It keeps
+  the balance arithmetic over amounts, which is what keeps `MoneyEvent` at two
+  scalars — every `events: { select: { kind, amountCents } }` in the product
+  already answers it. A capture wearing `payment`'s name would have made "is
+  this hold spent" a question about the shape of the log, and every one of
+  those selects would have had to grow two columns.
+- **The customer is told the hold was released.** Without it a cancelled
+  prepaid order reads "Pay at pickup — $11.85 due" — a released hold leaves
+  `paymentState` at `unpaid` with the whole total outstanding, both true, and
+  together the message that makes somebody who paid twenty minutes ago phone.
+
+**Found:**
+- **The cancel-refund path went quiet on its own, and that is the requirement.**
+  `applyTransition` asks for a refund when `paymentState === 'paid'`; an
+  authorized order is not paid, so a cancelled prepaid ticket voids and asks
+  for nothing. No code in the state machine changed. The refund machinery is
+  not dead — it is reached by money that actually arrived, which now means a
+  counter collection.
+- **The rush test's ordering was load-bearing and nobody had said so.**
+  `stopping the rush mid-service` re-runs the rush to minute 12, so every
+  describe after it reads a truncated service with no pickups and no no-show —
+  which is where a hold is settled. The old "refunds exactly what it captured"
+  test passed only because Owen's minute-9 cancellation is inside that window.
+  The new tests run their own full rush in a `beforeAll` rather than depending
+  on where they sit in the file.
+- **The `goto`-races-a-server-action trap caught a new spec, again.** Clicking
+  "No-show" and navigating straight to the status page rendered it from before
+  the hold was released — the assertion then retried against a DOM nothing was
+  going to change. The existing specs all wait for the write's own receipt
+  (`await expect(ticket).toHaveCount(0)`) and one of them has a comment saying
+  why, dated C-025. The new one waits for the card to appear in the undo strip.
+  A spec that navigates on a click alone is asserting against the past.
+- **Two db test helpers were quietly asserting "paidNow means money".**
+  `refund.test.ts` and `payment.test.ts` both placed with `paidNow: true` and
+  then refunded. They collect at the counter now, which is the path that still
+  ends in real money before pickup — and it is a truer fixture: what those
+  tests are about is money the restaurant is holding.
+
+**Left behind:**
+- **A void the provider refuses is not chased by anything.** Nothing is
+  written (a release row would claim a live hold is gone), so the order stays
+  `authorized` and no screen lists it. A real processor expires holds on its
+  own within days; an exceptions list for a mock that never fails would be
+  machinery for a failure this product cannot have. Marked `ponytail:` in
+  `settleAuthorization`.
+- **Undoing a pickup does not give the money back.** The capture stands and
+  the order stays `paid` — deliberately, because the alternative is an
+  automatic refund triggered by a screen tap, which is the shape C-067 spent an
+  item removing. The counter's answer is the deliberate refund control C-071
+  built, on the receipt, with a reason and a name. What the constraint does
+  guarantee is that re-advancing charges nothing a second time.
+- **The rush no longer exercises a refund end to end.** Its only two prepaid
+  exits — Owen's cancellation and Cass's no-show — are both voids now, which is
+  the item working. A refund is covered at the db grain and through the screens,
+  but not in the capstone demo. Adding a counter collection to one rush ticket
+  would restore it in about six lines.
+- **The staff receipt's payment line still reads "Pay at pickup" on a released
+  hold.** Only the customer's status page got the honest sentence, because that
+  is the one a person reads before phoning. The activity log says "Card hold
+  released" either way.

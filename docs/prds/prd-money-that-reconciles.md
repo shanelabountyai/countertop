@@ -75,7 +75,7 @@ The system offers exactly nothing here. `cancelled` is unreachable from `ready` 
 
 ### Nice-to-Have (P1)
 
-- **P1-1: Auth at placement, capture at pickup** *(SYS 1)* — the pickup-shaped answer: a no-show costs a void, not a refund. Hang capture on `ready → picked_up`. Still against the mock provider; the seam is what matters.
+- **P1-1: Auth at placement, capture at pickup** ✅ *(C-069)* *(SYS 1)* — the pickup-shaped answer: a no-show costs a void, not a refund. Hang capture on `ready → picked_up`. Still against the mock provider; the seam is what matters.
 - **P1-2: Per-line tax, snapshotted** *(SYS 10)* — the seeded menu already has bottled drinks and bagged chips, which in most US states are taxed differently from the burrito beside them, so the product is already computing legally wrong tax on a real menu. The remediation is the expensive shape: `MenuItem.taxCategory`, plus `taxCents`/`taxRatePpm` **snapshotted per `OrderLine`**, with the order-level fields kept as the sum. A wrong backfill silently restates a filed tax period, which is why this is P1 with an Open Question rather than P0.
 - **P1-3: A comps and adjustments line on the sales report** *(OPS 2)* — the reporting half; the tables land in `prd-reports-that-decide.md`, the events land here.
 
@@ -142,5 +142,5 @@ The append-only trigger already covers `OrderEvent` and must keep covering it: a
 - **C-067 — A refund that can fail** — P0-4, the provider call outside the transaction, the attempt states, the exceptions list, the refund idempotency key.
 - **C-068 — Cooked food gets a way out** — P0-5, the refusal message that names the adjustment path. The abandon-offers-a-refund half was deliberately phased into C-071, which is where the control it offers was built.
 - **C-071 — A refund that can be issued on purpose** — P0-6: the form, the bound, its refusal, the per-request refund model, the reversing adjustment, and the no-show's offer.
-- **C-069 — Auth at placement, capture at pickup** — P1-1, against the mock provider.
+- **C-069 — Auth at placement, capture at pickup** ✅ — P1-1, against the mock provider. `authorization` / `capture` / `authorization_voided`, the settlement link with its unique index, and `authorizedCents` in the balance so a held card is neither collected nor owed.
 - **C-070 — Per-line tax, or the written plan not to** — P1-2, gated on its Open Question; if the answer is "not now", the item is the schema comment recording exactly which columns move and in which order.

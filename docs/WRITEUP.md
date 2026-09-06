@@ -1734,6 +1734,63 @@ test the limitation before designing around it.** The five-minute probe is
 cheaper than the shape you would have shipped, and it is a fact about *this*
 version of the tool rather than a recollection about some version of it.
 
+### The test that was correct only because of where it sat in the file (C-069)
+
+`rush.test.ts` runs the seeded rush once in a `beforeAll` and then asks a dozen
+questions of the database it left behind. Partway down, a describe called
+`stopping the rush mid-service` re-runs the whole thing to minute 12 — because
+a truncated service is the only way to see a queue with live cards on it. Every
+describe *after* that one therefore reads a twelve-minute service, not a
+forty-five-minute one.
+
+**Nothing said so.** The describe below it — the payment-cache one, three items
+old — had a test asserting that the cancelled prepaid ticket refunded exactly
+what it captured. It passed for two items, and it passed because the rush's one
+cancellation happens at minute 9, inside the truncation. Had it been Cass's
+no-show at minute 40, the test would have thrown on `findFirstOrThrow` the day
+it was written and somebody would have noticed the coupling then.
+
+C-069 is where it surfaced: the two moments a card hold is settled are a pickup
+and a no-show, and the truncated run contains neither. The new assertions
+failed with `expected [ 'cancelled' ] to deeply equal [ 'abandoned',
+'cancelled' ]` — which reads like a bug in the feature and is a fact about test
+ordering.
+
+**The fix is a `beforeAll` of its own, not a comment about ordering.** A test
+whose correctness depends on which describe ran before it is a test that breaks
+when somebody inserts one above it, and the failure will name the feature
+rather than the arrangement.
+
+The general version: **a shared fixture that any test can replace is a global
+variable.** `beforeAll` at file scope reads as "the state for this file", and
+one nested `beforeAll` that rebuilds it differently silently redefines the
+world for everything below — with no type, no import and no name to grep for.
+
+### The double charge the balance closed, and the enum did not (C-069)
+
+Moving a checkout payment to a hold has an obvious place to record it — a new
+`PaymentState` value, `authorized` — and that part was easy: `PAYMENT_LABEL` is
+a `Record<PaymentState, string>`, so the compiler asked all three screens what
+the new value reads as.
+
+**The dangerous half had nothing to do with the enum.** `canCollectPayment` has
+taken an *amount* since C-064, deliberately: "is anything still owed" survives a
+partial refund and "unpaid" does not. So the counter's "Collected — mark paid"
+button is offered whenever `orderBalance(...).outstandingCents > 0` — and an
+authorized order has captured nothing, so without a change it owes its whole
+total and the button appears. The customer's card is held for $11.85 and the
+counter is being invited to take $11.85 in cash.
+
+**The fix is one term in one function**, subtracting the held amount from what
+is owed rather than adding a check on the new enum value. That is the payoff
+from C-064's decision: because three surfaces route through one balance, the
+door closes structurally instead of in three places that each have to remember
+a fourth state exists.
+
+The general version: **when you add a state, the compiler finds the readers of
+the state — and misses every reader of the thing the state was a summary of.**
+The enum was never the risk. The number behind it was.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

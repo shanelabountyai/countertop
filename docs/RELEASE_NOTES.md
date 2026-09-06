@@ -1984,3 +1984,27 @@ comp stays in the log with the time and the name on it, and the correction sits
 beside it with a note saying what was wrong. At close, both decisions are still
 there to be asked about, which is the whole reason the log never lets anything
 be erased.
+
+## C-069 — Your card is held, not charged, until you pick the food up
+
+**Paying online now places a hold instead of taking the money.** The checkout
+screen says so: *Card held — charged at pickup*. Nothing about ordering
+changes; what changes is when the money actually moves.
+
+**It moves when the bag leaves.** The counter person taps "Picked up" and the
+card is charged for exactly what was held. Nobody has to do anything extra —
+the customer decided at checkout, and this is the moment it becomes true.
+
+**And if nobody comes, the hold is simply released.** No refund, no processor
+call that can fail, nobody chasing anything on Monday. The customer's status
+page tells them plainly: *Card hold released — you were not charged.* Same for
+an order the kitchen has to cancel.
+
+**Tap "Picked up" by mistake, undo it, tap it again — one charge.** The
+database will not accept a second one against the same hold, which is a
+stronger promise than a screen being careful.
+
+**If the card is declined at the counter, the order goes back to owing.** The
+food is already handed over and the customer is standing there, so the shop
+takes payment at the till with the button that has always been there — and the
+receipt says, in the processor's own words, why.

@@ -46,13 +46,40 @@ export function paymentTotals(events: readonly MoneyEvent[]): {
   capturedCents: number;
   refundedCents: number;
   adjustedCents: number;
+  authorizedCents: number;
 } {
   return {
-    capturedCents: sumOf(events, 'payment'),
+    // TWO KINDS, ONE SUM (C-069). A capture is money arriving exactly as a
+    // counter payment is; what makes it its own kind is that it settles a
+    // hold, and that is a fact about the log rather than about the till. Every
+    // reader that wanted "what was taken" wanted both, and this is the one
+    // place that has to know there are two of them — which is the whole reason
+    // nothing outside this file sums the log by hand.
+    capturedCents: sumOf(events, 'payment') + sumOf(events, 'capture'),
     refundedCents: sumOf(events, 'refund'),
     adjustedCents: Math.max(
       0,
       sumOf(events, 'adjustment') - sumOf(events, 'adjustment_reversed'),
+    ),
+    // Money the restaurant may take and has not (C-069). NOT collected and NOT
+    // owed — the third thing the enum could never say, and the reason a
+    // no-show costs a void rather than a refund.
+    //
+    // ARITHMETIC OVER AMOUNTS, not a walk over links, and that is what keeps
+    // `MoneyEvent` at two scalars: a capture and a void each carry the amount
+    // they settle, so the held figure is a subtraction rather than a join.
+    // `heldAuthorization` does follow the links, because the WRITER has to
+    // name the hold it is settling — but nothing that only needs the number
+    // pays for that.
+    //
+    // Clamped for the reason the balance's figures are: settling more than was
+    // ever held is a data error, and a negative hold would show up as money
+    // owed on an order nobody owes anything on.
+    authorizedCents: Math.max(
+      0,
+      sumOf(events, 'authorization') -
+        sumOf(events, 'capture') -
+        sumOf(events, 'authorization_voided'),
     ),
   };
 }
@@ -82,10 +109,18 @@ export function derivePaymentState(events: readonly MoneyEvent[]): PaymentState 
   // owed. Folding comps in would make the cache disagree with the column for
   // every order the counter ever made right, and the agreement test over the
   // seeded rush is the thing that would fail.
-  const { capturedCents, refundedCents } = paymentTotals(events);
+  const { capturedCents, refundedCents, authorizedCents } = paymentTotals(events);
   // Checked first, so a refund with no capture — which is a data error, not a
   // state — reads as `unpaid` rather than as money that went back.
-  if (capturedCents === 0) return 'unpaid';
+  //
+  // `authorized` is the fourth value, and it sits inside this branch rather
+  // than above it because a capture ENDS it (C-069): once anything has been
+  // taken the order is paid, and the hold that produced it is spent by
+  // definition. An order with a live hold and nothing taken is the one case
+  // the enum had no word for, and it used to be spelled `paid` — which told
+  // the customer money had left their card before it had, and told the report
+  // it had collected revenue it was only holding a promise of.
+  if (capturedCents === 0) return authorizedCents > 0 ? 'authorized' : 'unpaid';
   return refundedCents >= capturedCents ? 'refunded' : 'paid';
 }
 
@@ -99,7 +134,8 @@ export type OrderMoney = {
 };
 
 export type OrderBalance = {
-  /** Money received and kept: captured minus refunded. */
+  /** Money received and kept: captured minus refunded. A hold is NOT in here —
+   *  it is not received (C-069). */
   collectedCents: number;
   /** What the customer still owes. Zero once the order is settled. */
   outstandingCents: number;
@@ -140,11 +176,23 @@ export type OrderBalance = {
  * of its own rather than an adjustment to net sales.
  */
 export function orderBalance(order: OrderMoney): OrderBalance {
-  const { capturedCents, refundedCents, adjustedCents } = paymentTotals(order.events);
+  const { capturedCents, refundedCents, adjustedCents, authorizedCents } = paymentTotals(
+    order.events,
+  );
   const collectedCents = Math.max(0, capturedCents - refundedCents);
   return {
     collectedCents,
-    outstandingCents: Math.max(0, order.totalCents - collectedCents - adjustedCents),
+    // THE HOLD COMES OFF WHAT IS OWED, not off what was collected (C-069), and
+    // the two are different sentences for the same reason the comp term is:
+    // an authorized order has given the restaurant nothing, and asking its
+    // customer for the total at the counter would charge them twice. It is
+    // `outstandingCents` that `canCollectPayment` reads, so subtracting here
+    // is what structurally closes that door rather than a new check on a new
+    // enum value that three screens would have to remember.
+    outstandingCents: Math.max(
+      0,
+      order.totalCents - collectedCents - adjustedCents - authorizedCents,
+    ),
   };
 }
 
