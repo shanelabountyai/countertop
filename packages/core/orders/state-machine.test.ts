@@ -11,6 +11,7 @@ import {
   previousStatus,
   QUEUE_SECTION_ORDER,
   QUEUE_STATUSES,
+  STATUS_FACTS,
   TERMINAL_STATUSES,
   UNDOABLE_EXIT_STATUSES,
   type OrderAction,
@@ -432,5 +433,47 @@ describe('placement', () => {
       actor: 'customer',
       reason: null,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PRD 3 P0-5: the refusal is a signpost, not a dead end.
+//
+// The transition table above already asserts that `ready` and `picked_up`
+// refuse a cancel, by reason, and that assertion must not move — the refusal
+// is correct. What this adds is the other half of the requirement: the refusal
+// has to SAY where the money goes instead, because a counter person told only
+// "no" reaches for the till and the record is lost.
+// ---------------------------------------------------------------------------
+
+describe('a cooked order is refused a cancellation and sent to the adjustment', () => {
+  // Exactly the states the adjustment exists for, and the ones that hold or
+  // held food. Derived from the machine rather than listed, so a new
+  // uncancellable state has to answer this question too.
+  const uncancellable = ORDER_STATUSES.filter(
+    (status) => !STATUS_FACTS[status].cancellableByStaff,
+  );
+
+  it('is ready, picked_up, cancelled and abandoned', () => {
+    expect(uncancellable).toEqual(['ready', 'picked_up', 'cancelled', 'abandoned']);
+  });
+
+  for (const status of uncancellable.filter((s) => s !== 'cancelled')) {
+    it(`refuses a ${status} cancel by reason, and names comp or adjust`, () => {
+      const result = applyTransition(order(status), ACTIONS.staffCancel, NOW);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.refusal.reason).toBe('cancel_not_allowed');
+      expect(result.refusal.message).toMatch(/comp or adjust/i);
+    });
+  }
+
+  // The one uncancellable state with no food story to tell. Pointing a person
+  // at "comp or adjust it instead" here would be describing an order that was
+  // never handed over.
+  it('tells an already-cancelled order the true thing instead', () => {
+    const result = applyTransition(order('cancelled'), ACTIONS.staffCancel, NOW);
+    expect(!result.ok && result.refusal.reason).toBe('cancel_not_allowed');
+    expect(!result.ok && result.refusal.message).toBe('This order is already cancelled.');
   });
 });

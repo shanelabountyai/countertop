@@ -275,7 +275,13 @@ export function QueueControls({
           </div>
         </details>
 
-        {facts.cancellableByStaff && (
+        {/* PRD 3 P0-5. Where a cancel is refused, the card offers the money
+            control the engine's refusal names, instead of the section simply
+            vanishing — on the queue, "Cancel…" disappearing IS the dead end,
+            because the refusal message is never rendered here at all. Only
+            `ready` reaches the second branch: nothing else on this board is
+            both queued and uncancellable. */}
+        {facts.cancellableByStaff ? (
           <details className="w-full">
             <summary className="flex min-h-12 w-fit cursor-pointer list-none items-center rounded-lg border border-neutral-400 px-4">
               Cancel…
@@ -313,6 +319,14 @@ export function QueueControls({
               </button>
             </div>
           </details>
+        ) : (
+          <a
+            href={`/kitchen/orders/${orderId}`}
+            data-testid="cancel-alternative"
+            className="flex min-h-12 w-fit items-center rounded-lg border border-neutral-400 px-4"
+          >
+            Cooked food can&rsquo;t be cancelled &mdash; comp or adjust it
+          </a>
         )}
       </div>
 

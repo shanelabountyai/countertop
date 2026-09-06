@@ -1929,3 +1929,22 @@ customer's question.
 **Whoever taps Retry is on the row.** The automatic attempt after a
 cancellation is the system's; a retry is somebody's decision about money, and
 the log says whose.
+
+## C-068 — Cooked food gets a way out
+
+**A cooked order still cannot be cancelled, and now it tells you what to do
+instead.** Cancelling food that has already been made is not a cancellation —
+somebody paid for ingredients and somebody cooked them — so the product refuses
+it, and that refusal is not changing. What was missing was the next sentence.
+
+**On a ready card, where the Cancel option used to disappear, there is now a
+way through.** "Cooked food can't be cancelled — comp or adjust it" takes the
+counter straight to Make it right on that order's receipt, which is where the
+comp, the partial and the remake already live. One tap, with gloves on, in the
+same motion as handing over the food.
+
+**Nothing about the money moved.** The order's total is still what the customer
+was charged, the adjustment is still a separate record beside it, and the state
+machine is untouched. This release is about the moment a person is told no and
+has to decide what to do next — the moment that previously ended at the till
+drawer and a sentence to the GM at close.

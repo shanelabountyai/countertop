@@ -663,9 +663,19 @@ export function applyTransition(
         return refuse('actor_not_permitted', 'A cancellation names a person.', from, 'cancelled');
       }
       if (!facts.cancellableByStaff) {
+        // PRD 3 P0-5. The refusal itself is correct and stays exactly as it
+        // is — cooked food is not a cancellation — but "no" with nowhere to go
+        // is what sent Bea to the till and the GM to a verbal report at close.
+        // Money is decoupled from status: the adjustment on the staff receipt
+        // is reachable in EVERY state, so it is reachable in all four of these,
+        // and the refusal names it. `cancelled` is the one where that sentence
+        // would be a lie about the food, so it says the true thing instead —
+        // the same split the revert above makes, for the same reason.
         return refuse(
           'cancel_not_allowed',
-          `A ${from} order cannot be cancelled.`,
+          from === 'cancelled'
+            ? 'This order is already cancelled.'
+            : `A ${from} order cannot be cancelled — the food is made. Comp or adjust it instead.`,
           from,
           'cancelled',
         );

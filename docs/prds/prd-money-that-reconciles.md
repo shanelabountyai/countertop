@@ -58,9 +58,9 @@ The system offers exactly nothing here. `cancelled` is unreachable from `ready` 
 - [x] Test: stub a provider that throws; assert the order shows *refund pending*, appears on the exceptions list, and that `paymentState` is not `refunded`
 
 **P0-5: A cooked order can be made whole without being cancelled** *(OPS 2, SYS 1)*
-- [ ] The state machine's refusal to cancel from `ready` and `picked_up` is **unchanged** — it is correct and both evaluators agree
-- [ ] Money is therefore decoupled from status: P0-3's adjustment is available in exactly the states where cancellation is refused, and the refusal message says so ("cooked food cannot be cancelled — comp or adjust it instead") rather than being a dead end
-- [ ] Test: attempt to cancel a `ready` order, assert the existing refusal by reason, and assert the refusal names the adjustment path
+- [x] The state machine's refusal to cancel from `ready` and `picked_up` is **unchanged** — it is correct and both evaluators agree
+- [x] Money is therefore decoupled from status: P0-3's adjustment is available in exactly the states where cancellation is refused, and the refusal message says so ("cooked food cannot be cancelled — comp or adjust it instead") rather than being a dead end
+- [x] Test: attempt to cancel a `ready` order, assert the existing refusal by reason, and assert the refusal names the adjustment path
 
 ### Nice-to-Have (P1)
 

@@ -119,3 +119,32 @@ test('the control is reachable with gloves on, and the receipt stays accessible'
     .analyze();
   expect(results.violations).toEqual([]);
 });
+
+test('a ready order offers the adjustment where the cancel used to be (P0-5)', async ({ page }) => {
+  await placeOrderFor(page, 'Wren Alcott', { payAtPickup: true });
+  await page.goto('/kitchen');
+
+  // Stop at `ready`: cooked, on the shelf, still on the board. This is the
+  // exact card where a counter person looks for a way to make it right.
+  for (const label of ['Accept', 'Start cooking', 'Food is ready']) {
+    const button = card(page, 'Wren Alcott').getByRole('button', { name: label, exact: true });
+    await button.click();
+    await expect(button).toHaveCount(0);
+  }
+
+  // The refusal stays a refusal — there is no cancel here and there must not be.
+  await expect(card(page, 'Wren Alcott').getByText('Cancel…')).toHaveCount(0);
+
+  // But it is no longer a dead end: the card names the money control instead,
+  // and the link goes to it.
+  const signpost = card(page, 'Wren Alcott').getByTestId('cancel-alternative');
+  await expect(signpost).toContainText('comp or adjust it');
+  await expect(signpost).toHaveCSS('min-height', '48px');
+  await signpost.click();
+
+  await expect(page.getByRole('heading', { name: 'Make it right' })).toBeVisible();
+  await page.getByLabel('Reason').selectOption('quality');
+  await page.getByRole('button', { name: 'Comp the whole order' }).click();
+  await expect(page.getByTestId('history-total')).toHaveText('$11.85');
+  await expect(page.getByTestId('history-adjusted')).toHaveText('−$11.85');
+});

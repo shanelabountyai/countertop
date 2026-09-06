@@ -1637,6 +1637,39 @@ idiom already in the file — assert the write landed *before* navigating — an
 the reason to record it is that the strongest invariant in the project was being
 guarded by a test that could not fail.
 
+### The acceptance criterion that could be met without fixing anything (C-068)
+
+PRD 3 P0-5 is one of the better-written requirements in the set. The refusal to
+cancel cooked food stays; the refusal must name the adjustment path instead of
+being a dead end; the test asserts the refusal by reason and asserts the message
+names the path. Three lines, each checkable.
+
+**All three are satisfiable by editing a string that no screen displays.** The
+kitchen queue never renders a cancel refusal. `queue-controls.tsx` gates the
+entire "Cancel…" section on `facts.cancellableByStaff`, so on a `ready` card the
+control is not disabled with an explanation — it is absent. There is no tap that
+produces `cancel_not_allowed`, so there is no tap that would have shown the new
+sentence. Change the engine, write the test the criterion asks for, watch it go
+green, and the counter person standing in front of Ivy is exactly where they
+were: looking at a card with no money control and no idea one exists.
+
+**The criterion is not wrong; it is written in the engine's vocabulary because
+that is where the refusal lives.** "The refusal message says so" is a precise
+description of the fix in a system where refusals surface. This one hides them,
+and the requirement had no way to know that. What caught it was reading the
+caller before writing the change — the same habit that turns a one-line ticket
+into a grep of every call site — and the tell was that the *message* had no
+reader at all.
+
+**The dead end was in the conditional, not the string.** The `&&` became a
+ternary and the other branch is a link to the control that already existed.
+Every criterion is still met, the test still asserts the message, and the e2e
+follows the link and comps the order — because a signpost is only worth
+asserting if the far end works.
+
+The general version: **a requirement phrased as "the error should say X" is a
+claim that somebody sees the error.** Check that before believing the test.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

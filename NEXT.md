@@ -1,25 +1,30 @@
 # Next
 
-**PRD 3 P0-5 — a cooked order can be made whole without being cancelled.**
-`docs/prds/prd-money-that-reconciles.md`, the last unchecked block (three
-criteria). Everything else in PRD 3 is done; the backlog has no unchecked
-items, so this one needs a `C-0xx` entry written as part of the work.
+**A refund that can be issued on purpose** — the money item C-067 and C-068 both
+left behind, and the last thing PRD 3's money story is missing now that its
+whole P0 block is ticked.
+
+There is no `C-0xx` for it yet; write one as part of the work (C-071 is free —
+C-069 and C-070 are the PRD's own P1 items and are not this).
 
 What it asks for:
-- The state machine's refusal to cancel from `ready` / `picked_up` stays
-  **unchanged** — it is correct and both evaluators agree. Nothing in
-  `packages/core/orders/state-machine.ts` should move.
-- The refusal must stop being a dead end: it names the adjustment path
-  ("cooked food cannot be cancelled — comp or adjust it instead"), and the
-  comp/adjust control is available in exactly the states where cancellation
-  is refused.
-- Test: attempt to cancel a `ready` order, assert the existing refusal **by
-  reason**, and assert the refusal names the adjustment path.
+- Today the only thing that requests a refund is cancelling a paid order. A comp
+  on an order that already paid reads as a zero balance rather than as money
+  owed back — expressible since C-067, still not shippable.
+- Needs a **form** (an amount in cents), a **bound** (what the restaurant is
+  actually holding, from `orderBalance` — recomputed at the attempt, never
+  frozen), and **its own refusal** (over the bound: refused, never clamped, the
+  same discipline as `adjustmentEvent`).
+- Plus the **reversing adjustment** C-065 and C-066 both deferred: a mistaken
+  comp is corrected by a contradicting row, never a delete.
+- `settleRefund` in `packages/db/refund.ts` is the one attempt and already has
+  two callers; this is the third, and it must not become a second path.
+- **Then** `abandon` can offer a refund, which is the half of C-068's phasing
+  line deliberately not built — a no-show is not automatically a refund (the
+  food was made), so it has to be an offer, and the offer needs this control.
 
-Model: Opus — it is a refusal-message/authority change on the money path, and
-the trap is "improving" the state machine that is deliberately strict.
+Model: Opus — money path, a new writer against an append-only log, and the trap
+is inventing a second refund path beside `settleRefund`.
 
-Also still open, from C-067's *Left behind* (not this item, but the next money
-one): a refund that can be issued **on purpose**, rather than only as the
-consequence of cancelling a paid order — needs a form, a bound, and its own
-refusal, plus the reversing adjustment C-065 and C-066 both deferred.
+The alternative, if you would rather move on: PRD 3 P1-1 (`C-069`, auth at
+placement / capture at pickup) or the next ranked PRD in `docs/prds/INDEX.md`.

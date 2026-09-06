@@ -5982,3 +5982,68 @@ completed refund on the strength of having decided to make one.
   exceptions list. That is the same gap PRD 3 P1-3's comps line is for.
 - **Nothing retries on its own, and nothing ages.** A failed refund sits on the
   list looking identical on day one and day nine.
+
+## C-068 — Cooked food gets a way out (PRD 3 P0-5)
+
+The requirement's first line is an instruction not to change anything. `ready`
+and `picked_up` refuse a cancel, both evaluators independently said the refusal
+is correct, and `STATUS_FACTS` was not to move. The item is entirely about the
+second line: a refusal that names no alternative is a dead end, and the dead end
+is what sent Bea to the till with $13.75 that the report never heard about.
+
+**Built:**
+- **The refusal names the adjustment path.** `cancel_not_allowed` said `A ready
+  order cannot be cancelled.` and now says `A ready order cannot be cancelled —
+  the food is made. Comp or adjust it instead.` `cancelled` is split off to say
+  the one true thing about itself: pointing an already-cancelled order at "comp
+  or adjust it" would be describing food that was never handed over. That split
+  is the same shape `revert` makes two cases above, for the same reason, so it
+  is the file's own idiom rather than a new one.
+- **The queue card offers the control where the cancel is refused.**
+  `queue-controls.tsx` gated the whole "Cancel…" section on
+  `facts.cancellableByStaff`; the `&&` is now a ternary, and the other branch is
+  a ≥48px link to the receipt's **Make it right**. Only `ready` can reach it —
+  nothing else on the board is both queued and uncancellable — and the comment
+  says so, so the branch is not read later as covering states it never sees.
+- **Nothing else.** P0-5's "the adjustment is available in exactly the states
+  where cancellation is refused" was already true: C-065 built the control
+  reachable in every state, deliberately, because `picked_up` and `abandoned`
+  are where a wrong order is discovered. This item asserts that rather than
+  adding to it.
+
+**Found:**
+- **The message was never the dead end.** The kitchen queue does not render a
+  cancel refusal at all — there is no path on which a person tapping around a
+  `ready` card sees `cancel_not_allowed`. The section simply is not there. So
+  the acceptance criterion, taken literally, could have been satisfied by
+  editing a string that no screen displays, and the counter person would have
+  been in exactly the same position afterwards. The engine change is still
+  right (it is the API's answer, and it is what the test pins), but the item
+  was only actually done once the card said something.
+- **The refusal's audience is staff only, which is what made the wording safe.**
+  `ready` + a customer cancel returns `cancel_not_allowed` rather than
+  `customer_cancel_too_late`, because the staff check runs first — so a
+  customer-facing surface would now be told to "comp or adjust it". There is no
+  such surface: nothing outside `/kitchen` calls the cancel action, and the
+  status page renders its own copy from `cancelReason`. Worth checking before
+  writing an operator instruction into a shared message, not after.
+
+**Left behind:**
+- **The signpost is a link, not a control.** Comping from the queue still costs
+  a navigation. Inlining the adjustment on the card is a bigger question than
+  this item — the card's whole discipline is a small number of large controls —
+  and it is not obviously the right answer.
+- **`picked_up` and `abandoned` are not on the board.** Their route to the
+  adjustment is the `/kitchen/orders` search, which is fine and is where a
+  discovered-later problem is looked up anyway, but it is not signposted from
+  anywhere the way `ready`'s now is.
+- **The phasing line's second half is deliberately not here.** `prd-money-that-
+  reconciles.md` lists C-068 as the refusal message "plus abandoning a prepaid
+  order offering a refund". A no-show is not a refund: the food was made and is
+  on the shelf, which is the PRD's own argument for P1-1 ("a no-show costs a
+  void, not a refund"), and an `abandon` that auto-pushed `refund_requested` the
+  way `cancel` does would decide against the restaurant every time. The word is
+  *offering*, and the thing that offers is the refund-issued-on-purpose control
+  C-067 left behind — a form, a bound, and its own refusal. It belongs to that
+  item, alongside the reversing adjustment. `abandon` goes on writing one
+  transition and nothing else until then.
