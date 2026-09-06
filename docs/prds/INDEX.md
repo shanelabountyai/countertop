@@ -107,6 +107,13 @@ Four contradictions between evaluators, resolved. Recorded here and in each PRD'
 | 9 | The reward economics, which `prd-loyalty.md` forbade the builder from defaulting. | **10% back** — 1 point per dollar of subtotal, 100 points, $10 off. | The number customers notice; the cheap alternative costs less per order and that is all it does. Editable in `RestaurantSettings`, which is not the same as changeable — moving it once balances are held devalues them visibly. *(PRD 7 P0-4.)* |
 | 10 | The expiry window, which the P0-5 CHECK ties to data retention. | **365 days of inactivity**, and `retentionDays` widens to 365 to satisfy the CHECK. | The punch-card lifetime rather than a quarterly promo. **The cost is that loyalty now drives this product's PII retention policy** — nothing else needs a named person's history for a year — which is why the expiry sweep and the forget path ship with it rather than after it. *(PRD 7 P0-5; PRD 6 P0-4 pulled forward as C-091.)* |
 
+
+### Decisions taken later — 2026-09-06
+
+| # | Question | Decision | Why |
+|---|---|---|---|
+| 11 | PRD 3's last Open Question: is **per-line tax** worth building, given the backfill on the snapshot tables restates a filed period if it is wrong? | **Not now — the written plan instead.** The five-step migration shape is recorded normatively in `packages/db/prisma/schema.prisma` above `model OrderLine`, and is **forward-only by construction**: nullable columns, no backfill, ever. | The question framed the cost as an expensive backfill; the answer is that the backfill has **no defensible answer at all**, twice over. `OrderLine` is a snapshot table and C-091's sweep is legal only because it touches *who ordered* and never *what was sold*. And there is no input — splitting an old order's single tax figure needs category assignments that did not exist when it was placed, and round-then-sum is not sum-then-round, so the result ties to no receipt anyone holds. The middle option (columns forward-only, no screen admitting two eras answer differently) was rejected as the worst of the three. Re-opens on a second jurisdiction, a filing export with a real consumer, or this shop being somewhere its drinks and chips are exempt. *(PRD 3 P1-2, C-070 — which closes PRD 3.)* |
+
 **Numbering correction, 2026-09-02:** PRD 6's forget item was written as `C-087`; the brand item shipped under that number first, so the forget item is now **C-091**. The number is bookkeeping — the dependency is not.
 
 **What decision 3 changes about the ranking:** PRD 6 is no longer last in execution order even though its value ÷ cost still ranks it there. Its first two items — `C-084` structured logging and `C-085`-onward staff identity — are now prerequisites, not insurance.

@@ -6261,3 +6261,114 @@ is what sent Bea to the till with $13.75 that the report never heard about.
   hold.** Only the customer's status page got the honest sentence, because that
   is the one a person reads before phoning. The activity log says "Card hold
   released" either way.
+
+## C-070 — Per-line tax, or the written plan not to (PRD 3 P1-2)
+
+The last item in PRD 3, and the only one in the whole set gated on a product
+question rather than on a dependency. The question was asked and answered
+before anything was built: **not now**, decision 11, recorded in
+`docs/prds/INDEX.md`. So the item is the plan.
+
+**Built:**
+- **The normative migration shape, in `packages/db/prisma/schema.prisma` above
+  `model OrderLine`.** Five steps, in order, each one arithmetically inert on
+  its own except the fourth. It is written as a NORMATIVE block rather than a
+  note, because the failure mode of a deferred migration is not that it is
+  forgotten — it is that a later session re-derives it, cheaply and
+  differently, at the moment it is under pressure to ship.
+- **Three cross-references from the columns the plan names** — `Order.taxRatePpm`
+  ("this column keeps its meaning under that plan and is never dropped"),
+  `RestaurantSettings.taxRatePpm` (the same, plus why the tidy-up that drops it
+  is the defect), and `MenuItem`, where the plan's first column is marked
+  absent on purpose. The pointers matter more than the block does: a person
+  editing `RestaurantSettings.taxRatePpm` is exactly the person who needs to
+  know a migration plan depends on it surviving.
+- **The WRITEUP's flat-rate caveat, which had been one line since C-002,
+  replaced by the argument.** The old line said real jurisdictions have
+  category-dependent rates. It did not say that this menu already trips over
+  that, and it did not say why the fix is expensive.
+
+**Decided:**
+- **The question framed the cost as an expensive backfill. That understates
+  it: the backfill has no defensible answer at all**, and there are two
+  independent reasons, either of which is sufficient.
+  1. **`OrderLine` is a snapshot table.** The one precedent this repo has for
+     UPDATEing one is C-091's retention sweep, and what makes that legal is
+     narrow and was stated at the time: it touches only columns that are *who
+     ordered*, never columns that are *what was sold*. Per-line tax is entirely
+     the second kind. There is no version of this backfill that is not the
+     thing the founding invariant exists to forbid.
+  2. **There is nothing to backfill from.** An order placed in March stored one
+     `taxCents` for the whole ticket at one rate. Splitting it per line needs
+     today's `taxCategory` assignments, which did not exist in March — and
+     re-rounding per line does not reproduce the total that was actually
+     charged, because **round-then-sum is not sum-then-round**. The output is a
+     restated filed period whose new figure ties to no receipt any customer
+     holds.
+- **Therefore the plan is forward-only by construction, not by preference.**
+  Nullable columns, no backfill ever, `null` meaning "placed before per-line tax
+  existed and `Order.taxCents` is the whole truth about this order". The rule
+  that has to travel with it: **no reader may apportion the order-level figure
+  across lines to fill in a null.** That is inventing a number, and it is the
+  shortcut a reasonable person takes when a report needs the column populated.
+- **The middle option was the worst of the three, and was rejected on this
+  repo's own discipline.** Per-line columns populated forward only, with no
+  screen admitting that two eras of orders answer the same question
+  differently, is a schema that lies quietly — the same objection that rejected
+  the typed name for comps (decision 3) and the disabled submit button as an
+  idempotency mechanism (C-006).
+- **The category is snapshotted on the LINE, not chased through `menuItemId`.**
+  Step M3, and it is the column a normalising instinct will try to delete:
+  reclassifying Mexican Coke from prepared to grocery next year must not change
+  what a line placed today was taxed as. This is the snapshot rule arriving at
+  tax, and it is the reason the plan has three new line columns rather than two.
+- **`RestaurantSettings.taxRatePpm` is never dropped.** Step M2 adds a rate per
+  category and keeps the singleton's column, because it is what every order
+  placed before M3 is explained by. The tidy-up migration that drops it is
+  where old receipts silently become unexplainable, and it is the kind of
+  change that looks like housekeeping in a diff.
+- **The test that must exist before M4 lands, named now rather than left to be
+  invented later:** a two-line order across two rates whose per-line rounding
+  and whole-subtotal rounding differ, asserted at the cent. If a fixture cannot
+  be made where those two numbers differ, the fixture is wrong and not the
+  engine — which is the same pre-committed escape hatch C-091's PRD wrote for
+  the retention sweep, and for the same reason.
+
+**Verified rather than assumed:**
+- **The seeded menu already contains the counterexample.** `bottled-water`,
+  `mexican-coke`, `horchata` and `agua-fresca` under `drinks`, `chips` under
+  `sides` — read out of `packages/core/menu/sample-menu.ts` rather than taken
+  from the PRD's claim about it. So the flat rate is legally wrong on a menu
+  this product ships with, not on a hypothetical one. What keeps it shippable
+  is that it is *explainable*: `taxCents = taxOn(subtotalCents, ratePpm)`, one
+  rounding function, and the rate stored on the order beside the money it
+  produced.
+- **`prisma format` reformats the whole file, and the churn was reverted.** The
+  formatter re-aligned every model's columns — 62 deletions in a documentation
+  commit — because the file was last formatted by a different CLI version.
+  Nothing in the gate runs a format check (`grep`ed `package.json`, `ci.yml`
+  and `scripts/ci-local.sh` before deciding), so the file was restored and the
+  edits re-applied unformatted. `prisma format` had already proved the block
+  parses, which was the only thing it was wanted for.
+- **A `///` doc comment attaches to the node that follows it.** The
+  "`taxCategory` is not present" marker on `MenuItem` sits between `available`
+  and `prepWeight`, so as a doc comment it would have become `prepWeight`'s
+  documentation — a comment about a column that does not exist, permanently
+  attached to one that does. Written as a plain `//`, with a line saying why.
+
+**Left behind:**
+- **PRD 3 is closed, and its P1-2 is closed by a document.** That is the
+  honest state and it should not be read as the requirement being satisfied:
+  the product still computes the wrong tax on a mixed order. What changed is
+  that it now does so in a way somebody can find, cost and reverse.
+- **Nothing enforces the plan.** No test fails if a future session adds
+  `OrderLine.taxCents NOT NULL` with a backfill; the block is prose in a schema
+  file. A static check of the kind C-106 built — reading a migration's text and
+  refusing an UPDATE against a snapshot table — is the version with teeth, and
+  it is more machinery than a deferred item warrants until the migration is
+  actually being written.
+- **`Order.taxRatePpm` stops explaining the total on its own the moment M4
+  lands**, for any order spanning two categories. The plan says the column is
+  written as the `prepared` rate and that its comment must change. It is the
+  one place where a step in the plan makes an existing column less true rather
+  than more, and it is the easiest thing in the sequence to miss.

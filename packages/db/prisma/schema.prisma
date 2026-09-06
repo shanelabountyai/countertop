@@ -258,6 +258,10 @@ model MenuItem {
   /// The item grain of 86'ing (P0-6). Unavailable items render "sold out",
   /// they are not hidden.
   available      Boolean             @default(true)
+  // NOT PRESENT, deliberately: `taxCategory` is step M1 of the deferred
+  // per-line tax plan above `model OrderLine` (C-070). Bottled water and
+  // Mexican Coke are on this menu today at the prepared-food rate. Plain `//`
+  // rather than `///`: a doc comment would attach itself to `prepWeight`.
   /// Kitchen work, not price (P1-7). The P0-6 auto-pause threshold and the
   /// P0-7 estimate sum this across open orders instead of counting them. 0 is
   /// legal — a bottle out of the fridge is no work.
@@ -339,6 +343,12 @@ model Order {
   taxCents        Int
   /// Snapshotted with the money. A later rate change must not make this
   /// receipt's arithmetic unexplainable.
+  ///
+  /// ONE rate over the whole subtotal — see "PER-LINE TAX, THE MIGRATION NOT
+  /// TAKEN" above `model OrderLine`. On a menu with bottled drinks and bagged
+  /// chips that is legally the wrong number in most US states, and it is
+  /// deferred rather than unnoticed (C-070). This column keeps its meaning
+  /// under that plan and is never dropped.
   taxRatePpm      Int
   totalCents      Int
   /// Snapshotted with the money (P1-7): the sum of each line's item weight
@@ -401,6 +411,95 @@ model Order {
   /// The kitchen queue read: group by state, order by placement time.
   @@index([status, placedAt])
 }
+
+// ---------------------------------------------------------------------------
+// PER-LINE TAX — THE MIGRATION NOT TAKEN (C-070, PRD 3 P1-2, decision 11).
+//
+// NORMATIVE. This block is the deliverable of C-070: the gating Open Question
+// was answered "not now", and the item is this plan rather than the columns.
+// A later session that decides to build it starts here and does not re-derive
+// the order.
+//
+// THE DEFECT BEING DEFERRED, STATED HONESTLY:
+//   Tax is ONE flat rate over the whole subtotal — `taxOn(subtotalCents,
+//   ratePpm)` in packages/core/pricing, one rounding, snapshotted per order as
+//   `Order.taxRatePpm`. The seeded menu already contains `Bottled water`,
+//   `Mexican Coke` and `Chips & salsa`, which in most US states are taxed
+//   differently from the burrito beside them. So this is not a rate that is
+//   merely simplified: on a real menu in a real state it is arithmetically the
+//   wrong number. What makes it shippable anyway is that it is EXPLAINABLE —
+//   the rate that produced every stored `taxCents` is stored beside it.
+//
+// WHY IT IS NOT BUILT: THE BACKFILL HAS NO DEFENSIBLE ANSWER.
+//   1. `OrderLine` is a snapshot table. The one precedent for UPDATEing one is
+//      C-091's retention sweep, and what made that legal was narrow and was
+//      stated: it touches only columns that are WHO ORDERED, never columns
+//      that are WHAT WAS SOLD. Per-line tax is entirely the second kind.
+//   2. Even setting the invariant aside, there is no input to backfill FROM.
+//      An order placed in March stored one `taxCents` for the whole ticket at
+//      one rate. Splitting it per line needs today's `taxCategory` assignments,
+//      which did not exist in March — and re-rounding per line does not
+//      reproduce the order's own total, because round-then-sum is not
+//      sum-then-round. The output is a restated filed period whose new figure
+//      ties to no receipt any customer holds.
+//   Therefore: NULLABLE COLUMNS, NO BACKFILL, FOREVER. `null` is the honest
+//   answer and means "placed before per-line tax; `Order.taxCents` is the
+//   whole truth about this order". No reader may apportion the order-level
+//   figure across lines to fill it in — that is inventing a number.
+//
+// THE COLUMNS, IN THE ORDER THEY MOVE. Each step is arithmetically inert on
+// its own; only step 4 changes a number, and only for orders placed after it.
+//
+//   M1. `enum TaxCategory { prepared grocery exempt }` and
+//       `MenuItem.taxCategory TaxCategory @default(prepared)`.
+//       The default IS the current behaviour, so the backfill is the default
+//       and there is nothing to decide. One file — creating the type and a
+//       column using it is legal together. A LATER category is two files:
+//       `ALTER TYPE ... ADD VALUE` cannot be used in the transaction that adds
+//       it (the split C-065, C-071 and C-069 each needed).
+//
+//   M2. `model TaxRate { category TaxCategory @id, ratePpm Int }`, seeded with
+//       today's `RestaurantSettings.taxRatePpm` for every category — so M2
+//       also changes no number. Rows rather than three columns on the
+//       singleton, because a fourth category must not be a schema change on a
+//       table carrying a CHECK.
+//       `RestaurantSettings.taxRatePpm` IS NOT DROPPED. Ever. It is what every
+//       order placed before M3 is explained by, and the tidy-up migration that
+//       drops it is where old receipts silently become unexplainable.
+//
+//   M3. `OrderLine.taxCategory TaxCategory?`, `OrderLine.taxRatePpm Int?`,
+//       `OrderLine.taxCents Int?`. No default, no backfill (see above).
+//       The CATEGORY is snapshotted on the LINE, not chased through
+//       `menuItemId` — reclassifying Mexican Coke from prepared to grocery
+//       next year must not change what a line placed today was taxed as. This
+//       is the snapshot rule arriving at tax, and it is the column a
+//       normalising instinct will try to delete.
+//
+//   M4. No migration — the engine, and the only step that changes a number.
+//       `taxOn` is UNCHANGED and stays the one rounding function; it is called
+//       once per line instead of once per order, and `Order.taxCents` becomes
+//       the sum of its lines. `buildOrderSnapshot` and `reviewCart` in
+//       packages/db/placement.ts are the two call sites.
+//       `Order.taxRatePpm` stops explaining the total on its own the moment an
+//       order spans two categories; its comment must say so, and it is written
+//       as the `prepared` rate.
+//       THE TEST THAT MUST EXIST BEFORE THIS LANDS: a two-line order across
+//       two rates whose per-line rounding and whole-subtotal rounding differ,
+//       asserted at the cent. If those two numbers cannot be made to differ in
+//       a fixture, the fixture is wrong, not the engine.
+//
+//   M5. The readers. Every surface renders `Order.taxCents` today and goes on
+//       doing so — the report, the CSV, both receipts. The new question, "what
+//       tax did THIS LINE pay", has exactly one honest answer: the line's own
+//       columns, or `null`.
+//
+// WHAT WOULD TRIGGER BUILDING IT: a second jurisdiction, a filing export with
+// a real consumer, or this shop actually being in a state where the drinks and
+// chips already on its menu are exempt. None of the three exists today, and
+// the half-built version — columns populated forward only, with no screen
+// admitting that two eras of orders answer the same question differently — is
+// worse than either end.
+// ---------------------------------------------------------------------------
 
 model OrderLine {
   id             String            @id @default(uuid())
@@ -612,6 +711,11 @@ model RestaurantSettings {
   /// report bucket derive from this — never UTC, never the process's zone.
   timezone      String
   /// Parts per million. 8.25% = 82_500 (see packages/core/pricing).
+  ///
+  /// The single rate for every category. Step M2 of the deferred per-line tax
+  /// plan (above `model OrderLine`) adds a rate PER category and keeps this
+  /// column — it is what every order placed before that migration is explained
+  /// by, so the tidy-up that drops it is the defect (C-070).
   taxRatePpm    Int
   /// The manual pause switch (P0-6). Always overrides the other two triggers.
   ordersPaused  Boolean @default(false)

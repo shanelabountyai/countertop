@@ -2008,3 +2008,27 @@ stronger promise than a screen being careful.
 food is already handed over and the customer is standing there, so the shop
 takes payment at the till with the button that has always been there — and the
 receipt says, in the processor's own words, why.
+
+## C-070 — Nothing shipped, and the reason is written down
+
+**This item changed no screen, no number and no table.** It is here because the
+decision it records is one a restaurant would want to know was taken on purpose.
+
+**Tax is one flat rate over the whole order.** In most US states a bottle of
+water and a bagged snack are not taxed like the burrito next to them — and this
+menu has both. So the tax on a mixed order is not merely rounded coarsely, it is
+the wrong number for a real shop in a real state.
+
+**It was not fixed, and that is the honest call rather than the easy one.**
+Charging tax per line means recording, for every order ever placed, which lines
+were food and which were groceries. Nobody knows. Those orders were rung up at
+one rate, the receipts the customers hold say so, and re-deciding it now would
+change what a filed tax period said after it was filed — using a menu
+classification that did not exist when the food was sold.
+
+**So what shipped is the plan.** Exactly which columns would be added, in which
+order, which existing one may never be deleted, and the rule that makes it safe:
+old orders are left alone permanently, and the product says "this order predates
+per-line tax" rather than guessing an answer for it. A shop that grows into a
+second location, or an accountant's export with a real reader on the other end,
+picks it up from there.
