@@ -40,6 +40,21 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname='Order_idempotencyKey_key') THEN
     RAISE EXCEPTION 'the idempotency key unique index is missing';
   END IF;
+  -- C-071. A PARTIAL unique index, so Prisma cannot hold it in schema.prisma
+  -- and `migrate diff` steps over it exactly as it steps over the CHECKs above.
+  -- It is what stops two simultaneous Send taps writing two `refund` rows
+  -- against one provider call — the compare-and-set on `paymentState` it
+  -- replaced stopped guarding the moment a refund could be partial.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_class WHERE relname='OrderEvent_settled_refund_per_request'
+  ) THEN
+    RAISE EXCEPTION 'the one-refund-per-request unique index is missing';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname='order_event_refund_link_matches_kind'
+  ) THEN
+    RAISE EXCEPTION 'the refund-link CHECK is missing';
+  END IF;
 END $$;
 EOSQL
 
