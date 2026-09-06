@@ -19,7 +19,7 @@
 // PURE, like everything else in this package. It takes the order's own money
 // and returns an event to append; it reads no clock and no database.
 import { MAX_CANCEL_NOTE_LENGTH, type OrderEventDraft } from './state-machine';
-import { paymentTotals, type MoneyEvent } from './payment';
+import { formatBoundCents, paymentTotals, type MoneyEvent } from './payment';
 
 /**
  * The two kinds the counter actually reaches for.
@@ -29,8 +29,29 @@ import { paymentTotals, type MoneyEvent } from './payment';
  * link is a word on a screen rather than the number "we remade six tickets
  * Friday". C-066 adds the column and the kind together.
  */
-export const ADJUSTMENT_KINDS = ['comp', 'partial'] as const;
+export const ADJUSTMENT_KINDS = ['comp', 'partial', 'reversal'] as const;
 export type AdjustmentKind = (typeof ADJUSTMENT_KINDS)[number];
+
+/**
+ * The one the counter reaches for when they comped the wrong ticket (C-071).
+ *
+ * A CONTRADICTING ROW, never a delete, and the log's append-only trigger means
+ * that is not a preference. C-065 and C-066 both deferred this and both said
+ * why in the same words: a comp is a decision, and a decision that disappears
+ * is one nobody can be asked about at close. So the correction is a second
+ * decision written beside the first, and both are still there on Sunday.
+ *
+ * It is in `ADJUSTMENT_KINDS` above rather than in a module of its own for the
+ * reason the whole file exists: `adjustmentEvent` is the only thing that may
+ * decide an adjustment's amount, and a reversal is an amount decided against
+ * that same order's own money. A second writer would be a second bound.
+ *
+ * Its BOUND is the mirror of the other two. A comp and a partial are bounded
+ * by what is left to adjust; a reversal is bounded by what has been adjusted
+ * and not yet taken back, which is exactly `paymentTotals`' net `adjustedCents`
+ * — so reversing twice cannot manufacture money the order never gave away.
+ */
+export const isReversal = (kind: AdjustmentKind): kind is 'reversal' => kind === 'reversal';
 
 /** The short preset, in the shape `CANCEL_REASONS` established. `other`
  *  requires free text, for the same reason it does there: "other" with no note
@@ -57,9 +78,27 @@ export const ADJUSTMENT_REASONS = ['wrong_item', 'late', 'quality', 'other'] as 
  */
 export const LOYALTY_REWARD_REASON = 'loyalty_reward';
 
+/**
+ * The reason a reversal writes (C-071).
+ *
+ * DELIBERATELY NOT IN `ADJUSTMENT_REASONS`, on the same argument that keeps
+ * `loyalty_reward` out of it: the preset is the set a person may pick FOR a
+ * comp, and none of its four words is true of taking one back. "Wrong item"
+ * on a reversal would put the original comp's own reason on the row that
+ * cancels it, and "why were things comped on Friday" — the GROUP BY the reason
+ * column exists for — would count the mistake twice and the correction never.
+ *
+ * The reversal has no dropdown at all. There is one reason to write one, the
+ * note is where it is explained, and the note is REQUIRED: money coming back
+ * onto a customer's bill is the one adjustment nobody should be able to make
+ * silently.
+ */
+export const ADJUSTMENT_REVERSAL_REASON = 'mistake';
+
 export type AdjustmentReason =
   | (typeof ADJUSTMENT_REASONS)[number]
-  | typeof LOYALTY_REWARD_REASON;
+  | typeof LOYALTY_REWARD_REASON
+  | typeof ADJUSTMENT_REVERSAL_REASON;
 
 /**
  * Whether a PERSON may pick this reason (C-104).
@@ -79,6 +118,7 @@ export const isStaffAdjustmentReason = (
 const WRITABLE_REASONS: readonly AdjustmentReason[] = [
   ...ADJUSTMENT_REASONS,
   LOYALTY_REWARD_REASON,
+  ADJUSTMENT_REVERSAL_REASON,
 ];
 
 export type AdjustmentRefusalReason =
@@ -88,12 +128,17 @@ export type AdjustmentRefusalReason =
   | 'adjustment_note_too_long'
   | 'adjustment_amount_invalid'
   | 'adjustment_exceeds_total'
-  | 'nothing_left_to_adjust';
+  | 'nothing_left_to_adjust'
+  | 'reversal_exceeds_adjusted'
+  | 'nothing_to_reverse';
 
 export type AdjustmentInput = {
   kind: AdjustmentKind;
   /** Cents. Ignored for `comp`, where the server computes the amount rather
-   *  than trusting one — see `adjustmentEvent`. */
+   *  than trusting one — see `adjustmentEvent`. Required for `partial` and for
+   *  `reversal`: taking back PART of a comp is the ordinary case (two comps
+   *  landed, one of them on the wrong ticket), so there is no whole-thing
+   *  reading the server could derive. */
   amountCents?: number;
   reason: AdjustmentReason;
   note?: string;
@@ -170,28 +215,56 @@ export function adjustmentEvent(
     );
   }
 
-  const remainingCents = adjustableRemainingCents(order);
-  if (remainingCents === 0) {
-    return refuse('nothing_left_to_adjust', 'This order has already been adjusted in full.');
+  // A reversal ALWAYS carries a note, whatever its reason says (C-071). The
+  // other two kinds are a decision about the customer's food; this one is a
+  // decision about a colleague's decision, and it puts money back onto a bill
+  // somebody has already been told they do not owe. "Why is this $10 back?" is
+  // a question that gets asked, and the row has to answer it without anybody
+  // being available to.
+  if (isReversal(input.kind) && !input.note?.trim()) {
+    return refuse('adjustment_note_required', 'Say what was wrong with the original.');
   }
 
-  // The comp's amount is DERIVED; the partial's is the client's and is checked.
-  const amountCents = input.kind === 'comp' ? remainingCents : (input.amountCents ?? Number.NaN);
+  // THE BOUND IS THE MIRROR. Comp and partial spend what is left of the order;
+  // a reversal spends what has already been given away — `paymentTotals`' NET
+  // `adjustedCents`, which has the reversals already subtracted out of it, so
+  // reversing twice cannot take back more than was ever comped.
+  const boundCents = isReversal(input.kind)
+    ? paymentTotals(order.events).adjustedCents
+    : adjustableRemainingCents(order);
+  if (boundCents === 0) {
+    return isReversal(input.kind)
+      ? refuse('nothing_to_reverse', 'There is nothing on this order left to take back.')
+      : refuse('nothing_left_to_adjust', 'This order has already been adjusted in full.');
+  }
+
+  // The comp's amount is DERIVED; the other two are the client's and are
+  // checked. A reversal has no whole-thing reading to derive: the ordinary
+  // case is two comps on an order and one of them written on the wrong ticket.
+  const amountCents = input.kind === 'comp' ? boundCents : (input.amountCents ?? Number.NaN);
   if (!Number.isInteger(amountCents) || amountCents <= 0) {
     return refuse('adjustment_amount_invalid', 'An adjustment is a whole number of cents above zero.');
   }
-  if (amountCents > remainingCents) {
-    return refuse(
-      'adjustment_exceeds_total',
-      `That is more than the ${formatBound(remainingCents)} left to adjust on this order.`,
-    );
+  if (amountCents > boundCents) {
+    return isReversal(input.kind)
+      ? refuse(
+          'reversal_exceeds_adjusted',
+          `That is more than the ${formatBoundCents(boundCents)} taken off this order.`,
+        )
+      : refuse(
+          'adjustment_exceeds_total',
+          `That is more than the ${formatBoundCents(boundCents)} left to adjust on this order.`,
+        );
   }
 
   return {
     ok: true,
     event: {
       at: now,
-      kind: 'adjustment',
+      // ITS OWN KIND, not a negative `adjustment` (C-071). `amountCents` is
+      // unsigned and the database's CHECK says so; direction has been the kind
+      // since C-063, and `paymentTotals` subtracts this one out of the net.
+      kind: isReversal(input.kind) ? 'adjustment_reversed' : 'adjustment',
       // NOT a status change: an adjustment is money, and the order is wherever
       // it was. Null on both, so the time-in-state tally steps over it exactly
       // as it steps over `payment` and `refund`.
@@ -218,15 +291,3 @@ const refuse = (reason: AdjustmentRefusalReason, message: string): AdjustmentRes
   reason,
   message,
 });
-
-/** Dollars for one refusal message. Not the app's `formatCents` — this package
- *  has no currency formatter and does not want one; the message needs a number
- *  a person recognises, not a locale.
- *
- *  Integer arithmetic even here. `(cents / 100).toFixed(2)` would read the same
- *  on every value this can be handed, and CLAUDE.md's rule is that there is no
- *  float in the money path — including the part of it a person reads, because
- *  a formatter is exactly where a float gets reintroduced by somebody who is
- *  sure it is only for display. */
-const formatBound = (cents: number): string =>
-  `$${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`;

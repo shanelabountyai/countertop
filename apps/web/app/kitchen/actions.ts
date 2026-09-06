@@ -17,8 +17,10 @@ import {
   parsePriceInput,
   type AdjustmentKind,
   type AdjustmentReason,
+  ADJUSTMENT_REVERSAL_REASON,
   type AdjustmentRefusalReason,
   type CancelReason,
+  type RefundRefusalReason,
   type OrderAction,
   type OrderStatus,
   type RevertReason,
@@ -30,7 +32,11 @@ import { appendOrderNote } from '@countertop/db/history';
 import { forgetOrderCustomer } from '@countertop/db/retention';
 import { remakeOrder } from '@countertop/db/remake';
 import { collectOrderPayment } from '@countertop/db/payment';
-import { settleRefund } from '@countertop/db/refund';
+import {
+  requestRefund,
+  settleRefund,
+  type SettleRefundReason,
+} from '@countertop/db/refund';
 import { setShelfLocation } from '@countertop/db/queue';
 import { isStaffPin, staffByPin } from '@countertop/db/staff';
 import { cookies } from 'next/headers';
@@ -367,6 +373,11 @@ const ECHOABLE_REFUSALS: readonly AdjustmentRefusalReason[] = [
   'nothing_left_to_adjust',
   'adjustment_note_required',
   'adjustment_note_too_long',
+  // The reversal's two, added by the same test C-071 applied to the other
+  // four: both messages quote a figure the SERVER computed off the order's own
+  // log, and neither interpolates anything the caller sent.
+  'reversal_exceeds_adjusted',
+  'nothing_to_reverse',
 ];
 
 /**
@@ -430,7 +441,23 @@ export async function retryRefundForm(formData: FormData): Promise<void> {
   }
   const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
 
-  const result = await settleRefund(orderId, new Date(), await currentShiftId());
+  // WHICH request this button was rendered against (C-071). An order can carry
+  // more than one refund over its life now, so a bare "retry the refund" is
+  // the same stale-screen defect D1 found in the advance button: the panel a
+  // person is looking at names a request, and the tap has to mean that one.
+  //
+  // Untrusted, and it does not need to be trusted — `settleRefund` looks it up
+  // among the order's own PENDING requests, so a hand-crafted id belonging to
+  // another order finds nothing and is refused.
+  const requestId = formData.get('requestId');
+
+  const result = await settleRefund(
+    orderId,
+    new Date(),
+    await currentShiftId(),
+    undefined,
+    typeof requestId === 'string' && requestId !== '' ? requestId : undefined,
+  );
   if (!result.ok) {
     return redirect(`${back}?refundError=${encodeURIComponent(result.message)}`);
   }
@@ -440,6 +467,106 @@ export async function retryRefundForm(formData: FormData): Promise<void> {
   revalidatePath('/kitchen', 'layout');
   redirect(back);
 }
+
+/**
+ * Send a customer's money back because somebody decided to (PRD 3 P0-6, C-071).
+ *
+ * The half of the money story C-067 and C-068 both left behind. Until this,
+ * the only thing that could refund anything was cancelling — and the state
+ * machine correctly refuses to cancel cooked food, so the orders where a
+ * refund is most obviously right were exactly the ones nothing could reach. A
+ * comp on an order that has already paid read as a zero balance, when what was
+ * true is that the restaurant was holding the money and owed it back.
+ *
+ * Form-shaped and refusing through the URL, like `adjustOrderForm` and for its
+ * reason: "you typed $50 on an order holding $13.75" is not legible in a
+ * re-render — the form comes back looking exactly as it did and the counter
+ * believes the refund went out.
+ *
+ * THE AMOUNT IS UNTRUSTED AND IS NEVER WRITTEN AS GIVEN. `requestRefund`
+ * re-reads the order and bounds the ask against that order's own log
+ * (CLAUDE.md — the server is the price authority, and it holds in both
+ * directions); the parse below only turns text into cents. Over the bound is
+ * REFUSED, never clamped, which is what stops a mistyped 50 quietly becoming a
+ * legal 13.75 that nobody is told about until the till is counted.
+ */
+export async function refundOrderForm(formData: FormData): Promise<void> {
+  const orderId = formData.get('orderId');
+  if (typeof orderId !== 'string' || orderId === '') {
+    return redirect('/kitchen/orders');
+  }
+  const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
+  const refuse = (message: string): never =>
+    redirect(`${back}?refundError=${encodeURIComponent(message)}`);
+
+  const reason = formData.get('reason');
+  if (typeof reason !== 'string' || !isStaffAdjustmentReason(reason)) {
+    return refuse('Pick a reason.');
+  }
+
+  // The same parser the menu editor and the adjustment use. A third set of
+  // edge cases for a bare `$`, `1.5` and `1.555` would be a third chance to
+  // get one of them wrong.
+  const raw = formData.get('amount');
+  const amountCents = typeof raw === 'string' ? parsePriceInput(raw) : null;
+  if (amountCents === null) return refuse('Enter an amount like 3.50.');
+
+  const note = formData.get('note');
+  const result = await requestRefund(
+    orderId,
+    {
+      amountCents,
+      reason: reason as AdjustmentReason,
+      ...(typeof note === 'string' && note !== '' ? { note } : {}),
+    },
+    // `now` read here and passed down, and WHO read from the shift rather than
+    // from the form — the same rule every other write on this screen follows.
+    // This is the row PRD 6 P0-2 most exists for: a person choosing to send a
+    // customer's money back.
+    new Date(),
+    await currentShiftId(),
+  );
+
+  if (!result.ok) {
+    return refuse(
+      ECHOABLE_REFUND_REFUSALS.includes(result.reason)
+        ? result.message
+        : 'That refund could not be sent.',
+    );
+  }
+
+  // The subtree: a refund changes what the queue card says is owed, what this
+  // receipt says, and whether the order sits on the history page's exceptions
+  // list — all three ask the same events.
+  revalidatePath('/kitchen', 'layout');
+  redirect(back);
+}
+
+/**
+ * The refund refusals whose message may travel back down a query string.
+ *
+ * C-084's rule, applied a third time: allow-list the KINDS rather than trust
+ * the message. Every one of these composes its message out of server-side
+ * values — a figure off the order's own log, a fixed sentence, a length cap —
+ * and none of them interpolates anything the caller sent.
+ *
+ * `unknown_refund_reason` is the one deliberately absent, and it is absent for
+ * exactly the reason `unknown_adjustment_kind` is: its message quotes the
+ * caller's own string back (`"foo" is not a refund reason`), and it is
+ * unreachable from the rendered form anyway — arriving at it means a
+ * hand-crafted request.
+ */
+const ECHOABLE_REFUND_REFUSALS: readonly (RefundRefusalReason | SettleRefundReason)[] = [
+  'refund_amount_invalid',
+  'refund_exceeds_balance',
+  'nothing_to_refund',
+  'refund_already_pending',
+  'refund_note_required',
+  'refund_note_too_long',
+  'provider_failed',
+  'already_refunded',
+  'raced',
+];
 
 /**
  * Forget this customer, on one order (PRD 6 P0-4, C-091).
@@ -491,25 +618,44 @@ export async function adjustOrderForm(formData: FormData): Promise<void> {
     return redirect('/kitchen/orders');
   }
   const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
-  const refuse = (message: string): never =>
-    redirect(`${back}?adjustError=${encodeURIComponent(message)}`);
-
   const kind = formData.get('kind');
-  const reason = formData.get('reason');
+  // WHICH panel gets the message back. The two sections appear under different
+  // conditions — Make it right needs something left to adjust, Put it back
+  // needs something already adjusted — and on a fully comped order only the
+  // second is on screen. One shared parameter would put a reversal's refusal
+  // inside a section that is not rendered, which is the invisible-refusal
+  // failure this whole redirect-with-a-message shape exists to avoid.
+  const errorParam = kind === 'reversal' ? 'reversalError' : 'adjustError';
+  const refuse = (message: string): never =>
+    redirect(`${back}?${errorParam}=${encodeURIComponent(message)}`);
+
   if (typeof kind !== 'string' || !ADJUSTMENT_KINDS.includes(kind as AdjustmentKind)) {
-    return refuse('Pick comp or a partial amount.');
+    return refuse('Pick comp, a partial amount, or a reversal.');
   }
-  if (typeof reason !== 'string' || !isStaffAdjustmentReason(reason)) {
+
+  // THE REVERSAL WRITES ITS OWN REASON (C-071) and there is no dropdown on its
+  // form to send one. `mistake` is deliberately not in the staff-pickable set,
+  // for the reason `loyalty_reward` is not: the preset answers "why was this
+  // comped on Friday", and putting the original comp's reason on the row that
+  // cancels it would count the mistake twice and the correction never. Set
+  // here rather than defaulted in the engine so a hand-crafted POST cannot
+  // send `reversal` with `wrong_item` and get one written either.
+  const submitted = formData.get('reason');
+  const reason =
+    kind === 'reversal' ? ADJUSTMENT_REVERSAL_REASON : (submitted as unknown);
+  if (kind !== 'reversal' && (typeof reason !== 'string' || !isStaffAdjustmentReason(reason))) {
     return refuse('Pick a reason.');
   }
 
   // Dollars in, cents out, and `parsePriceInput` is the one that already
   // exists — the menu editor has parsed prices with it since C-015. A second
   // parser here would be a second set of edge cases (a bare `$`, `1.5`, `1.555`)
-  // to get right twice. Only the `partial` needs it: a comp's amount is
-  // DERIVED by the engine from the order and is never sent by the client.
+  // to get right twice. Both the `partial` and the `reversal` need it: a comp's
+  // amount is DERIVED by the engine from the order and is never sent by the
+  // client, and a reversal has no whole-thing reading to derive — the ordinary
+  // case is two comps on an order and one of them on the wrong ticket.
   let amountCents: number | undefined;
-  if (kind === 'partial') {
+  if (kind === 'partial' || kind === 'reversal') {
     const raw = formData.get('amount');
     const parsed = typeof raw === 'string' ? parsePriceInput(raw) : null;
     if (parsed === null) return refuse('Enter an amount like 3.50.');

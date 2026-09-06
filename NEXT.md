@@ -1,30 +1,32 @@
 # Next
 
-**A refund that can be issued on purpose** — the money item C-067 and C-068 both
-left behind, and the last thing PRD 3's money story is missing now that its
-whole P0 block is ticked.
+**PRD 3 P1-1 (`C-069`) — auth at placement, capture at pickup**, or the next
+ranked PRD in `docs/prds/INDEX.md`. PRD 3's whole P0 block is now ticked,
+including the P0-6 that C-071 wrote for itself.
 
-There is no `C-0xx` for it yet; write one as part of the work (C-071 is free —
-C-069 and C-070 are the PRD's own P1 items and are not this).
+What P1-1 asks for: the pickup-shaped answer to a no-show — it costs a **void**,
+not a refund. Hang capture on `ready → picked_up`. Still against the mock
+provider; the seam is what matters, and C-071 just proved the seam takes a
+third caller without becoming a third path.
 
-What it asks for:
-- Today the only thing that requests a refund is cancelling a paid order. A comp
-  on an order that already paid reads as a zero balance rather than as money
-  owed back — expressible since C-067, still not shippable.
-- Needs a **form** (an amount in cents), a **bound** (what the restaurant is
-  actually holding, from `orderBalance` — recomputed at the attempt, never
-  frozen), and **its own refusal** (over the bound: refused, never clamped, the
-  same discipline as `adjustmentEvent`).
-- Plus the **reversing adjustment** C-065 and C-066 both deferred: a mistaken
-  comp is corrected by a contradicting row, never a delete.
-- `settleRefund` in `packages/db/refund.ts` is the one attempt and already has
-  two callers; this is the third, and it must not become a second path.
-- **Then** `abandon` can offer a refund, which is the half of C-068's phasing
-  line deliberately not built — a no-show is not automatically a refund (the
-  food was made), so it has to be an offer, and the offer needs this control.
+Two things C-071 leaves it:
+- `settleRefund(orderId, now, staffId?, provider?, requestId?)` is the one
+  attempt, with three callers. An auth/capture pair is the same shape pointed
+  the other way — resist giving it its own writer.
+- `refund_requested` may carry an amount now, and `refundRequestId` links an
+  attempt to its ask. An authorization is the same idea (a durable row whose id
+  is the key, settled later), so look at `packages/core/orders/refund.ts`
+  before inventing a parallel model.
 
-Model: Opus — money path, a new writer against an append-only log, and the trap
-is inventing a second refund path beside `settleRefund`.
+Model: Opus — money path again, and the trap is the same one: a guard whose
+premise silently widens (see the C-071 WRITEUP entry on the `paymentState`
+compare-and-set).
 
-The alternative, if you would rather move on: PRD 3 P1-1 (`C-069`, auth at
-placement / capture at pickup) or the next ranked PRD in `docs/prds/INDEX.md`.
+## Left behind by C-071, if you would rather clear debt
+
+- A reversal cannot be pointed at a specific comp — it contradicts the adjusted
+  total, not a row. Needs a link column and a per-row button; only worth it if
+  the report wants "which comps were taken back".
+- `refund_failed` rows accumulate uncapped on a stuck provider; nothing
+  truncates them on the receipt's activity log.
+- The seeded rush exercises only the cancel path's refund, not a deliberate one.

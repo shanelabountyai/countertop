@@ -5,11 +5,17 @@
 // is not `refunded`." Everything else in this file exists because the failure
 // path is only half of it — a failure nobody can clear is a worse product than
 // the silent success it replaced.
-import { deriveRefundState, orderBalance, type Cart } from '@countertop/core';
+import { orderBalance, paymentTotals, pendingRefunds, type Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { placeOrder, type PlacementInput } from './placement';
-import { loadRefundExceptions, settleRefund, type RefundProvider } from './refund';
+import { adjustOrder } from './adjustment';
+import {
+  loadRefundExceptions,
+  requestRefund,
+  settleRefund,
+  type RefundProvider,
+} from './refund';
 import { applyOrderAction } from './transitions';
 import {
   resetDatabase,
@@ -81,7 +87,7 @@ const reload = (id: string) =>
     select: {
       paymentState: true,
       totalCents: true,
-      events: { select: { kind: true, amountCents: true } },
+      events: { select: { id: true, kind: true, amountCents: true, refundRequestId: true } },
     },
   });
 
@@ -102,7 +108,7 @@ describe('the happy path still works, and now means something', () => {
     expect((await cancel(order.id, provider.call)).ok).toBe(true);
 
     const after = await reload(order.id);
-    expect(deriveRefundState(after.events)).toBe('succeeded');
+    expect(pendingRefunds(after.events)).toEqual([]);
     expect(after.paymentState).toBe('refunded');
 
     // The request precedes the refund, and the request is what the provider was
@@ -127,7 +133,7 @@ describe('the happy path still works, and now means something', () => {
   it('leaves an unpaid cancellation with no refund of any kind', async () => {
     const order = await place({ paidNow: false });
     await cancel(order.id);
-    expect(deriveRefundState((await reload(order.id)).events)).toBeNull();
+    expect(pendingRefunds((await reload(order.id)).events)).toEqual([]);
     expect(await loadRefundExceptions()).toHaveLength(0);
   });
 });
@@ -147,7 +153,7 @@ describe('a provider that throws', () => {
 
     const after = await reload(order.id);
     expect(after.paymentState).toBe('paid');
-    expect(deriveRefundState(after.events)).toBe('failed');
+    expect(pendingRefunds(after.events)).toMatchObject([{ amountCents: null, failed: true }]);
 
     const exceptions = await loadRefundExceptions();
     expect(exceptions.map((entry) => entry.id)).toEqual([order.id]);
@@ -199,7 +205,7 @@ describe('the retry', () => {
 
     const after = await reload(order.id);
     expect(after.paymentState).toBe('refunded');
-    expect(deriveRefundState(after.events)).toBe('succeeded');
+    expect(pendingRefunds(after.events)).toEqual([]);
     expect(await loadRefundExceptions()).toHaveLength(0);
   });
 
@@ -273,5 +279,308 @@ describe('the retry', () => {
       // The automatic attempt after the cancellation: nobody decided to send it.
       { kind: 'refund_failed', actor: 'system', staffId: null },
     ]);
+  });
+});
+
+// PRD 3 P0-6 (C-071). The refund somebody DECIDES to send, which is the half
+// of the money story C-067 and C-068 both left behind: cancelling was the only
+// thing that could ask for one, and the state machine correctly refuses to
+// cancel cooked food — so the orders where a refund is most obviously right
+// were exactly the ones nothing could reach.
+describe('a refund issued on purpose', () => {
+  const ask = (
+    orderId: string,
+    amountCents: number,
+    provider?: RefundProvider,
+    staffId: string | null = null,
+  ) =>
+    requestRefund(
+      orderId,
+      { amountCents, reason: 'quality', note: 'burrito was cold' },
+      DINNER,
+      staffId,
+      provider,
+    );
+
+  it('sends part of what is held and leaves the rest', async () => {
+    const order = await place({ paidNow: true });
+    const provider = stubProvider();
+
+    expect(await ask(order.id, 500, provider.call)).toEqual({ ok: true, amountCents: 500 });
+
+    const after = await reload(order.id);
+    expect(orderBalance(after).collectedCents).toBe(order.totalCents - 500);
+    // A partial refund is still `paid`. The enum's three values are terminal
+    // facts and "most of it is still ours" is not one of them — which is why
+    // this column is now written from `derivePaymentState` rather than
+    // compare-and-set to a literal.
+    expect(after.paymentState).toBe('paid');
+    expect(pendingRefunds(after.events)).toEqual([]);
+    expect(await loadRefundExceptions()).toHaveLength(0);
+  });
+
+  it('flips to refunded only once everything captured has gone back', async () => {
+    const order = await place({ paidNow: true });
+    await ask(order.id, 500);
+    expect((await reload(order.id)).paymentState).toBe('paid');
+
+    await ask(order.id, order.totalCents - 500);
+    const after = await reload(order.id);
+    expect(after.paymentState).toBe('refunded');
+    expect(orderBalance(after).collectedCents).toBe(0);
+  });
+
+  // The ask and the send are two rows, and the request's own id is what the
+  // provider is handed — the same key discipline the cancellation's refund has
+  // had since C-067, reached through the same function.
+  it('writes the ask first and hands the provider its row id', async () => {
+    const order = await place({ paidNow: true });
+    const provider = stubProvider();
+    await ask(order.id, 500, provider.call);
+
+    const request = await prisma.orderEvent.findFirstOrThrow({
+      where: { orderId: order.id, kind: 'refund_requested' },
+      select: { id: true, amountCents: true, actor: true, reason: true, detail: true },
+    });
+    // THE ASK IS FROZEN, and it is the one refund amount that is: the
+    // cancellation's request carries null because it cannot know what will be
+    // held later, and this one is a number a person typed.
+    expect(request.amountCents).toBe(500);
+    // A person decided, where the cancellation's request is `system`.
+    expect(request.actor).toBe('staff');
+    expect(request.reason).toBe('quality');
+    expect(request.detail).toEqual({ note: 'burrito was cold' });
+    expect(provider.keys).toEqual([request.id]);
+
+    const refund = await prisma.orderEvent.findFirstOrThrow({
+      where: { orderId: order.id, kind: 'refund' },
+      select: { amountCents: true, refundRequestId: true, providerRef: true },
+    });
+    expect(refund).toEqual({
+      amountCents: 500,
+      refundRequestId: request.id,
+      providerRef: `mock_${request.id}`,
+    });
+  });
+
+  // REFUSED, NEVER CLAMPED, and refused BEFORE the provider is called. A clamp
+  // would turn "$50 back on this $35.07 order" into a legal $35.07 refund and
+  // tell nobody a wrong number was typed.
+  it('refuses more than is held without touching the provider', async () => {
+    const order = await place({ paidNow: true });
+    const provider = stubProvider();
+
+    const result = await ask(order.id, 5000, provider.call);
+    expect(result).toMatchObject({ ok: false, reason: 'refund_exceeds_balance' });
+    expect(provider.keys).toEqual([]);
+    // Nothing was written either — a refused ask is not an ask.
+    expect(
+      await prisma.orderEvent.count({ where: { orderId: order.id, kind: 'refund_requested' } }),
+    ).toBe(0);
+  });
+
+  // THE CASE THE WHOLE ITEM EXISTS FOR. A comp on an order that has already
+  // paid reads as a zero balance — true about what the customer OWES, wrong
+  // about what the restaurant is HOLDING. `orderBalance`'s clamp has said so
+  // in a comment since C-064.
+  it('sends money back on an order that was comped after paying', async () => {
+    const order = await place({ paidNow: true });
+    expect((await adjustOrder(order.id, { kind: 'comp', reason: 'quality' }, DINNER)).ok).toBe(true);
+
+    const comped = await reload(order.id);
+    // Nothing owed, and the whole total still in the till. Both true.
+    expect(orderBalance(comped).outstandingCents).toBe(0);
+    expect(orderBalance(comped).collectedCents).toBe(order.totalCents);
+
+    expect(await ask(order.id, order.totalCents)).toEqual({
+      ok: true,
+      amountCents: order.totalCents,
+    });
+    expect(orderBalance(await reload(order.id)).collectedCents).toBe(0);
+  });
+
+  // The offer C-068 named and deliberately did not build: a no-show is not
+  // automatically a refund — the food was made — so it needs a control, and
+  // the control has to work in a state the product could not refund at all.
+  it('is available on an abandoned order, which nothing else could refund', async () => {
+    const order = await place({ paidNow: true });
+    for (const to of ['accepted', 'preparing', 'ready'] as const) {
+      const moved = await applyOrderAction(order.id, { kind: 'advance', actor: 'staff' }, DINNER);
+      expect(moved.ok, `advancing to ${to}`).toBe(true);
+    }
+    expect((await applyOrderAction(order.id, { kind: 'abandon', actor: 'staff' }, DINNER)).ok).toBe(
+      true,
+    );
+
+    expect(await ask(order.id, 1000)).toEqual({ ok: true, amountCents: 1000 });
+  });
+
+  it('refuses to stack a second ask on one that has not been sent', async () => {
+    const order = await place({ paidNow: true });
+    await ask(order.id, 500, stubProvider('card network declined').call);
+
+    const second = stubProvider();
+    expect(await ask(order.id, 300, second.call)).toMatchObject({
+      ok: false,
+      reason: 'refund_already_pending',
+    });
+    expect(second.keys).toEqual([]);
+  });
+
+  // THE DEFECT THE PER-REQUEST SHAPE EXISTS TO PREVENT. Under the old
+  // order-level derivation, any `refund` on the order meant "settled" — so a
+  // second ask after a first refund had landed would read as already sent, the
+  // exceptions list would be quiet, and nothing anywhere would chase the money.
+  it('keeps a later ask visible even though an earlier refund already landed', async () => {
+    const order = await place({ paidNow: true });
+    await ask(order.id, 300);
+    await ask(order.id, 500, stubProvider('card network declined').call);
+
+    const after = await reload(order.id);
+    expect(pendingRefunds(after.events)).toMatchObject([{ amountCents: 500, failed: true }]);
+    expect((await loadRefundExceptions()).map((entry) => entry.id)).toEqual([order.id]);
+  });
+
+  // The retry names the request it was rendered against, and settles that one.
+  it('retries the named request with its own amount and key', async () => {
+    const order = await place({ paidNow: true });
+    const failing = stubProvider('card network declined');
+    await ask(order.id, 500, failing.call);
+
+    const [request] = pendingRefunds((await reload(order.id)).events);
+    const working = stubProvider();
+    expect(await settleRefund(order.id, DINNER, null, working.call, request!.id)).toEqual({
+      ok: true,
+      amountCents: 500,
+    });
+    expect(working.keys).toEqual(failing.keys);
+    expect(orderBalance(await reload(order.id)).collectedCents).toBe(order.totalCents - 500);
+  });
+
+  // The ask is frozen; the CEILING is not. A refund landing between the ask
+  // and the attempt shrinks what is held, and the shortfall is refused rather
+  // than quietly sent smaller — which would tell the counter a $30 refund went
+  // out when $5.07 did.
+  it('refuses at the attempt when the balance moved under it', async () => {
+    const order = await place({ paidNow: true });
+    const failing = stubProvider('card network declined');
+    await ask(order.id, 3000, failing.call);
+    const [request] = pendingRefunds((await reload(order.id)).events);
+
+    // Money leaves by another door before the retry: a settled refund on a
+    // different request is the only thing that can reduce `collectedCents`.
+    const other = await prisma.orderEvent.create({
+      data: {
+        orderId: order.id,
+        at: DINNER,
+        kind: 'refund_requested',
+        actor: 'staff',
+        reason: 'late',
+        amountCents: 3000,
+      },
+      select: { id: true },
+    });
+    await settleRefund(order.id, DINNER, null, stubProvider().call, other.id);
+
+    const provider = stubProvider();
+    expect(await settleRefund(order.id, DINNER, null, provider.call, request!.id)).toMatchObject({
+      ok: false,
+      reason: 'refund_exceeds_balance',
+    });
+    expect(provider.keys).toEqual([]);
+  });
+
+  // THE CONSTRAINT IS THE MECHANISM, and this is it: one `refund` row per
+  // request, enforced by a partial unique index rather than by the old
+  // compare-and-set on `paymentState` — which a partial refund would have
+  // silently stopped guarding, because the column stays `paid`.
+  it('records one refund per request even under two simultaneous attempts', async () => {
+    const order = await place({ paidNow: true });
+    await ask(order.id, 500, stubProvider('card network declined').call);
+    const [request] = pendingRefunds((await reload(order.id)).events);
+
+    const both = await Promise.all([
+      settleRefund(order.id, DINNER, null, stubProvider().call, request!.id),
+      settleRefund(order.id, DINNER, null, stubProvider().call, request!.id),
+    ]);
+    expect(both.filter((result) => result.ok)).toHaveLength(1);
+    expect(both.filter((result) => !result.ok && result.reason === 'raced')).toHaveLength(1);
+    expect(
+      await prisma.orderEvent.count({ where: { orderId: order.id, kind: 'refund' } }),
+    ).toBe(1);
+    expect(orderBalance(await reload(order.id)).collectedCents).toBe(order.totalCents - 500);
+  });
+
+  it('stamps who decided to send it', async () => {
+    await seedStaff();
+    const staff = await prisma.staffMember.findFirstOrThrow({ where: { name: 'Noor Haddad' } });
+    const order = await place({ paidNow: true });
+    await ask(order.id, 500, undefined, staff.id);
+
+    const events = await prisma.orderEvent.findMany({
+      where: { orderId: order.id, kind: { in: ['refund_requested', 'refund'] } },
+      select: { kind: true, actor: true, staffId: true },
+    });
+    expect(events.every((event) => event.actor === 'staff' && event.staffId === staff.id)).toBe(
+      true,
+    );
+  });
+});
+
+// PRD 3 P0-6 (C-071). A mistaken comp is corrected by a contradicting row, and
+// the append-only trigger is what makes that not a preference.
+describe('taking an adjustment back', () => {
+  const reverse = (orderId: string, amountCents: number) =>
+    adjustOrder(
+      orderId,
+      { kind: 'reversal', amountCents, reason: 'mistake', note: 'comped the wrong ticket' },
+      DINNER,
+    );
+
+  it('restores what is owed and leaves both decisions in the log', async () => {
+    const order = await place({ paidNow: false });
+    await adjustOrder(order.id, { kind: 'comp', reason: 'quality' }, DINNER);
+    expect(orderBalance(await reload(order.id)).outstandingCents).toBe(0);
+
+    expect(await reverse(order.id, order.totalCents)).toEqual({
+      ok: true,
+      amountCents: order.totalCents,
+    });
+
+    const after = await reload(order.id);
+    expect(orderBalance(after).outstandingCents).toBe(order.totalCents);
+    expect(paymentTotals(after.events).adjustedCents).toBe(0);
+    // Nothing was deleted. Both rows are still there, and the comp still says
+    // when it was made and by whom.
+    expect(
+      await prisma.orderEvent.count({
+        where: { orderId: order.id, kind: { in: ['adjustment', 'adjustment_reversed'] } },
+      }),
+    ).toBe(2);
+  });
+
+  it('never touches the snapshot columns, in either direction', async () => {
+    const order = await place({ paidNow: false });
+    await adjustOrder(order.id, { kind: 'comp', reason: 'quality' }, DINNER);
+    await reverse(order.id, 500);
+
+    const after = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      select: { subtotalCents: true, taxCents: true, totalCents: true },
+    });
+    expect(after).toEqual({
+      subtotalCents: order.subtotalCents,
+      taxCents: order.taxCents,
+      totalCents: order.totalCents,
+    });
+  });
+
+  it('refuses more than was ever taken off', async () => {
+    const order = await place({ paidNow: false });
+    await adjustOrder(order.id, { kind: 'partial', amountCents: 500, reason: 'late' }, DINNER);
+    expect(await reverse(order.id, 501)).toMatchObject({
+      ok: false,
+      reason: 'reversal_exceeds_adjusted',
+    });
   });
 });

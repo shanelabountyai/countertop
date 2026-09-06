@@ -1,0 +1,20 @@
+-- ---------------------------------------------------------------------------
+-- PRD 3 P0-6 (C-071): `adjustment_reversed` — a comp taken back.
+--
+-- C-065 and C-066 both deferred this and both said why in the same words: a
+-- comp is a DECISION, and a decision that disappears is one nobody can be
+-- asked about at close. The log is append-only, so the correction was never
+-- going to be a delete; what it needed was a kind of its own.
+--
+-- ITS OWN FILE, and not by preference. Postgres refuses a new enum value used
+-- in the transaction that created it, and the next migration's CHECK names
+-- this value — the same split C-065 needed and for the same reason. C-067
+-- fitted two values in one file precisely because nothing there used them.
+--
+-- A separate KIND rather than a negative `adjustment`, and that is settled by
+-- a constraint two rows down: `order_event_amount_not_negative` says
+-- `amountCents` is unsigned, and direction has been the kind since C-063.
+-- A comp of -1000 and a reversal of 1000 would be the same row twice over,
+-- and the sum in `paymentTotals` would depend on which one somebody wrote.
+-- ---------------------------------------------------------------------------
+ALTER TYPE "OrderEventKind" ADD VALUE 'adjustment_reversed';

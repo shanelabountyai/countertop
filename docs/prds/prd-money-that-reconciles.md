@@ -43,12 +43,12 @@ The system offers exactly nothing here. `cancelled` is unreachable from `ready` 
 - [ ] Test: a $34.20 order, captured in full then refunded $3.00, has a balance of 3120 and an unchanged `totalCents` of 3420
 
 **P0-3: Making it right — comp, partial adjustment, and remake** *(OPS 2, SYS 1)*
-- [ ] An `adjustment` control on the staff receipt at `/kitchen/orders/[id]`, reachable for an order in **any** state including `picked_up` and `abandoned` — the states the current model has no money control for at all
-- [ ] Three kinds: **comp** (the whole order, zero to the customer), **partial** (an amount, in cents), and **remake** (which links to the original order id, so "we remade six tickets Friday" is a number)
-- [ ] Every adjustment carries an amount in cents, a reason from a short preset, and free text, and is written as an append-only event — it **never** updates `subtotalCents`, `taxCents` or `totalCents`
-- [ ] An adjustment larger than the order total is refused with a named reason, not clamped
-- [ ] The customer's status page shows an adjusted order honestly (it does not silently show the original total as if nothing happened) without exposing the internal reason text
-- [ ] Test: comp a `picked_up` $13.75 order; assert `totalCents` is still 1375, the balance is 0, the report's net sales drops by the comped amount, and the comps line shows one entry
+- [x] An `adjustment` control on the staff receipt at `/kitchen/orders/[id]`, reachable for an order in **any** state including `picked_up` and `abandoned` — the states the current model has no money control for at all
+- [x] Three kinds: **comp** (the whole order, zero to the customer), **partial** (an amount, in cents), and **remake** (which links to the original order id, so "we remade six tickets Friday" is a number)
+- [x] Every adjustment carries an amount in cents, a reason from a short preset, and free text, and is written as an append-only event — it **never** updates `subtotalCents`, `taxCents` or `totalCents`
+- [x] An adjustment larger than the order total is refused with a named reason, not clamped
+- [x] The customer's status page shows an adjusted order honestly (it does not silently show the original total as if nothing happened) without exposing the internal reason text
+- [x] Test: comp a `picked_up` $13.75 order; assert `totalCents` is still 1375, the balance is 0, the report's net sales drops by the comped amount, and the comps line shows one entry
 
 **P0-4: A refund is attempted, then recorded — with a state for the attempt that failed** *(SYS 2)*
 - [x] `PaymentState` (or the event stream that supersedes it) can express **requested**, **succeeded** and **failed** — today it can express only three terminal facts and none of them is "we tried"
@@ -61,6 +61,17 @@ The system offers exactly nothing here. `cancelled` is unreachable from `ready` 
 - [x] The state machine's refusal to cancel from `ready` and `picked_up` is **unchanged** — it is correct and both evaluators agree
 - [x] Money is therefore decoupled from status: P0-3's adjustment is available in exactly the states where cancellation is refused, and the refusal message says so ("cooked food cannot be cancelled — comp or adjust it instead") rather than being a dead end
 - [x] Test: attempt to cancel a `ready` order, assert the existing refusal by reason, and assert the refusal names the adjustment path
+
+**P0-6: A refund that can be issued on purpose** *(added 2026-09-06 — the gap C-067 and C-068 both left behind)*
+- [x] A refund control on the staff receipt taking an **amount in cents**, reachable in any state and in particular on `picked_up` and `abandoned` — the states cancellation cannot reach, which are exactly where this is needed
+- [x] The amount is bounded by what the restaurant is actually **holding** (`orderBalance`'s `collectedCents`), recomputed at the attempt and never frozen at the ask
+- [x] Over the bound is **refused with a named reason, never clamped** — the same discipline P0-3 set for the adjustment, and it applies twice: once where a person can see it, and again at the moment money leaves
+- [x] It goes through `settleRefund`, which becomes a **third caller of one path** rather than a second implementation of the thing money leaves through
+- [x] A **partial** refund leaves `paymentState` at `paid`, because `refunded` means every captured cent went back — the column is written from `derivePaymentState`, not compare-and-set to a literal
+- [x] More than one refund per order is answerable: an attempt names its request, and a settled one cannot make an unsettled one read as sent
+- [x] A mistaken adjustment is corrected by a **contradicting row** (`adjustment_reversed`), never a delete — the deferral C-065 and C-066 both recorded
+- [x] `abandon` **offers** a refund rather than issuing one: a no-show is not automatically a refund, because the food was made (C-068's phasing line)
+- [x] Test: comp a paid order, assert the balance reads zero owed and the full total still held; refund part of it and assert `paid` with the remainder held; refund the rest and assert `refunded`; two concurrent settles of one request produce exactly one `refund` row
 
 ### Nice-to-Have (P1)
 
@@ -129,6 +140,7 @@ The append-only trigger already covers `OrderEvent` and must keep covering it: a
 - **C-065 — Making it right** — P0-3's comp and partial adjustment on the staff receipt, with the amount validated server-side and the snapshot columns provably untouched.
 - **C-066 — The remake link** — the rest of P0-3: `relatedOrderId`, the kitchen ticket for the remake, and "we remade six tickets Friday" as a number.
 - **C-067 — A refund that can fail** — P0-4, the provider call outside the transaction, the attempt states, the exceptions list, the refund idempotency key.
-- **C-068 — Cooked food gets a way out** — P0-5, the refusal message that names the adjustment path, plus abandoning a prepaid order offering a refund.
+- **C-068 — Cooked food gets a way out** — P0-5, the refusal message that names the adjustment path. The abandon-offers-a-refund half was deliberately phased into C-071, which is where the control it offers was built.
+- **C-071 — A refund that can be issued on purpose** — P0-6: the form, the bound, its refusal, the per-request refund model, the reversing adjustment, and the no-show's offer.
 - **C-069 — Auth at placement, capture at pickup** — P1-1, against the mock provider.
 - **C-070 — Per-line tax, or the written plan not to** — P1-2, gated on its Open Question; if the answer is "not now", the item is the schema comment recording exactly which columns move and in which order.

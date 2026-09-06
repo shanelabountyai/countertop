@@ -120,6 +120,124 @@ describe('the append-only event log (P0-4)', () => {
   });
 });
 
+// PRD 3 P0-6 (C-071). The mechanism, asserted as a mechanism: `settleRefund`
+// used to guard a double-settle with a compare-and-set on `paymentState`
+// going `paid` -> `refunded`, which was only ever correct because every refund
+// was total. A partial one leaves the column at `paid`, so that guard silently
+// stops guarding — and a duplicated `refund` row is not cosmetic, because
+// `orderBalance` sums the log and would show a customer's money as having gone
+// back twice.
+//
+// Prisma cannot express a partial index, so this constraint exists only in the
+// migration and only this test and CI's `pg_class` assertion stand behind it.
+describe('one settled refund per request (P0-6)', () => {
+  beforeEach(resetDatabase);
+
+  const withRequest = async () => {
+    const created = await prisma.order.create({
+      data: {
+        ...order(),
+        events: {
+          create: { at: AT, kind: 'refund_requested', actor: 'staff', amountCents: 500 },
+        },
+      },
+      include: { events: true },
+    });
+    const [request] = created.events;
+    if (!request) throw new Error('no request created');
+    return request;
+  };
+
+  const attempt = (request: { id: string; orderId: string }, kind: 'refund' | 'refund_failed') =>
+    prisma.orderEvent.create({
+      data: {
+        orderId: request.orderId,
+        at: AT,
+        kind,
+        actor: 'staff',
+        refundRequestId: request.id,
+        ...(kind === 'refund' ? { amountCents: 500 } : {}),
+      },
+    });
+
+  it('refuses a second refund against the same request', async () => {
+    const request = await withRequest();
+    await attempt(request, 'refund');
+    await expect(attempt(request, 'refund')).rejects.toThrow(/unique/i);
+  });
+
+  // PARTIAL, and this is the half that makes it so: retrying a stuck refund is
+  // the ordinary case and every attempt writes its own row.
+  it('accepts many failures against one request', async () => {
+    const request = await withRequest();
+    await attempt(request, 'refund_failed');
+    await attempt(request, 'refund_failed');
+    expect(
+      await prisma.orderEvent.count({ where: { refundRequestId: request.id } }),
+    ).toBe(2);
+  });
+
+  // The one-directional CHECK: nothing that is not an attempt may claim to be
+  // one, so a `transition` can never appear in `refundAttempts` and quietly
+  // settle a request.
+  it('refuses a link on an event that is not a refund attempt', async () => {
+    const request = await withRequest();
+    await expect(
+      prisma.orderEvent.create({
+        data: {
+          orderId: request.orderId,
+          at: AT,
+          kind: 'note',
+          actor: 'staff',
+          refundRequestId: request.id,
+          detail: { note: 'not an attempt' },
+        },
+      }),
+    ).rejects.toThrow(/order_event_refund_link_matches_kind/i);
+  });
+
+  // A request may name an amount or decline to. Both are honest: the
+  // cancellation's cannot know what will be held at the moment of the attempt,
+  // and a deliberate refund's is a number somebody typed.
+  it('accepts a request with an amount and one without', async () => {
+    const created = await prisma.order.create({
+      data: {
+        ...order(),
+        events: {
+          create: [
+            { at: AT, kind: 'refund_requested', actor: 'system', reason: 'out_of_item' },
+            { at: AT, kind: 'refund_requested', actor: 'staff', amountCents: 500 },
+          ],
+        },
+      },
+      include: { events: true },
+    });
+    expect(created.events.map((event) => event.amountCents).sort()).toEqual([500, null]);
+  });
+
+  // A reversal joined the money-bearing kinds, so the equivalence still holds
+  // for it: it must carry an amount, and it must be unsigned.
+  it('requires an amount on a reversal and refuses a negative one', async () => {
+    const created = await prisma.order.create({ data: order() });
+    await expect(
+      prisma.orderEvent.create({
+        data: { orderId: created.id, at: AT, kind: 'adjustment_reversed', actor: 'staff' },
+      }),
+    ).rejects.toThrow(/order_event_amount_matches_kind/i);
+    await expect(
+      prisma.orderEvent.create({
+        data: {
+          orderId: created.id,
+          at: AT,
+          kind: 'adjustment_reversed',
+          actor: 'staff',
+          amountCents: -100,
+        },
+      }),
+    ).rejects.toThrow(/order_event_amount_not_negative/i);
+  });
+});
+
 describe('deterministic ticket ordering', () => {
   beforeEach(resetDatabase);
 

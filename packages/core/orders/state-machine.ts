@@ -120,6 +120,17 @@ export const ORDER_EVENT_KINDS = [
    *  go in `detail.note`, where `readNote` already lifts them onto the
    *  receipt. A retry appends another one, or a `refund` above it. */
   'refund_failed',
+  /** An adjustment taken back (PRD 3 P0-6, C-071). The counter comped the
+   *  wrong ticket, and the correction is a CONTRADICTING ROW rather than a
+   *  delete — the log is append-only and a comp that vanishes is a comp
+   *  nobody can be asked about. `paymentTotals` subtracts these from
+   *  `adjustedCents`, which is the whole of its effect: the money owed comes
+   *  back, and both decisions stay legible side by side.
+   *
+   *  Its own KIND rather than a negative `adjustment`, because the sign is
+   *  never in the column — `amountCents` is unsigned and the CHECK says so,
+   *  and direction has been the kind since C-063. */
+  'adjustment_reversed',
 ] as const;
 export type OrderEventKind = (typeof ORDER_EVENT_KINDS)[number];
 
@@ -443,6 +454,20 @@ export type OrderEventDraft = {
    * in two places and two places can disagree.
    */
   relatedOrderId?: string;
+  /**
+   * The refund REQUEST this attempt belongs to (PRD 3 P0-6, C-071).
+   *
+   * Set on `refund` and `refund_failed`, and it is what makes more than one
+   * refund per order answerable. Until this item there was exactly one request
+   * on an order — cancelling a paid one — so "did the refund land" was a
+   * question about the order. A deliberate refund can be issued repeatedly for
+   * part of the balance, and without the link a second request would read as
+   * settled by the first request's success.
+   *
+   * The request's own row id, which is also the idempotency key the provider
+   * is given: one value, two jobs, and no second column to keep true.
+   */
+  refundRequestId?: string;
   detail?: Record<string, unknown>;
 };
 

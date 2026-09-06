@@ -21,7 +21,6 @@ import {
   formatOrderNumber,
   isOpen,
   isTerminal,
-  deriveRefundState,
   orderBalance,
   paymentTotals,
   refundNeedsAttention,
@@ -131,7 +130,12 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
   // landed is neither "Paid" nor "Refunded", and both of those are lies in a
   // different direction — the first tells somebody watching for their money
   // that nothing is coming, the second tells them it has already arrived.
-  const refundPending = refundNeedsAttention(deriveRefundState(order.events));
+  //
+  // Asked of the EVENTS since C-071, where it used to be asked of a single
+  // order-level state. The order can now have several refunds over its life,
+  // and one of them having landed says nothing about whether another is still
+  // owed — which is exactly the sentence this line is written to get right.
+  const refundPending = refundNeedsAttention(order.events);
   // The gate is NOT asked here (decided C-013): an order already cooking still
   // has a ready time after the restaurant stops taking new ones. The estimate
   // is recalculated on every render, and this page re-renders on every poll

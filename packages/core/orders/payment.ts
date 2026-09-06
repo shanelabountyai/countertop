@@ -34,6 +34,13 @@ const sumOf = (events: readonly MoneyEvent[], kind: OrderEventKind): number =>
  * record of a decision the counter made — money the restaurant chose not to
  * ask for — which is why it reduces what is owed below and never touches what
  * was collected.
+ *
+ * `adjustedCents` is a NET since C-071: a reversal is a contradicting row, not
+ * a delete, so a comp written on the wrong ticket is taken back by subtracting
+ * it here and both rows stay in the log. Clamped at zero for the same reason
+ * the balance's figures are — reversals exceeding adjustments is a data error,
+ * and letting it go negative would inflate what the customer owes above the
+ * total they were charged.
  */
 export function paymentTotals(events: readonly MoneyEvent[]): {
   capturedCents: number;
@@ -43,7 +50,10 @@ export function paymentTotals(events: readonly MoneyEvent[]): {
   return {
     capturedCents: sumOf(events, 'payment'),
     refundedCents: sumOf(events, 'refund'),
-    adjustedCents: sumOf(events, 'adjustment'),
+    adjustedCents: Math.max(
+      0,
+      sumOf(events, 'adjustment') - sumOf(events, 'adjustment_reversed'),
+    ),
   };
 }
 
@@ -78,49 +88,6 @@ export function derivePaymentState(events: readonly MoneyEvent[]): PaymentState 
   if (capturedCents === 0) return 'unpaid';
   return refundedCents >= capturedCents ? 'refunded' : 'paid';
 }
-
-/**
- * Where a refund got to (PRD 3 P0-4, C-067).
- *
- * The state `PaymentState` could not hold. Its three values are terminal facts
- * — unpaid, paid, refunded — and the one the systems review asked for is
- * "we tried". A refund that failed is not `refunded` (the customer has not been
- * paid) and it is not nothing (the restaurant owes it), so it is a dimension of
- * its own rather than a fourth value on an enum whose other three are about
- * what the till did.
- */
-export const REFUND_STATES = ['requested', 'failed', 'succeeded'] as const;
-export type RefundState = (typeof REFUND_STATES)[number];
-
-/**
- * The refund's state, from the log, or null where none was ever asked for.
- *
- * BY PRECEDENCE AND NOT BY ORDER, which is what makes it safe. The obvious
- * version reads the last refund-ish event, and "last" needs an ordering the
- * receipt's event select does not impose — worse, a retry that succeeds in the
- * same millisecond as its request shares an instant with it, which every test
- * with a frozen `now` does by construction. Precedence has no such tie: a
- * `refund` on the order means the money went back, whatever failed before it.
- *
- * ONE REFUND PER ORDER is the assumption underneath, and it holds because the
- * only thing that requests one is cancelling a paid order — which can happen
- * once. A partial refund would need the attempts linked to their requests; it
- * does not exist, and this function is where that would be noticed.
- */
-export function deriveRefundState(events: readonly MoneyEvent[]): RefundState | null {
-  const has = (kind: OrderEventKind): boolean => events.some((event) => event.kind === kind);
-  if (has('refund')) return 'succeeded';
-  if (has('refund_failed')) return 'failed';
-  return has('refund_requested') ? 'requested' : null;
-}
-
-/** A refund that was asked for and has not landed — the exceptions list's own
- *  predicate (P0-4), so the screen and the query cannot disagree about what
- *  counts as needing a person. `requested` is on this side as well as `failed`:
- *  a request whose attempt never returned is money owed with nothing chasing
- *  it, which is the failure mode a crash mid-call produces. */
-export const refundNeedsAttention = (state: RefundState | null): boolean =>
-  state === 'requested' || state === 'failed';
 
 /** Enough of an order to say what is still owed on it. A database row
  *  satisfies it structurally, like every other input in this package. */
@@ -180,3 +147,20 @@ export function orderBalance(order: OrderMoney): OrderBalance {
     outstandingCents: Math.max(0, order.totalCents - collectedCents - adjustedCents),
   };
 }
+
+/**
+ * Dollars for a refusal message. Integer arithmetic, even here.
+ *
+ * NOT the app's `formatCents` — this package has no currency formatter and
+ * does not want one; a refusal needs a number a person recognises, not a
+ * locale. `(cents / 100).toFixed(2)` would read the same on every value this
+ * can be handed, and CLAUDE.md's rule is that there is no float in the money
+ * path INCLUDING the part of it a person reads, because a formatter is exactly
+ * where a float gets reintroduced by somebody sure it is only for display.
+ *
+ * Here rather than beside either caller because both the adjustment's bound
+ * and the refund's bound quote a figure back, and two copies of a money
+ * formatter is how the two of them end up rounding differently.
+ */
+export const formatBoundCents = (cents: number): string =>
+  `$${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`;

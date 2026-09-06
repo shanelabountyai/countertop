@@ -6048,3 +6048,100 @@ is what sent Bea to the till with $13.75 that the report never heard about.
   C-067 left behind — a form, a bound, and its own refusal. It belongs to that
   item, alongside the reversing adjustment. `abandon` goes on writing one
   transition and nothing else until then.
+
+## C-071 — A refund that can be issued on purpose (PRD 3 P0-6)
+
+**Built:**
+- **`refundRequestEvent` in `packages/core/orders/refund.ts`** — a new module
+  beside `adjustment.ts`, and it has the same three parts because they are the
+  same three the adjustment needed: a form's amount validated, a bound
+  (`refundableCents` = `orderBalance`'s `collectedCents`), and a refusal over
+  that bound that names the figure. Refused, never clamped.
+- **`pendingRefunds`, replacing `deriveRefundState`.** The old function
+  answered "where did *the* refund get to" about the ORDER, and its own comment
+  named the day that would break: *"ONE REFUND PER ORDER is the assumption
+  underneath… a partial refund would need the attempts linked to their
+  requests; it does not exist, and this function is where that would be
+  noticed."* This is where it was noticed. It keeps the property that made the
+  old one safe — no dependence on event ordering — by asking set membership
+  instead of precedence.
+- **`OrderEvent.refundRequestId`**, non-null on `refund` and `refund_failed`,
+  with a partial unique index (`WHERE kind = 'refund'`) making one settled
+  refund per request a database fact.
+- **`refund_requested` may carry an amount.** The cancellation's still does not
+  and that stays deliberate; a deliberate ask is a number a person typed. The
+  amount CHECK grew a `CASE` naming the one kind that is honest either way.
+- **`settleRefund` settles a named request**, three callers now (automatic,
+  retry, deliberate) and still one path. It writes `paymentState` from
+  `derivePaymentState` re-read inside the transaction instead of
+  compare-and-setting to `refunded`.
+- **`adjustment_reversed`**, the contradicting row C-065 and C-066 both
+  deferred. Its own event kind, bounded by `paymentTotals`' now-net
+  `adjustedCents`, always requiring a note.
+- **Three screen sections on the staff receipt** — Make it right, Put an
+  adjustment back, Send money back — plus the abandoned-order offer, which is
+  C-068's phasing line finally landing.
+
+**Decided:**
+- **A deliberate refund writes a REQUEST and then settles it, rather than
+  calling the provider directly.** The request row is what makes the
+  idempotency key durable before the first provider call — a key invented after
+  the call has already failed at its job — and it means a process dying
+  mid-attempt leaves the ask on the exceptions list with the retry button
+  beside it, which is exactly the machinery C-067 built.
+- **One pending request at a time, refused in the engine.** Two unsettled asks
+  are two claims on money that can only be sent once. The second would be
+  refused at the attempt anyway, after a provider call, on a screen nobody is
+  watching.
+- **The bound is checked twice, and that is not redundancy.** The ask is
+  bounded by what is held when somebody types it; `settleRefund` re-reads the
+  balance at the attempt, because a comp or a counter payment can land in
+  between. The ask is frozen; the ceiling is not.
+- **The reversal names no row.** It contradicts the adjusted TOTAL rather than
+  pointing at one comp. A per-row Reverse button would need a second link
+  column to buy a nicer tap, and the cumulative bound already stops a reversal
+  manufacturing money the order never gave away.
+- **No "send it all" button beside the refund amount**, unlike the comp's. A
+  comp has a whole-order reading the server can derive; how much of what is
+  held goes back IS the decision, and a one-tap full refund is the tap somebody
+  makes by accident at the pass.
+
+**Found:**
+- **The old exceptions query became a live bug, not just a simplification.** It
+  read "the order has a request AND the order has no refund", which was the
+  same question only while an order could have one of each. An order refunded
+  $3 in the afternoon and asked for $5 back in the evening has a `refund` on
+  it — so the outstanding $5 would have dropped off the list silently. It is
+  now asked per request through `refundAttempts`.
+- **The `paymentState` compare-and-set had stopped being a guard.**
+  `settleRefund`'s race protection was `updateMany where paymentState='paid'`
+  → `refunded`. Correct while every refund was total; a partial one leaves the
+  column at `paid`, so two simultaneous taps would both have passed and written
+  two `refund` rows against one provider call — and `orderBalance` sums the log,
+  so the customer's money would have read as returned twice. The partial unique
+  index replaced it, and there is a db test running two settles concurrently.
+- **Prisma's drift check ignores partial indexes**, the same way it ignores
+  CHECK constraints. Verified against the real migration history before relying
+  on it (a throwaway migration adding one, then `migrate diff --exit-code`),
+  because the alternative design — a full `@unique` — would have blocked
+  `refund_failed` from carrying the link, and without that link a retry on one
+  request reads as a failure on every request the order has. CI asserts the
+  index by name in `pg_class`, as it does the trigger and the CHECKs.
+- **Two "Reason" fields on one screen broke the first e2e run.** The receipt now
+  carries three money forms; `getByLabel('Reason').first()` picked the refund
+  form's, the comp submitted with no reason, and the spec asserted against a
+  page where nothing had happened. The specs are scoped by section heading now.
+  Same class as the RECEIPT-name trap already documented at the top of that file.
+
+**Left behind:**
+- **A reversal cannot be pointed at a specific comp.** Two comps and a
+  reversal read as a net in the balance; the log shows all three rows and the
+  note says which, but nothing joins them. The column and the per-row button
+  are a real item if the report ever needs "which comps were taken back".
+- **`refund_failed` accumulates without a cap.** A stuck provider retried
+  twenty times writes twenty rows on one request. Correct — each is a real
+  attempt — but no screen truncates them, and the receipt's activity log would
+  get long.
+- **The rush script does not exercise a deliberate refund.** The seeded rush
+  covers the cancel path's refund; the new one is covered by db and e2e tests
+  only. Worth adding when the rush is next revisited.

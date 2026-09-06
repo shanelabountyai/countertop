@@ -120,6 +120,13 @@ export function describeEvent(entry: {
       // a whole-order comp and a $3 partial. Which one it was is in `detail`,
       // and the amount is the thing a dispute is actually about.
       return 'Adjusted';
+    case 'adjustment_reversed':
+      // "Put back" and not "Reversed" or "Undone": the log is append-only and
+      // nothing was undone — the comp above this row is still there, still
+      // says who made it, and this is a second decision beside it. The reader
+      // is somebody reconciling a till at midnight, and what they need to know
+      // is that the money went back ON the bill.
+      return 'Adjustment put back';
   }
 }
 
@@ -155,6 +162,11 @@ export const ADJUSTMENT_REASON_LABEL: Record<AdjustmentReason, string> = {
   // activity log, where "Adjusted $10.00 · Punch card reward" is the sentence
   // that tells a dispute why ten dollars came off.
   loyalty_reward: 'Punch card reward',
+  // Also never in a dropdown, and for the reason the reversal has no dropdown
+  // at all (C-071): there is one reason to take a comp back, and the note is
+  // where it is explained. Reads as the sentence somebody says out loud —
+  // "that was a mistake" — rather than as a category.
+  mistake: 'Written in error',
 };
 
 /**
@@ -198,6 +210,8 @@ export function describeEventReason(entry: {
   if (entry.kind === 'revert') {
     return REVERT_REASON_LABEL[entry.reason as RevertReason] ?? entry.reason;
   }
-  if (entry.kind !== 'adjustment' && entry.kind !== 'remake') return entry.reason;
+  if (entry.kind !== 'adjustment' && entry.kind !== 'adjustment_reversed' && entry.kind !== 'remake') {
+    return entry.reason;
+  }
   return ADJUSTMENT_REASON_LABEL[entry.reason as AdjustmentReason] ?? entry.reason;
 }

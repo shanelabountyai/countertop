@@ -4,8 +4,10 @@ import { describe, expect, it } from 'vitest';
 import {
   ADJUSTMENT_KINDS,
   ADJUSTMENT_REASONS,
+  ADJUSTMENT_REVERSAL_REASON,
   adjustableRemainingCents,
   adjustmentEvent,
+  isStaffAdjustmentReason,
   type AdjustableOrder,
 } from './adjustment';
 import { orderBalance, paymentTotals, derivePaymentState, type MoneyEvent } from './payment';
@@ -220,9 +222,105 @@ describe('what an adjustment does to the money', () => {
   });
 });
 
+// PRD 3 P0-6 (C-071). A mistaken comp is corrected by a CONTRADICTING ROW,
+// never a delete — C-065 and C-066 both deferred this and both gave the same
+// reason: the log is append-only, and a decision that vanishes is one nobody
+// can be asked about at close.
+describe('adjustmentEvent — reversal', () => {
+  const reverse = (amountCents: number, note = 'comped the wrong ticket') =>
+    adjustmentEvent(
+      order(comped(1000)),
+      { kind: 'reversal', amountCents, reason: ADJUSTMENT_REVERSAL_REASON, note },
+      NOW,
+    );
+
+  it('writes its own kind, not a negative adjustment', () => {
+    const result = reverse(400);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.event).toMatchObject({
+      kind: 'adjustment_reversed',
+      // Unsigned, always. Direction is the kind — a comp of -400 and a
+      // reversal of 400 would be the same row twice over.
+      amountCents: 400,
+      reason: ADJUSTMENT_REVERSAL_REASON,
+      actor: 'staff',
+      fromStatus: null,
+      toStatus: null,
+    });
+  });
+
+  // THE BOUND IS THE MIRROR of the other two kinds: they spend what is left of
+  // the order, this spends what has already been given away.
+  it('is bounded by what was adjusted, not by the order total', () => {
+    const result = reverse(1001);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('reversal_exceeds_adjusted');
+    expect(result.message).toContain('$10.00');
+  });
+
+  it('is cumulative — reversing twice cannot take back more than was comped', () => {
+    const result = adjustmentEvent(
+      order(comped(1000), { kind: 'adjustment_reversed', amountCents: 600 }),
+      { kind: 'reversal', amountCents: 500, reason: ADJUSTMENT_REVERSAL_REASON, note: 'again' },
+      NOW,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('reversal_exceeds_adjusted');
+  });
+
+  it('refuses when there is nothing to take back', () => {
+    const result = adjustmentEvent(
+      order(paid(1375)),
+      { kind: 'reversal', amountCents: 100, reason: ADJUSTMENT_REVERSAL_REASON, note: 'oops' },
+      NOW,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('nothing_to_reverse');
+  });
+
+  // ALWAYS a note, whatever the reason says. The other two kinds are a
+  // decision about the customer's food; this is a decision about a colleague's
+  // decision, and it puts money back onto a bill somebody has already been
+  // told they do not owe.
+  it('always requires a note', () => {
+    const result = adjustmentEvent(
+      order(comped(1000)),
+      { kind: 'reversal', amountCents: 400, reason: ADJUSTMENT_REVERSAL_REASON },
+      NOW,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('adjustment_note_required');
+  });
+
+  // The whole shape, end to end: the comp is still there, the correction is
+  // beside it, and the balance is the net of the two.
+  it('leaves both decisions in the log and restores what is owed', () => {
+    const result = reverse(1000);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const after = order(comped(1000), {
+      kind: result.event.kind,
+      amountCents: result.event.amountCents ?? 0,
+    });
+    expect(after.events).toHaveLength(2);
+    expect(paymentTotals(after.events).adjustedCents).toBe(0);
+    expect(orderBalance(after).outstandingCents).toBe(TOTAL);
+  });
+});
+
 describe('the vocabulary', () => {
-  it('does not carry `remake` yet — C-066 adds the kind and its link together', () => {
-    expect([...ADJUSTMENT_KINDS]).toEqual(['comp', 'partial']);
+  it('carries the three kinds the counter reaches for', () => {
+    expect([...ADJUSTMENT_KINDS]).toEqual(['comp', 'partial', 'reversal']);
+  });
+
+  // Neither is staff-pickable, and for the same reason: the preset answers
+  // "why were things comped on Friday", and a reward's reason or a
+  // correction's reason on that list would make the GROUP BY lie.
+  it('keeps the written reasons out of the pickable preset', () => {
+    expect(ADJUSTMENT_REASONS).not.toContain(ADJUSTMENT_REVERSAL_REASON);
+    expect(isStaffAdjustmentReason(ADJUSTMENT_REVERSAL_REASON)).toBe(false);
   });
 
   it('keeps `other` in the preset, because it is the one that needs the note', () => {

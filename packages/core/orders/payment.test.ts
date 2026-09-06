@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   derivePaymentState,
-  deriveRefundState,
   orderBalance,
   paymentTotals,
-  refundNeedsAttention,
   type MoneyEvent,
 } from './payment';
 
@@ -151,57 +149,58 @@ describe('orderBalance', () => {
   });
 });
 
-// PRD 3 P0-4 (C-067). The state `PaymentState` could not hold — three terminal
-// facts and none of them "we tried". These prove the derivation; that the real
-// write paths produce these event sequences is proved in packages/db.
-describe('deriveRefundState', () => {
-  it('is null when nobody ever asked for one', () => {
-    expect(deriveRefundState([payment(3420), move()])).toBeNull();
-  });
-
-  it('is requested once the cancellation recorded the debt', () => {
-    expect(deriveRefundState([payment(3420), requested()])).toBe('requested');
-  });
-
-  it('is failed once an attempt came back refused', () => {
-    expect(deriveRefundState([payment(3420), requested(), failed()])).toBe('failed');
-  });
-
-  it('is succeeded once the money actually went back', () => {
-    expect(deriveRefundState([payment(3420), requested(), refund(3420)])).toBe('succeeded');
-  });
-
-  // THE PROPERTY THAT MAKES THIS SAFE. The obvious version reads the last
-  // refund-ish event, and "last" needs an ordering the receipt's event select
-  // does not impose — worse, a retry that succeeds in the same millisecond as
-  // the failure before it shares an instant with it, which every test with a
-  // frozen `now` does by construction. Precedence has no such tie.
-  it('reads succeeded whatever order a retry lands in', () => {
-    const events = [payment(3420), requested(), failed(), refund(3420)];
-    expect(deriveRefundState(events)).toBe('succeeded');
-    expect(deriveRefundState([...events].reverse())).toBe('succeeded');
-  });
-
-  it('reads failed after a second attempt also failed', () => {
-    expect(deriveRefundState([payment(3420), requested(), failed(), failed()])).toBe('failed');
-  });
-
-  // The enum stays honest through all of it: a refund that has not landed is
-  // money the restaurant is still holding, so the customer-facing copy says
-  // `paid` and never `refunded` (P0-4's third bullet).
+// PRD 3 P0-4 (C-067), the half of it that is about the ENUM. Where a refund
+// GOT TO moved to `refund.test.ts` in C-071, because it stopped being a
+// question about the order and became one about each request; what stays here
+// is the property that made the split safe to make — the customer-facing copy
+// does not move until the money actually does.
+describe('derivePaymentState under a refund in flight', () => {
   it('leaves the payment state alone until the money is actually back', () => {
     expect(derivePaymentState([payment(3420), requested(), failed()])).toBe('paid');
     expect(derivePaymentState([payment(3420), requested(), refund(3420)])).toBe('refunded');
   });
+
+  // A PARTIAL refund is still `paid`, and this is the assertion C-071 turned
+  // from a comment into a code path: `settleRefund` used to compare-and-set
+  // this column to `refunded` as its race guard, which was only ever right
+  // because every refund was total. It now writes what this function says.
+  it('stays paid when only part of the money went back', () => {
+    expect(derivePaymentState([payment(3420), requested(), refund(300)])).toBe('paid');
+  });
 });
 
-describe('refundNeedsAttention', () => {
-  // One predicate for the exceptions query and the receipt's panel, so the
-  // screen and the list cannot disagree about which orders still owe money.
-  it('names both unsettled states and neither settled one', () => {
-    expect(refundNeedsAttention('requested')).toBe(true);
-    expect(refundNeedsAttention('failed')).toBe(true);
-    expect(refundNeedsAttention('succeeded')).toBe(false);
-    expect(refundNeedsAttention(null)).toBe(false);
+// PRD 3 P0-6 (C-071). A reversal is a contradicting row, and `adjustedCents`
+// is the net of the two.
+describe('paymentTotals under a reversal', () => {
+  const reversed = (amountCents: number): MoneyEvent => ({
+    kind: 'adjustment_reversed',
+    amountCents,
+  });
+
+  it('nets a reversal out of the adjusted total without touching the others', () => {
+    expect(paymentTotals([payment(3420), adjustment(1000), reversed(400)])).toEqual({
+      capturedCents: 3420,
+      refundedCents: 0,
+      adjustedCents: 600,
+    });
+  });
+
+  // The whole point of the shape: the comp is still in the log, still says who
+  // made it and when. Nothing was deleted, and the balance is right anyway.
+  it('restores what is owed when a comp is put back in full', () => {
+    const order = { totalCents: 1375, events: [adjustment(1375), reversed(1375)] };
+    expect(orderBalance(order).outstandingCents).toBe(1375);
+    expect(order.events).toHaveLength(2);
+  });
+
+  // Reversing more than was ever comped is a data error, not a surcharge. The
+  // clamp is what stops it inflating what the customer owes above the total
+  // they were actually charged.
+  it('clamps at zero rather than turning a reversal into a charge', () => {
+    expect(paymentTotals([adjustment(500), reversed(900)]).adjustedCents).toBe(0);
+    expect(orderBalance({ totalCents: 1375, events: [adjustment(500), reversed(900)] })).toEqual({
+      collectedCents: 0,
+      outstandingCents: 1375,
+    });
   });
 });

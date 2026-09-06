@@ -175,6 +175,22 @@ enum OrderEventKind {
   /// `/status/[token]` has no `detail` to render — the same structural refusal
   /// `omit: { shelfLocation: true }` makes one requirement above this one.
   note
+  /// PRD 3 P0-6 (C-071): an adjustment taken back. The counter comped the
+  /// wrong ticket, and the correction is a CONTRADICTING ROW rather than a
+  /// delete — the append-only trigger means that is not a preference, and a
+  /// comp that vanishes is a comp nobody can be asked about at close.
+  ///
+  /// Its own kind rather than a negative `adjustment`, because `amountCents`
+  /// is unsigned and `order_event_amount_is_positive` says so: direction has
+  /// been the kind since C-063. `paymentTotals` subtracts these out of
+  /// `adjustedCents`, which is the whole of its effect — the money owed comes
+  /// back and both decisions stay legible side by side.
+  ///
+  /// AT THE END, and the position is load-bearing rather than tidy: the
+  /// vocabulary test in `snapshot.test.ts` compares `ORDER_EVENT_KINDS`
+  /// against `pg_enum` position for position, and `ALTER TYPE ... ADD VALUE`
+  /// appends.
+  adjustment_reversed
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +453,31 @@ model OrderEvent {
   /// two copies of a fact are two things that can disagree.
   relatedOrderId String?
   relatedOrder   Order?       @relation("OrderRemake", fields: [relatedOrderId], references: [id], onDelete: Restrict)
+  /// The refund REQUEST this attempt was made against (PRD 3 P0-6, C-071).
+  ///
+  /// Non-null on `refund` and `refund_failed`, null on everything else, and
+  /// `order_event_refund_link_matches_kind` says the second half. It is what
+  /// makes MORE THAN ONE refund per order answerable: until C-071 the only
+  /// thing that could ask for one was cancelling a paid order, so there was
+  /// exactly one request and "did the refund land" was a question about the
+  /// ORDER. A deliberate refund can be issued again for another part of the
+  /// balance, and without this link the second request would read as settled
+  /// by the first one's success.
+  ///
+  /// The value is the request row's own id, which is ALSO the idempotency key
+  /// the provider is handed. One value doing two jobs rather than a second
+  /// column to keep true — the same argument `refund_requested` makes above.
+  ///
+  /// `Restrict`, like the analytics FKs: a request must not be deleted out
+  /// from under the attempts that name it. The append-only trigger already
+  /// refuses every delete on this table, so this is the constraint saying the
+  /// same thing where a future migration can see it.
+  refundRequestId String?
+  refundRequest   OrderEvent?  @relation("RefundAttempt", fields: [refundRequestId], references: [id], onDelete: Restrict)
+  /// The attempts made against this request — the reverse of the link above,
+  /// and what `loadRefundExceptions` asks: a request with `none` of these of
+  /// kind `refund` is money owed and unsent.
+  refundAttempts  OrderEvent[] @relation("RefundAttempt")
   detail     Json?
 
   @@index([orderId, at])
@@ -448,6 +489,16 @@ model OrderEvent {
   /// on every attempted delete. It is also the reverse lookup a receipt does
   /// to find the order that replaced it.
   @@index([relatedOrderId])
+  /// Postgres does not index a foreign key for you, and `Restrict` scans this
+  /// on every attempted delete. It is also what the exceptions list reads:
+  /// "which requests have no `refund` against them".
+  ///
+  /// A PARTIAL UNIQUE index enforcing at most one settled `refund` per request
+  /// lives beside it, in the migration only — Prisma cannot express a `WHERE`
+  /// on an index, so `prisma migrate diff` ignores it exactly as it ignores
+  /// the CHECK constraints, and CI asserts it by name in `pg_class` for the
+  /// same reason it asserts those.
+  @@index([refundRequestId])
 }
 
 /// A name to put on a row (PRD 6 P0-2). NOT an account.

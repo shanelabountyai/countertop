@@ -1948,3 +1948,39 @@ was charged, the adjustment is still a separate record beside it, and the state
 machine is untouched. This release is about the moment a person is told no and
 has to decide what to do next — the moment that previously ended at the till
 drawer and a sentence to the GM at close.
+
+## C-071 — A refund you can actually decide to send
+
+**Until now, the only way to refund anybody was to cancel their order.** That
+sounds reasonable until a Friday: cooked food cannot be cancelled — correctly,
+because somebody bought the ingredients and somebody cooked them — so the
+orders where a refund is most obviously right were exactly the ones the product
+could not reach. Comping a burrito somebody had already paid for showed a
+balance of zero, which is a true sentence about what the customer *owes* and
+the wrong one about what the shop is *holding*.
+
+**There is now a Send money back control on the staff receipt.** Type an
+amount, pick a reason, send it. It works on an order that was picked up, on one
+that was comped after paying, and on a no-show — the three places the product
+previously had nothing.
+
+**Type too much and it says no.** Ask for $50 back on an $11.85 order and you
+get "that is more than the $11.85 this order is holding" — not a silent $11.85
+refund that nobody finds out about until the till is counted. The same is true
+a second time when the money actually goes: if a comp or a counter payment
+landed in between, what leaves is bounded by what is there then.
+
+**Part of it is a real answer now.** Send back $5 of $11.85 and the order
+honestly reads as still paid, with $6.85 held. The old model had three words
+for money — unpaid, paid, refunded — and no way to say "most of it is still
+ours".
+
+**A no-show is offered a refund, not given one.** The food was made and it is
+sitting on the shelf, so the shop decides. The control is there; nothing
+happens on its own.
+
+**And a comp on the wrong ticket can be put back.** Not deleted — the original
+comp stays in the log with the time and the name on it, and the correction sits
+beside it with a note saying what was wrong. At close, both decisions are still
+there to be asked about, which is the whole reason the log never lets anything
+be erased.

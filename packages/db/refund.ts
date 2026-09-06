@@ -12,6 +12,21 @@
 // and sending the money is what happens afterwards, outside it, where it is
 // allowed to fail without taking the cancellation down with it.
 //
+// WHAT C-071 CHANGED. This file was written when the only thing that could ask
+// for a refund was cancelling a paid order, so there was exactly one request
+// per order and this function could take "the refund" as a definite article:
+// it found the order's single request, and it sent back everything the
+// restaurant was holding because nothing else had a claim on it. A deliberate
+// refund breaks both halves. There can now be several requests over an order's
+// life, each for part of the balance, so an attempt names the request it is
+// for — and the amount comes from that request when it has one.
+//
+// STILL ONE ATTEMPT. There are now three callers — the automatic one after a
+// cancellation, the staff retry from the receipt, and a deliberate refund —
+// and the reason they all land here is the reason C-067 gave for the first
+// two: a path that differs from the path that failed is a second thing to get
+// right, and the one that gets exercised least.
+//
 // The idempotency key is the REQUEST EVENT'S OWN ROW ID. It is a uuid, it is
 // unique because it is a primary key, and it is durable before the first
 // provider call is made — so a retry after a lost response presents the same
@@ -19,11 +34,17 @@
 // twice. A second key column with a second unique index would be a second
 // thing to keep true.
 import {
-  deriveRefundState,
+  derivePaymentState,
+  formatBoundCents,
   orderBalance,
+  pendingRefunds,
+  refundRequestEvent,
   type EventActor,
+  type PendingRefund,
+  type RefundRefusalReason,
+  type RefundRequestInput,
 } from '@countertop/core';
-import { prisma } from './index';
+import { Prisma, prisma } from './index';
 import { eventRow, ORDER_RECEIPT, type OrderReceipt } from './placement';
 
 /**
@@ -45,40 +66,59 @@ export type RefundProvider = (idempotencyKey: string, amountCents: number) => Pr
 export const mockRefundProvider: RefundProvider = async (idempotencyKey) =>
   `mock_${idempotencyKey}`;
 
+export type SettleRefundReason =
+  | 'order_not_found'
+  | 'no_refund_requested'
+  | 'already_refunded'
+  | 'nothing_to_refund'
+  /** The ask is bigger than what the restaurant is still holding (C-071).
+   *
+   *  REFUSED, NEVER CLAMPED — the discipline `adjustmentEvent` set and the one
+   *  `refundRequestEvent` repeats. This is its second sighting, at the attempt
+   *  rather than at the ask, and it is not redundancy: a comp or a counter
+   *  payment can land in the seconds between somebody typing $10 and the
+   *  provider being called, and what leaves has to be bounded by what is held
+   *  THEN. Quietly sending the smaller figure would tell the counter a $10
+   *  refund went out when $6 did. */
+  | 'refund_exceeds_balance'
+  | 'provider_failed'
+  | 'raced';
+
 export type SettleRefundResult =
   | { ok: true; amountCents: number }
-  | {
-      ok: false;
-      reason:
-        | 'order_not_found'
-        | 'no_refund_requested'
-        | 'already_refunded'
-        | 'nothing_to_refund'
-        | 'provider_failed'
-        | 'raced';
-      message: string;
-    };
+  | { ok: false; reason: SettleRefundReason; message: string };
 
-const refuse = (
-  reason: Extract<SettleRefundResult, { ok: false }>['reason'],
-  message: string,
-): SettleRefundResult => ({ ok: false, reason, message });
+const refuse = (reason: SettleRefundReason, message: string): SettleRefundResult => ({
+  ok: false,
+  reason,
+  message,
+});
 
 /**
- * Attempt the refund this order has asked for, and record what happened.
+ * Attempt a refund this order has asked for, and record what happened.
  *
- * ONE FUNCTION, TWO CALLERS, and that is what makes the retry trustworthy: the
- * automatic attempt that follows a cancellation and the staff tap on a failed
- * one run exactly the same code with exactly the same key. A separate "retry"
- * path is a second implementation of the thing that already went wrong once.
+ * ONE FUNCTION, THREE CALLERS, and that is what makes the retry trustworthy:
+ * the automatic attempt after a cancellation, the staff tap on a failed one,
+ * and a deliberate refund all run exactly the same code with exactly the same
+ * key. A separate "retry" path is a second implementation of the thing that
+ * already went wrong once, and a separate "issue a refund" path would be a
+ * second implementation of the thing money leaves through.
  *
- * THE AMOUNT IS RECOMPUTED, never carried from the request. What is refundable
- * is what the restaurant is actually holding — `orderBalance`'s
- * `collectedCents`, captured minus already refunded — read from this order's
- * own log at the moment of the attempt. Two consequences, both wanted: a comp
- * or a counter payment landing between the request and the attempt cannot make
- * the figure stale, and a duplicate attempt after a success refunds ZERO
- * rather than twice, because the first refund is in the sum it reads.
+ * THE AMOUNT IS BOUNDED BY WHAT IS HELD, always, and comes from the request
+ * only when the request named one. `orderBalance`'s `collectedCents` —
+ * captured minus already refunded — is read from this order's own log at the
+ * moment of the attempt, and it is the ceiling in both cases:
+ *
+ *   * A request with NO amount is the cancellation's, and it means "all of
+ *     it". It cannot know what will be held when the attempt runs, so it
+ *     declines to say and this reads the balance instead.
+ *   * A request WITH an amount is somebody's deliberate ask. It is refused
+ *     against the ceiling, never trimmed to fit it (C-071).
+ *
+ * Two consequences of recomputing, both wanted: a comp or a counter payment
+ * landing between the request and the attempt cannot make the figure stale,
+ * and an attempt against an already-settled request never reaches the provider
+ * at all — the unique index behind the link is what says the request is spent.
  *
  * Safe to call on an order with nothing to settle. Every caller reaches it on
  * a screen or a code path that may be a few seconds behind, and "there was
@@ -88,13 +128,13 @@ export async function settleRefund(
   orderId: string,
   now: Date,
   /**
-   * Who tapped Retry (C-086), and NULL from the automatic path on purpose.
+   * Who tapped Send, and NULL from the automatic path on purpose.
    *
-   * `eventRow`'s comment has parked this question since C-086: the cook who
-   * cancelled an order did not decide to send the money, so putting their name
-   * on the refund the engine triggered would be a name on a row that person did
-   * not write. A retry is different — it is somebody's deliberate tap on a
-   * money control — and it is the one this product most needs a name on.
+   * The cook who cancelled an order did not decide to send the money, so
+   * putting their name on the refund the engine triggered would be a name on a
+   * row that person did not write. A retry and a deliberate refund are
+   * different — they are somebody's tap on a money control — and they are the
+   * rows this product most needs a name on.
    */
   staffId?: string | null,
   /** The processor. A default parameter rather than a module, a registry or an
@@ -102,34 +142,66 @@ export async function settleRefund(
    *  fixture hands in the same, and nothing else in the product ever passes
    *  it. That is the whole of the dependency injection this needs. */
   provider: RefundProvider = mockRefundProvider,
+  /**
+   * WHICH request to settle, where the caller knows (C-071).
+   *
+   * Omitted from the automatic path and from the retry button, because both
+   * of those mean "the one thing this order is waiting on" and
+   * `refundRequestEvent` refuses to let a second ask stack on top of an
+   * unsettled one — so there is at most one, and naming it would be the caller
+   * repeating what the log already says.
+   *
+   * Passed by `requestRefund`, which has just written the request and must
+   * settle THAT one: reading it back out of the log would work today and would
+   * be a race the moment two people refund the same order at once.
+   */
+  requestId?: string,
 ): Promise<SettleRefundResult> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     select: {
       totalCents: true,
-      // `id` beside the two `MoneyEvent` scalars: the request row's id IS the
-      // idempotency key, so the read that computes the amount is also the read
-      // that finds the key.
-      events: { select: { id: true, kind: true, amountCents: true } },
+      // `id` and `refundRequestId` beside the two `MoneyEvent` scalars: this
+      // is the `RefundEvent` shape, and it is the read that finds the request
+      // as well as the read that computes the balance.
+      events: {
+        select: { id: true, kind: true, amountCents: true, refundRequestId: true },
+      },
     },
   });
   if (!order) return refuse('order_not_found', 'That order could not be found.');
 
-  const state = deriveRefundState(order.events);
-  if (state === null) return refuse('no_refund_requested', 'Nothing was refunded on this order.');
-  if (state === 'succeeded') return refuse('already_refunded', 'This refund has already gone through.');
+  const pending = pendingRefunds(order.events);
+  const request: PendingRefund | undefined =
+    requestId === undefined ? pending[0] : pending.find((entry) => entry.id === requestId);
 
-  // Non-null by construction: `deriveRefundState` returns non-null only when
-  // one of these exists, and `failed` implies the request that preceded it.
-  const request = order.events.find((event) => event.kind === 'refund_requested')!;
-
-  const amountCents = orderBalance(order).collectedCents;
-  if (amountCents <= 0) {
-    return refuse('nothing_to_refund', 'There is no money on this order to send back.');
+  if (!request) {
+    // Two different facts, and a screen five seconds behind needs to be told
+    // which. Nothing was ever asked for on this order, or the thing that was
+    // asked for has already gone back — and only the second one means the
+    // customer has their money.
+    return order.events.some((event) => event.kind === 'refund_requested')
+      ? refuse('already_refunded', 'This refund has already gone through.')
+      : refuse('no_refund_requested', 'Nothing was refunded on this order.');
   }
 
-  // WHO the log says did it. A retry is a person's tap; the attempt that
-  // follows a cancellation is not, and passes null above to say so.
+  const heldCents = orderBalance(order).collectedCents;
+  if (heldCents <= 0) {
+    return refuse('nothing_to_refund', 'There is no money on this order to send back.');
+  }
+  // Null is "all of it" — the cancellation's request. A number is somebody's
+  // ask, and it is refused rather than trimmed.
+  const amountCents = request.amountCents ?? heldCents;
+  if (amountCents > heldCents) {
+    return refuse(
+      'refund_exceeds_balance',
+      `This order is only holding ${formatBoundCents(heldCents)} now. Ask for the refund again.`,
+    );
+  }
+
+  // WHO the log says did it. A retry and a deliberate refund are a person's
+  // tap; the attempt that follows a cancellation is not, and passes null above
+  // to say so.
   const actor: EventActor = staffId ? 'staff' : 'system';
 
   let providerRef: string;
@@ -154,6 +226,9 @@ export async function settleRefund(
             toStatus: null,
             actor,
             reason: null,
+            // WHICH request failed (C-071). Without it a retry on one request
+            // would read as a failure on every request the order has.
+            refundRequestId: request.id,
             detail: { note: describeFailure(error) },
           },
           staffId,
@@ -163,46 +238,131 @@ export async function settleRefund(
     return refuse('provider_failed', 'The refund did not go through. It is on the exceptions list.');
   }
 
-  // The column and its event in ONE transaction, guarded on the state the
-  // amount was computed against — `collectOrderPayment`'s compare-and-set,
-  // applied to the other direction. Two people tapping Retry at once present
-  // the same key, so the provider refunds once; this is what stops the log
-  // recording it twice.
-  const settled = await prisma.$transaction(async (tx) => {
-    const guard = await tx.order.updateMany({
-      where: { id: orderId, paymentState: 'paid' },
-      data: { paymentState: 'refunded' },
+  // THE CONSTRAINT IS THE GUARD (C-071), where this used to be a compare-and-set
+  // on `paymentState` going `paid` -> `refunded`. That worked only while every
+  // refund was total: a partial one leaves the column at `paid`, so the guard
+  // would have silently stopped guarding and two taps at the same instant
+  // would have written two `refund` rows against one provider call. The unique
+  // index on the link cannot be talked out of it.
+  //
+  // The column is written from the log rather than to a literal, for the same
+  // reason: `refunded` is only true once everything captured has gone back,
+  // and a $3 refund on a $34.20 order leaves it `paid`. `derivePaymentState`
+  // is the one function that decides that, and it is re-read INSIDE the
+  // transaction so a payment landing mid-attempt cannot leave a stale answer.
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.orderEvent.create({
+        data: {
+          orderId,
+          ...eventRow(
+            {
+              at: now,
+              kind: 'refund',
+              // Null on both, like `payment` and `adjustment`: money marks the
+              // timeline, it does not divide it.
+              fromStatus: null,
+              toStatus: null,
+              actor,
+              reason: null,
+              amountCents,
+              providerRef,
+              refundRequestId: request.id,
+              detail: { amountCents, provider: 'mock' },
+            },
+            staffId,
+          ),
+        },
+      });
+      const settled = await tx.orderEvent.findMany({
+        where: { orderId },
+        select: { kind: true, amountCents: true },
+      });
+      await tx.order.update({
+        where: { id: orderId },
+        data: { paymentState: derivePaymentState(settled) },
+      });
     });
-    if (guard.count === 0) return false;
-    await tx.orderEvent.create({
-      data: {
-        orderId,
-        ...eventRow(
-          {
-            at: now,
-            kind: 'refund',
-            // Null on both, like `payment` and `adjustment`: money marks the
-            // timeline, it does not divide it. The old draft carried the
-            // cancellation's statuses, which `time-in-state.ts` has called the
-            // odd one out since C-085 and named PRD 3 as the place to settle.
-            fromStatus: null,
-            toStatus: null,
-            actor,
-            reason: null,
-            amountCents,
-            providerRef,
-            detail: { amountCents, provider: 'mock' },
-          },
-          staffId,
-        ),
+  } catch (error) {
+    // P2002 is the partial unique index: somebody else settled this exact
+    // request while the provider was thinking. Their `refund` row is the one
+    // that counts, and it carries the same key, so the customer was paid once.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return refuse('raced', 'Someone else settled this refund. Reload the receipt.');
+    }
+    throw error;
+  }
+
+  return { ok: true, amountCents };
+}
+
+export type RequestRefundResult =
+  | { ok: true; amountCents: number }
+  | { ok: false; reason: RefundRefusalReason | SettleRefundReason; message: string };
+
+/**
+ * Send money back because somebody decided to (PRD 3 P0-6, C-071).
+ *
+ * THE MISSING HALF OF THE MONEY STORY, and C-067 and C-068 both left it here.
+ * A comp on an order that has already paid reads as a zero balance — the
+ * customer owes nothing — when what is true is that the restaurant is holding
+ * their money and owes it BACK. `orderBalance`'s clamp has said so in a comment
+ * since C-064. Cancelling was the only way to ask for a refund, and the state
+ * machine correctly refuses to cancel cooked food, so the orders where this is
+ * most needed were exactly the ones it could not reach.
+ *
+ * TWO WRITES, NOT ONE, and the split is the same one C-067 argued for: the ask
+ * and the send are not one fact. The request lands first and durably, because
+ * its row id is the idempotency key the provider is handed — a key invented
+ * after the call has already failed at its job. If the process dies between
+ * them, the request is on the exceptions list with the retry button beside it,
+ * which is precisely the failure mode that machinery was built for.
+ *
+ * NOT A SECOND REFUND PATH. Everything after the request is `settleRefund`:
+ * the same bound, the same key, the same constraint, the same failure row.
+ * The one thing this adds is the ask.
+ */
+export async function requestRefund(
+  orderId: string,
+  input: RefundRequestInput,
+  now: Date,
+  /** Who decided. This is the row PRD 6 P0-2 exists to put a name on — a
+   *  person choosing to send a customer's money back — and unlike the
+   *  cancellation's automatic attempt there is no honest reading of it as
+   *  `system`. */
+  staffId?: string | null,
+  provider: RefundProvider = mockRefundProvider,
+): Promise<RequestRefundResult> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      totalCents: true,
+      events: {
+        select: { id: true, kind: true, amountCents: true, refundRequestId: true },
       },
-    });
-    return true;
+    },
+  });
+  if (!order) return { ok: false, reason: 'order_not_found', message: 'That order could not be found.' };
+
+  // The amount is validated against the order's OWN log, re-read here — the
+  // screen's idea of what is held is never an input, exactly as the cart's
+  // total is never an input to placement (CLAUDE.md: the server is the price
+  // authority). `refundRequestEvent` validates and builds in one call, so
+  // there is no path through this module that asks for an amount nothing
+  // checked.
+  const asked = refundRequestEvent(order, input, now);
+  if (!asked.ok) return asked;
+
+  const request = await prisma.orderEvent.create({
+    data: { orderId, ...eventRow(asked.event, staffId) },
+    select: { id: true },
   });
 
-  return settled
-    ? { ok: true, amountCents }
-    : refuse('raced', 'Someone else settled this refund. Reload the receipt.');
+  // OUTSIDE the write above, and after it committed. Same ordering and same
+  // argument as the cancellation's: a provider call inside a transaction holds
+  // a lock on somebody else's timetable, and a refund that fails must leave
+  // the ask standing rather than rolling it back into nothing.
+  return settleRefund(orderId, now, staffId, provider, request.id);
 }
 
 /** A message from something thrown across a boundary this code does not own.
@@ -230,12 +390,23 @@ const REFUND_EXCEPTION_LIMIT = 50;
  * says in one place for both the query and the screen: a request whose attempt
  * never came back — the process died mid-call — is money owed with nothing
  * chasing it, and it is invisible in exactly the way a failure is not.
+ *
+ * ASKED PER REQUEST since C-071, and the old shape is now a live bug rather
+ * than a simplification. It read "the order has a request AND the order has no
+ * refund", which was the same question while an order could only ever have one
+ * of each. With a deliberate refund it is not: an order refunded $3 in the
+ * afternoon and asked for $5 back in the evening has a `refund` on it, so the
+ * old predicate would drop the outstanding $5 off the exceptions list and
+ * nothing anywhere would be chasing it. `refundAttempts` is the reverse of the
+ * link, so the question is asked of the REQUEST — has anything settled THIS
+ * one — which is the same question `pendingRefunds` asks of the same rows.
  */
 export function loadRefundExceptions(): Promise<OrderReceipt[]> {
   return prisma.order.findMany({
     where: {
-      events: { some: { kind: 'refund_requested' } },
-      NOT: { events: { some: { kind: 'refund' } } },
+      events: {
+        some: { kind: 'refund_requested', refundAttempts: { none: { kind: 'refund' } } },
+      },
     },
     orderBy: { placedAt: 'desc' },
     take: REFUND_EXCEPTION_LIMIT,

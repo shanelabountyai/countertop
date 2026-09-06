@@ -61,10 +61,18 @@ export const ORDER_RECEIPT = {
       include: { options: { orderBy: { sortOrder: 'asc' } } },
     },
     // The money events, so any holder of a receipt can ask `orderBalance` what
-    // is still owed (C-064). Two scalars per event, not the whole row: a
+    // is still owed (C-064). Four scalars per event, not the whole row: a
     // receipt has no business carrying the actor or the detail payload, and
-    // this is the shape `MoneyEvent` asks for.
-    events: { select: { kind: true, amountCents: true } },
+    // this is the shape `MoneyEvent` and `RefundEvent` between them ask for.
+    //
+    // `id` and `refundRequestId` joined the two money scalars in C-071, and
+    // they are structure rather than content: `pendingRefunds` places each
+    // attempt against the request it was made for, which is a question about
+    // the SHAPE of the log. The customer's status page reads the same select
+    // and renders one boolean off it — the `detail` payload that carries the
+    // provider's words and the counter's notes is still structurally out of
+    // its reach, which is the property this select exists to keep.
+    events: { select: { id: true, kind: true, amountCents: true, refundRequestId: true } },
   },
 } as const satisfies Prisma.OrderDefaultArgs;
 
@@ -219,6 +227,9 @@ export const eventRow = (draft: OrderEventDraft, staffId?: string | null) => ({
   providerRef: draft.providerRef ?? null,
   // The order this event points at (C-066). Null on everything but a `remake`.
   relatedOrderId: draft.relatedOrderId ?? null,
+  // The refund request this attempt was made against (C-071). Null on
+  // everything but a `refund` or a `refund_failed`, and the CHECK says so.
+  refundRequestId: draft.refundRequestId ?? null,
   // WHICH staff member, where `actor` says what KIND (C-086). Stamped ONLY on
   // an event the engine attributes to staff: the customer's placement and the
   // system's refund are not somebody's tap, and putting the cook who cancelled

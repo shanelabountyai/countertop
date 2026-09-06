@@ -21,7 +21,6 @@ import {
   FORGOTTEN_CUSTOMER_NAME,
   adjustableRemainingCents,
   canCollectPayment,
-  deriveRefundState,
   formatOrderNumber,
   hasReward,
   LOYALTY_REWARD_REASON,
@@ -30,7 +29,7 @@ import {
   MAX_CANCEL_NOTE_LENGTH,
   planRedemption,
   pointsToNextReward,
-  refundNeedsAttention,
+  pendingRefunds,
   previousStatus,
   REVERT_REASONS,
   UNDOABLE_EXIT_STATUSES,
@@ -53,6 +52,7 @@ import {
 import {
   addOrderNoteForm,
   adjustOrderForm,
+  refundOrderForm,
   collectPayment,
   forgetCustomerForm,
   redeemRewardForm,
@@ -70,6 +70,7 @@ export default async function OrderHistoryDetailPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{
     adjustError?: string;
+    reversalError?: string;
     redeemError?: string;
     revertError?: string;
     refundError?: string;
@@ -78,7 +79,7 @@ export default async function OrderHistoryDetailPage({
   }>;
 }) {
   const { id } = await params;
-  const { adjustError, redeemError, revertError, refundError, noteError, forget } =
+  const { adjustError, reversalError, redeemError, revertError, refundError, noteError, forget } =
     await searchParams;
   const [gateState, order, activity, remakes] = await Promise.all([
     loadGateState(new Date()),
@@ -113,11 +114,13 @@ export default async function OrderHistoryDetailPage({
   const remainingCents = adjustableRemainingCents(order);
   const balance = orderBalance(order);
 
-  // Where the refund got to (PRD 3 P0-4, C-067). Derived from the SAME events
-  // the balance is summed from, so the panel below and the exceptions list on
-  // the history page cannot disagree about which orders still owe money —
-  // `refundNeedsAttention` is the one predicate both ask.
-  const refundState = deriveRefundState(order.events);
+  // Every refund asked for and not sent (PRD 3 P0-4, C-067; per-request since
+  // C-071). Derived from the SAME events the balance is summed from, so the
+  // panels below and the exceptions list on the history page cannot disagree
+  // about which orders still owe money — `pendingRefunds` is the one function
+  // both ask, and the exceptions QUERY asks the same question of the same two
+  // columns.
+  const pending = pendingRefunds(order.events);
 
   // Whether the reward can be spent, asked of the SAME function the write
   // asks (C-104) — so a button that renders is a button that works, and a
@@ -397,7 +400,13 @@ export default async function OrderHistoryDetailPage({
           )}
         </dl>
 
-        <p className="mt-3 font-semibold">{PAYMENT_LABEL[order.paymentState]}</p>
+        {/* The enum's word for what the till did. It stays "Paid" through a
+            partial refund, correctly and on purpose — `refunded` means every
+            captured cent went back, and the panels above are where the fact it
+            cannot hold is said. */}
+        <p data-testid="staff-payment-state" className="mt-3 font-semibold">
+          {PAYMENT_LABEL[order.paymentState]}
+        </p>
 
         {canCollectPayment(order.status, balance.outstandingCents) && (
           <form action={collectPayment} className="mt-3">
@@ -411,25 +420,40 @@ export default async function OrderHistoryDetailPage({
           </form>
         )}
 
-        {/* A refund the restaurant owes and has not sent (PRD 3 P0-4).
+        {/* Refunds the restaurant owes and has not sent (PRD 3 P0-4).
             `PAYMENT_LABEL` above still says "Paid", correctly and on purpose:
             the money is still in the restaurant's hands, and the requirement is
-            that a failed attempt does NOT set the refunded copy. This is the
-            fact the enum cannot hold, rendered where the money is read.
+            that a failed attempt does NOT set the customer-facing "Refunded"
+            copy. This is the fact the enum cannot hold, rendered where the
+            money is read.
 
-            BOTH unsettled states, from one predicate: a request whose attempt
+            BOTH unsettled states, from one function: a request whose attempt
             never came back is money owed with nothing chasing it, and it looks
-            exactly like nothing having happened. */}
-        {refundNeedsAttention(refundState) && (
+            exactly like nothing having happened.
+
+            ONE PANEL PER REQUEST since C-071, and the retry carries the id it
+            was rendered against. `refundRequestEvent` refuses to stack a second
+            ask on an unsettled one, so this is a list of at most one today —
+            written as a list anyway, because the alternative is a screen that
+            renders the first of two and silently drops the money in the
+            second. */}
+        {pending.map((request) => (
           <div
+            key={request.id}
             data-testid="refund-panel"
             className="mt-3 rounded-lg border-2 border-red-700 bg-red-50 p-3"
           >
+            {/* WHAT WAS ASKED FOR, not what a min() against the current balance
+                says. Trimming the figure to fit would have this panel report a
+                smaller debt than the request actually carries, which is the
+                clamp `settleRefund` refuses — said in CSS instead of SQL. A
+                request whose ask now exceeds the balance is refused at the
+                attempt, with a message naming both numbers. */}
             <p className="font-semibold text-red-900">
-              Refund owed — {formatCents(balance.collectedCents)} not sent
+              Refund owed — {formatCents(request.amountCents ?? balance.collectedCents)} not sent
             </p>
             <p className="mt-1 text-sm text-red-900">
-              {refundState === 'failed'
+              {request.failed
                 ? 'The last attempt was refused. The reason is in the activity log below.'
                 : 'Asked for and never confirmed. Send it again — the same key goes to the provider, so this cannot pay twice.'}
             </p>
@@ -450,6 +474,7 @@ export default async function OrderHistoryDetailPage({
                 note send a customer's money back. */}
             <form action={retryRefundForm} className="mt-3">
               <input type="hidden" name="orderId" value={order.id} />
+              <input type="hidden" name="requestId" value={request.id} />
               <button
                 type="submit"
                 data-testid="retry-refund"
@@ -459,7 +484,7 @@ export default async function OrderHistoryDetailPage({
               </button>
             </form>
           </div>
-        )}
+        ))}
       </section>
 
       {/* Making it right (PRD 3 P0-3). Reachable in EVERY state, which is the
@@ -553,6 +578,207 @@ export default async function OrderHistoryDetailPage({
                   Take off
                 </button>
               </div>
+            </div>
+          </form>
+        </section>
+      )}
+
+      {/* Take a comp back (PRD 3 P0-6, C-071).
+
+          A CONTRADICTING ROW, never a delete — the log is append-only and the
+          trigger means that is not a preference. C-065 and C-066 both deferred
+          this and both gave the same reason: a comp is a decision, and a
+          decision that vanishes is one nobody can be asked about at close. So
+          both rows stay, side by side, and the balance is the net.
+
+          Its own section rather than a fourth button in the form above,
+          because it appears under the OPPOSITE condition: Make it right needs
+          something left to adjust, and this needs something already adjusted.
+          On a fully comped order the first is gone and this is the only money
+          control on the screen. */}
+      {adjustedCents > 0 && (
+        <section className="mt-6 rounded-lg border border-neutral-300 p-4">
+          <h2 className="font-semibold">Put an adjustment back</h2>
+          <p className="mt-1 text-sm text-neutral-600">
+            Comped the wrong ticket? This writes the correction beside it — the
+            original stays in the log. Up to {formatCents(adjustedCents)} was
+            taken off this order.
+          </p>
+
+          {reversalError && (
+            <p
+              role="status"
+              data-testid="reversal-error"
+              className="mt-3 rounded-lg border border-red-700 bg-red-50 p-3 text-sm font-semibold text-red-900"
+            >
+              {reversalError}
+            </p>
+          )}
+
+          <form action={adjustOrderForm} className="mt-3 flex flex-col gap-3">
+            <input type="hidden" name="orderId" value={order.id} />
+            {/* No reason dropdown: there is one reason to take a comp back, the
+                action writes it, and the note is where it is explained. The
+                note is REQUIRED — money going back onto a customer's bill is
+                the one adjustment nobody should be able to make silently. */}
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium">What was wrong with the original</span>
+              <input
+                type="text"
+                name="note"
+                required
+                maxLength={140}
+                data-testid="reversal-note"
+                placeholder="Comped #014 by mistake"
+                className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+              />
+            </label>
+
+            <div className="flex gap-2">
+              <label className="flex-1">
+                <span className="sr-only">Amount to put back, in dollars</span>
+                <input
+                  type="text"
+                  name="amount"
+                  inputMode="decimal"
+                  required
+                  data-testid="reversal-amount"
+                  placeholder="3.50"
+                  className="min-h-12 w-full rounded-lg border border-neutral-400 px-3 text-lg tabular-nums"
+                />
+              </label>
+              <button
+                type="submit"
+                name="kind"
+                value="reversal"
+                data-testid="reverse-adjustment"
+                className="min-h-12 rounded-lg border-2 border-neutral-900 px-4 text-lg font-bold"
+              >
+                Put it back
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      {/* Send the money back (PRD 3 P0-6, C-071).
+
+          BELOW the two adjustment controls, and the order is deliberate: a
+          comp records a decision and moves nothing, and this one actually
+          sends a customer's money. The cheap, reversible thing reads first
+          on a screen somebody is scanning at the pass.
+
+          THE HALF THE MONEY STORY WAS MISSING. Until this section the only
+          thing that could ask for a refund was cancelling, and the state
+          machine correctly refuses to cancel cooked food — so a comp on an
+          order that had already paid showed a zero balance, which is a true
+          sentence about what the customer OWES and the wrong one about what
+          the restaurant is HOLDING.
+
+          Offered on what is actually held, not on the status: this is
+          reachable on a `picked_up` order and on an `abandoned` one, which are
+          precisely the two the product had no way to refund at all.
+
+          Hidden while something is already pending, because that is the state
+          the engine refuses in — a control that renders and always refuses is
+          worse than no control, and the panel above already carries the tap
+          that moves it forward. */}
+      {balance.collectedCents > 0 && pending.length === 0 && (
+        <section className="mt-6 rounded-lg border border-neutral-300 p-4">
+          <h2 className="font-semibold">Send money back</h2>
+          <p className="mt-1 text-sm text-neutral-600">
+            Actually moves money — up to {formatCents(balance.collectedCents)} is
+            being held on this order. Not the same as making it right below,
+            which records a decision and moves nothing.
+          </p>
+
+          {/* The offer C-068 deliberately did not build (PRD 3 P0-5). A no-show
+              is NOT automatically a refund — the food was made, and a product
+              that quietly refunds it decides a thing the owner has to decide —
+              so it is an offer, and until this item there was no control to
+              offer. */}
+          {order.status === 'abandoned' && (
+            <p
+              data-testid="abandoned-refund-offer"
+              className="mt-2 rounded-lg border border-amber-700 bg-amber-50 p-3 text-sm text-amber-900"
+            >
+              Nobody collected this one and the food was made. A refund here is
+              a decision, not the automatic consequence — send back what the
+              shop decides to.
+            </p>
+          )}
+
+          {refundError && pending.length === 0 && (
+            <p
+              role="status"
+              data-testid="refund-error"
+              className="mt-3 rounded-lg border border-red-700 bg-red-50 p-3 text-sm font-semibold text-red-900"
+            >
+              {refundError}
+            </p>
+          )}
+
+          {/* Its own form, like every other money control on this page: a
+              form's implicit submission fires its first submit button, and
+              sharing one would make Enter in a note send a customer's money. */}
+          <form action={refundOrderForm} className="mt-3 flex flex-col gap-3">
+            <input type="hidden" name="orderId" value={order.id} />
+
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium">Reason</span>
+              <select
+                name="reason"
+                required
+                defaultValue=""
+                className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+              >
+                <option value="" disabled>
+                  Pick one
+                </option>
+                {ADJUSTMENT_REASONS.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {ADJUSTMENT_REASON_LABEL[reason]}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium">Note</span>
+              <input
+                type="text"
+                name="note"
+                maxLength={140}
+                placeholder="Required for &ldquo;Other&rdquo;"
+                className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+              />
+            </label>
+
+            <div className="flex gap-2">
+              <label className="flex-1">
+                <span className="sr-only">Amount to send back, in dollars</span>
+                <input
+                  type="text"
+                  name="amount"
+                  inputMode="decimal"
+                  required
+                  data-testid="refund-amount"
+                  placeholder="3.50"
+                  className="min-h-12 w-full rounded-lg border border-neutral-400 px-3 text-lg tabular-nums"
+                />
+              </label>
+              {/* NO "send it all" button beside this, unlike the comp's. A comp
+                  has a whole-order reading the server can derive; a refund does
+                  not — how much of what is held goes back is the decision, and
+                  a one-tap full refund is the tap somebody makes by accident on
+                  a screen they are reading at arm's length with greasy gloves. */}
+              <button
+                type="submit"
+                data-testid="send-refund"
+                className="min-h-12 rounded-lg border-2 border-red-700 bg-red-700 px-4 text-lg font-bold text-white"
+              >
+                Send it back
+              </button>
             </div>
           </form>
         </section>

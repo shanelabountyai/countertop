@@ -1670,6 +1670,70 @@ asserting if the far end works.
 The general version: **a requirement phrased as "the error should say X" is a
 claim that somebody sees the error.** Check that before believing the test.
 
+### The guard that stopped guarding when the feature it guarded grew (C-071)
+
+`settleRefund` protected itself against two people tapping Retry at once with a
+compare-and-set — `updateMany where: { id, paymentState: 'paid' }` setting
+`refunded`, count zero meaning somebody else got there first. It is the same
+pattern the queue's transitions use, it had a comment explaining it, and it was
+correct.
+
+**It was correct because every refund was total.** A refund could only come
+from cancelling a paid order, so it always sent the whole balance, so it always
+moved the column `paid → refunded`, so the column was a usable latch. C-071
+makes a refund partial, and a partial refund leaves `paymentState` at `paid` —
+which means the guard passes every time. Two simultaneous attempts both write a
+`refund` row against one provider call, and because `orderBalance` sums the log
+rather than reading a column, the customer's money reads as having gone back
+twice and the exceptions list goes quiet about a balance that is now wrong in
+the restaurant's favour.
+
+**Nothing about the guard changed. Its premise did, silently, three files
+away.** No type broke, no test failed — the existing tests all refund in full,
+because in the old model that was the only kind there was. The tell was not a
+failure; it was reading the guard while writing the thing that invalidates it
+and noticing the word "paid" was doing load-bearing work the new feature did
+not honour.
+
+**The replacement is a constraint rather than a read-then-write.** A partial
+unique index on the request link, `WHERE kind = 'refund'`: one settled refund
+per request, and the database is what says so. Same discipline as placement's
+idempotency key — the constraint is the mechanism, the disabled button is UX.
+The db test runs two `settleRefund` calls concurrently and asserts one `ok`,
+one `raced`, and exactly one row.
+
+The general version: **a compare-and-set is only as good as the invariant its
+`where` clause encodes.** When a feature widens what a column can be, every
+guard that names that column is a guard whose premise has to be re-argued — and
+those guards do not announce themselves, because they still compile and their
+tests still pass against the narrower world they were written in.
+
+### The drift check that had to be measured, not assumed (C-071)
+
+The item needed a partial unique index. CI runs `prisma migrate diff
+--exit-code` against the migration history, Prisma cannot express a `WHERE` on
+an index, and the obvious inference is that a hand-written partial index shows
+up as drift and fails the build. That inference points at a worse design: a
+full `@unique` on the link column, which would forbid `refund_failed` from
+carrying it — and without that link, a retry that failed on one request reads
+as a failure on every request the order has.
+
+**The measurement took five minutes and settled it the other way.** A throwaway
+migration adding a partial index, `createdb`, `migrate diff --exit-code`, "No
+difference detected", delete the migration. Prisma steps over partial indexes
+exactly as it steps over CHECK constraints, so the good design was available
+all along.
+
+CI asserts the index by name in `pg_class`, because the flip side of Prisma
+ignoring it is that nothing else is watching it either — the same reason the
+append-only trigger and the singleton CHECK have been asserted there since
+C-003.
+
+The general version: **when a tool's limitation would force a worse design,
+test the limitation before designing around it.** The five-minute probe is
+cheaper than the shape you would have shipped, and it is a fact about *this*
+version of the tool rather than a recollection about some version of it.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required
