@@ -6375,6 +6375,8 @@ before anything was built: **not now**, decision 11, recorded in
 
 ## C-107 — The 86 board names what it hits (PRD 4 P0-1)
 
+Commit `20393d5`.
+
 The first item of PRD 4, and the cheapest work in the whole ranked set: no
 migration, no new query, no change to what an 86 means. `ItemModifierGroup`
 already held the join and `loadMenu()` already returned it — the board has
