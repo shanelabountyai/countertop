@@ -6640,6 +6640,8 @@ the menu said no.
 
 ## C-110 — An item that knows what time it is (PRD 4 P1-1)
 
+Commit `844c337`.
+
 **Built:**
 - **`MenuItemWindow(itemId, dayOfWeek, startMinute, endMinute)`**, a hand-written
   migration mirroring the `StoreHours` discipline C-011 established: a
