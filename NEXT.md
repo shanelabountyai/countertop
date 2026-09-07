@@ -1,49 +1,69 @@
 # Next
 
-**`prd-menu-under-pressure.md` P0-2 — the availability board can be searched,
-shipping as `C-108`.** The same GET search box the queue already has, on the
-page that is longer than the queue and used under more pressure. It must match
-**option** names as well as item names — "guac" has to find the option, because
-the option is the thing being 86'd. Read PRD 4's P0-2 block and copy the
-queue's existing search rather than writing a second one.
+**`docs/prds/prd-menu-under-pressure.md` P0-3 + P0-4 — kill a category in one
+action, shipping as `C-109`.** The first item of PRD 4 that is not read-side:
+multi-select plus a category-level 86, naming every item and option it will
+affect BEFORE it applies and reporting what it did after, reversible by the
+same mechanism. P0-4 rides with it — the bulk path has to reach the same three
+surfaces a single 86 does, and the C-048 forced server-side submit case has to
+be run against it.
 
-Model: **Sonnet.** Another read-side item over `loadMenu()` — a query param, a
-filter, no write path, no migration. Move to Opus only if the queue's search
-turns out not to be liftable and the two screens would end up with different
-matching rules.
+Model: **Opus.** This is the first write-path item in PRD 4 and it is a
+destructive batch: six rows flipped in one tap, an undo that has to return
+exactly the six it killed and nothing else, and a propagation test that must be
+EXTENDED to the bulk path rather than duplicated. Correctness-critical, and the
+PRD leaves a genuine design call open (below).
 
-## What C-107 leaves behind
+## The Open Question you have to answer before writing code
 
-- **`itemsUsingGroup` now lives in `packages/core/menu/reach.ts`** and both the
-  calm menu editor (`/kitchen/menu`) and the 86 board read it. If P0-2's filter
-  needs "which items carry this group", ask that function — do not add a third
-  filter over `menu.items`.
-- **The used-on line truncates at four names**, and four is fixed by the
-  acceptance criterion that an option on four items shows all four. Changing
-  `MAX_NAMED_ITEMS` in `apps/web/app/kitchen/availability/page.tsx` breaks the
-  e2e that asserts the Guacamole row in full.
-- **The line reports menu structure, not live carts.** "This stops four items"
-  is true; "and two people are holding one" is a query the board does not make
-  and P0-2 does not add either.
-- **Item rows deliberately carry no used-on line.** If P0-2's filtering makes
-  it tempting to unify item and option rows, that asymmetry is on purpose.
+**PRD 4's first Open Question is not settled: is a category the right grain for
+"the fryer is down", or is the real grain a station?** "Sides" contains fried
+and non-fried things, so a category-level 86 can kill food that is on the
+shelf — which is the exact reverse-case failure the PRD's own problem statement
+names as *worse*. The PRD says plainly: **if the answer is stations, P0-3 is
+the wrong shape and should be built as a station attribute from the start**
+(that is C-112/P1-3, an L with a migration). Decide it, write the decision
+down, then build. Do not build the category version by default because it is
+the cheaper one.
 
-## The numbering trap, already sprung once
+## What C-108 leaves behind
 
-**PRD 4's phasing block claimed `C-071`–`C-076`, and `C-071` was already PRD 3's
-refund item.** It has been renumbered to `C-107`–`C-112` in the PRD itself, and
-`docs/backlog.md` now has a PRD 4 section. The register continues from `C-106`.
-Check the next PRD's phasing block against `grep '^## C-' docs/PROGRESS.md`
-before starting its first item — PRD 4 was not the only document drafted while
-an earlier PRD was still consuming numbers.
+- **`searchMenu` and `itemsUsingGroup` both live in
+  `packages/core/menu/reach.ts` and share `itemsWithGroup`**, which is now the
+  one place `menu.items` is filtered by group membership. A bulk selection
+  needs the same reach answer — ask that file, do not grow a fourth filter.
+- **The board now filters.** `/kitchen/availability` renders only the rows
+  matching `?q=`, and empty categories and groups disappear heading and all. A
+  multi-select has to decide what a selection means when the filter changes
+  underneath it — the laziest honest answer is that selection lives in the URL
+  alongside `q`, so the whole screen stays a GET and keeps working unhydrated.
+- **The used-on line stays at FULL reach inside a filter** — a row shown under
+  "guac" still names all four items. P0-3's "names every item and option it
+  will affect" must hold to the same rule: the preview is the real blast
+  radius, never the visible subset.
+- **The queue's `matchesLookup` and the board's `searchMenu` diverge on
+  purpose** (marks vs narrows) and each file's comment says why. Do not unify
+  them.
+- **Substring matching only.** "guaq" finds nothing. Behind `searchMenu`, one
+  function, no call sites — the fix if anyone is ever stranded by a typo.
+- **Category names are not searched.** Deliberately deferred TO C-109, because
+  that is the item that makes the category grain first-class.
 
-## One flake, recorded rather than fixed
+## The numbering trap, still worth checking
+
+PRD 4's phasing block was drafted while PRD 3 was consuming numbers and claimed
+`C-071`–`C-076`; it is renumbered to `C-107`–`C-112` and the register continues
+from `C-108`. **Check the next PRD's phasing block against
+`grep '^## C-' docs/PROGRESS.md` before starting its first item** — PRD 4 was
+not the only document drafted while an earlier PRD was still open.
+
+## One flake, still recorded rather than fixed
 
 `e2e/refund.spec.ts:211` ("a no-show is offered a refund rather than given
-one") failed once in a full sweep at 8.0s, and passed at 1.3–2.1s alone, as a
-file, and in the three sweeps since. A timeout, not an assertion, and nothing
-in C-107 touches refunds. Local `retries` is 0 and CI's is 1, so CI retries
-past it silently. First place to look if a refund spec times out again.
+one") failed once in a full sweep at 8.0s, and has passed in every sweep since,
+including C-108's (179 passed + 14 skipped = 193, zero flaky). A timeout, not
+an assertion. Local `retries` is 0 and CI's is 1, so CI retries past it
+silently. First place to look if a refund spec times out again.
 
 ## Still open from C-069 / C-071, if you would rather clear debt
 
