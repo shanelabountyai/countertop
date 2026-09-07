@@ -14,8 +14,15 @@
 // shared groups since C-015; the screen someone reaches for mid-rush gets the
 // same courtesy, and from the same `itemsUsingGroup` derivation so the two
 // cannot drift apart.
+//
+// C-108: and it has a search box, because this page is longer than the queue —
+// 25 items plus every option of every group — and is read under more pressure.
+// It NARROWS, where the queue's lookup only marks: a queue card that vanishes
+// is a customer standing at the counter unseen, a menu row that vanishes is a
+// menu row. `searchMenu` owns the matching rule, including the part where an
+// option drags in the items it stops.
 import Link from 'next/link';
-import { itemsUsingGroup } from '@countertop/core';
+import { itemsUsingGroup, searchMenu } from '@countertop/core';
 import { loadMenu } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
 import { setItemAvailable, setOptionAvailable } from '../actions';
@@ -91,9 +98,21 @@ function Row({
   );
 }
 
-export default async function AvailabilityPage() {
+export default async function AvailabilityPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
   const menu = await loadMenu();
   const items = Object.values(menu.items);
+  const query = (await searchParams).q ?? '';
+  const searching = query.trim() !== '';
+  const shown = searchMenu(menu, query);
+  // Built up front so the "Options" heading and the no-matches line can ask
+  // whether anything survived, rather than each re-deriving it mid-JSX.
+  const groups = Object.values(menu.groups)
+    .map((group) => ({ group, options: group.options.filter((o) => shown.optionIds.has(o.id)) }))
+    .filter((entry) => entry.options.length > 0);
 
   return (
     <main className="mx-auto max-w-3xl p-6">
@@ -106,13 +125,56 @@ export default async function AvailabilityPage() {
         holding one is flagged at checkout.
       </p>
 
-      {menu.categories.map((category) => (
-        <section key={category.id} className="mt-8">
-          <h2 className="text-xl font-semibold">{category.name}</h2>
-          <ul className="mt-3 flex flex-col gap-2">
-            {items
-              .filter((item) => item.categoryId === category.id)
-              .map((item) => (
+      {/* A plain GET form, exactly the queue's: it works before hydration —
+          which is the state a cook on a tablet at 12:40pm is most likely to
+          hit — and the result is a URL a second screen can be opened on. */}
+      <form className="mt-4 flex flex-wrap gap-2">
+        <label className="flex flex-1 flex-col gap-1">
+          <span className="text-sm font-medium">Find an item or option by name</span>
+          <input
+            type="search"
+            name="q"
+            defaultValue={query}
+            placeholder="guac"
+            className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+          />
+        </label>
+        <button
+          type="submit"
+          className="mt-6 min-h-12 rounded-lg border border-neutral-400 px-6 font-semibold"
+        >
+          Find
+        </button>
+        {searching && (
+          <Link
+            href="/kitchen/availability"
+            className="mt-6 flex min-h-12 items-center rounded-lg px-4 underline underline-offset-4"
+          >
+            Show all
+          </Link>
+        )}
+      </form>
+
+      {/* A filtered board that matches nothing is a blank page, and a blank
+          page mid-rush reads as broken rather than as empty. */}
+      {searching && shown.itemIds.size === 0 && groups.length === 0 && (
+        <p className="mt-4 text-lg font-semibold">
+          Nothing on the menu matches &ldquo;{query.trim()}&rdquo;.
+        </p>
+      )}
+
+      {menu.categories.map((category) => {
+        const inCategory = items.filter(
+          (item) => item.categoryId === category.id && shown.itemIds.has(item.id),
+        );
+        // An empty heading under a search is a row of dead furniture on the
+        // screen the search exists to shorten.
+        if (inCategory.length === 0) return null;
+        return (
+          <section key={category.id} className="mt-8">
+            <h2 className="text-xl font-semibold">{category.name}</h2>
+            <ul className="mt-3 flex flex-col gap-2">
+              {inCategory.map((item) => (
                 <Row
                   key={item.id}
                   name={item.name}
@@ -121,20 +183,23 @@ export default async function AvailabilityPage() {
                   action={setItemAvailable.bind(null, item.id, !item.available)}
                 />
               ))}
-          </ul>
-        </section>
-      ))}
+            </ul>
+          </section>
+        );
+      })}
 
-      <h2 className="mt-10 text-2xl font-semibold">Options</h2>
-      {Object.values(menu.groups).map((group) => {
+      {groups.length > 0 && <h2 className="mt-10 text-2xl font-semibold">Options</h2>}
+      {groups.map(({ group, options }) => {
         // Per group, not per option: an option belongs to one group, so every
-        // option in it reaches exactly the same items.
+        // option in it reaches exactly the same items. The list is the FULL
+        // reach, never trimmed to what the search is showing — "this stops
+        // four items" stays true whichever four rows happen to be on screen.
         const usedOn = itemsUsingGroup(menu, group.id);
         return (
           <section key={group.id} className="mt-6">
             <h3 className="text-xl font-semibold">{group.name}</h3>
             <ul className="mt-3 flex flex-col gap-2">
-              {group.options.map((option) => (
+              {options.map((option) => (
                 <Row
                   key={option.id}
                   name={option.name}

@@ -2051,3 +2051,23 @@ The between-rush menu editor has warned about this since the day it shipped.
 The screen someone actually reaches for mid-rush did not. It does now, and off
 the same piece of code, so the calm screen and the panicked one cannot start
 disagreeing about which items an ingredient is on.
+
+## C-108 — A search box on the screen that most needed one
+
+The sold-out board is the longest screen in the product: twenty-five dishes,
+plus every option of every group under them. It is also the screen someone
+reaches for one-handed at 12:40pm with the fryer going and a line at the
+counter. Until now, finding "Guacamole" on it meant scrolling.
+
+Now there is a search box — the same one the kitchen queue has had all along —
+and it does one thing the obvious version would not: **it searches the options,
+not just the dishes.** Guacamole is not a menu item, it is an add-on, and it is
+the thing you run out of. Typing "guac" brings up the Guacamole row *and* the
+four dishes it comes off — the burrito, the California burrito, the torta and
+the loaded nachos — none of which have the word "guac" in their name. The line
+saying which dishes an option stops stays exactly as it was, at full count,
+even when only some of them are on the screen: a search must never quietly
+change what a tap is about to cost.
+
+Search for something the kitchen doesn't sell and it says so, rather than
+handing back an empty page that looks like a broken one.

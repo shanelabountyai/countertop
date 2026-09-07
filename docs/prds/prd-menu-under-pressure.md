@@ -34,10 +34,10 @@ The menu has two editors: a calm one and a panicked one. The calm one is careful
 - [x] `ItemModifierGroup` already holds the join and `loadMenu()` already returns it: **no migration, no new query**
 - [x] Test: an option used on four items shows all four names on the availability board without a tap; an option used on one shows one
 
-**P0-2: The availability board can be searched** *(DX 7)*
-- [ ] The same GET search box the queue has, filtering items and options by name, on the page that is longer than the queue and used under more pressure
-- [ ] Search matches option names as well as item names — "guac" must find the option, which is the thing being 86'd
-- [ ] Test: with the seeded 25-item menu, typing "guac" narrows to the guacamole option and the items carrying it
+**P0-2: The availability board can be searched** *(DX 7)* — shipped as C-108
+- [x] The same GET search box the queue has, filtering items and options by name, on the page that is longer than the queue and used under more pressure
+- [x] Search matches option names as well as item names — "guac" must find the option, which is the thing being 86'd
+- [x] Test: with the seeded 25-item menu, typing "guac" narrows to the guacamole option and the items carrying it
 
 **P0-3: Kill a category in one action** *(OPS 7)*
 - [ ] Multi-select on the availability board, plus a one-action **category-level 86** — "kill everything fried" is one operation, not six taps
@@ -111,7 +111,7 @@ claimed C-071–C-076, of which C-071 was already PRD 3's "A refund that can be
 issued on purpose". The register continues from C-106.*
 
 - **C-107 — The 86 board names what it hits** — P0-1. No migration, no new query; the join is already loaded. The single cheapest item in this document and the one the WRITEUP has been asking for since C-012.
-- **C-108 — The 86 board can be searched** — P0-2, the same GET search the queue already has.
+- **C-108 — The 86 board can be searched** — P0-2, the same GET search the queue already has. **Shipped.**
 - **C-109 — Kill a category in one action** — P0-3 and P0-4 together, including extending the propagation tests and the forced-submit case to the bulk path.
 - **C-110 — An item that knows what time it is** — P1-1, the daypart child table and the third input to `validateComposition`, with the all-three-call-sites test and the TZ×2 run. Gated on the shared-column Open Question.
 - **C-111 — A price you can stage** — P1-2, effective-dated price changes routed through the existing old → new confirm.

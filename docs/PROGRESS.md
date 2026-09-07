@@ -6451,3 +6451,77 @@ on the screen nobody is panicking on and was absent from the one they are.
 - **Nothing warns on the way back.** Putting an option back on is also a
   four-item event, and the same line renders — but it is phrased for the
   destructive direction, because that is the direction that ruins a service.
+
+## C-108 — The 86 board can be searched (PRD 4 P0-2)
+
+The board is 25 item rows plus every option of every group, it is read
+one-handed on a greasy tablet while the pass backs up, and it had no search
+box — while the queue one tap away has had one since C-011. C-107 gave every
+option row a used-on line; this is the other half of the same complaint, and
+the half that decides whether the cook ever reaches the row.
+
+**Built:**
+- **`searchMenu` in `packages/core/menu/reach.ts`**, next to `itemsUsingGroup`
+  and sharing its filter. `itemsWithGroup` is now a module-private helper that
+  both use, so the reach question is still answered in exactly one place —
+  `itemsUsingGroup` maps it to names, the search maps it to ids.
+- **A GET search box on `/kitchen/availability`**, copied from the queue's:
+  `?q=`, `defaultValue`, a "Find" button and a "Show all" link. A plain form,
+  so the box works before hydration — which is the state a cook on a cold
+  tablet at 12:40pm is most likely to be in — and the result is a URL a second
+  screen can be opened on.
+- **Matching on option names as well as item names, with the option direction
+  reaching further.** A matching OPTION drags in every item it stops: typing
+  "guac" surfaces Guacamole and the burrito, the California burrito, the torta
+  and the loaded nachos, none of which is called "guac". That is the same
+  derivation C-107's used-on line prints, asked in the other direction.
+- **Empty sections disappear.** A category with no surviving item and a group
+  with no surviving option render nothing, heading included, and the "Options"
+  heading itself only renders when a group survived.
+- **A no-matches line.** A filtered board with nothing in it is a blank page,
+  and a blank page mid-rush reads as broken rather than as empty.
+- **Unit tests on the real seeded menu** (`reach.test.ts`, new — `itemsUsingGroup`
+  had no direct unit coverage before, only the e2e), and two e2e tests: the
+  "guac" case asserting both what appears AND that Churros, Queso and the
+  Drinks heading are gone, an 86 performed from inside the search, and the
+  no-match case.
+
+**Decided:**
+- **This search NARROWS; the queue's lookup only MARKS.** Deliberately
+  different, and the difference is the subject matter. PRD 2 P0-2 settled that
+  a queue card must never vanish, because a card that vanishes is a customer
+  standing at the counter unseen while staff answer someone else. A menu row
+  that vanishes is a menu row. The board's whole problem is length, so a filter
+  that leaves 25 rows on screen has not done the thing the box exists for — and
+  the acceptance criterion says "narrows".
+- **A matching item does NOT drag in its options.** The asymmetry is on
+  purpose: someone typing "burrito" wants to 86 the burrito, not to be handed
+  every salsa that goes on it. The option direction reaches because the option
+  is the thing being 86'd and its blast radius is the surprise; the item
+  direction has no surprise to report.
+- **The used-on line stays at FULL reach inside a search.** A row shown under
+  "guac" still says "Used on: Burrito, California burrito, Torta, Loaded
+  nachos" even when only some of those rows are on screen. Trimming it to the
+  visible matches would make the search quietly change what an 86 costs, which
+  is the one thing C-107 exists to state plainly.
+- **`matchesLookup` was not reused.** It matches an order by name or seq
+  number; nothing about it generalises to a menu, and forcing one function to
+  answer both questions would put a `#047` parse in the path of a search for
+  guacamole. Same box, same URL shape, different predicate.
+
+**Left behind:**
+- **Substring matching, no fuzz and no stemming.** "guac" finds Guacamole and
+  "guaq" finds nothing. A cook typing under pressure will typo, and the honest
+  fix is a trigram or a Levenshtein pass — worth it only once someone has
+  actually been stranded by a typo, and cheap to add behind `searchMenu`.
+- **Category names are not searched.** Typing "Sides" narrows to nothing, even
+  though the heading is right there. It is also exactly the grain P0-3
+  (`C-109`, kill a category in one action) is about to make first-class, so the
+  right time to add it is with the thing that acts on it.
+- **The search filters, and a filtered board can hide a row you are about to
+  need.** Unlike the queue — where every card stays drawn and the count is the
+  answer — a cook here has to clear the box to see the rest of the menu. "Show
+  all" is one tap and the URL is bare, which is the mitigation, not a fix.
+- **No count line.** The queue prints "3 matches" because its cards do not
+  move; here the visible rows ARE the count. Zero is the only case that needed
+  saying, and it says it.

@@ -147,3 +147,45 @@ test('the board is readable and tappable with gloves on', async ({ page }) => {
     .analyze();
   expect(results.violations).toEqual([]);
 });
+
+// C-108 (P0-2): the board is 25 items plus every option of every group, and it
+// is read one-handed while the pass backs up. The queue one tap away has had a
+// search box since C-011; this screen is longer and more urgent.
+test('searching narrows the board to the option and the items it stops', async ({ page }) => {
+  await page.goto('/kitchen/availability');
+  await page.getByRole('searchbox', { name: /Find an item or option/ }).fill('guac');
+  await page.getByRole('button', { name: 'Find' }).click();
+
+  // The option, which is the thing being 86'd — and its used-on line intact,
+  // because a narrowed board still has to say what the tap costs.
+  const guacamole = page
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('button', { name: 'Mark Guacamole sold out' }) });
+  await expect(guacamole).toContainText(
+    'Used on: Burrito, California burrito, Torta, Loaded nachos',
+  );
+
+  // The four items carrying it, none of which is called "guac", plus the side
+  // that is.
+  for (const name of ['Burrito', 'California burrito', 'Torta', 'Loaded nachos', 'Chips & guac']) {
+    await expect(page.getByRole('button', { name: `Mark ${name} sold out` })).toBeVisible();
+  }
+
+  // And the rest of the menu is gone — a filter that leaves 25 rows on screen
+  // has not done the thing this box exists for.
+  await expect(page.getByRole('button', { name: 'Mark Churros sold out' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Mark Queso sold out' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Drinks' })).toHaveCount(0);
+
+  // The 86 still works from inside the search, and the board comes back.
+  await page.getByRole('button', { name: 'Mark Guacamole sold out' }).click();
+  await expect(page.getByRole('button', { name: 'Put Guacamole back on' })).toBeVisible();
+  await page.getByRole('link', { name: 'Show all' }).click();
+  await expect(page.getByRole('button', { name: 'Mark Churros sold out' })).toBeVisible();
+});
+
+test('a search that matches nothing says so instead of going blank', async ({ page }) => {
+  await page.goto('/kitchen/availability?q=lobster');
+  await expect(page.getByText('Nothing on the menu matches “lobster”.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Options' })).toHaveCount(0);
+});

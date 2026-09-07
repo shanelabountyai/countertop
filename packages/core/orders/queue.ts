@@ -142,6 +142,11 @@ export function groupQueue<T extends { status: OrderStatus; placedAt: Date }>(
  *
  * An empty query matches everything, so the queue is not something you have to
  * clear a filter to see again.
+ *
+ * NOT the 86 board's search (`searchMenu`, C-108), which shares the `?q=` form
+ * and nothing else. This one only MARKS — a queue card that vanishes is a
+ * customer standing at the counter unseen — and it parses "#047" as a seq
+ * number, which is meaningless to a menu. Same box, two predicates, on purpose.
  */
 export function matchesLookup(
   order: { seq: number; customerName: string },
