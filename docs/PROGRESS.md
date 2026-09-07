@@ -6530,7 +6530,7 @@ the half that decides whether the cook ever reaches the row.
 
 ## C-109 — Kill a selection in one action (PRD 4 P0-3, P0-4)
 
-Commit `PENDING`.
+Commit `d5257d4`.
 
 Six taps on a phone while the pass backs up, or "Pause new orders" and stop
 selling burritos too. The PRD asked for a category-level 86 as the thing in
