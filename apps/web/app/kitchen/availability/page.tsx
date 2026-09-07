@@ -7,7 +7,15 @@
 // Nothing here decides what an 86 MEANS. It flips the same `available` column
 // the customer menu, `validateComposition`, `reviewCart` and placement all
 // read, so all three surfaces move together and none of them can disagree.
+//
+// C-071: every option row names the items it will stop, BEFORE the tap. An
+// option is shared — 86ing Guacamole stops it on four items at once, which is
+// correct and used to be invisible. The calm menu editor has warned about
+// shared groups since C-015; the screen someone reaches for mid-rush gets the
+// same courtesy, and from the same `itemsUsingGroup` derivation so the two
+// cannot drift apart.
 import Link from 'next/link';
+import { itemsUsingGroup } from '@countertop/core';
 import { loadMenu } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
 import { setItemAvailable, setOptionAvailable } from '../actions';
@@ -17,16 +25,24 @@ export const metadata = { title: 'Availability — Firebird Kitchen' };
 // Never prerendered: this screen IS the live state of the kitchen's stock.
 export const dynamic = 'force-dynamic';
 
-/** One row: what it is, what it costs, and the single tap that flips it. */
+// How many item names fit on a phone row before the list stops being readable
+// at arm's length. Above this the row shows the first few AND the count of
+// what it left out — never a bare "shared", which is the thing the cook
+// already knows and cannot act on.
+const MAX_NAMED_ITEMS = 4;
+
+/** One row: what it is, what it costs, who it stops, and the tap that flips it. */
 function Row({
   name,
   price,
   available,
+  usedOn,
   action,
 }: {
   name: string;
   price: string;
   available: boolean;
+  usedOn?: string[];
   action: () => Promise<void>;
 }) {
   return (
@@ -57,6 +73,20 @@ function Row({
           {available ? `Mark ${name} sold out` : `Put ${name} back on`}
         </button>
       </form>
+
+      {/* Full-width, so it wraps under the name and the tap target rather than
+          squeezing either. `basis-full` inside the wrapping flex row. */}
+      {usedOn && (
+        <p className="basis-full text-lg text-neutral-700">
+          {usedOn.length === 0
+            ? 'Not used on any item.'
+            : `Used on: ${usedOn.slice(0, MAX_NAMED_ITEMS).join(', ')}${
+                usedOn.length > MAX_NAMED_ITEMS
+                  ? ` +${usedOn.length - MAX_NAMED_ITEMS} more`
+                  : ''
+              }`}
+        </p>
+      )}
     </li>
   );
 }
@@ -96,22 +126,28 @@ export default async function AvailabilityPage() {
       ))}
 
       <h2 className="mt-10 text-2xl font-semibold">Options</h2>
-      {Object.values(menu.groups).map((group) => (
-        <section key={group.id} className="mt-6">
-          <h3 className="text-xl font-semibold">{group.name}</h3>
-          <ul className="mt-3 flex flex-col gap-2">
-            {group.options.map((option) => (
-              <Row
-                key={option.id}
-                name={option.name}
-                price={formatDeltaCents(option.priceDeltaCents)}
-                available={option.available}
-                action={setOptionAvailable.bind(null, option.id, !option.available)}
-              />
-            ))}
-          </ul>
-        </section>
-      ))}
+      {Object.values(menu.groups).map((group) => {
+        // Per group, not per option: an option belongs to one group, so every
+        // option in it reaches exactly the same items.
+        const usedOn = itemsUsingGroup(menu, group.id);
+        return (
+          <section key={group.id} className="mt-6">
+            <h3 className="text-xl font-semibold">{group.name}</h3>
+            <ul className="mt-3 flex flex-col gap-2">
+              {group.options.map((option) => (
+                <Row
+                  key={option.id}
+                  name={option.name}
+                  price={formatDeltaCents(option.priceDeltaCents)}
+                  available={option.available}
+                  usedOn={usedOn}
+                  action={setOptionAvailable.bind(null, option.id, !option.available)}
+                />
+              ))}
+            </ul>
+          </section>
+        );
+      })}
     </main>
   );
 }

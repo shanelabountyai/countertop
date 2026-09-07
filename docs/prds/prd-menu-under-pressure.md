@@ -27,12 +27,12 @@ The menu has two editors: a calm one and a panicked one. The calm one is careful
 
 ### Must-Have (P0)
 
-**P0-1: An 86 names what it will hit, before the tap** *(DX 7)*
-- [ ] Every option row on `/kitchen/availability` names the items it affects: "Used on: Burrito, Burrito bowl, California burrito, Loaded nachos"
-- [ ] The affected-item list is visible **before** the toggle, not in a confirmation after it — the panicked screen gets the same courtesy P0-13 gave the calm one
-- [ ] Above a threshold count the list truncates with a count ("+3 more") but never hides the fact that it is more than one item
-- [ ] `ItemModifierGroup` already holds the join and `loadMenu()` already returns it: **no migration, no new query**
-- [ ] Test: an option used on four items shows all four names on the availability board without a tap; an option used on one shows one
+**P0-1: An 86 names what it will hit, before the tap** *(DX 7)* — shipped as C-107
+- [x] Every option row on `/kitchen/availability` names the items it affects: "Used on: Burrito, Burrito bowl, California burrito, Loaded nachos"
+- [x] The affected-item list is visible **before** the toggle, not in a confirmation after it — the panicked screen gets the same courtesy P0-13 gave the calm one
+- [x] Above a threshold count the list truncates with a count ("+5 more") but never hides the fact that it is more than one item — four names, then the count of the rest
+- [x] `ItemModifierGroup` already holds the join and `loadMenu()` already returns it: **no migration, no new query**
+- [x] Test: an option used on four items shows all four names on the availability board without a tap; an option used on one shows one
 
 **P0-2: The availability board can be searched** *(DX 7)*
 - [ ] The same GET search box the queue has, filtering items and options by name, on the page that is longer than the queue and used under more pressure
@@ -106,9 +106,13 @@ The menu has two editors: a calm one and a panicked one. The calm one is careful
 
 ## Phasing — one item per session
 
-- **C-071 — The 86 board names what it hits** — P0-1. No migration, no new query; the join is already loaded. The single cheapest item in this document and the one the WRITEUP has been asking for since C-012.
-- **C-072 — The 86 board can be searched** — P0-2, the same GET search the queue already has.
-- **C-073 — Kill a category in one action** — P0-3 and P0-4 together, including extending the propagation tests and the forced-submit case to the bulk path.
-- **C-074 — An item that knows what time it is** — P1-1, the daypart child table and the third input to `validateComposition`, with the all-three-call-sites test and the TZ×2 run. Gated on the shared-column Open Question.
-- **C-075 — A price you can stage** — P1-2, effective-dated price changes routed through the existing old → new confirm.
-- **C-076 — Stations** — P1-3, or the written decision not to. Gated on the first Open Question.
+*Renumbered at C-107: this block was drafted while PRD 3 was still open and
+claimed C-071–C-076, of which C-071 was already PRD 3's "A refund that can be
+issued on purpose". The register continues from C-106.*
+
+- **C-107 — The 86 board names what it hits** — P0-1. No migration, no new query; the join is already loaded. The single cheapest item in this document and the one the WRITEUP has been asking for since C-012.
+- **C-108 — The 86 board can be searched** — P0-2, the same GET search the queue already has.
+- **C-109 — Kill a category in one action** — P0-3 and P0-4 together, including extending the propagation tests and the forced-submit case to the bulk path.
+- **C-110 — An item that knows what time it is** — P1-1, the daypart child table and the third input to `validateComposition`, with the all-three-call-sites test and the TZ×2 run. Gated on the shared-column Open Question.
+- **C-111 — A price you can stage** — P1-2, effective-dated price changes routed through the existing old → new confirm.
+- **C-112 — Stations** — P1-3, or the written decision not to. Gated on the first Open Question.

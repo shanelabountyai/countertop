@@ -21,7 +21,7 @@
 // render, so a confirm screen left open through someone else's edit shows the
 // real old value rather than a stale one captured at click time.
 import Link from 'next/link';
-import { parsePriceInput, type Menu, type MenuItem } from '@countertop/core';
+import { itemsUsingGroup, parsePriceInput, type MenuItem } from '@countertop/core';
 import { loadMenu } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
 import {
@@ -48,15 +48,6 @@ type Params = {
   saved?: string;
   error?: string;
 };
-
-/** Items that would feel a change to this group, in menu order. This is the
- *  whole content of the shared-group warning, and it is derived from the same
- *  `loadMenu` every other surface reads — never a second, drifting query. */
-function itemsUsing(menu: Menu, groupId: string): string[] {
-  return Object.values(menu.items)
-    .filter((item) => item.modifierGroupIds.includes(groupId))
-    .map((item) => item.name);
-}
 
 const dollars = (cents: number) => (cents / 100).toFixed(2);
 
@@ -160,7 +151,7 @@ export default async function MenuEditorPage({
   if (kind === 'group' || kind === 'delete-group') {
     const group = menu.groups[id];
     if (!group) return <Rejected message="That modifier group no longer exists." />;
-    const affected = itemsUsing(menu, group.id);
+    const affected = itemsUsingGroup(menu, group.id);
     const deleting = kind === 'delete-group';
     const min = Number(params.min);
     const max = Number(params.max);
@@ -302,7 +293,7 @@ export default async function MenuEditorPage({
       </p>
 
       {groups.map((group) => {
-        const affected = itemsUsing(menu, group.id);
+        const affected = itemsUsingGroup(menu, group.id);
         return (
           <section key={group.id} className="mt-6 rounded-lg border-2 border-neutral-300 p-3">
             {/* One form, two submit buttons: the button's own name/value picks

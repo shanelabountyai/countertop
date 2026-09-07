@@ -94,6 +94,40 @@ test('an order already placed is untouched by the 86 that follows it', async ({ 
   await expect(card.getByText(/sold out/i)).toHaveCount(0);
 });
 
+// C-071 (P0-1): the row says who it stops, before the tap.
+//
+// The failure this replaces is not an error message — it is silence. The cook
+// 86s guacamole, is right to, and finds out at the fourth item that she took
+// four things off the menu. The board has always known: `ItemModifierGroup`
+// holds the join and `loadMenu()` already returned it.
+test('an option row names every item the 86 will stop, without a tap', async ({ page }) => {
+  await page.goto('/kitchen/availability');
+
+  // Shared across four items — all four named, none behind a count.
+  const guacamole = page
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('button', { name: 'Mark Guacamole sold out' }) });
+  await expect(guacamole).toContainText(
+    'Used on: Burrito, California burrito, Torta, Loaded nachos',
+  );
+
+  // Used on one item — one name, and no "shared" language that would train
+  // the cook to ignore the line on the rows where it matters.
+  const alPastor = page
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('button', { name: 'Mark Al pastor sold out' }) });
+  await expect(alPastor).toContainText('Used on: Taco plate');
+  await expect(alPastor).not.toContainText('more');
+
+  // Nine items: truncated, but the count of what was left out is still there.
+  // "Shared" alone would be the useless version of this line.
+  const chicken = page
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('button', { name: 'Mark Chicken sold out' }) });
+  await expect(chicken).toContainText('+5 more');
+  await expect(chicken).toContainText('Used on: Burrito,');
+});
+
 test('the board is readable and tappable with gloves on', async ({ page }) => {
   await page.goto('/kitchen/availability');
 

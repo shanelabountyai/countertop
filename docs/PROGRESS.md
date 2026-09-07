@@ -6372,3 +6372,80 @@ before anything was built: **not now**, decision 11, recorded in
   written as the `prepared` rate and that its comment must change. It is the
   one place where a step in the plan makes an existing column less true rather
   than more, and it is the easiest thing in the sequence to miss.
+
+## C-107 — The 86 board names what it hits (PRD 4 P0-1)
+
+The first item of PRD 4, and the cheapest work in the whole ranked set: no
+migration, no new query, no change to what an 86 means. `ItemModifierGroup`
+already held the join and `loadMenu()` already returned it — the board has
+always known which items an option reaches and had never said so.
+
+The failure this closes is not an error, it is **silence**. A cook 86s
+guacamole mid-rush and is right to: it is one ingredient, so it comes off the
+burrito, the California burrito, the torta and the loaded nachos at once. She
+has no way to know she did that. The calm screen has warned about exactly this
+since C-015 — "editing a shared modifier group names every item it touches" is
+an e2e test on `/kitchen/menu` — so the safe-edit discipline of P0-13 existed
+on the screen nobody is panicking on and was absent from the one they are.
+
+**Built:**
+- **`itemsUsingGroup` in `packages/core/menu/reach.ts`**, and it is a MOVE
+  rather than a new function. The menu editor had `itemsUsing` as a local
+  helper; the availability board needs the same answer, and two page-local
+  filters over `menu.items` is exactly how the calm screen and the panicked one
+  come to disagree about who an edit touches. One derivation, from the same
+  `Menu` object every other surface reads.
+- **A "Used on:" line on every option row of `/kitchen/availability`**, before
+  the toggle and with no tap — the affected list is not a confirmation dialog,
+  because a confirmation is a thing to dismiss and this is a thing to read. It
+  renders full-width under the name and the button (`basis-full` in the row's
+  existing wrapping flex) so neither the label nor the 48px tap target gets
+  squeezed by it.
+- **Truncation at four names with the remainder as a count** — "Used on:
+  Burrito, Burrito bowl, Breakfast burrito, California burrito +5 more" for a
+  Protein option. Four is the PRD's own example length, which is what fixes the
+  threshold: an option on four items has to show all four.
+- **An e2e test with all three shapes**: the four-item case named in full, the
+  one-item case (Al pastor → Taco plate) asserting the row does NOT say "more",
+  and the nine-item case asserting the count survived the truncation.
+
+**Decided:**
+- **The list is derived per GROUP, not per option.** An option belongs to
+  exactly one group, so every option in a group reaches identically the same
+  items — computing it per row would be the same filter run nine times to
+  produce nine equal strings. It is computed once per section and passed down.
+- **The truncated form keeps a count, never a bare "Shared".** "Shared" is the
+  thing the cook already knows; the number of items she cannot see is the thing
+  she can act on. The acceptance criterion says the row must never hide the
+  fact that it is more than one item, and a word does hide it — "+5 more" does
+  not.
+- **Item rows get no such line, and the omission is the point.** An item 86
+  affects the item. Rendering "Used on: Burrito" under the Burrito row would
+  train the eye to skip a line that matters on the rows below it.
+- **Renumbered from the PRD's `C-071` to `C-107`.** PRD 4's index block was
+  written before PRD 3 finished and claims C-071/C-072/C-073; C-071 is already
+  PRD 3's "A refund that can be issued on purpose". The PRD's index has been
+  corrected in the same commit rather than left as a trap for the next two
+  sessions.
+
+**Found, and it is not this item's:**
+- **`refund.spec.ts:211` failed once in a full sweep and has not since.** "A
+  no-show is offered a refund rather than given one", 8.0s against the 1.3–2.1s
+  it takes alone, as a file, and in the two sweeps after it — a timeout, not an
+  assertion, and nothing in this item touches refunds. Recorded rather than
+  fixed because there is one occurrence and no failing assertion to read; it is
+  the first candidate to look at if a refund spec times out again. Local
+  `retries` is 0 and CI's is 1, so CI would have retried past it silently.
+
+**Left behind:**
+- **The list is names, not links.** A cook who does not recognise "Torta" from
+  the row cannot get to it from here. A link out of a row whose whole purpose
+  is a one-tap toggle is a mis-tap waiting to happen, and the board has no
+  search yet to come back through — that is P0-2.
+- **It says what an 86 will reach, not what is in a cart right now.** "This
+  stops four items" is menu structure; "and two people are holding one" is a
+  live query the board does not make. It is the honest version of the warning
+  and not the complete one.
+- **Nothing warns on the way back.** Putting an option back on is also a
+  four-item event, and the same line renders — but it is phrased for the
+  destructive direction, because that is the direction that ruins a service.

@@ -2032,3 +2032,22 @@ old orders are left alone permanently, and the product says "this order predates
 per-line tax" rather than guessing an answer for it. A shop that grows into a
 second location, or an accountant's export with a real reader on the other end,
 picks it up from there.
+
+## C-107 — The sold-out button now tells you what it's about to do
+
+Guacamole is one ingredient and it is on four things. So when the kitchen runs
+out at 12:40 and a cook taps "sold out" next to Guacamole, she is right — and
+she has just taken guac off the burrito, the California burrito, the torta and
+the loaded nachos, and nothing on the screen said so.
+
+Now the row says so, before the tap: **Used on: Burrito, California burrito,
+Torta, Loaded nachos.** No dialog, no confirmation step, no extra tap — a
+confirmation is something you dismiss, and this is something you read. On an
+option that is on nine things the row shows the first four and the count of the
+rest, because "shared" is a word she already knows and "+5 more" is a number she
+can act on.
+
+The between-rush menu editor has warned about this since the day it shipped.
+The screen someone actually reaches for mid-rush did not. It does now, and off
+the same piece of code, so the calm screen and the panicked one cannot start
+disagreeing about which items an ingredient is on.
