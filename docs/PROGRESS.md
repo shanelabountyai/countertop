@@ -6527,3 +6527,111 @@ the half that decides whether the cook ever reaches the row.
 - **No count line.** The queue prints "3 matches" because its cards do not
   move; here the visible rows ARE the count. Zero is the only case that needed
   saying, and it says it.
+
+## C-109 — Kill a selection in one action (PRD 4 P0-3, P0-4)
+
+Commit `PENDING`.
+
+Six taps on a phone while the pass backs up, or "Pause new orders" and stop
+selling burritos too. The PRD asked for a category-level 86 as the thing in
+between. The first job of this item was to check that against the menu, and
+the menu said no.
+
+**Decided first, before any code:**
+- **The grain is an arbitrary selection — not a category, and not yet a
+  station.** PRD 4's first Open Question, resolved on evidence rather than
+  argument. The fryer's output in the seeded menu is Chips & salsa, Chips &
+  guac and Taquitos (Sides), Loaded nachos (Plates) and Churros (Sweets):
+  **three categories, and not one of them wholly fried.** 86'ing Sides to kill
+  the chips would also take Side of rice, Side of beans and street corn off the
+  menu — food that is on the shelf, which is the reverse-case failure this
+  PRD's own problem statement calls *worse* than the one it is fixing. So the
+  cheap version was rejected because it does not work, not deferred because it
+  is cheap.
+- **Stations stay C-112 and stay whole.** They are the right *attribute* and
+  they are an L with a migration. The PRD warned that if the answer is
+  stations, P0-3 is the wrong shape — that warning is about building the
+  CATEGORY version, which would have to be unbuilt. A selection does not: a
+  station, once it exists, is a way to **seed** a selection, and the seeding
+  mechanism is what shipped. Nothing here is in the way.
+- **A category keeps a "Select these N" link.** It seeds a selection and kills
+  nothing, which is the honest version of the requirement's category clause,
+  and it names the count so it can never be mistaken for something wider. It
+  offers the rows that are ON SCREEN — selecting what a filter is hiding is
+  exactly how a batch takes food off the menu nobody looked at.
+
+**Built:**
+- **`selectionReach(menu, itemIds, optionIds)` in
+  `packages/core/menu/reach.ts`** — the third caller of `itemsWithGroup`, not a
+  fourth filter. It resolves a selection to named rows in menu order (not click
+  order), carries each row's current `available` so the preview can say what it
+  will actually change, and gives every selected option its **full** reach via
+  `itemsUsingGroup` — so the batch panel and C-107's per-row line name the same
+  items and cannot drift. Ids the menu no longer has are dropped rather than
+  thrown on: the selection lives in a URL, so a stale link outlives the row.
+- **`setAvailability(itemIds, optionIds, available)` in `packages/db/menu.ts`**
+  — one transaction over the same two `available` columns a single tap writes.
+  It **returns the rows it flipped, not the rows it was handed**, which is the
+  whole load-bearing idea: sweep the fryer's five rows when Churros was already
+  out for its own reason and the report says four, the undo restores four, and
+  the churros nobody has stay off the menu.
+- **`setBulkAvailable(formData)`** in the kitchen actions, behind the same
+  `/kitchen/:path*` middleware as everything else there. `FormData` rather than
+  bound arguments because the selection is variable-length and the two submit
+  buttons differ only by the `available` they carry — which is what a named
+  submit button is for. It redirects back to the board carrying exactly the
+  flipped ids plus `done=on|off`, so the panel that previewed the batch is also
+  the report and the undo.
+- **Selection in the URL beside `q`.** The whole board is still a GET. It works
+  unhydrated, a second tablet can be opened on the same selection, and a filter
+  moving underneath a selection cannot silently drop half of it, because every
+  link is rebuilt from the URL rather than from the DOM of a page that just got
+  replaced.
+- **Picking a row is a link, not a checkbox.** One tap is one navigation, there
+  is no submit button to scroll back up to after ticking six rows at the bottom
+  of a 25-item page, and the blast-radius panel redraws in front of the cook as
+  the selection grows rather than after the last tap. It also deleted the whole
+  class of bug that comes with `form=` association and hidden inputs for
+  off-screen ticks.
+- **The panel is preview, report and undo in one place** — `N selected. This
+  will stop:` before, `Marked N sold out.` / `Put N back on.` after, the same
+  list of names either way, with both buttons and a "Clear selection" link.
+- **Tests.** Five unit tests on `selectionReach` (menu order, full option
+  reach, already-sold-out carried through, stale ids dropped, empty), five db
+  tests on `setAvailability` (both grains in one action, flipped-not-handed,
+  the undo, an idempotent second call, unknown ids), four e2e (all three
+  surfaces from one batch, the undo leaving Churros out, the full blast radius
+  under a filter plus selection surviving a re-search, the category seed), and
+  the gloves-on tap-target loop widened from buttons to buttons **and links**,
+  since picking a row is now one of the most tapped controls and it is an `<a>`.
+- **P0-4 as a property of the write, not six copied paths.**
+  `placement.test.ts`'s "a line whose option was 86'd while it sat in the cart"
+  is now an `it.each` over both write paths — one tap, and a bulk 86 sweeping
+  five other rows — asserting the *same* refusal and the *same* flagged line
+  from a direct `placeOrder` call with no browser and no form. That direct call
+  is the C-048 forced server-side submit. Extended rather than duplicated on
+  purpose: a copied test is a test that gets weakened when the original is
+  tightened.
+
+**Left behind:**
+- **Read-then-write on the flip set** (`ponytail:` in `setAvailability`).
+  Last-write-wins, the same concurrency posture C-015 recorded for two managers
+  on stale panels. Two cooks batching overlapping selections in the same second
+  can hand one of them an undo list short by the overlap; nobody loses an 86,
+  and the fix if it ever matters is one `UPDATE ... RETURNING id` in raw SQL.
+- **No per-batch event.** PRD 4's builder Open Question ("one event per
+  affected row or one for the batch?") is still open, because this item writes
+  no event either way — the single-row toggles never did. When menu-change
+  history exists, per-batch is what a human wants to read back.
+- **Category names are still not searched.** C-108 deferred that to here on the
+  grounds that C-109 would make the category grain first-class. It did the
+  opposite, so the reason expired: a category is now a seed link that is
+  already on screen next to its heading, and searching for "Sides" would find
+  it no faster. YAGNI, and cheap behind `searchMenu` if anyone ever asks.
+- **The undo is the panel's, not the board's.** Navigate away after a batch and
+  the flipped list is gone with the URL; restoring then means re-selecting.
+  A durable "last batch" would need the event log this item did not write.
+- **`done` survives a reload.** Refreshing after a batch re-renders "Marked 6
+  sold out." although nothing was marked this time. It is a report of the URL,
+  not of an action, and the alternative is a cookie or a flash message for a
+  line that is true either way.

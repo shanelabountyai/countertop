@@ -1795,6 +1795,43 @@ The general version: **when you add a state, the compiler finds the readers of
 the state — and misses every reader of the thing the state was a summary of.**
 The enum was never the risk. The number behind it was.
 
+### The requirement that its own example disproved (C-109)
+
+The spec was specific: "kill everything fried is one operation, not six taps,"
+built as a **category-level 86**. It had an open question attached — is a
+category the right grain, or is it really a station? — and the honest way to
+answer that looked like a design argument.
+
+**It was not a design argument. It was a lookup.** The fryer's output in this
+menu is Chips & salsa, Chips & guac and Taquitos (Sides), Loaded nachos
+(Plates) and Churros (Sweets). Three categories, none of them wholly fried.
+86'ing Sides to kill the chips also kills Side of rice, Side of beans and
+street corn — food that is on the shelf, which the same document's problem
+statement names as the *worse* failure. The requirement's own worked example
+could not be expressed by the mechanism the requirement asked for, and five
+minutes with `sample-menu.ts` said so before a line of code existed.
+
+**The trap was that the wrong answer was also the cheap one.** A category-level
+86 is a `where categoryId = ?`; a selection is a URL, a preview and a flip-set
+to undo against. Cheaper, sanctioned by the spec, and it would have shipped a
+board that takes sellable food off the menu. The handoff note for this item had
+to say *do not build the category version by default because it is the cheaper
+one* — which is the tell that the pull was real.
+
+**What made the resolution cheap instead of a reordering** was noticing the
+third option. The spec framed it as category-now versus stations-now, and
+stations are an L with a migration. But a station, once it exists, is a way to
+*seed* a selection — so building the selection is not a bet on either answer.
+The category clause survives as a "Select these N" link. Nothing has to be
+unbuilt.
+
+The general version: **when a requirement carries a worked example, run the
+example against the data before building the mechanism.** A spec can be
+internally consistent and still be refuted by one row of the seed. And when two
+options are framed as an either-or, check whether one of them is a component of
+the other — the mechanism underneath both is usually the thing to build, and it
+is usually not the one being argued about.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

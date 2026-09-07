@@ -1,6 +1,7 @@
 import { isIdempotencyKey, type Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
+import { setAvailability } from './menu';
 import {
   derivedIdempotencyKey,
   placeOrder,
@@ -204,11 +205,32 @@ describe('what placement refuses', () => {
     expect(result?.errors.map((e) => e.kind)).toEqual(['empty_cart']);
   });
 
-  it('a line whose option was 86\'d while it sat in the cart (P0-3)', async () => {
-    await prisma.modifierOption.update({
-      where: { id: 'guacamole' },
-      data: { available: false },
-    });
+  // Both ways an option gets 86'd, asserted to be the SAME refusal (C-109,
+  // P0-4). This is `placeOrder` called directly — no browser, no disabled
+  // button, no form — which is the C-048 forced server-side submit case, and
+  // it is the assertion that the bulk path did not quietly grow a second
+  // propagation route that stops at the menu render.
+  //
+  // Extended rather than copied on purpose: a duplicated version of this test
+  // is a version that gets weakened when the original is tightened.
+  it.each([
+    ['one tap', async () => {
+      await prisma.modifierOption.update({
+        where: { id: 'guacamole' },
+        data: { available: false },
+      });
+    }],
+    ['a bulk 86 over five other rows', async () => {
+      // The fryer's whole output plus the guac, in one action. The burrito
+      // itself is not in the batch: only the shared option it carries is.
+      await setAvailability(
+        ['chips', 'chips-guac', 'taquitos', 'nachos', 'churros'],
+        ['guacamole'],
+        false,
+      );
+    }],
+  ])('a line whose option was 86\'d by %s while it sat in the cart (P0-3)', async (_how, kill) => {
+    await kill();
 
     const result = await refusal({});
     expect(result?.errors.map((e) => e.kind)).toEqual(['option_unavailable']);

@@ -2071,3 +2071,56 @@ change what a tap is about to cost.
 
 Search for something the kitchen doesn't sell and it says so, rather than
 handing back an empty page that looks like a broken one.
+
+## C-109 — Kill a selection in one action
+
+The fryer goes down at 6:38pm. Every churro, every chip order and the loaded
+nachos are dead. The choices were: tap through the availability board six times
+one-handed while the pass backs up, or hit "Pause new orders" and stop selling
+burritos too. The spec asked for the thing in between — "86 a whole category in
+one action."
+
+**The first job was to check that against the actual menu, and the menu said
+no.** The fryer's output is Chips & salsa, Chips & guac and Taquitos (Sides),
+Loaded nachos (Plates) and Churros (Sweets): three categories, and not one of
+them wholly fried. 86'ing Sides to kill the chips would also have taken rice,
+beans and street corn off the menu — food sitting on the shelf. This product
+exists because a restaurant lost orders to bad transcription; taking sellable
+food off the menu to solve a different problem is the same failure pointed the
+other way, and the spec itself called it the worse one. So the cheap version
+was rejected because it does not work, not deferred because it is cheap.
+
+**What shipped is a selection.** Tap "Select" on any rows — items, options,
+across any categories — and one action kills all of them. A category gets a
+"Select these 4" link, which *seeds* a selection rather than being a second way
+to kill. The right long-term answer is a station attribute on each item, and
+that stays on the roadmap unchanged: a station, once it exists, is just a way
+to seed the same selection. Nothing built here has to be unbuilt for it.
+
+**It says what it will do before it does it.** The panel names every item and
+option in the batch, and a selected shared option lists everything it stops at
+full reach — pick Guacamole and the panel says "Used on: Burrito, California
+burrito, Torta, Loaded nachos", whether or not those four rows are on screen.
+After the tap, the same panel is the receipt and the undo.
+
+**The undo returns what the batch killed, and nothing else.** If Churros ran
+out an hour ago for its own reason and the cook sweeps the whole fryer, the
+batch reports four rows changed, not five. Undo it and four come back. The
+churros nobody has stay off the menu. That is one clause in one query — the
+write reports the rows it *flipped*, never the rows it was handed — and it is
+the difference between an undo you can trust mid-rush and one that quietly
+sells food that does not exist.
+
+**The whole screen is still a plain GET.** The selection lives in the URL next
+to the search box, so it works before the page has hydrated — which is the
+state a cook on a cold tablet at 12:40pm is most likely to be in — a second
+screen can be opened on the same selection, and searching again while six rows
+are picked cannot silently drop the ones the new filter hides.
+
+**And the batch reaches the same three places one tap does.** Sold-out rows
+still render on the customer menu marked "sold out" rather than vanishing, a
+cart already holding one is flagged at checkout with the fix-or-remove path,
+and orders already placed are untouched — they are snapshots, and a menu change
+can never reach them. That last one is asserted, not assumed: the existing
+single-86 test was widened to run against both write paths and demand the same
+refusal from each, including a submission that bypasses the browser entirely.

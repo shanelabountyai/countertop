@@ -37,6 +37,7 @@ import {
   settleRefund,
   type SettleRefundReason,
 } from '@countertop/db/refund';
+import { setAvailability } from '@countertop/db/menu';
 import { setShelfLocation } from '@countertop/db/queue';
 import { isStaffPin, staffByPin } from '@countertop/db/staff';
 import { cookies } from 'next/headers';
@@ -827,4 +828,38 @@ export async function setOptionAvailable(optionId: unknown, available: unknown):
   if (typeof optionId !== 'string' || typeof available !== 'boolean') return;
   await prisma.modifierOption.updateMany({ where: { id: optionId }, data: { available } });
   revalidateMenuSurfaces();
+}
+
+/**
+ * The 86 board's bulk write (P0-3). One action for a selection of any size.
+ *
+ * `FormData`, not bound arguments, because the selection is a variable-length
+ * list that already lives in the URL and in hidden inputs — and because the
+ * two submit buttons ("mark sold out" / "put back on") differ only by the
+ * `available` they carry, which is what a named submit button is for.
+ *
+ * Untrusted like everything else in this file: unknown ids simply match no
+ * rows. `setAvailability` writes the same booleans a single tap writes, so
+ * there is no second propagation path to keep in step with the first.
+ */
+export async function setBulkAvailable(formData: FormData): Promise<void> {
+  const available = formData.get('available') === 'true';
+  const ids = (key: string) =>
+    formData.getAll(key).filter((value): value is string => typeof value === 'string' && value !== '');
+
+  const changed = await setAvailability(ids('item'), ids('opt'), available);
+  revalidateMenuSurfaces();
+
+  // Back to the board carrying exactly the rows this action FLIPPED, so the
+  // report names what it did and the undo beside it restores that and nothing
+  // else. `q` rides along: a cook who filtered to find these rows is still
+  // looking at that filter when the page comes back.
+  const params = new URLSearchParams();
+  const query = formData.get('q');
+  if (typeof query === 'string' && query.trim() !== '') params.set('q', query);
+  for (const id of changed.itemIds) params.append('item', id);
+  for (const id of changed.optionIds) params.append('opt', id);
+  params.set('done', available ? 'on' : 'off');
+
+  redirect(`/kitchen/availability?${params}`);
 }

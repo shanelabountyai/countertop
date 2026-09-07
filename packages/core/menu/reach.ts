@@ -62,3 +62,50 @@ export function searchMenu(menu: Menu, query: string): MenuSearch {
 
   return { itemIds, optionIds };
 }
+
+/** One selected row, and everything a bulk action's preview has to name. */
+export type SelectedRow = { id: string; name: string; available: boolean };
+export type SelectedOption = SelectedRow & { usedOn: string[] };
+export type SelectionReach = { items: SelectedRow[]; options: SelectedOption[] };
+
+/**
+ * What a bulk 86 would touch (P0-3), resolved off the same `Menu` as everything
+ * else on the board.
+ *
+ * The third caller of `itemsWithGroup`, and deliberately not a fourth filter:
+ * the batch preview and the per-row "Used on:" line have to name the same
+ * items, or the screen says one thing before a tap and another before six.
+ *
+ * The reach of an OPTION is its whole group's item list — the FULL blast
+ * radius, never trimmed to what a search happens to be showing. Selecting
+ * Guacamole stops four items whether or not those four rows are on screen.
+ *
+ * Ids that match nothing are dropped rather than reported: the selection lives
+ * in the URL, so a stale link naming a row that has since been deleted should
+ * preview the rest, not blow up in a cook's hand mid-rush.
+ */
+export function selectionReach(
+  menu: Menu,
+  itemIds: Iterable<ItemId>,
+  optionIds: Iterable<OptionId>,
+): SelectionReach {
+  const wantItems = new Set(itemIds);
+  const wantOptions = new Set(optionIds);
+
+  // Menu order, not selection order: the preview reads like the board it was
+  // built from, and the same six rows always list the same way.
+  const items = Object.values(menu.items)
+    .filter((item) => wantItems.has(item.id))
+    .map(({ id, name, available }) => ({ id, name, available }));
+
+  const options: SelectedOption[] = [];
+  for (const group of Object.values(menu.groups)) {
+    for (const option of group.options) {
+      if (!wantOptions.has(option.id)) continue;
+      const { id, name, available } = option;
+      options.push({ id, name, available, usedOn: itemsUsingGroup(menu, group.id) });
+    }
+  }
+
+  return { items, options };
+}

@@ -39,17 +39,17 @@ The menu has two editors: a calm one and a panicked one. The calm one is careful
 - [x] Search matches option names as well as item names — "guac" must find the option, which is the thing being 86'd
 - [x] Test: with the seeded 25-item menu, typing "guac" narrows to the guacamole option and the items carrying it
 
-**P0-3: Kill a category in one action** *(OPS 7)*
-- [ ] Multi-select on the availability board, plus a one-action **category-level 86** — "kill everything fried" is one operation, not six taps
-- [ ] The action names every item and option it will affect before it applies, per P0-1, and reports what it did after
-- [ ] It is reversible by the same mechanism (one action restores what one action killed), and the restore names the same list
-- [ ] Nothing about the underlying model changes: this is a batch over the existing per-item and per-option toggles, so an 86 is still exactly what it is today
-- [ ] Test: 86 the "Fried" category with six affected rows; assert all six render "sold out" on `/menu`, that an open cart holding one is flagged at checkout, and that placed orders are untouched
+**P0-3: Kill a category in one action** *(OPS 7)* — shipped as C-109, **with the grain changed**
+- [x] Multi-select on the availability board, plus a one-action ~~**category-level 86**~~ **kill of the selection** — "kill everything fried" is one operation, not six taps. *The Open Question below is resolved against the category grain: the fryer's output spans three categories in this menu and each of them also holds food that is fine, so a category-level 86 could not express the case this requirement was written for without also taking rice and paletas off the menu. A category keeps a "Select these N" link that SEEDS a selection; it is not a second way to kill.*
+- [x] The action names every item and option it will affect before it applies, per P0-1, and reports what it did after
+- [x] It is reversible by the same mechanism (one action restores what one action killed), and the restore names the same list — and it restores what the batch **flipped**, not what it was handed, so a row already sold out for its own reason stays out
+- [x] Nothing about the underlying model changes: this is a batch over the existing per-item and per-option toggles, so an 86 is still exactly what it is today
+- [x] Test: 86 the fryer's output — six affected rows across Sides, Plates and Sweets plus the shared Guacamole option; assert all six render "sold out" on `/menu`, that an open cart holding one is flagged at checkout, and that placed orders are untouched
 
-**P0-4: The 86 still reaches all three surfaces, in bulk** *(DX 7, OPS 7 — and the CLAUDE.md trap, asserted)*
-- [ ] A bulk 86 propagates to the same three surfaces a single 86 does: the menu render ("sold out", never hidden), open carts (flagged at checkout), and **never** placed orders
-- [ ] The existing single-86 propagation tests are extended to the bulk path rather than duplicated
-- [ ] Test: the C-048 forced server-side submit case, run against a bulk 86 — a client that bypasses the UI still cannot place an order containing a bulk-86'd option
+**P0-4: The 86 still reaches all three surfaces, in bulk** *(DX 7, OPS 7 — and the CLAUDE.md trap, asserted)* — shipped as C-109
+- [x] A bulk 86 propagates to the same three surfaces a single 86 does: the menu render ("sold out", never hidden), open carts (flagged at checkout), and **never** placed orders
+- [x] The existing single-86 propagation tests are extended to the bulk path rather than duplicated — `placement.test.ts`'s option-86 refusal is now an `it.each` over both write paths, asserting the *same* refusal from each
+- [x] Test: the C-048 forced server-side submit case, run against a bulk 86 — a client that bypasses the UI still cannot place an order containing a bulk-86'd option
 
 ### Nice-to-Have (P1)
 
@@ -99,7 +99,7 @@ The menu has two editors: a calm one and a panicked one. The calm one is careful
 
 ## Open Questions
 
-- **(Ops)** Is category-level 86 the right grain for "the fryer is down", or is the real grain a **station**? The operator asked for the cheap version first and named stations as the real version. A category is a menu-organisation concept and may not map to equipment at all — "Sides" contains fried and non-fried things. **If the answer is stations, P0-3 is the wrong shape and should be built as a station attribute from the start.**
+- **(RESOLVED 2026-09-07 at C-109 — neither. The grain is an arbitrary selection.)** Is category-level 86 the right grain for "the fryer is down", or is the real grain a **station**? *Why this way:* the question was answered by the seeded menu rather than by argument. The fryer's output is Chips & salsa, Chips & guac and Taquitos (Sides), Loaded nachos (Plates) and Churros (Sweets) — **three categories, none of them wholly fried**, and 86'ing any of them would have taken Side of rice, the tamale plate and a paleta off the menu, which is the reverse-case failure this document's own problem statement calls *worse* than the one it is fixing. So the category grain was rejected on the evidence, not deferred. Stations remain the *right* attribute and remain C-112, but they are an L with a migration and they are not what P0-3 needed to ship: a station, once it exists, is a way to **seed** a selection, and the selection mechanism built here is what it would seed. Nothing has to be unbuilt. A category keeps a "Select these N" link on the same terms. Not re-opened.
 - **(Product)** Do dayparts and 86s share a column or stay separate? Sharing is one boolean and is tempting. Separating is the only way the C-012 decision ("86s never restore themselves overnight") survives contact with a schedule that restores things by design. The evaluators did not address this; it is the design decision P1-1 turns on.
 - **(Ops)** When a daypart closes on an item that is in someone's open cart, is that the 86 path (flag at checkout, fix or remove) or something gentler? The 86 path is honest and already built. It is also a customer being told at 16:01 that the thing they added at 15:58 is gone.
 - **(Builder)** Should the bulk 86 write one event per affected row or one event for the batch? Per-row is queryable and matches the existing model; per-batch is what a human would want to read back on the report.
@@ -112,7 +112,7 @@ issued on purpose". The register continues from C-106.*
 
 - **C-107 — The 86 board names what it hits** — P0-1. No migration, no new query; the join is already loaded. The single cheapest item in this document and the one the WRITEUP has been asking for since C-012.
 - **C-108 — The 86 board can be searched** — P0-2, the same GET search the queue already has. **Shipped.**
-- **C-109 — Kill a category in one action** — P0-3 and P0-4 together, including extending the propagation tests and the forced-submit case to the bulk path.
+- **C-109 — Kill a selection in one action** — P0-3 and P0-4 together, including extending the propagation tests and the forced-submit case to the bulk path. **Shipped**, with the grain resolved to a selection rather than a category (see the Open Questions).
 - **C-110 — An item that knows what time it is** — P1-1, the daypart child table and the third input to `validateComposition`, with the all-three-call-sites test and the TZ×2 run. Gated on the shared-column Open Question.
 - **C-111 — A price you can stage** — P1-2, effective-dated price changes routed through the existing old → new confirm.
 - **C-112 — Stations** — P1-3, or the written decision not to. Gated on the first Open Question.

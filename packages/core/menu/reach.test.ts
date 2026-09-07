@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { itemsUsingGroup, searchMenu } from './reach';
+import { itemsUsingGroup, searchMenu, selectionReach } from './reach';
 import { SAMPLE_MENU } from './sample-menu';
 
 // The two directions of reach, off the real seeded menu rather than a fixture:
@@ -78,5 +78,70 @@ describe('searchMenu', () => {
     const shown = searchMenu(SAMPLE_MENU, 'lobster');
     expect(shown.itemIds.size).toBe(0);
     expect(shown.optionIds.size).toBe(0);
+  });
+});
+
+describe('selectionReach', () => {
+  // The case P0-3 was written for, and the reason the grain is a selection
+  // rather than a category: the fryer's output is spread across Sides, Plates
+  // and Sweets, and each of those categories also holds food that is fine.
+  const FRIED = ['chips', 'chips-guac', 'taquitos', 'nachos', 'churros'];
+
+  it('names every selected row, in menu order rather than click order', () => {
+    const picked = selectionReach(SAMPLE_MENU, [...FRIED].reverse(), []);
+
+    expect(picked.items.map((row) => row.name)).toEqual([
+      'Chips & salsa',
+      'Loaded nachos',
+      'Chips & guac',
+      'Taquitos',
+      'Churros',
+    ]);
+    expect(picked.options).toEqual([]);
+    // Three categories, which is why a category-level 86 could not have
+    // expressed "the fryer is down" without also killing rice and paletas.
+    expect(new Set(FRIED.map((id) => SAMPLE_MENU.items[id]?.categoryId)).size).toBe(3);
+  });
+
+  it('gives a selected option its FULL reach, not the rows on screen', () => {
+    const picked = selectionReach(SAMPLE_MENU, [], ['guacamole']);
+
+    expect(picked.options).toEqual([
+      {
+        id: 'guacamole',
+        name: 'Guacamole',
+        available: true,
+        // The same four names C-107 puts on the single row. One derivation, so
+        // the batch preview and the per-row line cannot come to disagree.
+        usedOn: ['Burrito', 'California burrito', 'Torta', 'Loaded nachos'],
+      },
+    ]);
+  });
+
+  it('carries what is already sold out, so the batch says what it will change', () => {
+    const menu = {
+      ...SAMPLE_MENU,
+      items: {
+        ...SAMPLE_MENU.items,
+        churros: { ...SAMPLE_MENU.items.churros!, available: false },
+      },
+    };
+
+    const picked = selectionReach(menu, ['taquitos', 'churros'], []);
+    expect(picked.items).toEqual([
+      { id: 'taquitos', name: 'Taquitos', available: true },
+      { id: 'churros', name: 'Churros', available: false },
+    ]);
+  });
+
+  it('drops ids the menu no longer has rather than throwing at a cook', () => {
+    // The selection lives in a URL, so a stale link outlives the row it names.
+    const picked = selectionReach(SAMPLE_MENU, ['taquitos', 'deleted-item'], ['no-such-option']);
+    expect(picked.items.map((row) => row.id)).toEqual(['taquitos']);
+    expect(picked.options).toEqual([]);
+  });
+
+  it('is empty for an empty selection', () => {
+    expect(selectionReach(SAMPLE_MENU, [], [])).toEqual({ items: [], options: [] });
   });
 });

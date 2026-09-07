@@ -21,11 +21,26 @@
 // is a customer standing at the counter unseen, a menu row that vanishes is a
 // menu row. `searchMenu` owns the matching rule, including the part where an
 // option drags in the items it stops.
+//
+// C-109: and rows can be picked and killed together (P0-3). The GRAIN of that
+// batch is an arbitrary selection, NOT a category — decided here against the
+// PRD's own open question, because the case it was written for ("the fryer is
+// down") spans Sides, Plates and Sweets in this menu and excludes non-fried
+// food inside each of them. A category-level 86 could not express it, and
+// would take rice and paletas off the menu to do it — the reverse-case failure
+// the PRD calls worse than the one it is fixing. A category keeps a "select
+// these N" link, which seeds a selection rather than being a second way to
+// kill. Stations (C-112) stay open and would seed the same selection.
+//
+// The selection lives in the URL beside `q`, so the whole screen is still a
+// GET that works unhydrated, a second tablet can be opened on the same
+// selection, and a filter changing underneath a selection cannot silently drop
+// half of it — every link is rebuilt from the URL, not from the DOM.
 import Link from 'next/link';
-import { itemsUsingGroup, searchMenu } from '@countertop/core';
+import { itemsUsingGroup, searchMenu, selectionReach } from '@countertop/core';
 import { loadMenu } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
-import { setItemAvailable, setOptionAvailable } from '../actions';
+import { setBulkAvailable, setItemAvailable, setOptionAvailable } from '../actions';
 
 export const metadata = { title: 'Availability — Firebird Kitchen' };
 
@@ -38,24 +53,37 @@ export const dynamic = 'force-dynamic';
 // already knows and cannot act on.
 const MAX_NAMED_ITEMS = 4;
 
+/** The one wording of reach, shared by a single row and by the batch preview.
+ *  Two copies would eventually disagree about what a tap costs. */
+function usedOnLine(usedOn: string[]): string {
+  if (usedOn.length === 0) return 'Not used on any item.';
+  const named = usedOn.slice(0, MAX_NAMED_ITEMS).join(', ');
+  const rest = usedOn.length - MAX_NAMED_ITEMS;
+  return `Used on: ${named}${rest > 0 ? ` +${rest} more` : ''}`;
+}
+
 /** One row: what it is, what it costs, who it stops, and the tap that flips it. */
 function Row({
   name,
   price,
   available,
   usedOn,
+  selected,
+  selectHref,
   action,
 }: {
   name: string;
   price: string;
   available: boolean;
   usedOn?: string[];
+  selected: boolean;
+  selectHref: string;
   action: () => Promise<void>;
 }) {
   return (
     <li
       className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border-2 p-3 ${
-        available ? 'border-neutral-300' : 'border-red-500 bg-red-50'
+        selected ? 'border-blue-700 bg-blue-50' : available ? 'border-neutral-300' : 'border-red-500 bg-red-50'
       }`}
     >
       <span className="text-lg font-semibold">
@@ -68,32 +96,39 @@ function Row({
         )}
       </span>
 
-      {/* A plain form, so the board works before hydration and during the
-          rush that is exactly when someone reaches for it. */}
-      <form action={action}>
-        <button
-          type="submit"
-          className={`min-h-12 rounded-lg px-5 text-lg font-bold text-white ${
-            available ? 'bg-red-700' : 'bg-green-800'
+      <span className="flex flex-wrap items-center gap-2">
+        {/* A link, not a checkbox: one tap is one navigation, the selection is
+            already in the URL, and there is no second submit to reach for at
+            the top of a page a cook has scrolled down. It also means picking a
+            row immediately redraws the batch preview above — the blast radius
+            grows in front of them rather than after the last tap. */}
+        <Link
+          href={selectHref}
+          className={`flex min-h-12 items-center rounded-lg border-2 px-4 text-lg font-semibold ${
+            selected ? 'border-blue-700 bg-blue-700 text-white' : 'border-neutral-400'
           }`}
         >
-          {available ? `Mark ${name} sold out` : `Put ${name} back on`}
-        </button>
-      </form>
+          {selected ? 'Selected' : 'Select'}
+          <span className="sr-only"> {name}</span>
+        </Link>
+
+        {/* A plain form, so the board works before hydration and during the
+            rush that is exactly when someone reaches for it. */}
+        <form action={action}>
+          <button
+            type="submit"
+            className={`min-h-12 rounded-lg px-5 text-lg font-bold text-white ${
+              available ? 'bg-red-700' : 'bg-green-800'
+            }`}
+          >
+            {available ? `Mark ${name} sold out` : `Put ${name} back on`}
+          </button>
+        </form>
+      </span>
 
       {/* Full-width, so it wraps under the name and the tap target rather than
           squeezing either. `basis-full` inside the wrapping flex row. */}
-      {usedOn && (
-        <p className="basis-full text-lg text-neutral-700">
-          {usedOn.length === 0
-            ? 'Not used on any item.'
-            : `Used on: ${usedOn.slice(0, MAX_NAMED_ITEMS).join(', ')}${
-                usedOn.length > MAX_NAMED_ITEMS
-                  ? ` +${usedOn.length - MAX_NAMED_ITEMS} more`
-                  : ''
-              }`}
-        </p>
-      )}
+      {usedOn && <p className="basis-full text-lg text-neutral-700">{usedOnLine(usedOn)}</p>}
     </li>
   );
 }
@@ -101,13 +136,57 @@ function Row({
 export default async function AvailabilityPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    item?: string | string[];
+    opt?: string | string[];
+    done?: string;
+  }>;
 }) {
   const menu = await loadMenu();
   const items = Object.values(menu.items);
-  const query = (await searchParams).q ?? '';
+  const params = await searchParams;
+
+  const query = params.q ?? '';
   const searching = query.trim() !== '';
   const shown = searchMenu(menu, query);
+
+  // A repeated query param arrives as a string when there is one of it, which
+  // is the single-row case and the one it would be easiest to get wrong.
+  const readIds = (value?: string | string[]) =>
+    value === undefined ? [] : Array.isArray(value) ? value : [value];
+  const pickedItemIds = readIds(params.item);
+  const pickedOptionIds = readIds(params.opt);
+  const selectedItems = new Set(pickedItemIds);
+  const selectedOptions = new Set(pickedOptionIds);
+
+  // Resolved against the live menu, so ids that no longer exist drop out of
+  // the preview AND out of every link built below. A selection cannot rot.
+  const picked = selectionReach(menu, selectedItems, selectedOptions);
+  const pickedCount = picked.items.length + picked.options.length;
+  // Set after a bulk write: 'off' marked sold out, 'on' put back on. The
+  // selection the action redirected with is exactly the rows it flipped, so
+  // the report and the undo below both name that and nothing wider.
+  const done = params.done === 'off' ? 'off' : params.done === 'on' ? 'on' : null;
+
+  // Rebuilt from the RESOLVED selection, not from the raw params: an id the
+  // menu no longer has is dropped once, here, and every link below is clean.
+  const liveItemIds = picked.items.map((row) => row.id);
+  const liveOptionIds = picked.options.map((row) => row.id);
+
+  /** Every link on this page is the whole board state, rebuilt. */
+  const boardHref = (itemIds: string[], optionIds: string[], keepQuery = true) => {
+    const next = new URLSearchParams();
+    if (searching && keepQuery) next.set('q', query);
+    for (const id of itemIds) next.append('item', id);
+    for (const id of optionIds) next.append('opt', id);
+    const qs = next.toString();
+    return qs === '' ? '/kitchen/availability' : `/kitchen/availability?${qs}`;
+  };
+
+  const toggled = (ids: string[], id: string) =>
+    ids.includes(id) ? ids.filter((other) => other !== id) : [...ids, id];
+
   // Built up front so the "Options" heading and the no-matches line can ask
   // whether anything survived, rather than each re-deriving it mid-JSX.
   const groups = Object.values(menu.groups)
@@ -127,8 +206,17 @@ export default async function AvailabilityPage({
 
       {/* A plain GET form, exactly the queue's: it works before hydration —
           which is the state a cook on a tablet at 12:40pm is most likely to
-          hit — and the result is a URL a second screen can be opened on. */}
+          hit — and the result is a URL a second screen can be opened on.
+
+          The selection rides through it as hidden inputs, so searching again
+          narrows the board without dropping rows already picked. */}
       <form className="mt-4 flex flex-wrap gap-2">
+        {liveItemIds.map((id) => (
+          <input key={id} type="hidden" name="item" value={id} />
+        ))}
+        {liveOptionIds.map((id) => (
+          <input key={id} type="hidden" name="opt" value={id} />
+        ))}
         <label className="flex flex-1 flex-col gap-1">
           <span className="text-sm font-medium">Find an item or option by name</span>
           <input
@@ -147,13 +235,90 @@ export default async function AvailabilityPage({
         </button>
         {searching && (
           <Link
-            href="/kitchen/availability"
+            href={boardHref(liveItemIds, liveOptionIds, false)}
             className="mt-6 flex min-h-12 items-center rounded-lg px-4 underline underline-offset-4"
           >
             Show all
           </Link>
         )}
       </form>
+
+      {/* The batch (P0-3). It names every item and option it will affect
+          BEFORE it applies — the same courtesy C-107 gave a single row, at the
+          size where it matters more — and after it applies the same panel is
+          the report and the undo. */}
+      {pickedCount > 0 && (
+        <section
+          aria-label="Selection"
+          className="mt-4 rounded-lg border-2 border-blue-700 bg-blue-50 p-4"
+        >
+          <h2 className="text-xl font-semibold">
+            {done === 'off'
+              ? `Marked ${pickedCount} sold out.`
+              : done === 'on'
+                ? `Put ${pickedCount} back on.`
+                : `${pickedCount} selected. This will stop:`}
+          </h2>
+          <ul className="mt-2 flex flex-col gap-1 text-lg">
+            {picked.items.map((row) => (
+              <li key={row.id}>
+                {row.name}
+                {!row.available && <span className="font-semibold text-red-700"> — sold out</span>}
+              </li>
+            ))}
+            {picked.options.map((row) => (
+              <li key={row.id}>
+                {row.name}
+                {!row.available && <span className="font-semibold text-red-700"> — sold out</span>}
+                {/* FULL reach, never the visible subset: an option stops the
+                    items it stops whether or not a filter is showing them. */}
+                <span className="block text-neutral-700">{usedOnLine(row.usedOn)}</span>
+              </li>
+            ))}
+          </ul>
+
+          <form action={setBulkAvailable} className="mt-3 flex flex-wrap gap-2">
+            <input type="hidden" name="q" value={query} />
+            {liveItemIds.map((id) => (
+              <input key={id} type="hidden" name="item" value={id} />
+            ))}
+            {liveOptionIds.map((id) => (
+              <input key={id} type="hidden" name="opt" value={id} />
+            ))}
+            <button
+              type="submit"
+              name="available"
+              value="false"
+              className="min-h-12 rounded-lg bg-red-700 px-5 text-lg font-bold text-white"
+            >
+              Mark all {pickedCount} sold out
+            </button>
+            <button
+              type="submit"
+              name="available"
+              value="true"
+              className="min-h-12 rounded-lg bg-green-800 px-5 text-lg font-bold text-white"
+            >
+              Put all {pickedCount} back on
+            </button>
+            <Link
+              href={boardHref([], [])}
+              className="flex min-h-12 items-center rounded-lg px-4 text-lg underline underline-offset-4"
+            >
+              Clear selection
+            </Link>
+          </form>
+        </section>
+      )}
+
+      {/* A batch that flipped nothing is not a batch that failed, and silence
+          here would read as one. */}
+      {pickedCount === 0 && done !== null && (
+        <p className="mt-4 text-lg font-semibold">
+          Nothing changed — those rows were already{' '}
+          {done === 'off' ? 'sold out' : 'on the menu'}.
+        </p>
+      )}
 
       {/* A filtered board that matches nothing is a blank page, and a blank
           page mid-rush reads as broken rather than as empty. */}
@@ -170,9 +335,27 @@ export default async function AvailabilityPage({
         // An empty heading under a search is a row of dead furniture on the
         // screen the search exists to shorten.
         if (inCategory.length === 0) return null;
+        const unpicked = inCategory.filter((item) => !selectedItems.has(item.id));
         return (
           <section key={category.id} className="mt-8">
-            <h2 className="text-xl font-semibold">{category.name}</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-xl font-semibold">{category.name}</h2>
+              {/* Seeds a selection; it does not kill anything. And it adds the
+                  rows that are ON SCREEN — selecting what a filter is hiding
+                  is how a batch takes food off the menu nobody looked at. */}
+              {unpicked.length > 0 && (
+                <Link
+                  href={boardHref(
+                    [...liveItemIds, ...unpicked.map((item) => item.id)],
+                    liveOptionIds,
+                  )}
+                  className="flex min-h-12 items-center rounded-lg border-2 border-neutral-400 px-4 text-lg font-semibold"
+                >
+                  Select these {unpicked.length}
+                  <span className="sr-only"> in {category.name}</span>
+                </Link>
+              )}
+            </div>
             <ul className="mt-3 flex flex-col gap-2">
               {inCategory.map((item) => (
                 <Row
@@ -180,6 +363,8 @@ export default async function AvailabilityPage({
                   name={item.name}
                   price={formatCents(item.basePriceCents)}
                   available={item.available}
+                  selected={selectedItems.has(item.id)}
+                  selectHref={boardHref(toggled(liveItemIds, item.id), liveOptionIds)}
                   action={setItemAvailable.bind(null, item.id, !item.available)}
                 />
               ))}
@@ -206,6 +391,8 @@ export default async function AvailabilityPage({
                   price={formatDeltaCents(option.priceDeltaCents)}
                   available={option.available}
                   usedOn={usedOn}
+                  selected={selectedOptions.has(option.id)}
+                  selectHref={boardHref(liveItemIds, toggled(liveOptionIds, option.id))}
                   action={setOptionAvailable.bind(null, option.id, !option.available)}
                 />
               ))}

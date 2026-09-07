@@ -131,8 +131,11 @@ test('an option row names every item the 86 will stop, without a tap', async ({ 
 test('the board is readable and tappable with gloves on', async ({ page }) => {
   await page.goto('/kitchen/availability');
 
-  for (const button of await page.getByRole('button').all()) {
-    const box = await button.boundingBox();
+  // Links too, since C-109: picking a row for a batch is now one of the most
+  // tapped controls on the screen and it is an <a>, so a button-only loop
+  // would have stopped covering the thing being tapped.
+  for (const control of await page.getByRole('button').or(page.getByRole('link')).all()) {
+    const box = await control.boundingBox();
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(48);
   }
 
@@ -188,4 +191,132 @@ test('a search that matches nothing says so instead of going blank', async ({ pa
   await page.goto('/kitchen/availability?q=lobster');
   await expect(page.getByText('Nothing on the menu matches “lobster”.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Options' })).toHaveCount(0);
+});
+
+// C-109 (P0-3, P0-4): the batch.
+//
+// The grain is a SELECTION, not a category, and this menu is why: the fryer's
+// output is Chips & salsa, Chips & guac and Taquitos (Sides), Loaded nachos
+// (Plates) and Churros (Sweets). Three categories, each of which also holds
+// food that is fine — rice, a tamale plate, a paleta. A category-level 86
+// could not have expressed "the fryer is down" without taking those off the
+// menu too, which is the reverse-case failure the PRD calls worse.
+const FRIED = ['Chips & salsa', 'Chips & guac', 'Taquitos', 'Loaded nachos', 'Churros'];
+
+/** Pick rows, then kill them in one action. Each pick waits for the URL it
+ *  wrote — the selection lives there, and a click on a stale page loses it. */
+const select = async (page: Page, names: string[]) => {
+  for (const name of names) {
+    await page.getByRole('link', { name: `Select ${name}` }).click();
+    await expect(page.getByRole('link', { name: `Selected ${name}` })).toBeVisible();
+  }
+};
+
+test('a bulk 86 reaches all three surfaces, exactly as one tap does', async ({ page }) => {
+  // Placed BEFORE the batch, so the snapshot has something to be right about.
+  await addBurritoToCart(page, { guacamole: true });
+  await page.getByRole('link', { name: 'Checkout' }).click();
+  await page.getByRole('textbox', { name: /Name for the order/ }).fill('Jo Marquez');
+  await page.getByRole('button', { name: /Place order/ }).click();
+  await expect(page.getByRole('heading', { name: 'Order placed' })).toBeVisible();
+
+  // And a second cart, still open, holding one of the rows about to die.
+  await addBurritoToCart(page, { guacamole: true });
+
+  // Six rows, both grains, one action.
+  await page.goto('/kitchen/availability');
+  await select(page, [...FRIED, 'Guacamole']);
+  await page.getByRole('button', { name: 'Mark all 6 sold out' }).click();
+
+  // It reports what it did, and names it — not a count on its own.
+  await expect(page.getByRole('heading', { name: 'Marked 6 sold out.' })).toBeVisible();
+  for (const name of [...FRIED, 'Guacamole']) {
+    await expect(page.getByRole('button', { name: `Put ${name} back on` })).toBeVisible();
+  }
+
+  // Surface 1: the menu renders them sold out, never hides them.
+  await page.goto('/menu');
+  for (const name of FRIED) {
+    await expect(page.getByText(`${name} — Sold out`)).toBeVisible();
+    await expect(page.getByRole('link', { name: new RegExp(`^${name} \\$`) })).toHaveCount(0);
+  }
+  // Out of the fryer is not out of burritos: the option grain moved, the item
+  // carrying it did not.
+  await expect(page.getByRole('link', { name: /Burrito \$10\.95/ })).toBeVisible();
+
+  // Surface 2: the cart already holding one is flagged, and checkout is shut.
+  await page.goto('/checkout');
+  await expect(page.getByText('Guacamole is sold out.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Place order/ })).toBeDisabled();
+
+  // Surface 3: the order placed a minute ago is a snapshot and does not care.
+  await page.goto('/kitchen');
+  const card = page.getByRole('listitem').filter({ hasText: 'Jo Marquez' }).first();
+  await expect(card.getByText('Guacamole')).toBeVisible();
+  await expect(card.getByText(/sold out/i)).toHaveCount(0);
+});
+
+test('the undo returns exactly what the batch killed, and nothing else', async ({ page }) => {
+  // Churros ran out an hour ago for its own reason. It is in the sweep because
+  // the cook swept the whole fryer; it is not something the batch did.
+  await eightySix(page, 'Churros');
+
+  await select(page, FRIED);
+  await page.getByRole('button', { name: 'Mark all 5 sold out' }).click();
+  // Four, not five — the report counts what changed.
+  await expect(page.getByRole('heading', { name: 'Marked 4 sold out.' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Put all 4 back on' }).click();
+  await expect(page.getByRole('heading', { name: 'Put 4 back on.' })).toBeVisible();
+
+  await page.goto('/menu');
+  for (const name of ['Chips & salsa', 'Chips & guac', 'Taquitos', 'Loaded nachos']) {
+    await expect(page.getByRole('link', { name: new RegExp(`^${name} \\$`) })).toBeVisible();
+  }
+  // The one the shop is genuinely out of stays out. An undo that helpfully put
+  // it back would be selling food nobody has.
+  await expect(page.getByText('Churros — Sold out')).toBeVisible();
+});
+
+test('the batch names its full blast radius before it applies, and survives a re-search', async ({
+  page,
+}) => {
+  await page.goto('/kitchen/availability?q=guac');
+  await select(page, ['Guacamole']);
+
+  // Before any kill: what it will stop, at full reach — not the rows the
+  // filter happens to be showing.
+  const batch = page.getByRole('region', { name: 'Selection' });
+  await expect(batch).toContainText('1 selected. This will stop:');
+  await expect(batch).toContainText('Used on: Burrito, California burrito, Torta, Loaded nachos');
+  await expect(page.getByRole('button', { name: 'Mark all 1 sold out' })).toBeVisible();
+
+  // The filter moves underneath the selection and the selection stays: it is
+  // in the URL, not in the DOM of a page that just got replaced.
+  await page.getByRole('searchbox', { name: /Find an item or option/ }).fill('churro');
+  await page.getByRole('button', { name: 'Find' }).click();
+  await expect(page.getByRole('heading', { name: '1 selected. This will stop:' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Mark Churros sold out' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Select Churros' })).toBeVisible();
+
+  // Adding a row from the new filter keeps the one picked under the old.
+  await select(page, ['Churros']);
+  await expect(page.getByRole('button', { name: 'Mark all 2 sold out' })).toBeVisible();
+
+  await page.getByRole('link', { name: 'Clear selection' }).click();
+  await expect(page.getByRole('button', { name: /Mark all/ })).toHaveCount(0);
+});
+
+test('a category offers to select what it is showing, and only that', async ({ page }) => {
+  await page.goto('/kitchen/availability');
+  // A shortcut that SEEDS a selection — not a second way to kill, and not a
+  // claim that a category maps to a station.
+  await page.getByRole('link', { name: 'Select these 4 in Drinks' }).click();
+
+  await expect(page.getByRole('heading', { name: '4 selected. This will stop:' })).toBeVisible();
+  for (const name of ['Horchata', 'Agua fresca', 'Mexican Coke', 'Bottled water']) {
+    await expect(page.getByRole('link', { name: `Selected ${name}` })).toBeVisible();
+  }
+  // Nothing outside the category came along.
+  await expect(page.getByRole('link', { name: 'Selected Churros' })).toHaveCount(0);
 });

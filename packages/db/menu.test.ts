@@ -1,6 +1,6 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SAMPLE_MENU } from '@countertop/core';
-import { loadMenu, loadSettings } from './menu';
+import { loadMenu, loadSettings, setAvailability } from './menu';
 import { prisma } from './index';
 import { resetDatabase, seedSampleMenu } from './testing/index';
 
@@ -39,5 +39,80 @@ describe('loadMenu', () => {
       timezone: 'America/Los_Angeles',
       taxRatePpm: 82_500,
     });
+  });
+});
+
+// C-109 (P0-3): the bulk 86, and the one thing about it that is not just six
+// taps in a loop — it reports the rows it FLIPPED, which is what makes the
+// undo beside the report honest.
+describe('setAvailability', () => {
+  // The fryer going down: five rows across three categories, which is the
+  // whole reason the batch is a selection and not a category.
+  const FRIED = ['chips', 'chips-guac', 'taquitos', 'nachos', 'churros'];
+
+  const availability = async () => {
+    const [items, options] = await Promise.all([
+      prisma.menuItem.findMany({ where: { available: false }, select: { id: true } }),
+      prisma.modifierOption.findMany({ where: { available: false }, select: { id: true } }),
+    ]);
+    return {
+      items: items.map((r) => r.id).sort(),
+      options: options.map((r) => r.id).sort(),
+    };
+  };
+
+  beforeEach(async () => {
+    await resetDatabase();
+    await seedSampleMenu();
+  });
+
+  it('kills a selection spanning both grains in one action', async () => {
+    const changed = await setAvailability(FRIED, ['guacamole'], false);
+
+    expect(changed.itemIds.sort()).toEqual([...FRIED].sort());
+    expect(changed.optionIds).toEqual(['guacamole']);
+    expect(await availability()).toEqual({
+      items: [...FRIED].sort(),
+      options: ['guacamole'],
+    });
+  });
+
+  it('reports the rows it flipped, not the rows it was handed', async () => {
+    // Churros ran out an hour ago, for its own reason. It is in the selection
+    // because the cook swept the fryer's whole output; it is not something
+    // this batch did.
+    await prisma.menuItem.update({ where: { id: 'churros' }, data: { available: false } });
+
+    const changed = await setAvailability(FRIED, [], false);
+    expect(changed.itemIds.sort()).toEqual(['chips', 'chips-guac', 'nachos', 'taquitos']);
+    expect(changed.itemIds).not.toContain('churros');
+  });
+
+  it('undoes exactly what it did and nothing else', async () => {
+    await prisma.menuItem.update({ where: { id: 'churros' }, data: { available: false } });
+    const killed = await setAvailability(FRIED, [], false);
+
+    // The undo acts on what came back, which is the whole point of it coming
+    // back: the fryer is fixed, and the churros the shop genuinely ran out of
+    // stay off the menu.
+    const restored = await setAvailability(killed.itemIds, killed.optionIds, true);
+
+    expect(restored.itemIds.sort()).toEqual(killed.itemIds.sort());
+    expect(await availability()).toEqual({ items: ['churros'], options: [] });
+  });
+
+  it('changes nothing, and says so, when the batch is already off', async () => {
+    await setAvailability(FRIED, [], false);
+    const again = await setAvailability(FRIED, [], false);
+
+    expect(again).toEqual({ itemIds: [], optionIds: [] });
+    expect(await availability()).toEqual({ items: [...FRIED].sort(), options: [] });
+  });
+
+  it('ignores ids the menu does not have, rather than throwing mid-rush', async () => {
+    const changed = await setAvailability(['taquitos', 'deleted'], ['no-such-option'], false);
+
+    expect(changed).toEqual({ itemIds: ['taquitos'], optionIds: [] });
+    expect(await availability()).toEqual({ items: ['taquitos'], options: [] });
   });
 });
