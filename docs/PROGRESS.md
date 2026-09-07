@@ -6454,6 +6454,8 @@ on the screen nobody is panicking on and was absent from the one they are.
 
 ## C-108 — The 86 board can be searched (PRD 4 P0-2)
 
+Commit `916fb8a`.
+
 The board is 25 item rows plus every option of every group, it is read
 one-handed on a greasy tablet while the pass backs up, and it had no search
 box — while the queue one tap away has had one since C-011. C-107 gave every
