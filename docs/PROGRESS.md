@@ -6635,3 +6635,101 @@ the menu said no.
   sold out." although nothing was marked this time. It is a report of the URL,
   not of an action, and the alternative is a cookie or a flash message for a
   line that is true either way.
+
+---
+
+## C-110 — An item that knows what time it is (PRD 4 P1-1)
+
+**Built:**
+- **`MenuItemWindow(itemId, dayOfWeek, startMinute, endMinute)`**, a hand-written
+  migration mirroring the `StoreHours` discipline C-011 established: a
+  `dayOfWeek BETWEEN 0 AND 6` check, a minutes-in-range check (start 0–1439,
+  end 1–1440), `endMinute > startMinute`, and a unique on
+  `(itemId, dayOfWeek, startMinute)`. `onDelete: Cascade`, unlike the snapshot
+  tables' `Restrict` — a window is a property of a live menu row, not a record
+  of something that happened.
+- **A child table, not a column pair**, because an item can be served in more
+  than one window on a day (breakfast and dinner, nothing in between). That is
+  precisely the difference from `StoreHours`, where `dayOfWeek` is the primary
+  key because C-011 deliberately foreclosed split opening hours. Two different
+  gates, and the PRD's Non-Goals say not to conflate them.
+- **`daypartClosure(item, clock)` in `packages/core/menu/composition.ts`** — in
+  the same file as `validateComposition`, not beside it, so the daypart is
+  physically a third input to the one orderability function rather than a
+  fourth call site. Returns `null` when served, and otherwise both renderings
+  its readers need: a `label` ("Served 16:00–21:00") for a menu row sitting
+  under the item's own name, and a `message` ("Chips & salsa is served
+  16:00–21:00.") for a cart line, a checkout refusal or a placement error. Two
+  functions here would be two answers, and the one that disagreed would be the
+  one on the screen.
+- **A `RestaurantClock` parameter threaded to all three call sites.** The
+  compiler found the readers, which is the whole point of the invariant:
+  `validateComposition`, `addLine`, `replaceLine`, `reviewCart` and
+  `confirmPrices` all take the reading, and `loadClock()` in
+  `packages/db/menu.ts` is the one place the menu request path reads a clock —
+  the same shape `currentCheckout` already had for the gate. Nothing in
+  `packages/core` reads a clock; the lint rule that enforces that never fired.
+- **Windows are `[start, end)`, half-open.** 11:00–16:00 and 16:00–21:00 abut
+  without the 16:00 minute belonging to both. An inclusive end would make the
+  changeover minute the one minute of the day when lunch and dinner are both
+  on — and the changeover is the entire feature.
+- **The screens.** `/menu` renders the row greyed with its hours rather than
+  hiding it (the same rule an 86 follows), the composer says the sentence at
+  the top where "Sold out — the kitchen has run out" already lived, and the
+  cart flags the line through the existing `problems` → `needsFix` path.
+- **`loadMenu` maps windows absent-not-empty**, the same
+  `exactOptionalPropertyTypes` care `extraPriceDeltaCents` already needed, so
+  the round-trip test against `SAMPLE_MENU` still holds exactly.
+- **Tests.** Eleven unit tests on the daypart itself (the 15:59/16:01 pair, the
+  half-open boundary at both ends, no-windows-is-all-day, a day with no window,
+  two windows in one sentence in clock order, midnight rendering, the 86
+  precedence twice, the option grain untouched, and a TZ-independence case);
+  three on the cart call site; an `it.each` over 15:59 and 16:01 at placement
+  plus the both-86'd-and-out-of-window case; eight database constraint tests;
+  a `loadMenu` mapping test; three e2e covering the menu row, the composer and
+  a window closing under an open cart. The snapshot regression grew a daypart
+  mutation.
+
+**Decided — the two Open Questions this item was gated on:**
+- **Dayparts and 86s stay SEPARATE columns, and an 86 wins.** Sharing one
+  boolean is genuinely tempting — an item is orderable or it is not — and it is
+  the change that would quietly break C-012's decision that an 86 never
+  restores itself overnight: a scheduler that restores by design would un-86 at
+  16:00 something a cook killed at 12:40, and put food the kitchen cannot make
+  back on sale. So they are two facts, and `validateComposition` reports
+  exactly one of them, 86 first. An item that is both sold out and outside its
+  window is not "back at 16:00"; saying so would be a promise the kitchen has
+  not made. Asserted in three places (unit, placement, and the composer's own
+  branch) rather than left as a comment.
+- **A daypart closing under an open cart is the 86 path.** Flagged at checkout,
+  fix or remove — the path that already exists, is already honest and is
+  already tested. It is also a customer being told at 16:01 that the thing they
+  added at 15:58 is gone, and the answer to that is the *sentence*, not a third
+  behaviour: "Chips & salsa is served 16:00–21:00" instead of "sold out". A
+  gentler path that let the line through would be a line the kitchen cannot
+  cook.
+
+**Left behind:**
+- **No item is seeded with a window.** Deliberate, and the reason is in
+  `seedSettings`' own comment about round-the-clock hours: a seeded 16:00–21:00
+  window would make `/menu`, the screenshots and any spec touching that item
+  behave differently depending on what time of day the sweep runs. A suite that
+  passes all day and fails for one hour is a suite nobody trusts again. The
+  e2e's `setDaypart` fixture writes a window relative to the restaurant's own
+  clock instead, so the demo of the feature is the test rather than the seed.
+- **No editor.** Windows are written by SQL or by the fixture; there is no
+  kitchen screen for them. Menu authoring is a recorded non-goal (C-015: the
+  editor edits, it does not add), and a daypart is closer to authoring than to
+  86'ing. When it arrives it is a form over four integers and the confirm-on-
+  save diff C-015/C-026 already built.
+- **No overnight window**, foreclosed by the CHECK exactly as C-011 foreclosed
+  overnight opening hours. A 22:00–02:00 item is two rows on two days. The
+  alternative reads as "never" with no error anywhere, which is an item that
+  silently leaves the menu.
+- **The composer's clock is a server-render snapshot.** A page left open across
+  16:00 shows the old answer until something re-renders — exactly like the
+  prices beside it, and re-checked by the server at cart-add and again at
+  placement for exactly the same reason.
+- **Dayparts are item-grain only.** An option cannot carry one. Nobody asked,
+  and the option grain already has the harder shared-option problem C-012
+  recorded.

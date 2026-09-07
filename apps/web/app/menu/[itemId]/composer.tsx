@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import {
   DEFAULT_LIMITS,
+  daypartClosure,
   validateComposition,
   type Composition,
   type Intensity,
@@ -22,6 +23,7 @@ import {
   type ModifierGroup,
   type OptionSelection,
 } from '@countertop/core/menu';
+import type { RestaurantClock } from '@countertop/core/orders';
 import { appliedDeltaCents, priceLine } from '@countertop/core/pricing';
 import { addToCart, updateCartLine } from '@/app/cart/actions';
 import { formatCents, formatDeltaCents } from '@/lib/money';
@@ -84,10 +86,15 @@ export type EditingLine = { lineId: string; composition: Composition };
 export function Composer({
   menu,
   itemId,
+  clock,
   editing,
 }: {
   menu: Menu;
   itemId: string;
+  /** The restaurant's wall clock at server-render time (P1-1). A prop, not a
+   *  `new Date()` here: this screen is a preview of the server's answer, and
+   *  the browser's clock is neither the restaurant's nor trustworthy. */
+  clock: RestaurantClock;
   editing?: EditingLine;
 }) {
   const item = menu.items[itemId]!;
@@ -114,7 +121,7 @@ export function Composer({
     selections,
     ...(note === '' ? {} : { note }),
   };
-  const validity = validateComposition(menu, composition);
+  const validity = validateComposition(menu, composition, clock);
   const violations = validity.ok ? [] : validity.violations;
   const priced = priceLine(menu, composition);
 
@@ -155,8 +162,17 @@ export function Composer({
 
       <h1 className="mt-4 text-3xl font-semibold">{item.name}</h1>
       <p className="mt-1 text-neutral-600">{formatCents(item.basePriceCents)}</p>
-      {!item.available && (
+      {/* An 86 first, then the schedule, and never both — the same precedence
+          `validateComposition` applies, because it is the same two facts
+          (P1-1). "Sold out" on something that is merely out of its window
+          would be a lie about the kitchen, and the schedule on something that
+          is sold out would be a promise the kitchen has not made. */}
+      {!item.available ? (
         <p className="mt-2 font-medium text-red-700">Sold out — the kitchen has run out.</p>
+      ) : (
+        daypartClosure(item, clock) && (
+          <p className="mt-2 font-medium text-red-700">{daypartClosure(item, clock)!.message}</p>
+        )
       )}
 
       {item.modifierGroupIds.map((groupId) => {

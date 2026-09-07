@@ -585,3 +585,85 @@ describe('the staff list (PRD 6 P0-2)', () => {
     ).rejects.toThrow(/name/);
   });
 });
+
+// C-110: the daypart windows (P1-1). Same discipline as store hours above and
+// for a sharper reason: a window nobody can be inside is not a loud failure,
+// it is an item that quietly leaves the menu forever. `daypartClosure` reads
+// every nonsense row as "not served" and has no way to tell that apart from a
+// schedule that meant it.
+describe('item daypart windows', () => {
+  beforeEach(async () => {
+    await resetDatabase();
+    await seedSampleMenu();
+  });
+
+  const window = (overrides: Record<string, unknown> = {}) => ({
+    itemId: 'burrito',
+    dayOfWeek: 5,
+    startMinute: 16 * 60,
+    endMinute: 21 * 60,
+    ...overrides,
+  });
+
+  it('accepts a sane dinner window', async () => {
+    await expect(prisma.menuItemWindow.create({ data: window() })).resolves.toMatchObject({
+      dayOfWeek: 5,
+    });
+  });
+
+  it('accepts two windows on the same day — this is why it is a child table', async () => {
+    // Breakfast and dinner with nothing in between. `StoreHours` cannot model
+    // this by design (C-011); an item must, because that is the whole feature.
+    await prisma.menuItemWindow.create({ data: window() });
+    await expect(
+      prisma.menuItemWindow.create({ data: window({ startMinute: 7 * 60, endMinute: 11 * 60 }) }),
+    ).resolves.toMatchObject({ startMinute: 420 });
+  });
+
+  it('refuses two windows starting at the same minute on the same day', async () => {
+    // Either a duplicate or a contradiction, and both would make the answer
+    // depend on row order.
+    await prisma.menuItemWindow.create({ data: window() });
+    await expect(
+      prisma.menuItemWindow.create({ data: window({ endMinute: 22 * 60 }) }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('refuses a day outside 0–6', async () => {
+    await expect(prisma.menuItemWindow.create({ data: window({ dayOfWeek: 7 }) })).rejects.toThrow(
+      /menu_item_window_day_of_week_range/i,
+    );
+  });
+
+  it('refuses minutes outside the day', async () => {
+    await expect(
+      prisma.menuItemWindow.create({ data: window({ startMinute: -1 }) }),
+    ).rejects.toThrow(/menu_item_window_minutes_in_range/i);
+    await expect(
+      prisma.menuItemWindow.create({ data: window({ endMinute: 1441 }) }),
+    ).rejects.toThrow(/menu_item_window_minutes_in_range/i);
+  });
+
+  it('accepts 1440 as an end — served through the last minute of the day', async () => {
+    await expect(
+      prisma.menuItemWindow.create({ data: window({ startMinute: 22 * 60, endMinute: 1440 }) }),
+    ).resolves.toMatchObject({ endMinute: 1440 });
+  });
+
+  it('refuses an overnight window', async () => {
+    // 22:00–02:00 is a real thing for a late-night kitchen and NOT what this
+    // schema models — the same line `store_hours_closes_after_opening` draws.
+    // Two rows on two days is how you say it; the write-up records the ceiling.
+    await expect(
+      prisma.menuItemWindow.create({ data: window({ startMinute: 22 * 60, endMinute: 2 * 60 }) }),
+    ).rejects.toThrow(/menu_item_window_ends_after_start/i);
+  });
+
+  it('goes away with its item, unlike a snapshot row', async () => {
+    // Cascade, not Restrict: a window is a property of a live menu row, not a
+    // record of anything that happened.
+    await prisma.menuItemWindow.create({ data: window({ itemId: 'chips' }) });
+    await prisma.menuItem.delete({ where: { id: 'chips' } });
+    expect(await prisma.menuItemWindow.count()).toBe(0);
+  });
+});

@@ -1,79 +1,89 @@
 # Next
 
-**`docs/prds/prd-menu-under-pressure.md` P1-1 — an item that knows what time it
-is, shipping as `C-110`.** The 4pm lunch-to-dinner changeover, which the PRD
-calls the most common menu operation in fast casual and which is currently a
-manager 86'ing eleven items and un-86'ing nine from a phone during the
-changeover. A daypart child table, and a **third input to `validateComposition`
-— not a fourth call site**.
+**`docs/prds/prd-menu-under-pressure.md` P1-2 — a price you can stage, shipping
+as `C-111`.** An effective-dated price change: staged with a start instant and
+applied by the clock, rather than by a manager typing during lunch. A child
+table (not a nullable column pair, so more than one change can queue), and it
+must route INTO the existing old → new confirm from C-015/C-026, not around it.
 
-Model: **Opus.** A hand-written migration with a CHECK constraint, a change to
-the ONE orderability function every surface routes through, and the TZ×2 CI run
-is exactly what would hide a bug here. Correctness-critical.
+Model: **Opus.** A hand-written migration, money, and a change that lands in
+`priceLine`'s path — the server-is-the-price-authority invariant is the one
+this could break quietly. Correctness-critical.
 
-## The Open Question you have to answer before writing code
+## What C-110 leaves behind, that P1-2 will want
 
-**Do dayparts and 86s share a column, or stay separate?** The PRD lists it as
-open, but its own P1-1 text has already argued the answer: *"the two must never
-collapse into one boolean, because the WRITEUP's C-012 decision that 86s never
-restore themselves overnight depends on an 86 being a human fact."* Sharing is
-one boolean and is genuinely tempting — an item is orderable or it is not.
-Write the decision down rather than inheriting it silently, and note the
-consequence either way: a shared column means 4pm un-86's something a cook
-deliberately killed at 12:40pm.
+- **`loadClock()` in `packages/db/menu.ts` is the one place the menu request
+  path reads a clock**, and `RestaurantClock` is now threaded through
+  `validateComposition`, `addLine`, `replaceLine`, `reviewCart` and
+  `confirmPrices`. A staged price is resolved at the same two moments the
+  daypart is, off the same reading. **P1-2 needs an INSTANT, not a wall-clock
+  reading** — "effective Monday 00:00" is a `timestamptz` comparison, not a
+  `minuteOfDay` one — so it probably takes `now` rather than the clock. Do not
+  reach for `restaurantClock` unless the price actually buckets by local day.
+- **`daypartClosure` returns `{ label, message }` — two renderings of one
+  answer.** If a staged price needs both a short badge on the editor and a
+  sentence in the confirm panel, copy that shape rather than growing a second
+  function.
+- **The migration to copy is `20260907090000_item_dayparts`**: a child table
+  with CHECK constraints written by hand, tested in `constraints.test.ts`
+  (`describe('item daypart windows')`, eight cases including the cascade).
+- **`loadMenu` maps `windows` absent-not-empty**, the same
+  `exactOptionalPropertyTypes` care `extraPriceDeltaCents` needs. The
+  `SAMPLE_MENU` round-trip in `menu.test.ts` is what enforces it — a staged
+  price mapped as `null` instead of absent fails there, not in a receipt.
 
-**Second, smaller one, and the PRD names it too:** when a daypart closes on an
-item sitting in an open cart, is that the 86 path (flag at checkout, fix or
-remove) or something gentler? The 86 path is honest and already built, and it
-is also a customer being told at 16:01 that the thing they added at 15:58 is
-gone. Cheapest defensible answer is the existing path; say so out loud.
+## Rules C-110 established that P1-2 must not break
 
-## What C-109 leaves behind
+- **A schedule and a human fact are different columns.** C-110 resolved that
+  for dayparts vs 86s. P1-2 has the same shape one level down: a STAGED price
+  and the LIVE price are two facts, and the staged one must not overwrite the
+  live one until its instant passes. A single column with a "pending" flag is
+  the same tempting collapse.
+- **Precedence must be explicit and tested.** `validateComposition` reports the
+  86 OR the daypart, never both, and there are three tests saying so. If a
+  staged price and a manual edit can both be true at once, decide which wins
+  and test it, in the same session.
+- **Never seed a time-dependent fixture.** No item carries a daypart in the
+  seed, deliberately (`docs/WRITEUP.md`, and `seedSettings`' own comment). A
+  price staged for a fixed date will rot; stage it relative to the
+  restaurant's clock in a fixture, the way `setDaypart` in
+  `apps/web/e2e/fixtures.ts` does.
 
-- **The PRD's category-vs-station question is RESOLVED and must not be
-  re-opened**: the grain is an arbitrary selection. The evidence is in the menu
-  — the fryer's output spans Sides, Plates and Sweets and none of those
-  categories is wholly fried. **C-112 (stations) is untouched and still worth
-  building**: a station would *seed* a selection, and the seeding mechanism now
-  exists. Nothing has to be unbuilt for it.
-- **`packages/core/menu/reach.ts` now has three callers of `itemsWithGroup`**
-  (`itemsUsingGroup`, `searchMenu`, `selectionReach`). It is still the one
-  place `menu.items` is filtered by group membership. Keep it that way.
-- **`setAvailability` in `packages/db/menu.ts` returns the rows it FLIPPED**,
-  not the rows it was handed. Anything that wants an honest undo over a batch
-  should copy that shape rather than the selection.
-- **The 86 board's selection lives in the URL beside `q`**, and every link on
-  the page is rebuilt from the URL. If a daypart ever puts a third piece of
-  state on that screen, it goes in the URL too — the board's whole robustness
-  story is that it is a GET that works unhydrated.
-- **`placement.test.ts`'s option-86 refusal is an `it.each` over both write
-  paths.** P1-1's "refused at 15:59, accepted at 16:01" test at all three call
-  sites should extend that file the same way rather than starting a new one.
-- **Category names are still not searched, and the reason C-108 deferred them
-  to C-109 expired** — the category grain was rejected, and a category's seed
-  link is already on screen next to its own heading. Do not add it out of
-  obligation.
+## Ceilings recorded rather than fixed (C-110)
 
-## Ceilings recorded rather than fixed
+- **No daypart editor.** SQL or the test fixture only. It is a form over four
+  integers plus the confirm-on-save diff that already exists — and it is the
+  first thing to build if this ever ran anywhere. P1-2's staging UI is the
+  natural place to add it, since both are "a menu change with a time on it".
+- **No overnight window** (`menu_item_window_ends_after_start`), same line
+  C-011 drew for opening hours. A 22:00–02:00 item is two rows on two days.
+  Fixing it once — "does any window contain now" over a midnight-spanning set —
+  would fix both.
+- **The composer's clock is a server-render snapshot**, like the prices beside
+  it. Re-checked at cart-add and at placement.
+- **Dayparts are item-grain only.** An option cannot carry one; the shared-
+  option problem C-012 recorded is why.
 
-- **`setAvailability` is read-then-write** (`ponytail:` comment on it).
-  Last-write-wins, same posture as C-015's stale panels. Two cooks batching
-  overlapping selections in the same second can leave one with an undo list
-  short by the overlap. Nobody loses an 86. Fix is one `UPDATE ... RETURNING
-  id` in raw SQL if it ever matters.
-- **No per-batch event.** PRD 4's builder Open Question (one event per row, or
-  one per batch?) is still open and still unanswerable, because neither the
-  bulk path nor the single toggles write a menu-change event at all.
+## Still open from C-109
+
+- **No per-batch menu-change event.** PRD 4's builder Open Question is still
+  unanswerable, because neither the bulk path nor the single toggles write a
+  menu-change event at all. C-110 did not change that — a daypart writes no
+  event either.
+- **`setAvailability` is read-then-write** (`ponytail:` comment on it),
+  last-write-wins.
 - **`done=off` survives a page reload**, so refreshing after a batch
   re-announces "Marked 6 sold out." It reports the URL, not an action.
+- **Category names are still not searched**, and C-108's reason for deferring
+  expired at C-109. Do not add it out of obligation.
 
 ## One flake, still recorded rather than fixed
 
 `e2e/refund.spec.ts:211` ("a no-show is offered a refund rather than given
 one") failed once in a full sweep at 8.0s and has passed in every sweep since,
-including C-109's. A timeout, not an assertion. Local `retries` is 0 and CI's
-is 1, so CI retries past it silently. First place to look if a refund spec
-times out again.
+including C-109's and C-110's. A timeout, not an assertion. Local `retries` is
+0 and CI's is 1, so CI retries past it silently. First place to look if a
+refund spec times out again.
 
 ## Still open from C-069 / C-071, if you would rather clear debt
 

@@ -19,7 +19,7 @@ export async function resetDatabase(): Promise<void> {
     TRUNCATE TABLE
       "LoyaltyEvent", "LoyaltyMember",
       "OrderEvent", "OrderLineOption", "OrderLine", "Order",
-      "ItemModifierGroup", "ModifierOption", "ModifierGroup", "MenuItem",
+      "MenuItemWindow", "ItemModifierGroup", "ModifierOption", "ModifierGroup", "MenuItem",
       "Category", "RestaurantSettings", "StoreHours", "StaffMember"
     RESTART IDENTITY CASCADE
   `);

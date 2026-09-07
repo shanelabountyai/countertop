@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import type { Menu } from '@countertop/core/menu';
-import { loadMenu } from '@countertop/db/menu';
+import { loadClock, loadMenu } from '@countertop/db/menu';
 import { readCart } from '@/lib/cart-session';
 import { Composer } from './composer';
 
@@ -12,7 +12,13 @@ export default async function ItemPage({
   searchParams: Promise<{ line?: string }>;
 }) {
   const { itemId } = await params;
-  const menu = await loadMenu();
+  // The wall-clock reading the composer's daypart check runs against (P1-1).
+  // Read once here, on the server, and passed down as a prop: a client that
+  // read its own clock would be a customer's laptop deciding what the kitchen
+  // is serving. It is a SNAPSHOT of the render instant and goes stale on a
+  // page left open, exactly like the prices beside it — and, exactly like the
+  // prices, the server re-asks at cart-add and again at placement.
+  const [menu, clock] = await Promise.all([loadMenu(), loadClock()]);
   const item = menu.items[itemId];
   if (!item) notFound();
 
@@ -44,5 +50,5 @@ export default async function ItemPage({
       ? { lineId: line.id, composition: line.composition }
       : undefined;
 
-  return <Composer menu={scoped} itemId={item.id} {...(editing && { editing })} />;
+  return <Composer menu={scoped} itemId={item.id} clock={clock} {...(editing && { editing })} />;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SAMPLE_MENU, menuWith } from '../menu/sample-menu';
 import type { Composition, Menu } from '../menu/types';
+import type { RestaurantClock } from '../orders/business-day';
 import {
   EMPTY_CART,
   addLine,
@@ -24,6 +25,11 @@ import { parseCart, parseComposition, serializeCart } from './serialize';
 //   chips & salsa                  350   → unit  350
 const RATE_8_25 = 82_500;
 
+// Monday lunchtime. Nothing in SAMPLE_MENU carries a daypart, so the reading
+// is arbitrary here — it exists because the orderability function takes one,
+// which is the point (P1-1).
+const NOON: RestaurantClock = { day: '2026-09-07', weekday: 1, minuteOfDay: 12 * 60 };
+
 const BURRITO_GUAC: Composition = {
   itemId: 'burrito',
   quantity: 1,
@@ -35,8 +41,14 @@ const BURRITO_GUAC: Composition = {
 
 const CHIPS: Composition = { itemId: 'chips', quantity: 1, selections: [] };
 
-const add = (cart: Cart, id: string, composition: Composition, menu: Menu = SAMPLE_MENU): Cart => {
-  const result = addLine(menu, cart, id, composition);
+const add = (
+  cart: Cart,
+  id: string,
+  composition: Composition,
+  menu: Menu = SAMPLE_MENU,
+  clock: RestaurantClock = NOON,
+): Cart => {
+  const result = addLine(menu, cart, id, composition, clock);
   if (!result.ok) throw new Error(`fixture did not add: ${kinds(result.errors).join(', ')}`);
   return result.cart;
 };
@@ -68,14 +80,14 @@ describe('addLine — the cart-validation call site of the orderability function
 
   it('refuses a quantity over the server-side cap, by reason', () => {
     const errors = refusal(
-      addLine(SAMPLE_MENU, EMPTY_CART, 'line-1', { ...BURRITO_GUAC, quantity: 21 }),
+      addLine(SAMPLE_MENU, EMPTY_CART, 'line-1', { ...BURRITO_GUAC, quantity: 21 }, NOON),
     );
     expect(kinds(errors)).toEqual(['quantity_out_of_range']);
   });
 
   it('refuses a note over 140 characters, by reason', () => {
     const errors = refusal(
-      addLine(SAMPLE_MENU, EMPTY_CART, 'line-1', { ...BURRITO_GUAC, note: 'x'.repeat(141) }),
+      addLine(SAMPLE_MENU, EMPTY_CART, 'line-1', { ...BURRITO_GUAC, note: 'x'.repeat(141) }, NOON),
     );
     expect(kinds(errors)).toEqual(['note_too_long']);
     expect(errors[0]?.message).toMatch(/140/);
@@ -91,7 +103,7 @@ describe('addLine — the cart-validation call site of the orderability function
       const option = m.groups.addons?.options.find((o) => o.id === 'guacamole');
       if (option) option.available = false;
     });
-    const errors = refusal(addLine(menu, EMPTY_CART, 'line-1', BURRITO_GUAC));
+    const errors = refusal(addLine(menu, EMPTY_CART, 'line-1', BURRITO_GUAC, NOON));
     expect(kinds(errors)).toEqual(['option_unavailable']);
   });
 
@@ -112,7 +124,7 @@ describe('replaceLine / removeLine — composed items are editable and removable
     let cart = add(EMPTY_CART, 'line-1', BURRITO_GUAC);
     cart = add(cart, 'line-2', CHIPS);
 
-    const result = replaceLine(SAMPLE_MENU, cart, 'line-1', { ...BURRITO_GUAC, quantity: 3 });
+    const result = replaceLine(SAMPLE_MENU, cart, 'line-1', { ...BURRITO_GUAC, quantity: 3 }, NOON);
     if (!result.ok) throw new Error('expected the edit to be accepted');
 
     expect(result.cart.lines.map((line) => line.id)).toEqual(['line-1', 'line-2']);
@@ -127,17 +139,17 @@ describe('replaceLine / removeLine — composed items are editable and removable
       if (option) option.priceDeltaCents = 300;
     });
 
-    const result = replaceLine(menu, cart, 'line-1', { ...BURRITO_GUAC, quantity: 2 });
+    const result = replaceLine(menu, cart, 'line-1', { ...BURRITO_GUAC, quantity: 2 }, NOON);
     if (!result.ok) throw new Error('expected the edit to be accepted');
 
     expect(result.cart.lines[0]?.unitPriceAtAddCents).toBe(1395);
     // The customer just saw that price in the composer, so it is not a change
     // to confirm.
-    expect(reviewCart(menu, result.cart, RATE_8_25).needsPriceConfirmation).toBe(false);
+    expect(reviewCart(menu, result.cart, RATE_8_25, NOON).needsPriceConfirmation).toBe(false);
   });
 
   it('refuses an edit to a line that is no longer in the cart', () => {
-    const result = replaceLine(SAMPLE_MENU, EMPTY_CART, 'line-gone', BURRITO_GUAC);
+    const result = replaceLine(SAMPLE_MENU, EMPTY_CART, 'line-gone', BURRITO_GUAC, NOON);
     if (result.ok) throw new Error('expected a refusal');
     expect(kinds(result.errors)).toEqual(['unknown_line']);
   });
@@ -147,7 +159,7 @@ describe('replaceLine / removeLine — composed items are editable and removable
     const result = replaceLine(SAMPLE_MENU, cart, 'line-1', {
       ...BURRITO_GUAC,
       selections: [{ groupId: 'addons', optionId: 'guacamole' }],
-    });
+    }, NOON);
     if (result.ok) throw new Error('expected a refusal');
     expect(kinds(result.errors)).toEqual(['group_required']);
     expect(cart.lines[0]?.composition).toEqual(BURRITO_GUAC);
@@ -166,7 +178,7 @@ describe('reviewCart — the checkout re-check', () => {
     add(add(EMPTY_CART, 'line-1', { ...BURRITO_GUAC, quantity: 2 }), 'line-2', CHIPS);
 
   it('totals the cart server-side: 1345×2 + 350 = 3040, tax 250.8 → 251', () => {
-    const review = reviewCart(SAMPLE_MENU, twoLines(), RATE_8_25);
+    const review = reviewCart(SAMPLE_MENU, twoLines(), RATE_8_25, NOON);
     expect(review.totals).toEqual({ subtotalCents: 3040, taxCents: 251, totalCents: 3291 });
     expect(review.placeable).toBe(true);
     expect(review.needsFix).toBe(false);
@@ -178,7 +190,7 @@ describe('reviewCart — the checkout re-check', () => {
     const tampered: Cart = {
       lines: cart.lines.map((line) => ({ ...line, unitPriceAtAddCents: 1 })),
     };
-    const review = reviewCart(SAMPLE_MENU, tampered, RATE_8_25);
+    const review = reviewCart(SAMPLE_MENU, tampered, RATE_8_25, NOON);
     expect(review.totals.subtotalCents).toBe(3040);
     // It is not free food, it is a confirmation prompt showing $0.01 → real.
     expect(review.needsPriceConfirmation).toBe(true);
@@ -186,7 +198,7 @@ describe('reviewCart — the checkout re-check', () => {
   });
 
   it('an empty cart is not placeable', () => {
-    const review = reviewCart(SAMPLE_MENU, EMPTY_CART, RATE_8_25);
+    const review = reviewCart(SAMPLE_MENU, EMPTY_CART, RATE_8_25, NOON);
     expect(review.placeable).toBe(false);
     expect(review.totals).toEqual({ subtotalCents: 0, taxCents: 0, totalCents: 0 });
   });
@@ -196,7 +208,7 @@ describe('reviewCart — the checkout re-check', () => {
       const option = m.groups.addons?.options.find((o) => o.id === 'guacamole');
       if (option) option.available = false;
     });
-    const review = reviewCart(menu, twoLines(), RATE_8_25);
+    const review = reviewCart(menu, twoLines(), RATE_8_25, NOON);
 
     expect(review.lines[0]?.problems.map((p) => p.kind)).toEqual(['option_unavailable']);
     expect(review.lines[1]?.problems).toEqual([]);
@@ -209,7 +221,7 @@ describe('reviewCart — the checkout re-check', () => {
       const item = m.items.burrito;
       if (item) item.available = false;
     });
-    const review = reviewCart(menu, twoLines(), RATE_8_25);
+    const review = reviewCart(menu, twoLines(), RATE_8_25, NOON);
     expect(review.lines[0]?.problems.map((p) => p.kind)).toEqual(['item_unavailable']);
     expect(review.needsFix).toBe(true);
   });
@@ -219,7 +231,7 @@ describe('reviewCart — the checkout re-check', () => {
       const option = m.groups.addons?.options.find((o) => o.id === 'guacamole');
       if (option) option.priceDeltaCents = 300;
     });
-    const review = reviewCart(menu, twoLines(), RATE_8_25);
+    const review = reviewCart(menu, twoLines(), RATE_8_25, NOON);
 
     expect(review.lines[0]?.priceChange).toEqual({
       fromUnitPriceCents: 1345,
@@ -237,8 +249,8 @@ describe('reviewCart — the checkout re-check', () => {
       const option = m.groups.addons?.options.find((o) => o.id === 'guacamole');
       if (option) option.priceDeltaCents = 300;
     });
-    const confirmed = confirmPrices(menu, twoLines());
-    const review = reviewCart(menu, confirmed, RATE_8_25);
+    const confirmed = confirmPrices(menu, twoLines(), NOON);
+    const review = reviewCart(menu, confirmed, RATE_8_25, NOON);
 
     expect(confirmed.lines[0]?.unitPriceAtAddCents).toBe(1395);
     expect(review.needsPriceConfirmation).toBe(false);
@@ -251,7 +263,7 @@ describe('reviewCart — the checkout re-check', () => {
       const group = m.groups.addons;
       if (group) group.options = group.options.filter((o) => o.id !== 'guacamole');
     });
-    const review = reviewCart(menu, twoLines(), RATE_8_25);
+    const review = reviewCart(menu, twoLines(), RATE_8_25, NOON);
 
     expect(review.lines[0]?.priced).toBeNull();
     expect(review.lines[0]?.problems.map((p) => p.kind)).toEqual(['unknown_option']);
@@ -264,9 +276,9 @@ describe('reviewCart — the checkout re-check', () => {
     const menu = menuWith((m) => {
       delete m.items.burrito;
     });
-    const confirmed = confirmPrices(menu, twoLines());
+    const confirmed = confirmPrices(menu, twoLines(), NOON);
     expect(confirmed.lines[0]?.unitPriceAtAddCents).toBe(1345);
-    expect(reviewCart(menu, confirmed, RATE_8_25).needsFix).toBe(true);
+    expect(reviewCart(menu, confirmed, RATE_8_25, NOON).needsFix).toBe(true);
   });
 });
 
@@ -321,6 +333,61 @@ describe('parseCart — the trust boundary', () => {
     // Shape-valid, menu-invalid: the parser passes it, `reviewCart` refuses it.
     const parsed = parseComposition({ itemId: 'unicorn', quantity: 99, selections: [] });
     expect(parsed).not.toBeNull();
-    expect(addLine(SAMPLE_MENU, EMPTY_CART, 'line-1', parsed!).ok).toBe(false);
+    expect(addLine(SAMPLE_MENU, EMPTY_CART, 'line-1', parsed!, NOON).ok).toBe(false);
+  });
+});
+
+// P1-1, the CART call site of the acceptance criterion — the middle of the
+// three. The composer refuses it, this refuses it, and placement refuses it,
+// and all three are the same function reading the same third input.
+describe('dayparts in an open cart (P1-1)', () => {
+  const FRIDAY = (minuteOfDay: number): RestaurantClock => ({
+    day: '2026-09-11',
+    weekday: 5,
+    minuteOfDay,
+  });
+
+  const dinnerOnlyChips = (): Menu =>
+    menuWith((m) => {
+      m.items.chips!.windows = [{ dayOfWeek: 5, startMinute: 16 * 60, endMinute: 21 * 60 }];
+    });
+
+  it('refuses the add at 15:59 and takes it at 16:01', () => {
+    const menu = dinnerOnlyChips();
+    expect(
+      kinds(refusal(addLine(menu, EMPTY_CART, 'line-1', CHIPS, FRIDAY(15 * 60 + 59)))),
+    ).toEqual(['item_outside_daypart']);
+    expect(addLine(menu, EMPTY_CART, 'line-1', CHIPS, FRIDAY(16 * 60 + 1)).ok).toBe(true);
+  });
+
+  // The second Open Question, answered: a daypart closing under an open cart
+  // is the 86 path — flagged at checkout, fix or remove — because that path is
+  // already built, already honest, and already tested. The kindness is in the
+  // sentence, not in a third behaviour that would let the line through.
+  it('blocks checkout on a line whose window closed while it sat there', () => {
+    const menu = dinnerOnlyChips();
+    // Added at 17:00, inside the window. It is the CLOCK that moved, not the
+    // menu — which is the difference between this and an 86.
+    const cart = add(EMPTY_CART, 'line-1', CHIPS, menu, FRIDAY(17 * 60));
+
+    const review = reviewCart(menu, cart, RATE_8_25, FRIDAY(21 * 60 + 1));
+
+    expect(review.needsFix).toBe(true);
+    expect(review.placeable).toBe(false);
+    expect(review.lines[0]?.problems.map((p) => p.kind)).toEqual(['item_outside_daypart']);
+    expect(review.lines[0]?.problems[0]?.message).toBe('Chips & salsa is served 16:00–21:00.');
+  });
+
+  it('still prices the blocked line — it is unavailable, not unknown', () => {
+    // The distinction `UNPRICEABLE_KINDS` draws. An item outside its window
+    // still exists and still has a price, so the cart can show the customer
+    // what they were about to buy instead of a blank row.
+    const menu = dinnerOnlyChips();
+    const cart = add(EMPTY_CART, 'line-1', CHIPS, menu, FRIDAY(17 * 60));
+
+    const review = reviewCart(menu, cart, RATE_8_25, FRIDAY(9 * 60));
+
+    expect(review.lines[0]?.priced?.unitPriceCents).toBe(350);
+    expect(review.lines[0]?.priceChange).toBeNull();
   });
 });

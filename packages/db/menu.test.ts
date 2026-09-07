@@ -30,6 +30,30 @@ describe('loadMenu', () => {
     await prisma.modifierOption.update({ where: { id: 'guacamole' }, data: { available: true } });
   });
 
+  // P1-1. Absent, not empty: the round-trip above expects an item with no
+  // schedule to have NO `windows` key at all, which is what SAMPLE_MENU is
+  // written as and what `exactOptionalPropertyTypes` distinguishes. Mapping it
+  // as `windows: []` would fail that test — this one says why on purpose.
+  it('maps daypart windows, and only onto the items that have them', async () => {
+    await prisma.menuItemWindow.createMany({
+      data: [
+        { itemId: 'taco-plate', dayOfWeek: 5, startMinute: 16 * 60, endMinute: 21 * 60 },
+        { itemId: 'taco-plate', dayOfWeek: 5, startMinute: 7 * 60, endMinute: 11 * 60 },
+      ],
+    });
+
+    const menu = await loadMenu();
+    // In clock order, so the "07:00–11:00 and 16:00–21:00" sentence reads
+    // without the label having to re-sort them.
+    expect(menu.items['taco-plate']?.windows).toEqual([
+      { dayOfWeek: 5, startMinute: 7 * 60, endMinute: 11 * 60 },
+      { dayOfWeek: 5, startMinute: 16 * 60, endMinute: 21 * 60 },
+    ]);
+    expect(menu.items.burrito).not.toHaveProperty('windows');
+
+    await prisma.menuItemWindow.deleteMany();
+  });
+
   it('refuses to invent settings when the row is missing', async () => {
     await expect(loadSettings()).rejects.toThrow();
     await prisma.restaurantSettings.create({

@@ -150,6 +150,14 @@ describe('the snapshot rule', () => {
     await prisma.itemModifierGroup.delete({
       where: { itemId_groupId: { itemId: 'burrito', groupId: 'addons' } },
     });
+    // Put the item on a daypart it is now outside of (P1-1). The PRD names
+    // this as the one risk dayparts introduce to the snapshot rule: a reader
+    // thinking an item outside its window should not render on an old
+    // receipt. It must. A daypart is a live-menu fact and a placed order is a
+    // copy — this is the same 21:30 receipt for the same 16:30 order.
+    await prisma.menuItemWindow.create({
+      data: { itemId: 'burrito', dayOfWeek: 6, startMinute: 3 * 60, endMinute: 4 * 60 },
+    });
 
     expect(JSON.stringify(await readReceipt(id))).toBe(before);
   });

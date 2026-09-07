@@ -31,7 +31,7 @@ import {
   type OrderStatus,
 } from '@countertop/core';
 import { prisma } from './index';
-import { loadMenu } from './menu';
+import { loadClock, loadMenu } from './menu';
 import { derivedIdempotencyKey, placeOrder } from './placement';
 import { applyOrderAction } from './transitions';
 import {
@@ -439,13 +439,16 @@ const at = (anchor: Date, minute: number): Date => instantMinutesAfter(anchor, m
 const keyFor = (order: RushOrder): string =>
   derivedIdempotencyKey(`rush-${order.label}-${order.minute}`);
 
-async function buildCart(order: RushOrder): Promise<Cart> {
+async function buildCart(order: RushOrder, anchor: Date): Promise<Cart> {
   // The menu as it was when the customer composed, which for exactly one
   // customer is not the menu it will be priced against.
   const menu = await loadMenu();
+  // And the CLOCK they composed against (P1-1), which for the one customer who
+  // composes early is not the clock their order is placed on either.
+  const clock = await loadClock(at(anchor, order.composedMinute ?? order.minute));
   let cart: Cart = EMPTY_CART;
   for (const [index, composition] of COMPOSITIONS[order.composition]!.entries()) {
-    const added = addLine(menu, cart, `${order.label}-${index}`, composition);
+    const added = addLine(menu, cart, `${order.label}-${index}`, composition, clock);
     if (!added.ok) {
       throw new Error(
         `${order.label} could not compose line ${index} at minute ${order.composedMinute ?? order.minute}: ` +
@@ -589,7 +592,7 @@ export async function runRush(
     // 2. Carts get composed — for most customers, the minute they order.
     for (const order of RUSH_ORDERS) {
       if ((order.composedMinute ?? order.minute) === minute) {
-        carts.set(order, await buildCart(order));
+        carts.set(order, await buildCart(order, anchor));
       }
     }
 

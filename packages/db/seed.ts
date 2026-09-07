@@ -18,7 +18,7 @@ import {
   type Composition,
 } from '@countertop/core';
 import { prisma } from './index';
-import { loadMenu } from './menu';
+import { loadClock, loadMenu } from './menu';
 import { derivedIdempotencyKey, placeOrder } from './placement';
 import { applyOrderAction } from './transitions';
 import {
@@ -135,9 +135,14 @@ async function seedOrders(): Promise<void> {
   const menu = await loadMenu();
 
   for (const [index, seed] of SEED_ORDERS.entries()) {
+    const placedAt = minutesAgo(seed.placedMinutesAgo);
+    // Composed at the instant it was placed, so a dayparted item is judged by
+    // the clock the seeded customer was standing in front of (P1-1) rather
+    // than by whenever the seed happens to run.
+    const clock = await loadClock(placedAt);
     let cart: Cart = EMPTY_CART;
     for (const [lineIndex, composition] of seed.lines.entries()) {
-      const added = addLine(menu, cart, `seed-${index}-${lineIndex}`, composition);
+      const added = addLine(menu, cart, `seed-${index}-${lineIndex}`, composition, clock);
       if (!added.ok) {
         throw new Error(
           `Seed order ${index} line ${lineIndex} is not orderable: ${added.errors.map((e) => e.message).join(' ')}`,
@@ -149,7 +154,7 @@ async function seedOrders(): Promise<void> {
     const placed = await placeOrder({
       cart,
       idempotencyKey: derivedIdempotencyKey(`seed-order-${index}`),
-      now: minutesAgo(seed.placedMinutesAgo),
+      now: placedAt,
       customerName: seed.customerName,
       orderNote: seed.orderNote ?? null,
     });

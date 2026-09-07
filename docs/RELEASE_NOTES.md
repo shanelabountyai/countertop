@@ -2124,3 +2124,48 @@ and orders already placed are untouched — they are snapshots, and a menu chang
 can never reach them. That last one is asserted, not assumed: the existing
 single-86 test was widened to run against both write paths and demand the same
 refusal from each, including a submission that bypasses the browser entirely.
+
+---
+
+## C-110 — An item that knows what time it is
+
+**At 4pm, a fast-casual kitchen changes menus.** Breakfast comes off, dinner
+goes on. Today that is a manager standing at a phone during the changeover,
+86'ing eleven items and un-86'ing nine — the most common menu operation in the
+business, done by hand, twice a day, at the busiest moment of the afternoon.
+When it gets missed, someone orders breakfast at 7pm.
+
+**An item can now carry serving hours,** and the clock does the changeover. A
+window is a day and two times, an item can have more than one of them
+(breakfast, then dinner, with a real gap in between), and everything downstream
+follows without being told: the menu row greys out with its hours on it, the
+composer says the same thing, a cart holding the item gets flagged at checkout,
+and the server refuses the order. That is one function answering one question,
+which is how this codebase has answered "can this be ordered right now?" since
+the beginning — the schedule became a third input to it, not a fourth place to
+ask.
+
+**A schedule is not the same thing as running out, and the difference is the
+whole design.** "Sold out" is a human saying "we ran out"; a daypart is the
+clock saying "not yet". They are stored as two separate facts, and the
+tempting simplification — one boolean, orderable or not — is the change that
+would silently undo something decided much earlier: an 86 never restores
+itself. Share the column and 4pm puts back on sale whatever a cook killed at
+12:40, which is food the kitchen cannot make. So they stay apart, and when an
+item is both, the customer hears "Sold out" — because it is not coming back at
+four, and saying it is would be a promise nobody made.
+
+**A window closing under an open cart is handled honestly rather than
+gently.** If the lunch item you added at 15:58 stops being served at 16:00, the
+cart flags it and asks you to fix or remove it — the same path an 86 takes,
+because a gentler path would be a line the kitchen cannot cook. What changed is
+the sentence: not "sold out", but "Chips & salsa is served 16:00–21:00", which
+tells you when to come back.
+
+**The 4pm minute belongs to dinner and to nothing else.** Windows are
+half-open, so 11:00–16:00 and 16:00–21:00 abut cleanly rather than overlapping
+for sixty seconds — the one minute of the day where a sloppier boundary would
+have both menus live at once, which is exactly the minute this feature is
+about. And the whole thing reads the restaurant's own clock, never the server's
+or the customer's browser's: the test suite runs twice in CI, in two timezones
+a day apart, and demands identical answers.

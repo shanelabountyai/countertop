@@ -331,7 +331,12 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
   }
 
   const [menu, settings] = await Promise.all([loadMenu(), loadGateState(now)]);
-  const review = reviewCart(menu, cart, settings.taxRatePpm);
+  // ONE wall-clock reading for the whole placement: the daypart check inside
+  // `reviewCart` and the store-hours check inside `checkoutGate` below are
+  // asked about the same instant. Two readings could refuse a line for being
+  // past 16:00 and open the door for being before it.
+  const clock = restaurantClock(now, settings.timezone);
+  const review = reviewCart(menu, cart, settings.taxRatePpm, clock);
   const identity = normalizeIdentity(input);
   const errors: PlacementError[] = identity.ok ? [] : [...identity.violations];
 
@@ -342,7 +347,7 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
   // Deliberately AFTER the idempotency replay above: a retry of an order that
   // is already on the grill must return that order, not be told the restaurant
   // has since closed. The gate is asked about NEW orders only.
-  const gate = checkoutGate(settings, restaurantClock(now, settings.timezone));
+  const gate = checkoutGate(settings, clock);
   if (!gate.open) {
     errors.push({ kind: 'ordering_closed', reason: gate.reason, message: gate.message });
   }

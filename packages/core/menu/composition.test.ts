@@ -2,19 +2,34 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_LIMITS, validateComposition } from './composition';
 import type { CompositionViolation } from './composition';
 import { SAMPLE_MENU, menuWith } from './sample-menu';
+import type { RestaurantClock } from '../orders/business-day';
 import type { Composition, Menu, ModifierOption } from './types';
+
+// Monday lunchtime. Every item in SAMPLE_MENU is served all day, so this
+// reading is arbitrary for the whole suite EXCEPT the daypart block at the
+// bottom, which supplies its own.
+const NOON: RestaurantClock = { day: '2026-09-07', weekday: 1, minuteOfDay: 12 * 60 };
 
 // Violations are asserted BY REASON, never by "it failed" — a function that
 // refused everything would pass a boolean-only suite.
-const check = (c: Composition, menu: Menu = SAMPLE_MENU) => validateComposition(menu, c);
+const check = (c: Composition, menu: Menu = SAMPLE_MENU, clock: RestaurantClock = NOON) =>
+  validateComposition(menu, c, clock);
 
-const kinds = (c: Composition, menu: Menu = SAMPLE_MENU): CompositionViolation['kind'][] => {
-  const result = check(c, menu);
+const kinds = (
+  c: Composition,
+  menu: Menu = SAMPLE_MENU,
+  clock: RestaurantClock = NOON,
+): CompositionViolation['kind'][] => {
+  const result = check(c, menu, clock);
   return result.ok ? [] : result.violations.map((v) => v.kind);
 };
 
-const violation = (c: Composition, menu: Menu = SAMPLE_MENU): CompositionViolation => {
-  const result = check(c, menu);
+const violation = (
+  c: Composition,
+  menu: Menu = SAMPLE_MENU,
+  clock: RestaurantClock = NOON,
+): CompositionViolation => {
+  const result = check(c, menu, clock);
   if (result.ok) throw new Error('expected the composition to be refused');
   const [first] = result.violations;
   if (!first) throw new Error('refused with no reason given');
@@ -292,7 +307,7 @@ describe('server-enforced caps (P0-3)', () => {
   });
 
   it('honours a configured cap instead of the default', () => {
-    const result = validateComposition(SAMPLE_MENU, burrito({ quantity: 6 }), {
+    const result = validateComposition(SAMPLE_MENU, burrito({ quantity: 6 }), NOON, {
       ...DEFAULT_LIMITS,
       maxQuantity: 5,
     });
@@ -337,5 +352,149 @@ describe('the modifier structure is one level deep (P0-1)', () => {
       groups: [],
     };
     expect(option.id).toBe('guacamole');
+  });
+});
+
+// P1-1. The 4pm lunch-to-dinner changeover, which the PRD calls the most
+// common menu operation in fast casual and which was a manager 86'ing eleven
+// items from a phone.
+//
+// Every reading here is FROZEN and handed in. Nothing in this file reads a
+// clock, which is the whole reason the daypart check could go inside the one
+// orderability function instead of beside it.
+describe('dayparts (P1-1)', () => {
+  // Friday, because the window is a Friday window: a check that filtered by
+  // nothing would pass on any day and this suite would not notice.
+  const FRIDAY = (minuteOfDay: number): RestaurantClock => ({
+    day: '2026-09-11',
+    weekday: 5,
+    minuteOfDay,
+  });
+
+  /** The taco plate, served Friday 16:00–21:00 and not otherwise. */
+  const dinnerOnly = (): Menu =>
+    menuWith((m) => {
+      m.items['taco-plate']!.windows = [{ dayOfWeek: 5, startMinute: 16 * 60, endMinute: 21 * 60 }];
+    });
+
+  // Two fillings, because the group requires two — a fixture short of a
+  // required group would refuse for the wrong reason and every assertion
+  // below would be about `below_min`.
+  const tacos: Composition = {
+    itemId: 'taco-plate',
+    quantity: 1,
+    selections: [
+      { groupId: 'fillings', optionId: 'al-pastor' },
+      { groupId: 'fillings', optionId: 'fish' },
+    ],
+  };
+
+  it('refuses at 15:59 and accepts at 16:01', () => {
+    expect(violation(tacos, dinnerOnly(), FRIDAY(15 * 60 + 59))).toMatchObject({
+      kind: 'item_outside_daypart',
+      message: 'Taco plate is served 16:00–21:00.',
+    });
+    expect(check(tacos, dinnerOnly(), FRIDAY(16 * 60 + 1))).toEqual({ ok: true });
+  });
+
+  it('treats the window as half-open: served at 16:00, not at 21:00', () => {
+    // The changeover minute belongs to dinner and to nothing else. An
+    // inclusive end would make 21:00 the one minute of the day when a closed
+    // window is still open.
+    expect(check(tacos, dinnerOnly(), FRIDAY(16 * 60))).toEqual({ ok: true });
+    expect(kinds(tacos, dinnerOnly(), FRIDAY(21 * 60))).toEqual(['item_outside_daypart']);
+  });
+
+  it('serves an item with no windows at every minute of every day', () => {
+    // The overwhelming default, and the reason `windows` is optional rather
+    // than a required empty list.
+    expect(check(tacos, SAMPLE_MENU, FRIDAY(3 * 60))).toEqual({ ok: true });
+  });
+
+  it('refuses on a day the item has no window at all', () => {
+    // Absence is the closed signal, same as a missing StoreHours row: a
+    // deleted window cannot leave an item on the menu.
+    const saturday: RestaurantClock = { day: '2026-09-12', weekday: 6, minuteOfDay: 18 * 60 };
+    expect(violation(tacos, dinnerOnly(), saturday)).toMatchObject({
+      kind: 'item_outside_daypart',
+      message: "Taco plate is not on today's menu.",
+    });
+  });
+
+  it('reads two windows on one day as one sentence, in clock order', () => {
+    const split = menuWith((m) => {
+      m.items['taco-plate']!.windows = [
+        { dayOfWeek: 5, startMinute: 16 * 60, endMinute: 21 * 60 },
+        { dayOfWeek: 5, startMinute: 7 * 60, endMinute: 11 * 60 },
+      ];
+    });
+    // 13:00 is between them — the gap is real and the sentence names both
+    // sides of it. This is what a child table buys over a column pair.
+    expect(violation(tacos, split, FRIDAY(13 * 60))).toMatchObject({
+      message: 'Taco plate is served 07:00–11:00 and 16:00–21:00.',
+    });
+    expect(check(tacos, split, FRIDAY(8 * 60))).toEqual({ ok: true });
+  });
+
+  it('renders an end of 1440 as midnight, not 24:00', () => {
+    const lateNight = menuWith((m) => {
+      m.items['taco-plate']!.windows = [{ dayOfWeek: 5, startMinute: 22 * 60, endMinute: 1440 }];
+    });
+    expect(violation(tacos, lateNight, FRIDAY(12 * 60))).toMatchObject({
+      message: 'Taco plate is served 22:00–midnight.',
+    });
+  });
+
+  // The Open Question this item turned on, answered in code: dayparts and 86s
+  // are separate facts and only one of them is ever the reason.
+  it('says "sold out", not the schedule, when the item is BOTH', () => {
+    // A cook killed it at 12:40; it is not "back at 16:00" and telling a
+    // customer it is would be a promise the kitchen has not made.
+    const killed = menuWith((m) => {
+      m.items['taco-plate']!.available = false;
+      m.items['taco-plate']!.windows = [{ dayOfWeek: 5, startMinute: 16 * 60, endMinute: 21 * 60 }];
+    });
+    expect(kinds(tacos, killed, FRIDAY(18 * 60))).toEqual(['item_unavailable']);
+    expect(kinds(tacos, killed, FRIDAY(15 * 60))).toEqual(['item_unavailable']);
+  });
+
+  it('leaves an 86 in place when the window reopens', () => {
+    // The C-012 decision, structurally: a schedule restores by design and an
+    // 86 does not, so 16:00 must not un-86 anything. Sharing one boolean is
+    // exactly the change that would break this.
+    const killed = menuWith((m) => {
+      m.items['taco-plate']!.available = false;
+      m.items['taco-plate']!.windows = [{ dayOfWeek: 5, startMinute: 16 * 60, endMinute: 21 * 60 }];
+    });
+    expect(check(tacos, killed, FRIDAY(17 * 60)).ok).toBe(false);
+  });
+
+  it('is a fact about the ITEM, not the options under it', () => {
+    // A daypart on the plate does not silently daypart al pastor, which is
+    // shared with other items. Option-grain schedules are not modelled.
+    const other: Composition = {
+      itemId: 'burrito',
+      quantity: 1,
+      selections: [{ groupId: 'protein', optionId: 'chicken' }],
+    };
+    expect(check(other, dinnerOnly(), FRIDAY(9 * 60))).toEqual({ ok: true });
+  });
+});
+
+// The same window, read in two timezones that disagree about what day it is.
+// This is what the TZ×2 CI run is for, and it passes for a structural reason:
+// nothing above converts anything — the reading arrives already converted.
+describe('dayparts do not read the process timezone (P1-1)', () => {
+  it('answers from the reading it was handed, whatever TZ the runner is in', () => {
+    const menu = menuWith((m) => {
+      m.items.chips!.windows = [{ dayOfWeek: 5, startMinute: 16 * 60, endMinute: 21 * 60 }];
+    });
+    const chips: Composition = { itemId: 'chips', quantity: 1, selections: [] };
+    expect(check(chips, menu, { day: '2026-09-11', weekday: 5, minuteOfDay: 16 * 60 + 1 })).toEqual(
+      { ok: true },
+    );
+    expect(
+      kinds(chips, menu, { day: '2026-09-11', weekday: 5, minuteOfDay: 15 * 60 + 59 }),
+    ).toEqual(['item_outside_daypart']);
   });
 });

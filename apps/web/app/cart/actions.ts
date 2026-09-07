@@ -15,7 +15,7 @@ import {
   type CartError,
   type CartReview,
 } from '@countertop/core';
-import { loadMenu, loadSettings } from '@countertop/db/menu';
+import { loadClock, loadMenu, loadSettings } from '@countertop/db/menu';
 import { readCart, writeCart } from '@/lib/cart-session';
 
 type ActionError = CartError | { kind: 'malformed_request' | 'cart_full'; message: string };
@@ -41,7 +41,8 @@ export async function addToCart(raw: unknown): Promise<ActionResult> {
   const composition = parseComposition(raw);
   if (!composition) return MALFORMED;
 
-  const result = addLine(await loadMenu(), await readCart(), randomUUID(), composition);
+  const [menu, cart, clock] = await Promise.all([loadMenu(), readCart(), loadClock()]);
+  const result = addLine(menu, cart, randomUUID(), composition, clock);
   return result.ok ? save(result.cart) : { ok: false, errors: result.errors };
 }
 
@@ -49,7 +50,8 @@ export async function updateCartLine(lineId: string, raw: unknown): Promise<Acti
   const composition = parseComposition(raw);
   if (!composition) return MALFORMED;
 
-  const result = replaceLine(await loadMenu(), await readCart(), lineId, composition);
+  const [menu, cart, clock] = await Promise.all([loadMenu(), readCart(), loadClock()]);
+  const result = replaceLine(menu, cart, lineId, composition, clock);
   return result.ok ? save(result.cart) : { ok: false, errors: result.errors };
 }
 
@@ -59,13 +61,19 @@ export async function removeCartLine(lineId: string): Promise<ActionResult> {
 
 /** The customer's "yes, I saw the new price" (P0-3: no silent repricing). */
 export async function confirmCartPrices(): Promise<ActionResult> {
-  return save(confirmPrices(await loadMenu(), await readCart()));
+  const [menu, cart, clock] = await Promise.all([loadMenu(), readCart(), loadClock()]);
+  return save(confirmPrices(menu, cart, clock));
 }
 
 /** What checkout renders, and what C-006's placement gates on. */
 export async function getCartReview(): Promise<CartReview> {
-  const [menu, settings, cart] = await Promise.all([loadMenu(), loadSettings(), readCart()]);
-  return reviewCart(menu, cart, settings.taxRatePpm);
+  const [menu, settings, cart, clock] = await Promise.all([
+    loadMenu(),
+    loadSettings(),
+    readCart(),
+    loadClock(),
+  ]);
+  return reviewCart(menu, cart, settings.taxRatePpm, clock);
 }
 
 // Form-shaped wrappers, for the cart screen's `<form action={...}>` buttons.

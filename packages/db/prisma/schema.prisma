@@ -268,8 +268,46 @@ model MenuItem {
   prepWeight     Int                 @default(1)
   sortOrder      Int
   modifierGroups ItemModifierGroup[]
+  /// When this item is served (P1-1). No rows = all day, every day.
+  windows        MenuItemWindow[]
 
   @@index([categoryId, sortOrder])
+}
+
+/// One window an item is served in (P1-1) — the 4pm lunch-to-dinner
+/// changeover, done by the clock instead of by a manager 86'ing eleven items
+/// from a phone.
+///
+/// A CHILD TABLE, not a column pair on `MenuItem`, because an item can be
+/// served in more than one window on a day (breakfast and dinner, nothing in
+/// between). That is the difference from `StoreHours`, where `dayOfWeek` is
+/// the primary key because C-011 deliberately foreclosed split opening hours:
+/// these are two different gates and must not be conflated.
+///
+/// And deliberately NOT a boolean on `MenuItem` beside `available`: an 86 is a
+/// human fact that C-012 decided never restores itself overnight, and a
+/// schedule that restores things by design would silently un-86 what a cook
+/// killed at 12:40. Separate columns is what keeps that decision true.
+model MenuItemWindow {
+  id          String   @id @default(uuid())
+  itemId      String
+  /// Cascade, unlike the snapshot tables' `Restrict`: a window is not a record
+  /// of anything that happened, it is a property of a live menu row, and one
+  /// without its item means nothing.
+  item        MenuItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// 0 = Sunday, matching `restaurantClock` and `StoreHours`.
+  dayOfWeek   Int
+  /// Local wall-clock minutes since midnight, 0–1439. Inclusive.
+  startMinute Int
+  /// Local wall-clock minutes since midnight, 1–1440. Exclusive, so abutting
+  /// windows do not both own the changeover minute.
+  endMinute   Int
+
+  /// Two windows on the same day may not start at the same minute — that is
+  /// either a duplicate or a contradiction, and both would make the answer
+  /// depend on row order.
+  @@unique([itemId, dayOfWeek, startMinute])
+  @@index([itemId])
 }
 
 model ModifierGroup {

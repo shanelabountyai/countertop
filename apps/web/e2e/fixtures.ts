@@ -295,3 +295,51 @@ export async function failRefundFor(customerName: string): Promise<void> {
     await prisma.$disconnect();
   }
 }
+
+/**
+ * Put an item on a daypart window that is open, or closed, RIGHT NOW
+ * (P1-1, C-110).
+ *
+ * The caller says which side of the window it wants to be on and this picks
+ * the minutes, reading the restaurant's own clock. That is the whole design:
+ * fixed hours ("Fridays 16:00–21:00") would make the spec's outcome depend on
+ * what time the sweep happens to run, which is the defect `seedSettings`'
+ * round-the-clock hours exist to avoid — a suite that passes all day and fails
+ * for one hour is a suite nobody trusts again. Offsets ("an hour ago") have
+ * the same problem in a smaller window: the schema forecloses overnight
+ * windows, so "an hour ago" is unwritable for the first hour of a local day.
+ *
+ * Chosen so a window exists at every minute of the day:
+ *   served     → the whole day, `[0, 1440)`
+ *   not served → everything up to now, `[0, minuteOfDay)`, or, at exactly
+ *                midnight, everything after it
+ *
+ * Returns the minutes written, so the spec can build the expected "Served
+ * 00:00–14:23" label itself rather than asking the app what it should say.
+ *
+ * No item is seeded with a window — see docs/WRITEUP.md — so this is the only
+ * thing in the suite that creates one, and `reseed()` removes it.
+ */
+export async function setDaypart(
+  itemId: string,
+  when: 'served' | 'not served',
+): Promise<{ startMinute: number; endMinute: number }> {
+  const { prisma } = await import('@countertop/db');
+  const { loadClock } = await import('@countertop/db/menu');
+  try {
+    const clock = await loadClock();
+    const window =
+      when === 'served'
+        ? { startMinute: 0, endMinute: 1440 }
+        : clock.minuteOfDay > 0
+          ? { startMinute: 0, endMinute: clock.minuteOfDay }
+          : { startMinute: 1, endMinute: 1440 };
+
+    await prisma.menuItemWindow.create({
+      data: { itemId, dayOfWeek: clock.weekday, ...window },
+    });
+    return window;
+  } finally {
+    await prisma.$disconnect();
+  }
+}

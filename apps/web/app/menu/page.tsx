@@ -2,7 +2,12 @@
 // database on the server, and the only thing that reaches the browser is what
 // it renders.
 import Link from 'next/link';
-import { loadMenu } from '@countertop/db/menu';
+import {
+  daypartClosure,
+  type MenuItem,
+  type RestaurantClock,
+} from '@countertop/core';
+import { loadClock, loadMenu } from '@countertop/db/menu';
 import { formatCents } from '@/lib/money';
 import { currentGate } from '@/lib/checkout-gate';
 import { GateNotice } from '../checkout/gate-notice';
@@ -15,8 +20,22 @@ export const metadata = { title: 'Menu — Firebird Kitchen' };
 // output goes stale the first time the kitchen runs out of anything.
 export const dynamic = 'force-dynamic';
 
+// The same two facts `validateComposition` reads, in the same order of
+// precedence (P1-1): an 86 first, then the schedule. This screen renders the
+// reason; the server refuses the composition. Neither is the authority on its
+// own — a daypart that greyed the link but let a hand-rolled POST through
+// would be the pause-switch defect again.
+//
+// "Never both" is the precedence: an item that is sold out AND outside its
+// window is not coming back at 16:00, and saying so would be a promise the
+// kitchen has not made.
+function unavailableNote(item: MenuItem, clock: RestaurantClock): string | null {
+  if (!item.available) return 'Sold out';
+  return daypartClosure(item, clock)?.label ?? null;
+}
+
 export default async function MenuPage() {
-  const [menu, gate] = await Promise.all([loadMenu(), currentGate()]);
+  const [menu, gate, clock] = await Promise.all([loadMenu(), currentGate(), loadClock()]);
   const items = Object.values(menu.items);
 
   return (
@@ -48,7 +67,7 @@ export default async function MenuPage() {
                   {/* A sold-out item is RENDERED, not hidden (P0-6): a customer
                       who cannot find the burrito assumes the site is broken,
                       one who sees it greyed out knows the kitchen ran out. */}
-                  {item.available ? (
+                  {unavailableNote(item, clock) === null ? (
                     <Link
                       href={`/menu/${item.id}`}
                       className="flex min-h-12 items-center justify-between gap-4 rounded-lg border border-neutral-300 px-4 py-3 hover:border-neutral-500"
@@ -62,7 +81,8 @@ export default async function MenuPage() {
                       className="flex min-h-12 items-center justify-between gap-4 rounded-lg border border-dashed border-neutral-300 px-4 py-3 text-neutral-500"
                     >
                       <span className="font-medium">
-                        {item.name} <span className="font-normal">— Sold out</span>
+                        {item.name}{' '}
+                        <span className="font-normal">— {unavailableNote(item, clock)}</span>
                       </span>
                       <span className="tabular-nums">{formatCents(item.basePriceCents)}</span>
                     </div>

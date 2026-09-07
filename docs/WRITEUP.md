@@ -377,6 +377,12 @@ Recorded as they are made, with the ceiling each one has.
 - **The option direction of a search reaches further than the item direction, on purpose** (C-108). Typing "guac" surfaces the Guacamole option AND the burrito, the California burrito, the torta and the loaded nachos — none of which contain the string. Typing "Loaded nachos" surfaces the item and none of its options. The asymmetry is the C-107 argument arriving in the search: the option is the thing being 86'd, its blast radius is the surprise, and a board that showed the option alone would be the same silence in a shorter list. An item has no such surprise to report, and dragging in every salsa on a burrito would refill the screen the search just emptied. The one rule that had to be nailed down alongside it: the used-on line stays at FULL reach inside a filter, so a search can never quietly change what a tap is about to cost.
 - **Substring matching, and a cook under pressure types badly** (C-108). "guac" finds Guacamole; "guaq" finds nothing, and the screen says so honestly rather than falling back to showing everything — which would be worse, because a board that silently ignores a typo looks like a board that answered. Trigram or Levenshtein matching is the real fix and it lives entirely behind `searchMenu`, so it is one function to change and no call sites. Deferred because nobody has yet been stranded by a typo, and a fuzzy match that surfaces the wrong ingredient on the screen where the next tap takes food off the menu is not obviously an improvement over none.
 
+- **No item is seeded with a daypart, so the demo does not show the feature** (C-110). Deliberate, and it is the C-011 seeding rule applied one feature later: a seeded 16:00–21:00 window makes `/menu`, the screenshots and every spec touching that item behave differently depending on what time the sweep runs, which is the same "passes all day, fails for fifteen minutes" defect the round-the-clock store hours exist to avoid. The e2e's `setDaypart` fixture writes a window relative to the restaurant's own clock instead, so the feature's demonstration is the test rather than the seed. The cost is that someone opening the deployed menu sees nothing dayparted; the fix, if the portfolio wants it, is a window on an item nothing asserts against, and the screenshot spec is the thing to check first.
+- **A daypart has no editor** (C-110). Windows are written by SQL or by the test fixture; there is no kitchen screen. That is the C-015 line — the editor edits, it does not author — and a schedule is closer to authoring than to 86'ing. It is also the sharper version of the same gap: a restaurant that cannot change its own hours (C-011) at least has hours; a restaurant that cannot set a daypart has no way to use this feature at all. It is a form over four integers plus the confirm-on-save diff that already exists, and it is the first thing to build if this ever ran anywhere.
+- **No overnight daypart** (C-110), foreclosed by `menu_item_window_ends_after_start` exactly as C-011's `store_hours_closes_after_opening` forecloses overnight opening. A 22:00–02:00 item is two rows on two days. The reason is the same: `daypartClosure` reads an inverted window as "never served", which is an item that silently leaves the menu with no error anywhere, and refusing it at write time is the only version of that failure anybody notices. The upgrade is the same one C-011 names — "does any window contain now" over a set that may span midnight — and doing it once would fix both.
+- **The composer's clock is a server-render snapshot** (C-110). The wall-clock reading is computed on the server and passed to the client component as a prop, so a composer left open across 16:00 keeps showing the old answer until something re-renders. That is the C-007 caveat exactly — the composer is a preview of the server's answer, not the authority — and it is re-checked at cart-add and again at placement for the same reason. A client that read its own clock would be a customer's laptop deciding what the kitchen is serving.
+- **Dayparts are item-grain only** (C-110). An option cannot carry a window, so "extra guacamole, dinner only" is not expressible. Nobody has asked, and the option grain carries the harder problem C-012 already recorded: a shared option's schedule would be shared too, so a dinner-only option on a group used by a breakfast item is a contradiction the model has nowhere to put. The item grain has no such ambiguity, which is why it is the one that shipped.
+
 ## Defects Found
 
 **C-001 — the drift check could never have passed.** CI's schema-drift step runs
@@ -1831,6 +1837,66 @@ internally consistent and still be refuted by one row of the seed. And when two
 options are framed as an either-or, check whether one of them is a component of
 the other — the mechanism underneath both is usually the thing to build, and it
 is usually not the one being argued about.
+
+### The simplification that would have undone an older decision (C-110)
+
+Dayparts arrived with an open question: do a schedule and an 86 share a column?
+Sharing is one boolean, and one boolean is almost always the right call — an
+item is orderable or it is not, and two flags that mean "cannot be ordered" is
+the kind of duplication this codebase deletes on sight. Every instinct I have
+says collapse it.
+
+**The instinct is wrong here, and the reason is not in this feature.** C-012
+decided that an 86 never restores itself overnight: it is a human fact, cleared
+by a human. A daypart is the opposite by construction — a schedule exists to
+restore things. Put them in the same column and 16:00 does not just open
+dinner, it un-86's whatever a cook killed at 12:40, and puts food the kitchen
+cannot make back on sale. The bug would not appear in any daypart test. It
+would appear months later as "the sold-out button doesn't stick", and the
+column that caused it would look like good design.
+
+**What made it findable was that the earlier decision was written down** — in
+the schema comment, in the PRD's Non-Goals, and in this file. A merge of two
+booleans is a local, obviously-tidier change; the thing that makes it wrong
+lives three features away. It is only visible if the older decision left a note
+saying *why*, not just *what*.
+
+The consequence is a precedence rule rather than a merge: two facts, and
+`validateComposition` reports exactly one of them, 86 first. An item that is
+both sold out and out of its window is not "back at 16:00". That is asserted in
+three places, because a precedence rule with no test is a comment.
+
+The general version: **before collapsing two things that behave the same today,
+find out whether either of them was deliberately made to behave that way.**
+Duplication that exists on purpose reads exactly like duplication that does
+not, and the difference is a decision record.
+
+### The fixture that would have failed for one hour a day (C-110)
+
+The obvious way to demo a daypart is to seed one: put the breakfast burrito on
+07:00–11:00 and the feature is visible on the menu. The obvious way to test one
+is a window relative to now — "served until an hour ago".
+
+**Both are time bombs, and the codebase had already written the warning.**
+`seedSettings` carries a comment explaining why the test restaurant's hours are
+round-the-clock with a zero cutoff: the schema default would close it between
+23:45 and midnight, "and a suite that passes all day and fails for the fifteen
+minutes before local midnight is a suite nobody trusts again." A seeded
+07:00–11:00 window is that same defect with a bigger window: every spec and
+screenshot touching that item behaves differently depending on what time the
+sweep runs. And "an hour ago" is unwritable during the first hour of a local
+day, because the schema forecloses overnight windows — a fixture that throws
+between midnight and 01:00.
+
+So no item is seeded with a window, and the e2e fixture takes a *side* rather
+than an offset: `served` writes `[0, 1440)` and `not served` writes
+`[0, minuteOfDay)`. Both are valid at every minute of the day, and the
+assertion builds the expected label from the returned minutes rather than
+asking the app what it should say.
+
+The general version: **a test fixture that reads the clock has to be correct at
+every minute, not at the minute you ran it.** And the second-best place to
+learn that is a comment someone left on the last fixture that got it wrong.
 
 ## Skills Learned / Functions Unlocked
 

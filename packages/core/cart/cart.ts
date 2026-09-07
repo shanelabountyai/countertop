@@ -15,6 +15,7 @@ import {
   type CompositionViolation,
 } from '../menu/composition';
 import type { Composition, Menu } from '../menu/types';
+import type { RestaurantClock } from '../orders/business-day';
 import {
   priceLine,
   priceOrder,
@@ -53,9 +54,10 @@ const UNPRICEABLE_KINDS = new Set(['unknown_item', 'unknown_group', 'unknown_opt
 function validated(
   menu: Menu,
   composition: Composition,
+  clock: RestaurantClock,
   limits: CompositionLimits,
 ): CartError[] {
-  const validity = validateComposition(menu, composition, limits);
+  const validity = validateComposition(menu, composition, clock, limits);
   return validity.ok ? [] : validity.violations;
 }
 
@@ -68,9 +70,10 @@ export function addLine(
   cart: Cart,
   lineId: string,
   composition: Composition,
+  clock: RestaurantClock,
   limits: CompositionLimits = DEFAULT_LIMITS,
 ): CartResult {
-  const errors = validated(menu, composition, limits);
+  const errors = validated(menu, composition, clock, limits);
   if (errors.length > 0) return { ok: false, errors };
 
   return {
@@ -100,6 +103,7 @@ export function replaceLine(
   cart: Cart,
   lineId: string,
   composition: Composition,
+  clock: RestaurantClock,
   limits: CompositionLimits = DEFAULT_LIMITS,
 ): CartResult {
   const index = cart.lines.findIndex((line) => line.id === lineId);
@@ -112,7 +116,7 @@ export function replaceLine(
     };
   }
 
-  const errors = validated(menu, composition, limits);
+  const errors = validated(menu, composition, clock, limits);
   if (errors.length > 0) return { ok: false, errors };
 
   const lines = [...cart.lines];
@@ -135,7 +139,8 @@ export type CartLineReview = {
   line: CartLine;
   /** Null when the menu no longer has the item/group/option this line names. */
   priced: PricedLine | null;
-  /** 86'd item or option, over-cap quantity or note, a group that changed shape. */
+  /** 86'd item or option, an item outside its serving hours (P1-1), over-cap
+   *  quantity or note, a group that changed shape. */
   problems: CompositionViolation[];
   priceChange: PriceChange | null;
 };
@@ -144,7 +149,13 @@ export type CartReview = {
   lines: CartLineReview[];
   /** Server-computed, over the lines that still price. Never the client's number. */
   totals: OrderTotals;
-  /** A line must be removed or fixed (P0-3's 86-in-cart criterion). */
+  /** A line must be removed or fixed (P0-3's 86-in-cart criterion).
+   *
+   *  A daypart closing under an open cart routes HERE, deliberately: it is the
+   *  86 path, which is already built and already honest, rather than a gentler
+   *  third behaviour nobody would test. The kindness is in the sentence — "is
+   *  served 16:00–21:00" rather than "is sold out" — not in a separate path
+   *  that would let the line through. Decided at C-110; the PRD asked. */
   needsFix: boolean;
   /** A price moved; the customer confirms old → new before placing. */
   needsPriceConfirmation: boolean;
@@ -162,10 +173,11 @@ export function reviewCart(
   menu: Menu,
   cart: Cart,
   ratePpm: TaxRatePpm,
+  clock: RestaurantClock,
   limits: CompositionLimits = DEFAULT_LIMITS,
 ): CartReview {
   const lines: CartLineReview[] = cart.lines.map((line) => {
-    const validity = validateComposition(menu, line.composition, limits);
+    const validity = validateComposition(menu, line.composition, clock, limits);
     const problems = validity.ok ? [] : validity.violations;
     const priceable = !problems.some((problem) => UNPRICEABLE_KINDS.has(problem.kind));
     const priced = priceable ? priceLine(menu, line.composition) : null;
@@ -208,8 +220,8 @@ export function reviewCart(
  * `needsFix` regardless, and inventing a price for a deleted item would be the
  * silent repricing this whole path exists to prevent.
  */
-export function confirmPrices(menu: Menu, cart: Cart): Cart {
-  const review = reviewCart(menu, cart, 0);
+export function confirmPrices(menu: Menu, cart: Cart, clock: RestaurantClock): Cart {
+  const review = reviewCart(menu, cart, 0, clock);
   return {
     lines: review.lines.map(({ line, priced }) =>
       priced ? { ...line, unitPriceAtAddCents: priced.unitPriceCents } : line,

@@ -239,6 +239,52 @@ describe('what placement refuses', () => {
     expect(result?.review.lines[0]?.problems[0]).toMatchObject({ optionId: 'guacamole' });
   });
 
+  // P1-1, the placement call site of the acceptance criterion. Extended into
+  // this file rather than started as a new one for the same reason the bulk 86
+  // was: this is where "the server refused it" is asserted without a browser,
+  // and a daypart that only greys a menu link is the same defect class as an
+  // 86 that only greys a menu link.
+  //
+  // July 4th 2026 is a Saturday in Los Angeles — `dayOfWeek: 6`.
+  it.each([
+    ['15:59', new Date(Date.UTC(2026, 6, 4, 22, 59)), false],
+    ['16:01', new Date(Date.UTC(2026, 6, 4, 23, 1)), true],
+  ])(
+    'a burrito served 16:00–21:00, submitted at %s (P1-1)',
+    async (_when, now, expectPlaced) => {
+      await prisma.menuItemWindow.create({
+        data: { itemId: 'burrito', dayOfWeek: 6, startMinute: 16 * 60, endMinute: 21 * 60 },
+      });
+
+      const result = await place({ now });
+
+      if (expectPlaced) {
+        expect(placed(result).subtotalCents).toBe(3240);
+      } else {
+        expect(result.ok).toBe(false);
+        expect(result.ok === false && result.errors.map((e) => e.kind)).toEqual([
+          'item_outside_daypart',
+        ]);
+        expect(
+          result.ok === false && result.review.lines[0]?.problems[0]?.message,
+        ).toBe('Burrito is served 16:00–21:00.');
+      }
+    },
+  );
+
+  it('a burrito that is BOTH 86-ed and out of its window says sold out (P1-1)', async () => {
+    // The Open Question, at the write path: an 86 is a human fact and a
+    // daypart is a schedule, and the customer hears the one that is true. "It
+    // is back at 16:00" would be a promise the kitchen has not made.
+    await prisma.menuItemWindow.create({
+      data: { itemId: 'burrito', dayOfWeek: 6, startMinute: 16 * 60, endMinute: 21 * 60 },
+    });
+    await setAvailability(['burrito'], [], false);
+
+    const result = await refusal({ now: new Date(Date.UTC(2026, 6, 4, 22, 59)) });
+    expect(result?.errors.map((e) => e.kind)).toEqual(['item_unavailable']);
+  });
+
   it('a line that was repriced while it sat in the cart (P0-3)', async () => {
     await prisma.menuItem.update({ where: { id: 'burrito' }, data: { basePriceCents: 1195 } });
 

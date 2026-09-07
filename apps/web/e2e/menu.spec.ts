@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { reseed } from './fixtures';
+import { reseed, setDaypart } from './fixtures';
 
 // C-007: the customer menu and the item composer (P0-1, P0-2 display side).
 //
@@ -92,6 +92,76 @@ test('a composed line reaches the cart, with the negation distinct and the tax t
 
   await page.getByRole('button', { name: 'Remove' }).click();
   await expect(page.getByText('Nothing in it yet.')).toBeVisible();
+});
+
+// C-110 (P1-1): an item that knows what time it is, end to end. The unit and
+// db suites assert the refusal at all three call sites with a frozen clock;
+// what only a browser can prove is that the SCREENS are wired to the same
+// answer — that the menu row, the composer's Add button and the checkout page
+// are not each deciding for themselves.
+//
+// No seeded item carries a window (docs/WRITEUP.md), so these write their own.
+// `reseed()` in `beforeEach` takes it away again.
+const hhmm = (minuteOfDay: number): string =>
+  `${String(Math.floor(minuteOfDay / 60)).padStart(2, '0')}:${String(minuteOfDay % 60).padStart(2, '0')}`;
+
+test('an item outside its serving hours is shown with its hours, not hidden', async ({ page }) => {
+  const { startMinute, endMinute } = await setDaypart('chips', 'not served');
+
+  await page.goto('/menu');
+
+  // Rendered, not hidden — the same rule an 86 follows (P0-6): a customer who
+  // cannot find the chips assumes the site is broken.
+  await expect(page.getByText(`Chips & salsa — Served ${hhmm(startMinute)}–${hhmm(endMinute)}`)).toBeVisible();
+  await expect(page.getByRole('link', { name: /Chips & salsa/ })).toHaveCount(0);
+  // And it is the schedule, not "Sold out": nobody ran out of anything.
+  await expect(page.getByText('Chips & salsa — Sold out')).toHaveCount(0);
+  // Its neighbours are untouched.
+  await expect(page.getByRole('link', { name: /Chips & guac \$5\.95/ })).toBeVisible();
+});
+
+test('the composer opened directly says so, and will not add', async ({ page }) => {
+  const { startMinute, endMinute } = await setDaypart('chips', 'not served');
+  const sentence = `Chips & salsa is served ${hhmm(startMinute)}–${hhmm(endMinute)}.`;
+
+  // Straight past the greyed row. The composer is running the same
+  // `validateComposition` the server runs, with the clock the server read —
+  // so it refuses before the POST, and the POST would be refused too
+  // (`placement.test.ts` asserts that half without a browser).
+  await page.goto('/menu/chips');
+  await expect(page.getByText(sentence)).toBeVisible();
+
+  await page.getByRole('button', { name: /Add to cart/ }).click();
+  await expect(page).not.toHaveURL(/\/cart$/);
+  await expect(page.getByText('Fix the choices above before adding this to your cart.')).toBeVisible();
+});
+
+test('a window closing under an open cart takes the 86 path, in gentler words', async ({ page }) => {
+  // Added while it was being served...
+  await setDaypart('chips', 'served');
+  await page.goto('/menu/chips');
+  await page.getByRole('button', { name: /Add to cart/ }).click();
+  await expect(page).toHaveURL(/\/cart$/);
+  await expect(page.getByRole('heading', { name: '1 × Chips & salsa' })).toBeVisible();
+
+  // ...and the clock moved. Same fix-or-remove path an 86 uses — the decision
+  // recorded at C-110 was that the existing path is the honest one and the
+  // kindness belongs in the sentence.
+  const { prisma } = await import('@countertop/db');
+  try {
+    await prisma.menuItemWindow.deleteMany({ where: { itemId: 'chips' } });
+  } finally {
+    await prisma.$disconnect();
+  }
+  const { startMinute, endMinute } = await setDaypart('chips', 'not served');
+
+  await page.reload();
+  await expect(
+    page.getByText(`Chips & salsa is served ${hhmm(startMinute)}–${hhmm(endMinute)}.`),
+  ).toBeVisible();
+  // The line still shows its price — it is unavailable, not unknown.
+  await expect(page.getByTestId('cart-total')).toHaveText('$3.79');
+  await expect(page.getByText('Fix or remove the flagged lines before placing this order.')).toBeVisible();
 });
 
 // C-021: editing a line in place. `replaceLine` has existed and been unit

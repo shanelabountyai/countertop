@@ -5,7 +5,7 @@
 //
 // `menu.test.ts` asserts this round-trips SAMPLE_MENU exactly — a column added
 // to the schema and forgotten here fails there rather than in a receipt.
-import type { Menu, ModifierGroup, MenuItem } from '@countertop/core';
+import { restaurantClock, type Menu, type ModifierGroup, type MenuItem, type RestaurantClock } from '@countertop/core';
 import { prisma } from './index';
 
 export async function loadMenu(): Promise<Menu> {
@@ -13,7 +13,12 @@ export async function loadMenu(): Promise<Menu> {
     prisma.category.findMany({ orderBy: { sortOrder: 'asc' } }),
     prisma.menuItem.findMany({
       orderBy: { sortOrder: 'asc' },
-      include: { modifierGroups: { orderBy: { sortOrder: 'asc' } } },
+      include: {
+        modifierGroups: { orderBy: { sortOrder: 'asc' } },
+        // P1-1. Ordered so the "served 07:00–11:00 and 16:00–21:00" sentence
+        // reads in clock order without the label having to re-sort it.
+        windows: { orderBy: [{ dayOfWeek: 'asc' }, { startMinute: 'asc' }] },
+      },
     }),
     prisma.modifierGroup.findMany({
       include: { options: { orderBy: { sortOrder: 'asc' } } },
@@ -33,6 +38,19 @@ export async function loadMenu(): Promise<Menu> {
           basePriceCents: item.basePriceCents,
           available: item.available,
           prepWeight: item.prepWeight,
+          // Absent, not empty — the same `exactOptionalPropertyTypes` care the
+          // option's `extraPriceDeltaCents` needs below, and the same reason:
+          // `windows: []` and no key at all are different values, and only the
+          // second matches an item written with no schedule.
+          ...(item.windows.length === 0
+            ? {}
+            : {
+                windows: item.windows.map((window) => ({
+                  dayOfWeek: window.dayOfWeek,
+                  startMinute: window.startMinute,
+                  endMinute: window.endMinute,
+                })),
+              }),
           modifierGroupIds: item.modifierGroups.map((join) => join.groupId),
         },
       ]),
@@ -73,6 +91,22 @@ export async function loadSettings(): Promise<{ timezone: string; taxRatePpm: nu
     where: { id: 'singleton' },
   });
   return { timezone: settings.timezone, taxRatePpm: settings.taxRatePpm };
+}
+
+/**
+ * The restaurant's wall clock right now — the reading THE orderability
+ * function compares a daypart against (P1-1).
+ *
+ * The one place the menu request path reads a clock, the same way
+ * `currentCheckout` is the one place the gate's path reads one. Everything
+ * below it takes the reading as a parameter, which is what keeps
+ * `packages/core` clock-free (CLAUDE.md time rules).
+ *
+ * `now` is a parameter with a default rather than a hard-coded `new Date()`,
+ * so a test can freeze it without a fake timer.
+ */
+export async function loadClock(now: Date = new Date()): Promise<RestaurantClock> {
+  return restaurantClock(now, (await loadSettings()).timezone);
 }
 
 /**

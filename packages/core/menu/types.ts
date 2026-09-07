@@ -53,6 +53,37 @@ export type ModifierGroup = {
   // put them; combos and nesting are P2.
 };
 
+/**
+ * One window an item is served in, in the restaurant's local wall clock (P1-1).
+ *
+ * A SCHEDULE, and deliberately not the same thing as `available`. An 86 is a
+ * human saying "we ran out"; a daypart is the clock saying "not yet". They are
+ * kept apart because C-012 decided an 86 never restores itself overnight —
+ * collapse the two into one boolean and 16:00 un-86's something a cook killed
+ * at 12:40, which is food the kitchen cannot make being sold again by a
+ * scheduler.
+ *
+ * Minutes since local midnight, compared against `RestaurantClock.minuteOfDay`
+ * — never UTC, never the process timezone. Same units and same weekday
+ * indexing as `StoreHoursDay`, on purpose: two ways to say "Friday at 16:00"
+ * is two ways to disagree.
+ *
+ * These are per-ITEM and per-DAY, and an item may have more than one on a day
+ * (breakfast 07:00–11:00, dinner 16:00–21:00) — which is why this is a list
+ * and why the schema is a child table rather than a column pair. That is also
+ * the difference from `StoreHours`, where `dayOfWeek` is the primary key
+ * because C-011 deliberately foreclosed split opening hours.
+ */
+export type DaypartWindow = {
+  /** 0 = Sunday, matching `restaurantClock` and `StoreHoursDay`. */
+  dayOfWeek: number;
+  /** Local wall-clock minutes since midnight, 0–1439. Inclusive. */
+  startMinute: number;
+  /** Local wall-clock minutes since midnight, 1–1440. EXCLUSIVE — an item
+   *  served until 1440 is served through the last minute of the day. */
+  endMinute: number;
+};
+
 export type Category = {
   id: CategoryId;
   name: string;
@@ -77,6 +108,17 @@ export type MenuItem = {
    * is a weight nobody thought about — and the compiler is the thing that asks.
    */
   prepWeight: number;
+  /**
+   * When this item is served (P1-1). ABSENT means all day, every day, which is
+   * what almost every item is — optional rather than a required empty list so
+   * that adding a schedule is a deliberate act and the twenty-three items
+   * without one read as having nothing to think about.
+   *
+   * Read by THE orderability function, not by the menu render on its own: a
+   * daypart that closed the link but not the POST is the same defect class as
+   * a pause switch that only hides a button.
+   */
+  windows?: readonly DaypartWindow[];
   /**
    * References, not copies — which is what makes one "salsa" group reusable
    * across every item that has salsa, with no duplication to drift apart.
