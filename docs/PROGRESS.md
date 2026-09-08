@@ -7128,7 +7128,7 @@ the one facing the customer was the one that could not say it.
 
 ## C-079 — Last call (PRD 5 P0-3)
 
-Commit `PENDING`.
+Commit `00f97ba`.
 
 `orderingWindow()` has always computed the minute the door shuts — the gate
 uses it to compose "we stop taking online orders at 20:45" for the customer who
