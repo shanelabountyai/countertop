@@ -6850,7 +6850,7 @@ Commit `04014cc`.
 
 ## C-112 — Stations, as an attribute (PRD 4 P1-3)
 
-Commit `PENDING`.
+Commit `69d2982`.
 
 The last item in PRD 4, and the one whose spec explicitly allowed "or the
 written decision not to". It is both: the attribute shipped, the arithmetic
