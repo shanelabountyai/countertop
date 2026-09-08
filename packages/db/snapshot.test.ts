@@ -158,6 +158,17 @@ describe('the snapshot rule', () => {
     await prisma.menuItemWindow.create({
       data: { itemId: 'burrito', dayOfWeek: 6, startMinute: 3 * 60, endMinute: 4 * 60 },
     });
+    // And land a staged price on the item and on an ordered option (P1-2).
+    // A staged change is resolved inside `loadMenu`, which is a live-menu
+    // reader; a receipt reads no menu table at all. The day is long past on
+    // purpose — this is the change having ALREADY taken effect, not one still
+    // queued, because a queued change proves nothing.
+    await prisma.stagedPrice.createMany({
+      data: [
+        { itemId: 'burrito', effectiveDay: '2020-01-01', priceCents: 4242 },
+        { optionId: 'guacamole', effectiveDay: '2020-01-01', priceCents: -4242 },
+      ],
+    });
 
     expect(JSON.stringify(await readReceipt(id))).toBe(before);
   });

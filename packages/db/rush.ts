@@ -440,12 +440,14 @@ const keyFor = (order: RushOrder): string =>
   derivedIdempotencyKey(`rush-${order.label}-${order.minute}`);
 
 async function buildCart(order: RushOrder, anchor: Date): Promise<Cart> {
+  const composedAt = at(anchor, order.composedMinute ?? order.minute);
   // The menu as it was when the customer composed, which for exactly one
-  // customer is not the menu it will be priced against.
-  const menu = await loadMenu();
+  // customer is not the menu it will be priced against. Read AT that instant,
+  // so a staged price (P1-2) is resolved on the same reading the daypart is.
+  const menu = await loadMenu(composedAt);
   // And the CLOCK they composed against (P1-1), which for the one customer who
   // composes early is not the clock their order is placed on either.
-  const clock = await loadClock(at(anchor, order.composedMinute ?? order.minute));
+  const clock = await loadClock(composedAt);
   let cart: Cart = EMPTY_CART;
   for (const [index, composition] of COMPOSITIONS[order.composition]!.entries()) {
     const added = addLine(menu, cart, `${order.label}-${index}`, composition, clock);

@@ -330,7 +330,12 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
     if (existing) return { ok: true, order: existing, replayed: true };
   }
 
-  const [menu, settings] = await Promise.all([loadMenu(), loadGateState(now)]);
+  // `loadMenu(now)` and not `loadMenu()`: a staged price is resolved against
+  // the restaurant's calendar day (P1-2), and placement's whole discipline is
+  // that ONE instant answers every time question it asks. A default `new
+  // Date()` here would also price the seeded rush and the seed's backdated
+  // orders against today rather than against the minute they were placed.
+  const [menu, settings] = await Promise.all([loadMenu(now), loadGateState(now)]);
   // ONE wall-clock reading for the whole placement: the daypart check inside
   // `reviewCart` and the store-hours check inside `checkoutGate` below are
   // asked about the same instant. Two readings could refuse a line for being

@@ -195,3 +195,60 @@ export function businessDayRange(
   if (!BUSINESS_DAY.test(from) || !BUSINESS_DAY.test(to)) return null;
   return from <= to ? { from, to } : { from: to, to: from };
 }
+
+/**
+ * A "YYYY-MM-DD" restaurant-calendar day as a human reads it: "Monday,
+ * September 14" (P1-2).
+ *
+ * The manager staging Monday's price increase is checking the WEEKDAY, not the
+ * digits — "2026-09-14" is unfalsifiable to a person standing at a prep table,
+ * and the whole confirm panel exists so they can catch the change they did not
+ * mean. So the label leads with the day name.
+ *
+ * `Date.UTC` from three integers, formatted back in UTC: no string parsing, no
+ * process timezone, no instant that means anything. This is calendar
+ * arithmetic on a calendar value — the one direction the module header's
+ * "instant → local, never local → instant" rule has nothing to say about,
+ * because no instant is involved at either end.
+ *
+ * Returns the input unchanged if it is not a day. A malformed value reaching a
+ * label is a bug upstream, and a thrown error on a render path would take a
+ * whole screen down over a caption.
+ */
+export function formatDayLabel(day: string): string {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!parts) return day;
+  const midnightUtc = new Date(
+    Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])),
+  );
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  }).format(midnightUtc);
+}
+
+/**
+ * The day after `day`, as "YYYY-MM-DD" (P1-2) — the earliest a price change
+ * may be staged for, and the `min` on the date input that says so.
+ *
+ * Calendar arithmetic on a calendar value again, and it has to be: "tomorrow"
+ * across a month or year boundary is not `+1` on a substring. Adding 24 hours
+ * to an INSTANT would be the wrong tool — the answer would depend on which
+ * timezone the instant was read in, and there is no instant here.
+ *
+ * `Date.UTC` normalises a day-of-month of 32, and the day comes back out
+ * through `restaurantClock` in UTC rather than through
+ * `toISOString().slice(0, 10)` — which the lint bans, correctly, and which
+ * this function would only be reaching for to re-implement the formatting
+ * three lines above it already does.
+ */
+export function nextDay(day: string): string {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!parts) return day;
+  return restaurantClock(
+    new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]) + 1)),
+    'UTC',
+  ).day;
+}

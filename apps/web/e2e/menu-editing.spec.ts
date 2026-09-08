@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { reseed } from './fixtures';
+import { reseed, restaurantTomorrow } from './fixtures';
 
 // C-015: safe menu editing (P0-13).
 //
@@ -339,4 +339,73 @@ test('a group without intensity has no surcharge row at all', async ({ page }) =
   await expect(
     page.getByRole('textbox', { name: 'Extra surcharge for Chipotle', exact: true }),
   ).toBeVisible();
+});
+
+// C-111 (P1-2): a price you can stage.
+//
+// The point of the requirement is that Monday's increase is typed on Sunday
+// instead of during Monday's lunch — so the thing worth proving on the screen
+// is that saving a staged change does NOT move today's price, and that the
+// change is visible on the row it will hit rather than being a surprise.
+//
+// It routes through the same confirm panel a live change does, deliberately: a
+// second way to change a price is a second way to change it without a guard.
+test('a staged price is confirmed with the day, and does not move today’s price', async ({
+  page,
+}) => {
+  const tomorrow = await restaurantTomorrow();
+
+  await page.goto('/kitchen/menu');
+  await page.getByRole('textbox', { name: 'Price for Burrito', exact: true }).fill('12.50');
+  await page.getByRole('textbox', { name: 'Start day for the new price of Burrito', exact: true }).fill(tomorrow);
+  await page.getByRole('button', { name: 'Review price for Burrito', exact: true }).click();
+
+  // The same old → new guard, plus the one sentence that says it is not now.
+  await expect(page.getByText('Was $10.95, will be $12.50.')).toBeVisible();
+  await expect(page.getByText(/Not now — this starts on/)).toBeVisible();
+  await expect(page.getByText(/Until then Burrito stays at \$10\.95/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Queue new price for Burrito', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Burrito goes to $12.50 on');
+
+  // THE ASSERTION. Today's menu is untouched.
+  await page.goto('/menu');
+  await expect(page.getByRole('link', { name: /Burrito \$10\.95/ })).toBeVisible();
+
+  // And the change is visible on the row it will hit, not hidden in a table.
+  await page.goto('/kitchen/menu');
+  await expect(page.getByText(/Queued: \$12\.50 from/)).toBeVisible();
+});
+
+test('a queued price change can be called off', async ({ page }) => {
+  const tomorrow = await restaurantTomorrow();
+
+  await page.goto('/kitchen/menu');
+  await page.getByRole('textbox', { name: 'Price for Burrito', exact: true }).fill('12.50');
+  await page.getByRole('textbox', { name: 'Start day for the new price of Burrito', exact: true }).fill(tomorrow);
+  await page.getByRole('button', { name: 'Review price for Burrito', exact: true }).click();
+  await page.getByRole('button', { name: 'Queue new price for Burrito', exact: true }).click();
+
+  // No confirm panel on the way out: this un-does something that has not
+  // happened yet, so the worst it can cost is retyping a price nobody paid.
+  await page.getByRole('button', { name: 'Cancel the queued price for Burrito', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('the queued price change was cancelled');
+  await expect(page.getByText(/Queued: \$12\.50 from/)).toBeHidden();
+});
+
+test('a start day that is not still to come is refused, not silently applied', async ({ page }) => {
+  // A change staged for today or earlier is not staged at all — it is a price
+  // change, and it has a field of its own on the same row. Allowing it would
+  // also queue a row that is already spent, which then keeps overriding every
+  // live edit made after it.
+  //
+  // Navigated to DIRECTLY, past the form: the date input carries a `min` and
+  // the browser will not submit below it, which is the UX and not the
+  // mechanism. The same discipline as C-048's forced server-side submit — the
+  // guard has to hold for a client that never touched the screen.
+  await page.goto('/kitchen/menu?edit=item%3Aburrito&price=12.50&from=2020-01-01');
+
+  await expect(page.getByRole('heading', { name: 'Nothing was changed' })).toBeVisible();
+  await page.goto('/menu');
+  await expect(page.getByRole('link', { name: /Burrito \$10\.95/ })).toBeVisible();
 });

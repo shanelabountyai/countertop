@@ -324,6 +324,47 @@ describe('the server is the price authority (P0-2)', () => {
     ).toBe(0);
   });
 
+  // C-111 (P1-2), and it is the PLACEMENT call site of the three. A staged
+  // price is resolved inside `loadMenu`, which placement reads at the instant
+  // it is placing for — so the second of the two server-side price
+  // computations sees it without placement having a notion of a schedule.
+  it('charges a staged price that has landed, and refuses the stale cart first', async () => {
+    // DINNER is 8pm on the 4th in Los Angeles and already the 5th in UTC. The
+    // restaurant's day is the 4th, and that is the one a staged price is
+    // resolved against — a UTC comparison here would apply this change a full
+    // evening early.
+    await prisma.stagedPrice.create({
+      data: { itemId: 'burrito', effectiveDay: '2026-07-04', priceCents: 1200 },
+    });
+
+    // The cart's baseline is Independence-Day-afternoon's 1620. Placement will
+    // not silently charge the new number — it routes into the same
+    // `price_changed` refusal a live reprice does (C-015/C-026).
+    const stale = await place();
+    expect(stale.ok).toBe(false);
+    if (stale.ok) return;
+    expect(stale.errors.map((e) => e.kind)).toContain('price_changed');
+
+    // Confirmed: 1200 + 150 + 250 + 125 + 0 = 1725; x2 = 3450. Tax 285.
+    const confirmed = placed(
+      await place({
+        cart: { lines: [{ ...CART.lines[0]!, unitPriceAtAddCents: 1725 }] },
+      }),
+    );
+    expect(confirmed.subtotalCents).toBe(3450);
+    expect(confirmed.totalCents).toBe(3450 + 285);
+  });
+
+  it('does not charge a staged price whose day has not come', async () => {
+    // The 5th: already true in UTC at this instant, still tomorrow in the
+    // restaurant's calendar. This is the assertion that a UTC-only CI would
+    // hide, which is what the TZ×2 run exists for.
+    await prisma.stagedPrice.create({
+      data: { itemId: 'burrito', effectiveDay: '2026-07-05', priceCents: 1200 },
+    });
+    expect(placed(await place()).totalCents).toBe(3507);
+  });
+
   // C-084 / PRD 6 P0-1. The half of the mismatch that used to vanish: it was
   // computed inside the write path, so a request that tampered with the total
   // AND failed validation returned before anything looked at the client's

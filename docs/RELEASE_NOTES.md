@@ -2169,3 +2169,43 @@ have both menus live at once, which is exactly the minute this feature is
 about. And the whole thing reads the restaurant's own clock, never the server's
 or the customer's browser's: the test suite runs twice in CI, in two timezones
 a day apart, and demands identical answers.
+
+---
+
+## C-111 — A price you can stage
+
+**The annual price increase no longer gets typed during Monday's lunch.** A
+manager sitting down on Sunday can put next week's prices in, pick the day they
+start, and walk away. Nothing changes until that morning; the menu, the carts
+and every register in between go on selling at today's price right up to local
+midnight, and then quietly stop.
+
+**It goes through the same confirmation a price change has always gone
+through.** The screen that already showed "was $10.95, will be $12.50" before
+saving shows exactly that, plus one line: *not now — this starts on Monday,
+September 14, and until then Burrito stays at $10.95*. There is no second way
+to change a price, because a second way is always the one without the guard.
+
+**A queued change is visible on the row it will hit.** Not in a schedule screen
+somebody has to remember to open — underneath the price it is going to replace,
+with a button to call it off. A price change nobody can see coming is the thing
+this feature was supposed to remove, not add.
+
+**A customer whose cart straddles the changeover is asked, not re-charged.**
+Add something on Sunday night, come back Monday morning, and the checkout says
+the price moved and shows you both numbers before you can place. That is not new
+code — it is the same old → new confirmation built for a manager retyping a
+price by hand, and a staged change was routed into it rather than around it.
+
+**Typing a price still wins over a schedule.** If Monday's increase has already
+landed and someone types a different number on Tuesday, Tuesday's number is the
+price. The alternative — a stale schedule quietly overriding what a manager just
+typed, with "Saved" on the screen — is the kind of bug that gets found weeks
+later by a customer.
+
+**And an order already placed is untouched, as always.** A receipt printed on
+Sunday reads identically on Monday, on Friday, and after the item has been
+renamed, repriced twice and taken off the menu. That is not carefulness; it is
+the same proof the whole product is built on, and there is a test that mutates
+every menu row the order came from and demands the receipt come back byte for
+byte the same.

@@ -5,10 +5,26 @@
 //
 // `menu.test.ts` asserts this round-trips SAMPLE_MENU exactly — a column added
 // to the schema and forgotten here fails there rather than in a receipt.
-import { restaurantClock, type Menu, type ModifierGroup, type MenuItem, type RestaurantClock } from '@countertop/core';
+import {
+  nextDay,
+  restaurantClock,
+  type Menu,
+  type ModifierGroup,
+  type MenuItem,
+  type RestaurantClock,
+} from '@countertop/core';
 import { prisma } from './index';
 
-export async function loadMenu(): Promise<Menu> {
+export async function loadMenu(now: Date = new Date()): Promise<Menu> {
+  // P1-2, and it happens BEFORE the menu is read rather than beside it: the
+  // effective price is a property of the menu, not a second thing a caller has
+  // to remember to apply. That is the point — a resolution step a caller can
+  // forget is a price authority with a hole in it. The three callers that hold
+  // an instant of their own (placement, the rush, the seed) pass it; every
+  // other one takes the default and gets today's prices without a line
+  // changing.
+  const staged = await effectivePrices(now);
+
   const [categories, items, groups] = await Promise.all([
     prisma.category.findMany({ orderBy: { sortOrder: 'asc' } }),
     prisma.menuItem.findMany({
@@ -35,7 +51,11 @@ export async function loadMenu(): Promise<Menu> {
           id: item.id,
           categoryId: item.categoryId,
           name: item.name,
-          basePriceCents: item.basePriceCents,
+          // The staged price if one has arrived, the live column otherwise
+          // (P1-2). Resolved HERE, in the one mapping, so `priceLine` — the
+          // price authority — needs no notion of a schedule and all three of
+          // its call sites get the answer for free.
+          basePriceCents: staged.items.get(item.id) ?? item.basePriceCents,
           available: item.available,
           prepWeight: item.prepWeight,
           // Absent, not empty — the same `exactOptionalPropertyTypes` care the
@@ -68,7 +88,7 @@ export async function loadMenu(): Promise<Menu> {
           options: group.options.map((option) => ({
             id: option.id,
             name: option.name,
-            priceDeltaCents: option.priceDeltaCents,
+            priceDeltaCents: staged.options.get(option.id) ?? option.priceDeltaCents,
             // Absent, not null: `extraPriceDeltaCents: undefined` and no key
             // at all are different values under exactOptionalPropertyTypes,
             // and only the second matches what the core menu is written as.
@@ -107,6 +127,135 @@ export async function loadSettings(): Promise<{ timezone: string; taxRatePpm: nu
  */
 export async function loadClock(now: Date = new Date()): Promise<RestaurantClock> {
   return restaurantClock(now, (await loadSettings()).timezone);
+}
+
+/**
+ * Today's prices, after every staged change whose day has arrived (P1-2).
+ *
+ * THE RESOLUTION RULE, in one place and in four lines: a staged row overrides
+ * the live column once `effectiveDay` is today or earlier, and among rows that
+ * have arrived the LATEST day wins. Ordered ascending and folded into a map,
+ * so "latest wins" is the fold rather than a comparison somebody could get
+ * backwards.
+ *
+ * Filtered in SQL rather than in JS: the spent rows are deleted when a manager
+ * types a live price (see `writePrice` below), but a row that is merely
+ * superseded stays, and a table that grows with every price change the
+ * restaurant has ever made should not be read whole on every menu render.
+ *
+ * Returns `today` alongside, because every caller that wants the prices also
+ * wants the day — to reject a change staged for yesterday, or to delete the
+ * rows a live edit has just made spent. Two readings of one clock is how those
+ * two disagree.
+ *
+ * String comparison, not date arithmetic: ISO days sort chronologically, which
+ * is the reason `businessDay` is stored this way in the first place.
+ */
+export async function effectivePrices(
+  now: Date = new Date(),
+): Promise<{ today: string; items: Map<string, number>; options: Map<string, number> }> {
+  const today = (await loadClock(now)).day;
+  const rows = await prisma.stagedPrice.findMany({
+    where: { effectiveDay: { lte: today } },
+    orderBy: { effectiveDay: 'asc' },
+  });
+
+  const items = new Map<string, number>();
+  const options = new Map<string, number>();
+  for (const row of rows) {
+    if (row.itemId !== null) items.set(row.itemId, row.priceCents);
+    else if (row.optionId !== null) options.set(row.optionId, row.priceCents);
+  }
+  return { today, items, options };
+}
+
+/**
+ * The changes still to come, for the editor to show and to let a manager
+ * cancel (P1-2).
+ *
+ * Deliberately NOT part of `Menu`: a queued price is not a fact about what is
+ * orderable right now, and putting it there would put it in front of the
+ * customer menu, the cart and the placement path — three readers with no use
+ * for it and one more thing to accidentally price against.
+ *
+ * Strictly `> today`. A row for today has already taken effect and is not
+ * "coming"; it is the price, and it is already on the row above.
+ */
+export async function loadStagedPrices(
+  now: Date = new Date(),
+): Promise<{ id: string; itemId: string | null; optionId: string | null; effectiveDay: string; priceCents: number }[]> {
+  const today = (await loadClock(now)).day;
+  return prisma.stagedPrice.findMany({
+    where: { effectiveDay: { gt: today } },
+    orderBy: { effectiveDay: 'asc' },
+    select: { id: true, itemId: true, optionId: true, effectiveDay: true, priceCents: true },
+  });
+}
+
+/**
+ * The earliest day a price change may be staged for: the restaurant's
+ * tomorrow (P1-2).
+ *
+ * One answer, two callers — the `min` on the editor's date input and the e2e
+ * fixture that fills it. A spec that wrote down its own "tomorrow" would be
+ * computing it in whatever timezone the sweep happens to run in, and would
+ * pass all day and fail for the hours either side of local midnight.
+ */
+export async function earliestStagedDay(now: Date = new Date()): Promise<string> {
+  return nextDay((await loadClock(now)).day);
+}
+
+/**
+ * Write a price — now, or on a day still to come (P1-2).
+ *
+ * Here rather than in the editor's action because THE PRECEDENCE lives here,
+ * two functions below the resolution rule it is the inverse of. Splitting them
+ * across packages is how "latest arrived wins" and "a live edit wins" end up
+ * being two people's opinions instead of one rule.
+ *
+ * A LIVE write also deletes the staged rows that have already taken effect.
+ * Without that delete a change that landed on Monday keeps overriding every
+ * price typed after it: the manager types $13.50, sees "Saved", and the menu
+ * goes on selling at Monday's $12.50 with nothing anywhere saying why. Rows still in
+ * the FUTURE survive — fixing today's price is not a reason to cancel next
+ * month's increase.
+ *
+ * A STAGED write replaces whatever was queued for that row on that day.
+ * Delete-then-create rather than an upsert, because the uniques are over
+ * nullable columns and re-staging the same day is the ordinary case: a manager
+ * correcting the number they queued yesterday, not an error.
+ *
+ * `today` is passed in rather than read, so the caller that already validated
+ * `effectiveDay` against a clock reading and the write that acts on it are
+ * looking at the same day. Two readings across local midnight is how a change
+ * gets refused as "not in the future" and then deleted as "already spent".
+ */
+export async function writePrice(
+  target: { itemId: string } | { optionId: string },
+  priceCents: number,
+  effectiveDay: string | null,
+  today: string,
+): Promise<void> {
+  if (effectiveDay !== null) {
+    await prisma.$transaction([
+      prisma.stagedPrice.deleteMany({ where: { ...target, effectiveDay } }),
+      prisma.stagedPrice.create({ data: { ...target, effectiveDay, priceCents } }),
+    ]);
+    return;
+  }
+
+  const live =
+    'itemId' in target
+      ? prisma.menuItem.update({ where: { id: target.itemId }, data: { basePriceCents: priceCents } })
+      : prisma.modifierOption.update({
+          where: { id: target.optionId },
+          data: { priceDeltaCents: priceCents },
+        });
+
+  await prisma.$transaction([
+    live,
+    prisma.stagedPrice.deleteMany({ where: { ...target, effectiveDay: { lte: today } } }),
+  ]);
 }
 
 /**

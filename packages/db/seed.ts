@@ -132,13 +132,13 @@ const SEED_ORDERS: SeedOrder[] = [
 ];
 
 async function seedOrders(): Promise<void> {
-  const menu = await loadMenu();
-
   for (const [index, seed] of SEED_ORDERS.entries()) {
     const placedAt = minutesAgo(seed.placedMinutesAgo);
     // Composed at the instant it was placed, so a dayparted item is judged by
-    // the clock the seeded customer was standing in front of (P1-1) rather
-    // than by whenever the seed happens to run.
+    // the clock the seeded customer was standing in front of (P1-1), and a
+    // staged price by the day they were standing in (P1-2), rather than by
+    // whenever the seed happens to run.
+    const menu = await loadMenu(placedAt);
     const clock = await loadClock(placedAt);
     let cart: Cart = EMPTY_CART;
     for (const [lineIndex, composition] of seed.lines.entries()) {

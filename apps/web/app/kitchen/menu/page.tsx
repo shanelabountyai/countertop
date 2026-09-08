@@ -21,10 +21,11 @@
 // render, so a confirm screen left open through someone else's edit shows the
 // real old value rather than a stale one captured at click time.
 import Link from 'next/link';
-import { itemsUsingGroup, parsePriceInput, type MenuItem } from '@countertop/core';
-import { loadMenu } from '@countertop/db/menu';
+import { formatDayLabel, itemsUsingGroup, parsePriceInput, type MenuItem } from '@countertop/core';
+import { earliestStagedDay, loadMenu, loadStagedPrices } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
 import {
+  cancelStagedPrice,
   deleteGroup,
   saveExtraSurcharge,
   saveGroup,
@@ -42,6 +43,8 @@ export const dynamic = 'force-dynamic';
 type Params = {
   edit?: string;
   price?: string;
+  /** The day a change starts (P1-2). Blank means now, which is most of them. */
+  from?: string;
   name?: string;
   min?: string;
   max?: string;
@@ -57,9 +60,22 @@ export default async function MenuEditorPage({
   searchParams: Promise<Params>;
 }) {
   const params = await searchParams;
-  const menu = await loadMenu();
+  // The menu here already carries any staged change that has LANDED — the
+  // editor edits the effective price, the same number the customer is being
+  // charged. `staged` is only what is still to come (P1-2).
+  const [menu, staged, earliest] = await Promise.all([
+    loadMenu(),
+    loadStagedPrices(),
+    earliestStagedDay(),
+  ]);
   const items = Object.values(menu.items);
   const groups = Object.values(menu.groups);
+
+  /** What is queued for one row, newest change last, ready to render. */
+  const queuedFor = (id: string, format: (cents: number) => string): Queued[] =>
+    staged
+      .filter((row) => row.itemId === id || row.optionId === id)
+      .map((row) => ({ id: row.id, effectiveDay: row.effectiveDay, price: format(row.priceCents) }));
 
   // "item:<id>" → ["item", "<id>"]. Split on the FIRST colon only; an id is
   // opaque and gets to contain whatever it contains.
@@ -121,16 +137,39 @@ export default async function MenuEditorPage({
       return <Rejected message="That is not a price. Type it like 12.50 and try again." />;
     }
 
+    // The start day (P1-2). Same panel, same old → new, one more sentence —
+    // staging routes THROUGH this confirm rather than around it, because a
+    // second way to change a price is a second way to change it without a
+    // guard. Blank is the ordinary case and means now.
+    // Compared against `earliest` — the restaurant's tomorrow — rather than
+    // against today, because that is the value already on the screen as the
+    // input's `min`. Two readings of the clock is how a form and the panel it
+    // opens end up disagreeing about which day counts as tomorrow.
+    const startDay = (params.from ?? '').trim();
+    if (startDay !== '' && (!/^\d{4}-\d{2}-\d{2}$/.test(startDay) || startDay < earliest)) {
+      return (
+        <Rejected message="Pick a start day that is still to come, or leave it blank to change the price right now." />
+      );
+    }
+
     const format = kind === 'item' ? formatCents : (c: number) => formatDeltaCents(c) || '$0.00';
     return (
       <Confirm
-        title={`Change the price of ${target.name}?`}
+        title={
+          startDay === ''
+            ? `Change the price of ${target.name}?`
+            : `Change the price of ${target.name} on ${formatDayLabel(startDay)}?`
+        }
         action={
           kind === 'item'
-            ? saveItemPrice.bind(null, target.id, params.price ?? '', fromCents)
-            : saveOptionPrice.bind(null, target.id, params.price ?? '', fromCents)
+            ? saveItemPrice.bind(null, target.id, params.price ?? '', fromCents, startDay)
+            : saveOptionPrice.bind(null, target.id, params.price ?? '', fromCents, startDay)
         }
-        submitLabel={`Save new price for ${target.name}`}
+        submitLabel={
+          startDay === ''
+            ? `Save new price for ${target.name}`
+            : `Queue new price for ${target.name}`
+        }
       >
         {/* Old → new, side by side and large. This IS the guard. */}
         <p className="mt-6 flex flex-wrap items-baseline gap-3 text-3xl font-bold tabular-nums">
@@ -141,6 +180,12 @@ export default async function MenuEditorPage({
         <p className="mt-2 text-lg text-neutral-700">
           Was {format(fromCents)}, will be {format(toCents)}.
         </p>
+        {startDay !== '' && (
+          <p className="mt-4 rounded-lg border-2 border-neutral-900 bg-neutral-50 p-3 text-lg font-semibold">
+            Not now — this starts on {formatDayLabel(startDay)}. Until then {target.name} stays at{' '}
+            {format(fromCents)}. Orders placed before it keep the price they were placed at.
+          </p>
+        )}
         {toCents === fromCents && (
           <p className="mt-2 text-lg text-neutral-700">That is the price it is already.</p>
         )}
@@ -244,9 +289,11 @@ export default async function MenuEditorPage({
       </Link>
       <h1 className="mt-4 text-3xl font-semibold">Edit menu</h1>
       <p className="mt-1 text-lg text-neutral-700">
-        Every price change is shown to you before it is saved. Prep points save straight away —
-        they are kitchen workload, not money. Orders already placed never change — they keep the
-        prices they were placed at.
+        Every price change is shown to you before it is saved. Leave the start day blank to
+        change a price now, or pick a day to queue it for — Monday&rsquo;s increase does not have
+        to be typed during Monday&rsquo;s lunch. Prep points save straight away — they are kitchen
+        workload, not money. Orders already placed never change — they keep the prices they were
+        placed at.
       </p>
 
       {params.saved && (
@@ -278,6 +325,8 @@ export default async function MenuEditorPage({
                     editValue={`item:${item.id}`}
                     name={item.name}
                     defaultPrice={dollars(item.basePriceCents)}
+                    earliest={earliest}
+                    queued={queuedFor(item.id, formatCents)}
                   />
                   <WeightForm item={item} />
                 </li>
@@ -361,6 +410,8 @@ export default async function MenuEditorPage({
                     editValue={`option:${option.id}`}
                     name={option.name}
                     defaultPrice={dollars(option.priceDeltaCents)}
+                    earliest={earliest}
+                    queued={queuedFor(option.id, (c) => formatDeltaCents(c) || '$0.00')}
                   />
                   {/* Only inside an intensity group: an "extra" surcharge on a
                       group with no `extra` to choose is a price nothing can
@@ -391,47 +442,98 @@ export default async function MenuEditorPage({
 
 // ---- pieces -------------------------------------------------------------
 
-/** A price row: the current value, editable, and the button that opens the
- *  confirm panel. GET, because opening a confirm panel is a navigation.
+/** One change queued for a row, already formatted (P1-2). */
+type Queued = { id: string; effectiveDay: string; price: string };
+
+/** A price row: the current value, editable, an optional day to start it on,
+ *  and the button that opens the confirm panel. GET, because opening a confirm
+ *  panel is a navigation.
  *
  *  `what` names which price this row is — an option has two, its delta and its
  *  "extra" surcharge (C-027) — and every accessible name on the row is built
  *  from it, so the two rows for one option are never ambiguous to a screen
- *  reader or to a test. */
+ *  reader or to a test.
+ *
+ *  `earliest` absent means this price cannot be staged. That is the "extra"
+ *  surcharge, and only it: it is the one price on this screen that can be
+ *  BLANK, blank means something, and a nullable staged value would need its
+ *  own column, its own CHECK and its own resolution rule for the least-used
+ *  price on the menu. docs/WRITEUP.md records the ceiling. */
 function PriceForm({
   editValue,
   name,
   defaultPrice,
   what = 'Price',
   visible = '$',
+  earliest,
+  queued = [],
 }: {
   editValue: string;
   name: string;
   defaultPrice: string;
   what?: string;
   visible?: string;
+  earliest?: string;
+  queued?: Queued[];
 }) {
   return (
-    <form method="get" action="/kitchen/menu" className="flex flex-wrap items-end gap-3">
-      <input type="hidden" name="edit" value={editValue} />
-      <span className="w-full text-lg font-semibold sm:w-auto sm:flex-1">
-        {what === 'Price' ? name : `${name} — extra`}
-      </span>
-      <Field label={`${what} for ${name}`} visible={visible}>
-        <input
-          name="price"
-          inputMode="decimal"
-          defaultValue={defaultPrice}
-          className="min-h-12 w-28 rounded-lg border-2 border-neutral-400 px-3 text-lg tabular-nums"
-        />
-      </Field>
-      <button
-        type="submit"
-        className="min-h-12 rounded-lg bg-neutral-900 px-5 text-lg font-bold text-white"
-      >
-        Review {what.toLowerCase()} for {name}
-      </button>
-    </form>
+    <div className="flex flex-col gap-2">
+      <form method="get" action="/kitchen/menu" className="flex flex-wrap items-end gap-3">
+        <input type="hidden" name="edit" value={editValue} />
+        <span className="w-full text-lg font-semibold sm:w-auto sm:flex-1">
+          {what === 'Price' ? name : `${name} — extra`}
+        </span>
+        <Field label={`${what} for ${name}`} visible={visible}>
+          <input
+            name="price"
+            inputMode="decimal"
+            defaultValue={defaultPrice}
+            className="min-h-12 w-28 rounded-lg border-2 border-neutral-400 px-3 text-lg tabular-nums"
+          />
+        </Field>
+        {/* A native date input: the platform already ships a phone-sized day
+            picker that knows what a month is, and `min` stops the commonest
+            mistake before the round-trip. The SERVER re-checks the day — the
+            attribute is UX, the comparison in `stagedDay` is the mechanism. */}
+        {earliest !== undefined && (
+          <Field label={`Start day for the new ${what.toLowerCase()} of ${name}`} visible="from">
+            <input
+              name="from"
+              type="date"
+              min={earliest}
+              className="min-h-12 rounded-lg border-2 border-neutral-400 px-3 text-lg tabular-nums"
+            />
+          </Field>
+        )}
+        <button
+          type="submit"
+          className="min-h-12 rounded-lg bg-neutral-900 px-5 text-lg font-bold text-white"
+        >
+          Review {what.toLowerCase()} for {name}
+        </button>
+      </form>
+
+      {/* What is already queued. Visible on the row it will change, because a
+          price change nobody can see coming is the thing this feature was
+          supposed to remove, not add. */}
+      {queued.map((change) => (
+        <form
+          key={change.id}
+          action={cancelStagedPrice.bind(null, change.id)}
+          className="flex flex-wrap items-center gap-3 rounded-lg border-2 border-dashed border-neutral-400 bg-neutral-50 px-3 py-2"
+        >
+          <span className="flex-1 text-base">
+            Queued: {change.price} from {formatDayLabel(change.effectiveDay)}
+          </span>
+          <button
+            type="submit"
+            className="min-h-12 rounded-lg border-2 border-neutral-900 px-4 text-base font-bold"
+          >
+            Cancel the queued {what.toLowerCase()} for {name}
+          </button>
+        </form>
+      ))}
+    </div>
   );
 }
 

@@ -10,8 +10,9 @@
 // reprice or a deleted group is invisible to every order already in the queue
 // — the regression test in packages/db/snapshot.test.ts is what keeps that
 // true rather than merely intended.
-import { parsePriceInput } from '@countertop/core';
+import { formatDayLabel, parsePriceInput } from '@countertop/core';
 import { prisma } from '@countertop/db';
+import { effectivePrices, writePrice } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
 import { revalidateMenuSurfaces } from '@/lib/revalidate-menu';
 import { redirect } from 'next/navigation';
@@ -49,6 +50,31 @@ function stale(seen: unknown, actual: number, what: string, format: (c: number) 
   );
 }
 
+/**
+ * The day a change was staged for, or null for "now" (P1-2).
+ *
+ * STRICTLY in the future. A change staged for today or earlier is not staged
+ * at all — it is a price change, and the price field on the same editor row is
+ * how you make one. Allowing it would also queue a row that is already spent,
+ * which then keeps overriding every live edit made after it until somebody
+ * notices — so the refusal is a correctness one and not only a tidiness one.
+ *
+ * A bound argument is client input like everything else here, hence the shape
+ * check on a value the date input can only ever produce correctly.
+ */
+function stagedDay(value: unknown, today: string): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    rejected('That is not a date. Pick the day the new price should start.');
+  }
+  if (value <= today) {
+    rejected(
+      `${formatDayLabel(value)} is not in the future. To change the price now, leave the start day blank.`,
+    );
+  }
+  return value;
+}
+
 /** The three values a group's confirm panel displayed, if it sent them. */
 type SeenGroup = { name: string; min: number; max: number };
 
@@ -61,13 +87,24 @@ function seenGroup(value: unknown): SeenGroup | null {
 }
 
 /**
- * An item's base price. Non-negative: an item that pays the customer to order
- * it is a typo every time, and the composition engine has no notion of one.
+ * An item's base price, now or from a day the manager picks (P1-2).
+ *
+ * Non-negative: an item that pays the customer to order it is a typo every
+ * time, and the composition engine has no notion of one.
+ *
+ * ONE action for both, deliberately — staging routes THROUGH the old → new
+ * confirm rather than around it (C-015/C-026). A second "stage a price" action
+ * with its own screen would be a second way to change a price, and the second
+ * one is always the one without the guard.
+ *
+ * The precedence between a staged change and a typed one lives in
+ * `writePrice`, next to the resolution rule it is the inverse of.
  */
 export async function saveItemPrice(
   itemId: unknown,
   priceText: unknown,
   seenFromCents?: unknown,
+  effectiveDayInput?: unknown,
 ): Promise<void> {
   if (typeof itemId !== 'string' || typeof priceText !== 'string') rejected();
   const cents = parsePriceInput(priceText);
@@ -75,9 +112,21 @@ export async function saveItemPrice(
 
   const item = await prisma.menuItem.findUnique({ where: { id: itemId } });
   if (!item) rejected();
-  stale(seenFromCents, item.basePriceCents, item.name, formatCents);
-  await prisma.menuItem.update({ where: { id: itemId }, data: { basePriceCents: cents } });
-  done(`${item.name} is now priced at ${formatCents(cents)}`);
+
+  // The EFFECTIVE price is what the panel showed and what the guard compares
+  // against — a staged change that has already landed is the price, and
+  // checking the live column here would reject every honest save made after
+  // one arrived.
+  const { today, items } = await effectivePrices();
+  stale(seenFromCents, items.get(itemId) ?? item.basePriceCents, item.name, formatCents);
+
+  const day = stagedDay(effectiveDayInput, today);
+  await writePrice({ itemId }, cents, day, today);
+  done(
+    day === null
+      ? `${item.name} is now priced at ${formatCents(cents)}`
+      : `${item.name} goes to ${formatCents(cents)} on ${formatDayLabel(day)}`,
+  );
 }
 
 /**
@@ -117,6 +166,7 @@ export async function saveOptionPrice(
   optionId: unknown,
   priceText: unknown,
   seenFromCents?: unknown,
+  effectiveDayInput?: unknown,
 ): Promise<void> {
   if (typeof optionId !== 'string' || typeof priceText !== 'string') rejected();
   const cents = parsePriceInput(priceText);
@@ -124,12 +174,40 @@ export async function saveOptionPrice(
 
   const option = await prisma.modifierOption.findUnique({ where: { id: optionId } });
   if (!option) rejected();
-  stale(seenFromCents, option.priceDeltaCents, option.name, (c) => formatDeltaCents(c) || '$0.00');
-  await prisma.modifierOption.update({
-    where: { id: optionId },
-    data: { priceDeltaCents: cents },
+
+  const { today, options } = await effectivePrices();
+  const format = (c: number) => formatDeltaCents(c) || '$0.00';
+  stale(seenFromCents, options.get(optionId) ?? option.priceDeltaCents, option.name, format);
+
+  const day = stagedDay(effectiveDayInput, today);
+  await writePrice({ optionId }, cents, day, today);
+  done(
+    day === null
+      ? `${option.name} is now ${formatDeltaCents(cents) || 'free'}`
+      : `${option.name} goes to ${format(cents)} on ${formatDayLabel(day)}`,
+  );
+}
+
+/**
+ * Drop a queued change (P1-2).
+ *
+ * No confirm panel: this un-does something that has not happened yet, so the
+ * worst it can cost is retyping a price nobody has been charged. The guard
+ * that matters is on the way IN — a queued change is a price a customer will
+ * pay, and that one is confirmed old → new like every other.
+ *
+ * Deletes only a row that is still in the future. A change that has already
+ * landed is the price now, and taking it away silently would be a price
+ * change with no confirm panel in front of it.
+ */
+export async function cancelStagedPrice(stagedId: unknown): Promise<void> {
+  if (typeof stagedId !== 'string') rejected();
+  const { today } = await effectivePrices();
+  const { count } = await prisma.stagedPrice.deleteMany({
+    where: { id: stagedId, effectiveDay: { gt: today } },
   });
-  done(`${option.name} is now ${formatDeltaCents(cents) || 'free'}`);
+  if (count === 0) rejected('That change is not queued any more — it has already taken effect.');
+  done('the queued price change was cancelled');
 }
 
 /**

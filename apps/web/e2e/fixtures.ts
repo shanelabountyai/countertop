@@ -343,3 +343,27 @@ export async function setDaypart(
     await prisma.$disconnect();
   }
 }
+
+/**
+ * The restaurant's tomorrow, as "YYYY-MM-DD" — the earliest day a price change
+ * may be staged for (P1-2, C-111).
+ *
+ * Read off the restaurant's own clock rather than written down, for the same
+ * reason `setDaypart` picks its minutes that way: a fixed date rots, and a
+ * suite that starts failing on a particular Tuesday is a suite nobody trusts
+ * again. It is also the only correct answer — "tomorrow" in Los Angeles is not
+ * "tomorrow" wherever the sweep is running.
+ */
+export async function restaurantTomorrow(): Promise<string> {
+  const { prisma } = await import('@countertop/db');
+  const { earliestStagedDay } = await import('@countertop/db/menu');
+  try {
+    // AWAITED before the finally, not returned as a pending promise: the
+    // `$disconnect()` below would otherwise race the query it is supposed to
+    // be cleaning up after, and the next test in the worker gets "Response
+    // from the Engine was empty".
+    return await earliestStagedDay();
+  } finally {
+    await prisma.$disconnect();
+  }
+}

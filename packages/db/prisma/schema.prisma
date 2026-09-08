@@ -270,6 +270,9 @@ model MenuItem {
   modifierGroups ItemModifierGroup[]
   /// When this item is served (P1-1). No rows = all day, every day.
   windows        MenuItemWindow[]
+  /// Price changes queued for a future day (P1-2). No rows = the price is
+  /// whatever `basePriceCents` says, which is what almost every item is.
+  stagedPrices   StagedPrice[]
 
   @@index([categoryId, sortOrder])
 }
@@ -334,8 +337,59 @@ model ModifierOption {
   /// The option grain of 86'ing: out of avocado is not out of burritos.
   available            Boolean       @default(true)
   sortOrder            Int
+  /// Price changes queued for a future day (P1-2).
+  stagedPrices         StagedPrice[]
 
   @@index([groupId, sortOrder])
+}
+
+/// A price change staged to take effect on a future day (P1-2) — Monday's
+/// increase, typed on Sunday, instead of typed during Monday's lunch.
+///
+/// A CHILD TABLE, not a `stagedPriceCents`/`stagedFrom` column pair, because
+/// more than one change can be queued: a Monday increase and a holiday price
+/// two weeks later are both real and neither should have to wait for the
+/// other to land before it can be written down.
+///
+/// A restaurant-calendar DAY, not an instant. "Effective Monday" is a
+/// calendar question and the calendar that answers it is the restaurant's —
+/// the same reason `Order.businessDay` is a string and not a `timestamptz`.
+/// It also keeps this table out of the local → instant direction
+/// `business-day.ts` deliberately refuses to go: 2:30am on a DST Sunday is
+/// two instants or none, and a price is not worth a second answer to that.
+/// The ceiling is that a change lands at local midnight and nowhere else;
+/// docs/WRITEUP.md records it.
+///
+/// The live column stays the live price. A staged row OVERRIDES it once its
+/// day arrives, and a manager typing a price today deletes the spent rows
+/// that would otherwise keep overriding what they just typed — that
+/// precedence is the whole of it and `menu.test.ts` asserts it.
+model StagedPrice {
+  id           String          @id @default(uuid())
+  /// EXACTLY ONE of these is set — `staged_price_one_target` is the CHECK
+  /// that says so. One table rather than two because there is one resolution
+  /// rule, and two tables would be two places to get it wrong.
+  itemId       String?
+  /// Cascade, like a daypart window and unlike a snapshot row: a queued price
+  /// for an item that no longer exists is not a record of anything.
+  item         MenuItem?       @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  optionId     String?
+  option       ModifierOption? @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  /// Restaurant-timezone calendar day, "YYYY-MM-DD". Never a Postgres `date`,
+  /// which round-trips through JS as an instant and shifts a day west.
+  effectiveDay String          @db.Char(10)
+  /// Integer cents, like every other price. Non-negative for an ITEM; an
+  /// option's delta may be a discount, so the CHECK is conditional.
+  priceCents   Int
+
+  /// Two prices for the same row on the same day is a contradiction whose
+  /// answer would depend on row order — the same rule `MenuItemWindow` makes
+  /// about two windows starting at the same minute. NULLs are distinct in a
+  /// Postgres unique index, so the item rows and the option rows do not
+  /// collide on each other's constraint.
+  @@unique([itemId, effectiveDay])
+  @@unique([optionId, effectiveDay])
+  @@index([effectiveDay])
 }
 
 /// The join that makes group REUSE real: one "salsa" group serves the burrito

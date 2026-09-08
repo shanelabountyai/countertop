@@ -383,6 +383,12 @@ Recorded as they are made, with the ceiling each one has.
 - **The composer's clock is a server-render snapshot** (C-110). The wall-clock reading is computed on the server and passed to the client component as a prop, so a composer left open across 16:00 keeps showing the old answer until something re-renders. That is the C-007 caveat exactly — the composer is a preview of the server's answer, not the authority — and it is re-checked at cart-add and again at placement for the same reason. A client that read its own clock would be a customer's laptop deciding what the kitchen is serving.
 - **Dayparts are item-grain only** (C-110). An option cannot carry a window, so "extra guacamole, dinner only" is not expressible. Nobody has asked, and the option grain carries the harder problem C-012 already recorded: a shared option's schedule would be shared too, so a dinner-only option on a group used by a breakfast item is a contradiction the model has nowhere to put. The item grain has no such ambiguity, which is why it is the one that shipped.
 
+- **A staged price lands at local midnight and nowhere else** (C-111). `StagedPrice.effectiveDay` is a restaurant-calendar day string, not a `timestamptz`, so "effective at 4pm Tuesday" is not expressible — a change starts when the restaurant's day starts. The reason is the input boundary, not the storage: an instant means converting a wall-clock reading the manager typed *into* an instant, which is the one direction `business-day.ts` refuses to go, because 2:30am on a DST Sunday is two instants or none. The requirement's own motivating story is a manager on a Sunday staging Monday's increase and its acceptance criterion is a day boundary, so the day grain costs nothing it was asked for. The upgrade is an instant column plus a wall-clock → instant converter with a written DST policy — and it is the same converter a "starts at 4pm" daypart editor would need, so it is one job for two features rather than two.
+- **No schedule view for staged prices** (C-111). A queued change renders on the row it will hit and nowhere else, so "show me everything changing on Monday" is a scroll through the editor rather than a screen. That is right for one manager and 25 items and wrong for a chain; the query is already there (`loadStagedPrices` returns the future rows ordered by day), so what is missing is a page, not a mechanism.
+- **The "extra" surcharge cannot be staged** (C-111). Every other price on the editor grew a start-day field; this one did not, and the row simply has no date input rather than having one that fails. It is the only price on the screen that can be BLANK, blank means something ("extra is free"), and staging it would need a nullable staged value with its own column, its own CHECK and its own resolution rule — for the least-used price on the menu. The asymmetry is visible on the screen, which is the honest version: a field that was there and silently did nothing would be worse.
+- **Superseded staged rows are never collected** (C-111). A row whose day has passed survives until a live edit on that same row deletes it, so the table grows with the number of price changes the restaurant has ever staged. It is filtered in SQL and indexed on `effectiveDay`, so reads stay cheap; what it costs is disk and a slightly confusing table to read by hand. The sweep, if it is ever worth writing, belongs beside the C-091 retention job — and unlike that one it touches no snapshot, because a staged price is a live-menu fact.
+- **`loadMenu` now requires a settings row** (C-111). Resolving a staged price is a calendar question, so the menu loader reads the restaurant's timezone and throws when the singleton settings row is missing — where before it would return a menu. That is the C-023 posture applied one function wider (`loadSettings` throws rather than defaulting, so a missing row cannot become a silent 0% tax), and the cost is a coupling: nothing can read the menu before the restaurant is configured. There is a test that says so on purpose.
+
 ## Defects Found
 
 **C-001 — the drift check could never have passed.** CI's schema-drift step runs
@@ -1897,6 +1903,47 @@ asking the app what it should say.
 The general version: **a test fixture that reads the clock has to be correct at
 every minute, not at the minute you ran it.** And the second-best place to
 learn that is a comment someone left on the last fixture that got it wrong.
+
+### The cleanup that raced the thing it was cleaning up after (C-111)
+
+The new e2e fixture needed the restaurant's tomorrow, so it followed the shape
+`setDaypart` already had — open the database, do the thing, disconnect in a
+`finally`:
+
+```ts
+try {
+  return earliestStagedDay();
+} finally {
+  await prisma.$disconnect();
+}
+```
+
+Three specs used it. The first passed. The second died on
+`PrismaClientUnknownRequestError: Response from the Engine was empty`, pointing
+at `loadSettings` — a function untouched by this item, in a file whose test had
+just gone green.
+
+`return` without `await` hands back a **pending** promise, and `finally` runs
+immediately after that — so `$disconnect()` fired while the query it was
+tidying up after was still in flight. Playwright runs a file's specs in one
+worker process, sharing one Prisma singleton, so the damage did not land on the
+spec that caused it: the first call usually won the race, and the second one
+inherited a client that had been torn down mid-query. Two specs, one cause, and
+the error names neither of them.
+
+The fix is one keyword — `return await` — and the reason it is worth writing
+down is that `return await` is exactly what a linter, a reviewer and half the
+style guides on the internet will tell you to delete as redundant. It is
+redundant *except* inside `try`, which is the only place it does anything at
+all, and this is that place.
+
+The general version: **a `finally` that awaits is a sequencing statement, and a
+bare `return` in the `try` opts out of the sequence.** It also reads as flake —
+one spec passing, its neighbour failing on an untouched function — which is the
+class of failure the conventions say to check the environment for before
+reading a stack trace. Here the stack trace was right and the environment was
+innocent; what made it look otherwise was that the failure surfaced one spec
+downstream of the code that caused it.
 
 ## Skills Learned / Functions Unlocked
 

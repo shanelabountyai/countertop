@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   businessDayOf,
   businessDayRange,
+  formatDayLabel,
   formatMinuteOfDay,
+  nextDay,
   instantDaysBefore,
   instantMinutesAfter,
   restaurantClock,
@@ -180,5 +182,47 @@ describe('a typed business-day range (P1-1)', () => {
     expect(businessDayRange('2026-00-01', '2026-07-20')).toBeNull();
     expect(businessDayRange('2026-7-14', '2026-07-20')).toBeNull();
     expect(businessDayRange('14/07/2026', '2026-07-20')).toBeNull();
+  });
+});
+
+// C-111 (P1-2). Both are calendar arithmetic on a calendar value: no instant
+// goes in and none comes out, which is why they can live in the module whose
+// header says instant → local, never local → instant.
+describe('formatDayLabel', () => {
+  it('leads with the weekday, because that is what a manager checks', () => {
+    // "Monday's price increase" is the thing being staged; "2026-09-14" is
+    // unfalsifiable to a person standing at a prep table.
+    expect(formatDayLabel('2026-09-14')).toBe('Monday, September 14');
+  });
+
+  it('reads the same in any process timezone', () => {
+    // The whole point of building the instant with Date.UTC and formatting it
+    // back in UTC. The TZ×2 CI run is what proves it; this says why.
+    expect(formatDayLabel('2026-01-01')).toBe('Thursday, January 1');
+    expect(formatDayLabel('2026-12-31')).toBe('Thursday, December 31');
+  });
+
+  it('hands back anything that is not a day rather than throwing', () => {
+    // It renders a caption. A throw here would take a whole screen down.
+    expect(formatDayLabel('soon')).toBe('soon');
+    expect(formatDayLabel('')).toBe('');
+  });
+});
+
+describe('nextDay', () => {
+  it('crosses a month and a year, which is why it is not +1 on a substring', () => {
+    expect(nextDay('2026-09-14')).toBe('2026-09-15');
+    expect(nextDay('2026-09-30')).toBe('2026-10-01');
+    expect(nextDay('2026-12-31')).toBe('2027-01-01');
+  });
+
+  it('crosses a leap day', () => {
+    expect(nextDay('2028-02-28')).toBe('2028-02-29');
+    expect(nextDay('2028-02-29')).toBe('2028-03-01');
+    expect(nextDay('2027-02-28')).toBe('2027-03-01');
+  });
+
+  it('hands back anything that is not a day', () => {
+    expect(nextDay('tomorrow')).toBe('tomorrow');
   });
 });

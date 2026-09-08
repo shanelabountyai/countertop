@@ -6735,3 +6735,115 @@ Commit `844c337`.
 - **Dayparts are item-grain only.** An option cannot carry one. Nobody asked,
   and the option grain already has the harder shared-option problem C-012
   recorded.
+
+## C-111 — A price you can stage (PRD 4 P1-2)
+
+Commit `PENDING`.
+
+**Built:**
+- **`StagedPrice(itemId?, optionId?, effectiveDay, priceCents)`**, a hand-written
+  migration: `staged_price_one_target` (`("itemId" IS NULL) <> ("optionId" IS
+  NULL)`), a `^\d{4}-\d{2}-\d{2}$` shape check on the day mirroring
+  `CheckoutGate.closedOnDay`, a conditional `priceCents >= 0` that binds items
+  and deliberately not options (an option delta may be a discount), uniques on
+  `(itemId, effectiveDay)` and `(optionId, effectiveDay)`, and
+  `onDelete: Cascade` on both parents.
+- **A child table, not a `stagedPriceCents`/`stagedFrom` column pair**, because
+  more than one change can be queued: Monday's increase and a holiday price two
+  weeks later are both real and neither should have to land before the other
+  can be written down. Same reasoning C-110 used for `MenuItemWindow`.
+- **One table, not two.** There is one resolution rule; two tables would be two
+  places to get it wrong. The nullable-FK pair is what the CHECK is for, and
+  Postgres treating NULLs as distinct in a unique index is what keeps every
+  option row off the item rows' constraint (there is a test that says so).
+- **`effectivePrices(now)` in `packages/db/menu.ts` — THE resolution rule**, in
+  four lines: a staged row overrides the live column once `effectiveDay` is
+  today or earlier, and among rows that have arrived the latest day wins.
+  Ordered ascending and folded into a map, so "latest wins" is the fold rather
+  than a comparison somebody could get backwards. It returns `today` alongside
+  the maps, because both of its callers want the day too and two clock readings
+  is how they disagree.
+- **Resolved inside `loadMenu`, so `priceLine` never learns what a schedule
+  is.** The price authority is unchanged, and all three of its call sites — the
+  menu view, cart validation, placement — got the effective price without a
+  line changing at any of them. That is also why the acceptance criterion holds
+  for free: `reviewCart` compares the line's baseline against what `priceLine`
+  says *now*, so a staged change moving the second number routes straight into
+  the old → new confirm C-015/C-026 already built.
+- **`writePrice(target, cents, effectiveDay | null, today)`** — one function for
+  both directions, in `packages/db` two functions below the resolution rule it
+  is the inverse of. A staged write is delete-then-create (re-staging the same
+  day is a manager correcting yesterday's number, not an error, and the uniques
+  are over nullable columns so an upsert is the wrong tool). A live write is
+  the column update **plus a delete of every staged row that has already taken
+  effect**, in one transaction.
+- **`loadMenu` now reads the restaurant's timezone.** "What does this cost right
+  now" became a calendar question the moment a price could be staged for a day,
+  and `loadSettings` throws rather than defaulting — so a missing settings row
+  fails loudly instead of resolving Monday's price on a Sunday afternoon in Los
+  Angeles. `placeOrder`, the rush and the seed now pass their own instant to
+  `loadMenu` rather than taking the `new Date()` default, so an order placed at
+  a fabricated minute is priced on the day it was placed on.
+- **The editor stages through the same confirm panel it edits through.** A
+  native `<input type="date">` beside the price, `min` set to the restaurant's
+  tomorrow; the confirm panel gains one sentence ("Not now — this starts on
+  Monday, September 14. Until then Burrito stays at $10.95.") and the submit
+  button changes from "Save new price" to "Queue new price". Queued changes
+  render on the row they will hit, each with a cancel button.
+- **`formatDayLabel` and `nextDay` in `business-day.ts`** — calendar arithmetic
+  on a calendar value, built with `Date.UTC` and read back in UTC, so no
+  instant is involved at either end and the module's "instant → local, never
+  local → instant" rule has nothing to say about them.
+- **Tests.** Twelve unit tests on the two day helpers; ten database constraint
+  tests; sixteen on resolution and precedence in `menu.test.ts`, including the
+  UTC-day-versus-restaurant-day pair either side of local midnight and the full
+  straddle acceptance criterion (added Sunday, reviewed Monday, confirmed, then
+  placeable); two at the placement call site; three e2e; and the snapshot
+  regression grew a landed staged price on both an item and an ordered option.
+
+**Decided:**
+- **A calendar DAY, not an instant** — which is the one thing this item was
+  handed the opposite advice about, so the reasoning is worth keeping. An
+  instant is more expressive ("effective at 4pm Tuesday"), and buying that
+  expressiveness costs a local → wall-clock **to** instant conversion at the
+  input boundary, which `business-day.ts` explicitly refuses to do because
+  2:30am on a DST Sunday is two instants or none. The PRD's own motivating
+  story is "a manager on a Sunday, staging Monday's price increase" and its
+  acceptance criterion is a day boundary; the sub-day case belongs to dayparts,
+  which shipped at C-110. So the day it is, and the ceiling is written down.
+- **A typed price beats a staged one that has already landed.** The two facts
+  can be true at once — C-110's daypart-versus-86 problem one level down — and
+  the answer has to be explicit or it is whichever branch runs first. Without
+  the delete, a change that landed on Monday keeps overriding every price typed
+  after it: the manager types $13.50, sees "saved", and the menu goes on
+  selling at $12.50 with nothing anywhere saying why. Rows still in the future
+  survive, because fixing today's price is not a reason to call off next
+  month's increase. Four tests.
+- **A start day must be strictly in the future.** A change staged for today is
+  not staged — it is a price change, and it has a field of its own on the same
+  row. It would also queue a row that is already spent, which then overrides
+  the next live edit. Refused server-side, with the `min` attribute as UX; the
+  e2e proves the refusal by navigating past the form.
+- **Cancelling a queued change has no confirm panel.** It un-does something that
+  has not happened yet, so the worst it costs is retyping a price nobody paid.
+  The guard belongs on the way in, where a customer will pay the number.
+
+**Left behind:**
+- **No staging for the "extra" surcharge.** It is the one price on the editor
+  that can be blank, blank means something ("extra is free"), and a nullable
+  staged value would need its own column, its own CHECK and its own resolution
+  rule — for the least-used price on the menu. The row simply has no date
+  field, so there is nothing to discover the hard way.
+- **A change lands at local midnight and nowhere else.** See the decision above.
+  The upgrade is an instant column plus a wall-clock → instant converter with a
+  DST policy, and it is the same conversion a "starts at 4pm" daypart editor
+  would need, so it is one job, not two.
+- **No schedule view.** Queued changes are visible on the rows they will hit and
+  nowhere else, so "everything changing on Monday" is a scroll rather than a
+  screen. Right for one manager and 25 items; wrong for a chain.
+- **Superseded staged rows are never collected.** A row for a past day survives
+  until a live edit on that row deletes it, so the table grows with the number
+  of price changes ever staged. It is filtered in SQL and indexed on the day;
+  the sweep, if it is ever worth writing, belongs next to the retention job.
+- **Still no menu-change event.** A staged price writes no event either, which
+  leaves PRD 4's builder Open Question exactly where C-109 and C-110 left it.

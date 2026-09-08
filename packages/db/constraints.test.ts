@@ -667,3 +667,117 @@ describe('item daypart windows', () => {
     expect(await prisma.menuItemWindow.count()).toBe(0);
   });
 });
+
+// C-111 (P1-2). Every row here is read by the price authority on every menu
+// render, every cart-add and every placement. A row that makes no sense throws
+// nowhere — it quietly reprices the menu — so the database refuses to hold one.
+describe('staged prices', () => {
+  beforeEach(async () => {
+    await resetDatabase();
+    await seedSampleMenu();
+  });
+
+  const staged = (overrides: Record<string, unknown> = {}) => ({
+    itemId: 'burrito',
+    effectiveDay: '2026-09-14',
+    priceCents: 1250,
+    ...overrides,
+  });
+
+  it('accepts a change queued for a future day', async () => {
+    await expect(prisma.stagedPrice.create({ data: staged() })).resolves.toMatchObject({
+      effectiveDay: '2026-09-14',
+      priceCents: 1250,
+    });
+  });
+
+  it('accepts more than one change for the same row — this is why it is a child table', async () => {
+    // Monday's increase and a holiday price two weeks later are both real, and
+    // neither should have to wait for the other to land to be written down. A
+    // `stagedPriceCents`/`stagedFrom` column pair could not hold both.
+    await prisma.stagedPrice.create({ data: staged() });
+    await expect(
+      prisma.stagedPrice.create({ data: staged({ effectiveDay: '2026-09-28', priceCents: 1300 }) }),
+    ).resolves.toMatchObject({ priceCents: 1300 });
+  });
+
+  it('refuses two prices for the same row on the same day', async () => {
+    // A contradiction whose answer would depend on row order — the same rule
+    // `MenuItemWindow` makes about two windows starting at the same minute.
+    await prisma.stagedPrice.create({ data: staged() });
+    await expect(
+      prisma.stagedPrice.create({ data: staged({ priceCents: 1300 }) }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('lets two different rows share a day, because the NULL target is distinct', async () => {
+    // The unique is over nullable columns, so every option row has itemId NULL
+    // and every item row has optionId NULL. Postgres treats those NULLs as
+    // distinct, which is what keeps one unique index from serialising the whole
+    // menu onto one change per day.
+    await prisma.stagedPrice.create({ data: staged() });
+    await prisma.stagedPrice.create({ data: staged({ itemId: 'bowl' }) });
+    await prisma.stagedPrice.create({
+      data: { optionId: 'guacamole', effectiveDay: '2026-09-14', priceCents: 250 },
+    });
+    await expect(
+      prisma.stagedPrice.create({
+        data: { optionId: 'carnitas', effectiveDay: '2026-09-14', priceCents: 200 },
+      }),
+    ).resolves.toMatchObject({ optionId: 'carnitas' });
+  });
+
+  it('refuses a row with no target', async () => {
+    await expect(
+      prisma.stagedPrice.create({ data: { effectiveDay: '2026-09-14', priceCents: 1250 } }),
+    ).rejects.toThrow(/staged_price_one_target/i);
+  });
+
+  it('refuses a row with two targets', async () => {
+    // A price for two things, whose resolution would depend on which branch
+    // the mapping happened to check first.
+    await expect(
+      prisma.stagedPrice.create({ data: staged({ optionId: 'guacamole' }) }),
+    ).rejects.toThrow(/staged_price_one_target/i);
+  });
+
+  it('refuses a day that is not a day', async () => {
+    // It is compared to `restaurantClock(...).day` as a STRING, and ISO dates
+    // only sort chronologically while they all look like this.
+    await expect(
+      prisma.stagedPrice.create({ data: staged({ effectiveDay: '14/09/2026' }) }),
+    ).rejects.toThrow(/staged_price_effective_day_shape/i);
+    await expect(
+      prisma.stagedPrice.create({ data: staged({ effectiveDay: '2026-9-14 ' }) }),
+    ).rejects.toThrow(/staged_price_effective_day_shape/i);
+  });
+
+  it('refuses a negative ITEM price but allows a negative option delta', async () => {
+    // An item that pays the customer to order it is a typo every time. "Small
+    // −$1.50" is an ordinary discount and always has been (C-002).
+    await expect(prisma.stagedPrice.create({ data: staged({ priceCents: -1 }) })).rejects.toThrow(
+      /staged_price_item_not_negative/i,
+    );
+    await expect(
+      prisma.stagedPrice.create({
+        data: { optionId: 'small', effectiveDay: '2026-09-14', priceCents: -150 },
+      }),
+    ).resolves.toMatchObject({ priceCents: -150 });
+  });
+
+  it('goes away with its item, unlike a snapshot row', async () => {
+    // Cascade, like a daypart window: a queued price for an item that no
+    // longer exists is not a record of anything that happened.
+    await prisma.stagedPrice.create({ data: staged({ itemId: 'chips' }) });
+    await prisma.menuItem.delete({ where: { id: 'chips' } });
+    expect(await prisma.stagedPrice.count()).toBe(0);
+  });
+
+  it('goes away with its option too', async () => {
+    await prisma.stagedPrice.create({
+      data: { optionId: 'guacamole', effectiveDay: '2026-09-14', priceCents: 250 },
+    });
+    await prisma.modifierOption.delete({ where: { id: 'guacamole' } });
+    expect(await prisma.stagedPrice.count()).toBe(0);
+  });
+});
