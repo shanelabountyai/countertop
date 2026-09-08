@@ -1,89 +1,79 @@
 # Next
 
-**PRD 4 is closed.** C-112 shipped stations as the attribute and wrote down the
-decision against the per-station arithmetic; the only thing still open in
-`docs/prds/prd-menu-under-pressure.md` is its **(Builder)** question about a
-per-batch menu-change event, which no item in P0 or P1 needed.
+**C-077 shipped** (`1a79be7`, SHA recorded in `8c0fc9c`, CI green). PRD 5 P0-1
+is done: three nullable contact columns on the settings singleton, a footer on
+the five customer routes, and the `tel:` link inside the cancelled and
+abandoned status panels.
 
-**Next item: `C-077` — the restaurant has an address and a phone**
-(`docs/prds/prd-the-customer-who-is-not-in-the-room.md` P0-1). PRD 5 is ranked
-5 in `docs/prds/INDEX.md` and is entirely unbuilt — C-077 through C-083. Three
-nullable columns on the settings singleton, a footer on five routes, and a
-`tel:` link on the two views whose copy already tells the customer to call.
-The product currently says "call the restaurant" and gives them no number.
+**Next item: `C-078` — the status page tells the truth about being late**
+(`docs/prds/prd-the-customer-who-is-not-in-the-room.md` P0-2). The status page
+polls faithfully every five seconds and says "Should be ready any minute now"
+forty times while the kitchen screen already knows the order is `overdue` and
+renders "— running late" in bold red. Reuse the queue's OWN `overdue`
+computation (`isOverdue` / `queueAging` in `packages/core/orders/queue.ts`),
+compared against the quote SNAPSHOTTED on the order at C-042 — not against
+today's settings. No migration.
 
-Model: **Sonnet.** Three nullable columns, a component and a link — no money
-path, no clock arithmetic, no snapshot. Opus is only warranted again when PRD
-6's C-088 (binding the placement replay to its session) comes up.
+Model: **Sonnet.** One comparison, one copy change, two tests. The `overdue`
+computation already exists and the snapshotted quote already exists; the whole
+item is wiring them to a sentence. Opus is only warranted again at PRD 6's
+C-088 (binding the placement replay to its session).
 
-Also unbuilt after PRD 5: **C-088, C-089, C-090, C-093** in PRD 6.
+Also unbuilt in PRD 5 after C-078: **C-079** (last call), **C-080** (menu
+descriptions + category strip), **C-081** (the untouched "Skip" pill + focus to
+the error), **C-082** (a way back to your own order — gated on a Product Open
+Question), **C-083** (cart quantity steppers). Then **C-088, C-089, C-090,
+C-093** in PRD 6.
 
-## What C-112 leaves behind
+## What C-077 leaves behind
 
-- **`MenuItem.station` is nullable and NULL means no kitchen work.** Four items
-  (`mexican-coke`, `bottled-water`, `tres-leches`, `paleta`) are `prepWeight: 0`
-  and have none. `sample-menu.test.ts` asserts that pairing in both directions;
-  add an item with weight and no station and it fails there.
-- **`seedable(rows)` in `availability/page.tsx` is the ONE rule** for what a
-  "Select these N" link adds: on screen, and not already picked. Both the
-  station row and the category link call it. A third grain calls it too.
-- **`STATIONS` / `STATION_LABELS` live in `packages/core/menu/types.ts`**, and
-  `['Station', STATIONS]` is in the vocabulary test in
-  `packages/db/snapshot.test.ts` — the Postgres enum and the engine's list are
-  pinned position for position. Adding a station means: the enum, `STATIONS`,
-  `STATION_LABELS` (a type error if forgotten), and a migration.
-- **The migration `20260908120000_item_station` backfills by seeded slug id**
-  and is a verified no-op on any database that does not use them. Copy that
-  shape for any column that wants to reach the deployed menu without a reseed.
+- **A sixth customer route can forget the footer, and one already has.** The
+  composer at `/menu/[itemId]` is a customer screen and is not in P0-1's five.
+  A `(customer)` route group with a layout makes it structural — and moves six
+  directories, which is the change to make when a SECOND thing belongs on every
+  customer screen, not for this one. C-080 touches the composer; if it grows
+  another cross-screen element, do the route group then.
+- **The status page reads the contact columns twice** — once for the panel's
+  `tel:` link, once inside the footer. A prop would fix it and would also be
+  the thing a page can render the footer without.
+- **An extension in the phone field dials as digits.** `(562) 555-0148 ext. 2`
+  becomes `tel:56255501482`. Deliberate: the alternative is a parser, and a
+  parser wrong about a real number is worse than a dialler right about most.
+- **No map link.** The address is text; a maps URL is a second decision about
+  which map.
 
-## Rules C-112 established
+## Rules C-077 established
 
-- **A station is an attribute, not a third availability fact.** C-110 settled
-  schedule-vs-86 and C-111 staged-vs-typed, both with the human winning. A
-  station says nothing about whether food can be ordered. If "this station is
-  down" ever becomes stored, it is a FOURTH column beside `available`, never
-  inside it and never inside `station`.
-- **The estimate and the auto-pause threshold read ONE open weight**, and that
-  is now a decision with three reasons behind it, not an omission. Do not
-  "improve" it into a per-station maximum without first shipping all three of:
-  a station and a weight on `OrderLine`, a staffing input, and a many-to-many
-  for the items that touch two stations.
-- **A requirement whose falsity is invisible to the suite is the one to check
-  against the data model first.** Every existing test supplies `openWeight`
-  directly, so the busiest-station swap would have gone green.
+- **A fixture must NEVER `import('@countertop/core')` directly.** It loads
+  under Playwright's transform as plain CJS and leaves the broken copy in the
+  require cache, so the next spec to reach `@countertop/db/menu` dies on
+  `Unexpected token 'export'` — in a file that did nothing wrong, a hundred
+  tests later, and it passes in isolation. Reach core THROUGH `@countertop/db`
+  (`loadClock()` is the clock). The reason is a comment in `fixtures.ts`.
+- **Adding a database read to a component is a statement about every page that
+  renders it.** `/` was the last statically prerendered route and nothing
+  failed — the tell was the `○` beside `/` in the build's own route table where
+  every other customer route had `ƒ`. Check that table whenever a shared
+  component starts reading something.
+- **A footer's hours are a WORDING of the gate's state, not a second reading.**
+  `todaysHours` takes the same `GateState` `checkoutGate` takes. It says
+  nothing about the cutoff or the pause switch — those decide whether an order
+  can be PLACED; the hours are when the door is open.
 
-## Ceilings recorded rather than fixed (C-112)
+## Still open from earlier items
 
-- **One station per item, and it is already wrong once.** A California burrito
-  is fryer work and flat-top work; it is on `grill`.
-- **No CHECK for "work has a station".** Fixture-level only, because the
-  constraint would have made a data backfill load-bearing for a rule that only
-  catches an authoring mistake, in a repo where items are authored only in
-  `SAMPLE_MENU` (C-015). It comes with the estimate work if that ever happens.
-- **No station editor**, same as `prepWeight` and for the same reason.
-- **Stations are not searched.** Five links already on screen; a search box
-  that also matched "fryer" would be a second way to do a one-tap thing.
-
-## Still open from C-109 / C-110 / C-111
-
-- **No per-batch menu-change event** — PRD 4's builder Open Question, still
-  unanswerable: nothing in the bulk path, the single toggles, a daypart, a
-  staged price or a station writes a menu-change event at all.
-- **`setAvailability` is read-then-write** (`ponytail:` comment), last-write-wins.
+- **No per-batch menu-change event** — PRD 4's builder Open Question, still the
+  only thing open in that document.
+- **`setAvailability` is read-then-write** (`ponytail:` comment),
+  last-write-wins.
 - **`done=off` survives a page reload**, so refreshing after a batch
   re-announces "Marked 6 sold out."
-- **No daypart editor**, and no overnight daypart window.
-- **A staged change lands at local midnight and nowhere else**; no schedule
-  view; the "extra" surcharge cannot be staged; superseded staged rows are
-  never collected.
-
-## One flake, still recorded rather than fixed
-
-`e2e/refund.spec.ts:211` ("a no-show is offered a refund rather than given
-one") failed once in a full sweep at 8.0s and has passed in every sweep since,
-including C-109's through C-112's. A timeout, not an assertion. Local `retries`
-is 0 and CI's is 1, so CI retries past it silently. First place to look if a
-refund spec times out again.
+- **No daypart editor**, no overnight daypart window, no schedule view for
+  staged prices, and superseded staged rows are never collected.
+- **`e2e/refund.spec.ts:211`** ("a no-show is offered a refund rather than
+  given one") failed once at 8.0s in a C-108-era sweep and has passed in every
+  sweep since, including C-077's. A timeout, not an assertion. Local `retries`
+  is 0, CI's is 1. First place to look if a refund spec times out again.
 
 ## Still open from C-069 / C-071, if you would rather clear debt
 
