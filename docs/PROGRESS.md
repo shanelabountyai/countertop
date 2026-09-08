@@ -6943,7 +6943,7 @@ did not, and the reason it did not is the useful half of the item.
 
 ## C-077 — The restaurant has an address and a phone (PRD 5 P0-1)
 
-Commit `PENDING`.
+Commit `1a79be7`.
 
 The first item of PRD 5, and the smallest in it. The product's founding premise
 is that phone orders tie up staff, and it resolved two of its worst customer
