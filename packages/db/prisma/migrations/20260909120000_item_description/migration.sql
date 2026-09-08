@@ -1,0 +1,13 @@
+-- The column has existed since `init` and was read by nothing (P0-4). C-080
+-- is the first reader, so this is the first time its width matters.
+--
+-- VARCHAR(200) rather than a CHECK, matching `restaurant_contact`'s
+-- `addressLine`: the cap is a property of the column, so the editor's
+-- validation, the seed and any future writer are all bounded by the same
+-- number instead of by whoever remembered to check.
+--
+-- Widening TEXT -> VARCHAR(200) is rewriteless in Postgres only if no row is
+-- longer. Nothing has ever written this column, so no row is; the USING clause
+-- is omitted deliberately, because a value that would be truncated should fail
+-- this migration loudly rather than be silently cut.
+ALTER TABLE "MenuItem" ALTER COLUMN "description" TYPE VARCHAR(200);

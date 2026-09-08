@@ -2318,3 +2318,70 @@ there rather than silently setting something else. The unit tests take a frozen
 `now` and have no such window, which is where the coverage that matters lives;
 the e2e is asserting that three screens mount the component, and that is a
 claim a spec skipped near midnight would not silently weaken.
+
+### What a "byte-identical" test cannot tell you (C-080)
+
+The snapshot rule has one regression test and it is the best test in this
+repo: place an order, then rename the item, reprice it, re-weight it, 86 it,
+rename and delete its options, detach a group, put it outside a daypart, land a
+staged price — then assert the receipt is byte-for-byte what it was. Twelve
+mutations, one `expect`.
+
+P0-4 added a `description` to the live menu, and the PRD named the trap: a
+description must not follow an order onto a receipt. The obvious move is to add
+a thirteenth mutation. Rewrite the description too, and the existing assertion
+covers it.
+
+It does not, and the reason is worth writing down.
+
+**The byte-identical assertion proves the receipt does not JOIN. It cannot
+prove the receipt does not COPY.** If somebody decided next month that a
+receipt reads better with a description and added an `itemDescription` column
+to `OrderLine`, snapshotted at placement like `itemName` — every one of those
+thirteen mutations would still leave the receipt byte-identical. The test would
+stay green through exactly the change it looks like it is guarding against.
+
+The two are not the same defect, and it is worth being precise about which one
+the rule forbids. A join is unambiguously wrong: it makes a placed order say
+something that changed after it was placed. A snapshotted copy is *not* wrong
+in the same way — it is stable, it is honest, it is what `itemName` is. It is
+merely unwanted: a receipt does not need a paragraph about food the customer is
+holding, and every snapshotted column is one more thing placement has to get
+right forever. So the copy needs refusing on its own terms, and by its own
+assertion.
+
+The test now makes two claims where it made one:
+
+- The receipt is byte-identical after the description is rewritten — *no join.*
+- The live item HAS a description, and the receipt contains no trace of it
+  under any spelling — *no copy.*
+
+The second one is the fragile-looking assertion (`JSON.stringify(receipt)` must
+not contain "griddle") and it is the one that would actually catch the mistake.
+
+**The general version: an invariant test that asserts STABILITY under mutation
+cannot distinguish "never read" from "read once and frozen."** Whenever those
+two are different requirements — and for a snapshot they usually are, because
+the whole design is a deliberate list of what gets frozen — stability needs a
+second assertion beside it saying what is not in there at all.
+
+Two smaller things from the same item.
+
+**The migration was needed, for a different reason than the handoff thought.**
+`MenuItem.description` had existed since `init` and was read by nothing, so the
+note handing this item over said "one nullable text column" and the PRD's data
+model table said "none". Both were half right: no column was needed, and a
+migration was, because `TEXT` is not a width and the first thing that ever
+writes to a column is the first thing that can put a paragraph in it. It went
+to `VARCHAR(200)`, matching what C-077 did for the address.
+
+**Nine specs asserted `{ name: /Burrito \$10\.95/ }`** — that the item's name is
+followed immediately by its price. That was never a claim any of those nine
+tests was about; it was an accident of the row having had nothing else in it.
+Putting the description inside the tap target broke two of them in the sweep,
+which is two more than would have broken if the description had gone beside the
+link instead — and the fix is not to move the description. It is one
+`menuRow(page, name, price)` fixture that nine call sites now go through, so
+the next thing added to that row breaks nothing. **A locator that encodes
+layout is a test coupled to a decision it was never making**, and the tell is
+that it fails on a change to a part of the screen it does not mention.

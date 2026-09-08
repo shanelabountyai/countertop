@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { reseed, setDaypart } from './fixtures';
+import { menuRow, reseed, setDaypart } from './fixtures';
 
 // C-007: the customer menu and the item composer (P0-1, P0-2 display side).
 //
@@ -28,8 +28,57 @@ test('the menu lists every category, item and price', async ({ page }) => {
   await page.goto('/menu');
   await expect(page.getByRole('heading', { name: 'Burritos & Bowls' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Sides' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Burrito \$10\.95/ })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Chips & salsa \$3\.50/ })).toBeVisible();
+  // C-080 put the description INSIDE the tap target, so it is inside the
+  // link's accessible name too — between the name and the price. `Chips &
+  // salsa` is deliberately undescribed in SAMPLE_MENU, so its name is still
+  // adjacent, and that contrast is the assertion.
+  await expect(menuRow(page, 'Burrito', '$10.95')).toBeVisible();
+  await expect(menuRow(page, 'Chips & salsa', '$3.50')).toBeVisible();
+});
+
+test('the menu says what the food is, with no composer opened', async ({ page }) => {
+  await page.goto('/menu');
+
+  // P0-4. Read straight off the list — the point of the requirement is that
+  // finding out what a burrito is does not cost a navigation.
+  await expect(
+    page.getByText('Hot off the griddle, folded tight, big enough to need two hands.'),
+  ).toBeVisible();
+
+  // An item with no description renders nothing rather than an empty line.
+  await expect(menuRow(page, 'Chips & salsa', '$3.50')).toHaveText(/^Chips & salsa\s*\$3\.50$/);
+
+  // ...and the composer says it too, for the customer who did navigate.
+  await page.goto('/menu/burrito');
+  await expect(
+    page.getByText('Hot off the griddle, folded tight, big enough to need two hands.'),
+  ).toBeVisible();
+});
+
+test('the category strip jumps to each section', async ({ page }) => {
+  await page.goto('/menu');
+  const strip = page.getByRole('navigation', { name: 'Jump to a category' });
+
+  // Every category on the menu is in the strip, in menu order.
+  await expect(strip.getByRole('link')).toHaveText([
+    'Burritos & Bowls',
+    'Plates',
+    'Sides',
+    'Drinks',
+    'Sweets',
+  ]);
+
+  // Native in-page anchors: tapping one moves the URL fragment and scrolls the
+  // matching section into view. Asserting `isVisible` alone would pass on a
+  // short page that never scrolled, so the fragment is asserted too.
+  for (const [name, id] of [
+    ['Sweets', 'sweets'],
+    ['Plates', 'plates'],
+  ]) {
+    await strip.getByRole('link', { name }).click();
+    await expect(page).toHaveURL(new RegExp(`#category-${id}$`));
+    await expect(page.getByRole('heading', { name, level: 2 })).toBeInViewport();
+  }
 });
 
 test('skipping a required group blocks the add with a clear message', async ({ page }) => {
@@ -117,7 +166,7 @@ test('an item outside its serving hours is shown with its hours, not hidden', as
   // And it is the schedule, not "Sold out": nobody ran out of anything.
   await expect(page.getByText('Chips & salsa — Sold out')).toHaveCount(0);
   // Its neighbours are untouched.
-  await expect(page.getByRole('link', { name: /Chips & guac \$5\.95/ })).toBeVisible();
+  await expect(menuRow(page, 'Chips & guac', '$5.95')).toBeVisible();
 });
 
 test('the composer opened directly says so, and will not add', async ({ page }) => {

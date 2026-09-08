@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { addBurritoToCart, reseed } from './fixtures';
+import { addBurritoToCart, menuRow, reseed } from './fixtures';
 
 // C-012: the 86 board and the three surfaces one 86 has to touch (P0-6).
 //
@@ -51,7 +51,7 @@ test('an 86 option flags the carts holding it and blocks checkout, at the option
 
   // Out of avocado is not out of burritos: the item itself is still orderable.
   await page.goto('/menu');
-  await expect(page.getByRole('link', { name: /Burrito \$10\.95/ })).toBeVisible();
+  await expect(menuRow(page, 'Burrito', '$10.95')).toBeVisible();
 
   await page.goto('/checkout');
   await expect(page.getByRole('button', { name: /Place order/ })).toBeDisabled();
@@ -242,7 +242,7 @@ test('a bulk 86 reaches all three surfaces, exactly as one tap does', async ({ p
   }
   // Out of the fryer is not out of burritos: the option grain moved, the item
   // carrying it did not.
-  await expect(page.getByRole('link', { name: /Burrito \$10\.95/ })).toBeVisible();
+  await expect(menuRow(page, 'Burrito', '$10.95')).toBeVisible();
 
   // Surface 2: the cart already holding one is flagged, and checkout is shut.
   await page.goto('/checkout');

@@ -277,7 +277,10 @@ model MenuItem {
   categoryId     String
   category       Category            @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   name           String
-  description    String?
+  /// What the food is, in a sentence (P0-4). A LIVE-menu field: it is rendered
+  /// on `/menu` and in the composer and it reaches no placed order — the
+  /// snapshot copies `itemName` and deliberately not this.
+  description    String?             @db.VarChar(200)
   basePriceCents Int
   /// The item grain of 86'ing (P0-6). Unavailable items render "sold out",
   /// they are not hidden.

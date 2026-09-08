@@ -51,6 +51,13 @@ export async function loadMenu(now: Date = new Date()): Promise<Menu> {
           id: item.id,
           categoryId: item.categoryId,
           name: item.name,
+          // Absent, not null (P0-4) — the same `exactOptionalPropertyTypes`
+          // care as `station` below. This is the ONLY new field here and it
+          // stops at the live-menu surfaces: `placeOrder` builds its snapshot
+          // lines from an explicit field list that does not include it, which
+          // is why a description can be rewritten under a placed order without
+          // the receipt moving (packages/db/snapshot.test.ts).
+          ...(item.description === null ? {} : { description: item.description }),
           // The staged price if one has arrived, the live column otherwise
           // (P1-2). Resolved HERE, in the one mapping, so `priceLine` — the
           // price authority — needs no notion of a schedule and all three of

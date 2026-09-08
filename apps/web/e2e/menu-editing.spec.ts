@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { reseed, restaurantTomorrow } from './fixtures';
+import { menuRow, reseed, restaurantTomorrow } from './fixtures';
 
 // C-015: safe menu editing (P0-13).
 //
@@ -33,7 +33,7 @@ test('a price edit is confirmed old → new before it is saved', async ({ page }
 
   // Nothing is written until the manager says so.
   await page.goto('/menu');
-  await expect(page.getByRole('link', { name: /Burrito \$10\.95/ })).toBeVisible();
+  await expect(menuRow(page, 'Burrito', '$10.95')).toBeVisible();
 });
 
 test('cancelling the confirm leaves the price exactly as it was', async ({ page }) => {
@@ -42,7 +42,7 @@ test('cancelling the confirm leaves the price exactly as it was', async ({ page 
 
   await expect(page.getByRole('heading', { name: 'Edit menu' })).toBeVisible();
   await page.goto('/menu');
-  await expect(page.getByRole('link', { name: /Burrito \$10\.95/ })).toBeVisible();
+  await expect(menuRow(page, 'Burrito', '$10.95')).toBeVisible();
 });
 
 test('confirming saves the price and the customer menu shows it', async ({ page }) => {
@@ -52,7 +52,7 @@ test('confirming saves the price and the customer menu shows it', async ({ page 
   await expect(page.getByRole('status')).toContainText('Burrito is now priced at $12.50');
 
   await page.goto('/menu');
-  await expect(page.getByRole('link', { name: /Burrito \$12\.50/ })).toBeVisible();
+  await expect(menuRow(page, 'Burrito', '$12.50')).toBeVisible();
 });
 
 // C-041: prep points (P1-7). Deliberately NOT behind the confirm panel — a
@@ -82,6 +82,46 @@ test('a prep point that is not a whole number is refused, with the bound', async
   await page.getByRole('button', { name: 'Save prep points for Burrito', exact: true }).click();
 
   await expect(page.getByTestId('menu-error')).toContainText('0 to 50');
+});
+
+// C-080: descriptions (P0-4). Same straight-save posture as prep points, and
+// the round trip that matters is the one onto the CUSTOMER menu — an editor
+// that saves a sentence nobody can read is not the requirement.
+test('a description saves straight away and reaches the customer menu', async ({ page }) => {
+  await page.goto('/kitchen/menu');
+  const field = page.getByRole('textbox', { name: 'Description of Burrito', exact: true });
+  await field.fill('Wrapped to order, and worth the wait.');
+  await page.getByRole('button', { name: 'Save description for Burrito', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Wrapped to order, and worth the wait.');
+
+  await page.goto('/menu');
+  await expect(page.getByText('Wrapped to order, and worth the wait.')).toBeVisible();
+  // The one it replaced is gone, not appended beside it.
+  await expect(page.getByText('Hot off the griddle')).toHaveCount(0);
+});
+
+test('clearing a description removes it rather than leaving an empty line', async ({ page }) => {
+  await page.goto('/kitchen/menu');
+  await page.getByRole('textbox', { name: 'Description of Burrito', exact: true }).fill('   ');
+  await page.getByRole('button', { name: 'Save description for Burrito', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Burrito has no description');
+
+  // Whitespace was trimmed to nothing and stored as NULL, so the customer menu
+  // renders the row exactly as it renders an item that never had one.
+  await page.goto('/menu');
+  await expect(menuRow(page, 'Burrito', '$10.95')).toBeVisible();
+});
+
+test('a description past the column width is refused, not truncated', async ({ page }) => {
+  await page.goto('/kitchen/menu');
+  const field = page.getByRole('textbox', { name: 'Description of Burrito', exact: true });
+  // `maxLength` is the browser's guard; the server is what makes the rule
+  // true, so it is removed and the over-long value posted anyway.
+  await field.evaluate((input: HTMLInputElement) => input.removeAttribute('maxlength'));
+  await field.fill('x'.repeat(201));
+  await page.getByRole('button', { name: 'Save description for Burrito', exact: true }).click();
+
+  await expect(page.getByTestId('menu-error')).toContainText('200 characters');
 });
 
 test('a modifier delta may be repriced negative, and the composer follows', async ({ page }) => {
@@ -254,7 +294,7 @@ test('a price that moved between the confirm and the tap is refused, by value', 
 
   // And nothing was written: the other manager's price stands.
   await page.goto('/menu');
-  await expect(page.getByRole('link', { name: /Burrito \$11\.50/ })).toBeVisible();
+  await expect(menuRow(page, 'Burrito', '$11.50')).toBeVisible();
 });
 
 test('a group whose bounds moved under the confirm is refused', async ({ page, context }) => {
@@ -370,7 +410,7 @@ test('a staged price is confirmed with the day, and does not move today’s pric
 
   // THE ASSERTION. Today's menu is untouched.
   await page.goto('/menu');
-  await expect(page.getByRole('link', { name: /Burrito \$10\.95/ })).toBeVisible();
+  await expect(menuRow(page, 'Burrito', '$10.95')).toBeVisible();
 
   // And the change is visible on the row it will hit, not hidden in a table.
   await page.goto('/kitchen/menu');
@@ -407,5 +447,5 @@ test('a start day that is not still to come is refused, not silently applied', a
 
   await expect(page.getByRole('heading', { name: 'Nothing was changed' })).toBeVisible();
   await page.goto('/menu');
-  await expect(page.getByRole('link', { name: /Burrito \$10\.95/ })).toBeVisible();
+  await expect(menuRow(page, 'Burrito', '$10.95')).toBeVisible();
 });

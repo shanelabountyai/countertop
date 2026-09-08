@@ -39,6 +39,19 @@ describe('loadMenu', () => {
     expect(menu.items.bowl?.modifierGroupIds).toEqual(['size', 'protein', 'salsa']);
   });
 
+  // P0-4. `toEqual` above cannot tell `description: undefined` from no key at
+  // all, so the absent-not-null mapping needs saying out loud — the same hole
+  // the daypart test below covers for `windows`. `chips` is the undescribed
+  // item on purpose (see SAMPLE_MENU): `/menu` renders nothing for it, and a
+  // `null` reaching the page would render an empty line under the name.
+  it('maps a description only onto the items that have one', async () => {
+    const menu = await loadMenu();
+    expect(menu.items.burrito?.description).toBe(
+      'Hot off the griddle, folded tight, big enough to need two hands.',
+    );
+    expect(menu.items.chips).not.toHaveProperty('description');
+  });
+
   it('reads an 86 as an 86', async () => {
     await prisma.modifierOption.update({
       where: { id: 'guacamole' },

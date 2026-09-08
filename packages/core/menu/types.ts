@@ -128,6 +128,24 @@ export type MenuItem = {
   id: ItemId;
   categoryId: CategoryId;
   name: string;
+  /**
+   * What the food is, in a sentence (P0-4). A LIVE-MENU field, and the only
+   * one on this type that exists purely to be read by a human — nothing in
+   * `packages/core` reasons about it.
+   *
+   * It must never follow an order into a snapshot. `SnapshotLine` copies
+   * `itemName` because a receipt has to survive a rename; it deliberately does
+   * NOT copy this, because a receipt that showed a description would either be
+   * a menu join (the defect this project exists to prevent) or a second
+   * snapshotted column for text no customer needs on a receipt they are
+   * holding the food from. Live surfaces only: `/menu` and the composer.
+   *
+   * Optional rather than a required nullable, the same
+   * `exactOptionalPropertyTypes` reason as `station` and `windows` below —
+   * absent and `undefined` are different values, and an item nobody has
+   * described yet is absent.
+   */
+  description?: string;
   basePriceCents: number;
   /** The item grain of 86'ing. Unavailable items render "sold out", not hidden. */
   available: boolean;

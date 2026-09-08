@@ -141,11 +141,18 @@ export const SAMPLE_MENU: Menu = {
   // Absent where `prepWeight` is 0, and only there: nobody MAKES a bottled
   // water. `sample-menu.test.ts` asserts that pairing in the one direction it
   // can be wrong in.
+  //
+  // `description` (P0-4) is on three items and absent from the other
+  // twenty-two, deliberately: an undescribed item is the ordinary case, and
+  // `/menu` has to render nothing at all for it rather than an empty line.
+  // `chips` is the one every spec that asserts a bare link name relies on
+  // staying undescribed.
   items: {
     burrito: {
       id: 'burrito',
       categoryId: 'burritos',
       name: 'Burrito',
+      description: 'Hot off the griddle, folded tight, big enough to need two hands.',
       basePriceCents: 1095,
       available: true,
       prepWeight: 2,
@@ -156,6 +163,7 @@ export const SAMPLE_MENU: Menu = {
       id: 'bowl',
       categoryId: 'burritos',
       name: 'Burrito bowl',
+      description: 'The same build, served warm in a bowl instead of wrapped.',
       basePriceCents: 1195,
       available: true,
       prepWeight: 2,
@@ -167,6 +175,7 @@ export const SAMPLE_MENU: Menu = {
       id: 'taco-plate',
       categoryId: 'plates',
       name: 'Taco plate',
+      description: 'Three soft tacos with beans, on one plate.',
       basePriceCents: 1250,
       available: true,
       prepWeight: 3,

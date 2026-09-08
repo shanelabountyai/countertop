@@ -2320,3 +2320,29 @@ up from your phone two minutes later.
 **Nobody has to be told twice.** The warning and the "we're closed" notice are
 the same voice in the same colour, and the second one only ever appears where
 the first one has run out.
+
+## C-080 — The menu says what the food is
+
+A menu of twenty-five names and twenty-five prices asks the customer to already
+know what a California burrito is. The ones who did not found out by tapping
+into an item, reading nothing there either, and tapping back — or by ordering
+something else.
+
+**Every item can now say what it is**, in a sentence, under its name and inside
+the same tap target. No navigation, no expanding, no "more info" link.
+
+**A category strip pins to the top of the menu.** Five categories on a phone is
+a long thumb-scroll; tapping "Sweets" now goes to sweets, and the browser's
+back button still works because nothing clever was done to make it happen.
+
+**Staff type the sentence themselves**, in the same menu editor they already
+change prices in. It saves on the tap, without a confirm panel — a description
+is not money, and a screen that asks "are you sure?" about everything trains
+people to stop reading it. Clearing the box removes the description.
+
+**A placed order still says only what was ordered.** Descriptions live on the
+live menu and reach no receipt, no confirmation and no kitchen ticket. Rewrite
+one this afternoon and every order taken this morning reads exactly as it did
+when it was placed — which is the rule this whole product is built around, and
+which now has a test that specifically checks a description cannot sneak past
+it.

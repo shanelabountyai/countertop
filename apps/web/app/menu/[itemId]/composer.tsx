@@ -161,6 +161,12 @@ export function Composer({
       </Link>
 
       <h1 className="mt-4 text-3xl font-semibold">{item.name}</h1>
+      {/* P0-4, the second and last live-menu surface this appears on. Above
+          the price, because someone who opened this screen is deciding what
+          the food is before deciding whether to pay for it. */}
+      {item.description !== undefined && (
+        <p className="mt-2 text-neutral-700">{item.description}</p>
+      )}
       <p className="mt-1 text-neutral-600">{formatCents(item.basePriceCents)}</p>
       {/* An 86 first, then the schedule, and never both — the same precedence
           `validateComposition` applies, because it is the same two facts

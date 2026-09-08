@@ -117,6 +117,19 @@ describe('the snapshot rule', () => {
     // future change prices something outside the option list, this catches it.
     const deltas = line?.options.reduce((sum, o) => sum + o.appliedDeltaCents, 0) ?? 0;
     expect((line?.basePriceCents ?? 0) + deltas).toBe(line?.unitPriceCents);
+
+    // C-080. The burrito HAS a description on the live menu — `SAMPLE_MENU`
+    // gives it one and the seed writes it — and the receipt carries no trace
+    // of it, under any spelling. Asserted separately from the byte-identical
+    // test below, which a snapshotted copy of the description would also pass:
+    // that one proves the receipt does not JOIN, this one proves it does not
+    // COPY. The requirement is both.
+    expect(await prisma.menuItem.findUniqueOrThrow({ where: { id: 'burrito' } })).toMatchObject({
+      description: 'Hot off the griddle, folded tight, big enough to need two hands.',
+    });
+    expect(Object.keys(line ?? {})).not.toContain('itemDescription');
+    expect(Object.keys(line ?? {})).not.toContain('description');
+    expect(JSON.stringify(receipt)).not.toContain('griddle');
   });
 
   it('is byte-identical after every referenced menu row is mutated or deleted', async () => {
@@ -125,13 +138,27 @@ describe('the snapshot rule', () => {
 
     // Rename the category the line copied its categoryName from.
     await prisma.category.update({ where: { id: 'burritos' }, data: { name: 'RENAMED CATEGORY' } });
-    // Rename, reprice, re-WEIGH and 86 the item. The weight matters here for
-    // the same reason the price does (P1-7): the order's `prepWeight` is a
-    // copy, so re-weighting a burrito must not change how heavy an order
-    // already in the queue is — the whole receipt is compared below.
+    // Rename, RE-DESCRIBE, reprice, re-WEIGH and 86 the item. The weight
+    // matters here for the same reason the price does (P1-7): the order's
+    // `prepWeight` is a copy, so re-weighting a burrito must not change how
+    // heavy an order already in the queue is — the whole receipt is compared
+    // below.
+    //
+    // The description is C-080's trap (PRD 5, Invariant Impact 1). It is a
+    // LIVE-menu field with two live readers, and the failure mode it guards
+    // against is somebody deciding a receipt would read better with one and
+    // joining `OrderLine.menuItemId` back to `MenuItem` to get it. Rewriting
+    // it here means that join would show up as a diff rather than as a nicer
+    // receipt nobody re-checked.
     await prisma.menuItem.update({
       where: { id: 'burrito' },
-      data: { name: 'RENAMED ITEM', basePriceCents: 9999, prepWeight: 50, available: false },
+      data: {
+        name: 'RENAMED ITEM',
+        description: 'REWRITTEN DESCRIPTION',
+        basePriceCents: 9999,
+        prepWeight: 50,
+        available: false,
+      },
     });
     // Rename a group the options copied their groupName from, and change its rules.
     await prisma.modifierGroup.update({

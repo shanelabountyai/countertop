@@ -29,6 +29,7 @@ import {
   deleteGroup,
   saveExtraSurcharge,
   saveGroup,
+  saveItemDescription,
   saveItemPrepWeight,
   saveItemPrice,
   saveOptionPrice,
@@ -329,6 +330,7 @@ export default async function MenuEditorPage({
                     queued={queuedFor(item.id, formatCents)}
                   />
                   <WeightForm item={item} />
+                  <DescriptionForm item={item} />
                 </li>
               ))}
           </ul>
@@ -563,6 +565,40 @@ function WeightForm({ item }: { item: MenuItem }) {
         className="min-h-12 rounded-lg border-2 border-neutral-900 px-5 text-lg font-bold"
       >
         Save prep points for {item.name}
+      </button>
+    </form>
+  );
+}
+
+/** What the food is (P0-4). The same straight-save shape as `WeightForm`
+ *  above and for the same reason: it is not money, so the confirm panel the
+ *  prices sit behind would be ceremony here.
+ *
+ *  A full-width row of its own rather than a field beside the price, because
+ *  this is the one value on this screen that is a sentence — sharing a line
+ *  with a $ box on a phone gives it about eight characters to be typed in.
+ *
+ *  `defaultValue` is `?? ''`: an item with no description shows an EMPTY box,
+ *  and saving it empty is how a description is removed. */
+function DescriptionForm({ item }: { item: MenuItem }) {
+  return (
+    <form action={saveItemDescription} className="flex flex-wrap items-end gap-3">
+      <input type="hidden" name="itemId" value={item.id} />
+      <Field label={`Description of ${item.name}`} visible="Says">
+        <input
+          name="description"
+          type="text"
+          maxLength={200}
+          defaultValue={item.description ?? ''}
+          placeholder="What the food is, in a sentence"
+          className="min-h-12 w-full rounded-lg border-2 border-neutral-400 px-3 text-lg sm:w-96"
+        />
+      </Field>
+      <button
+        type="submit"
+        className="min-h-12 rounded-lg border-2 border-neutral-900 px-5 text-lg font-bold"
+      >
+        Save description for {item.name}
       </button>
     </form>
   );

@@ -158,6 +158,47 @@ export async function saveItemPrepWeight(formData: FormData): Promise<void> {
 }
 
 /**
+ * What the food is, in a sentence (P0-4).
+ *
+ * Same posture as the prep weight above and for a related reason: this is not
+ * money and no confirm panel guards it. It IS customer-facing, unlike the
+ * weight — but the worst a typo does is read badly on `/menu` until someone
+ * retypes it, and it can reach no placed order at all, because the snapshot
+ * copies `itemName` and nothing else about the item.
+ *
+ * BLANK MEANS NO DESCRIPTION, stored as NULL rather than as an empty string.
+ * `loadMenu` omits the key on null, `/menu` renders nothing for an absent one,
+ * and `''` would slip past both and put an empty line under a name. One
+ * spelling of "nobody has described this yet".
+ *
+ * Capped at 200 to match VARCHAR(200) on the column (item_description): a
+ * paragraph typed into this box is a paragraph rendered inside every menu row,
+ * and a value past the cap must be refused with a sentence rather than reach
+ * Postgres and come back as a 500.
+ */
+export async function saveItemDescription(formData: FormData): Promise<void> {
+  const itemId = formData.get('itemId');
+  const raw = formData.get('description');
+  if (typeof itemId !== 'string' || typeof raw !== 'string') rejected();
+  const description = raw.trim();
+  if (description.length > 200) {
+    rejected('A description has to fit in 200 characters.');
+  }
+
+  const item = await prisma.menuItem.findUnique({ where: { id: itemId } });
+  if (!item) rejected();
+  await prisma.menuItem.update({
+    where: { id: itemId },
+    data: { description: description === '' ? null : description },
+  });
+  done(
+    description === ''
+      ? `${item.name} has no description`
+      : `${item.name} now reads "${description}"`,
+  );
+}
+
+/**
  * A modifier's price delta. Negative IS legal here — "Small −$1.50" is a
  * discount, not a mistake — which is exactly why the confirm step showing
  * old → new matters more on this row than on an item's.

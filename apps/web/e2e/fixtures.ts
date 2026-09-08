@@ -89,6 +89,29 @@ export const card = (page: Page, name: string): Locator =>
   page.getByRole('listitem').filter({ hasText: name }).first();
 
 /**
+ * An orderable row on the customer menu, by item name and price (C-080).
+ *
+ * It exists because nine specs had written `{ name: /Burrito \$10\.95/ }` —
+ * an assertion that the name is followed IMMEDIATELY by the price, which was
+ * true only for as long as nothing else was in the row. P0-4 put the
+ * description inside the tap target, so a described item's accessible name is
+ * now "Burrito Hot off the griddle… $10.95" and an undescribed one's is still
+ * "Chips & salsa $3.50". Both are the same claim — this row, this price — and
+ * no spec should have to know which kind of item it is looking at, nor break
+ * again the next time something lands between the two.
+ *
+ * The price is part of the pattern rather than a separate `toContainText`,
+ * because it is also what disambiguates: "Burrito" is a prefix of "Burrito
+ * bowl", and Playwright matches accessible names by substring.
+ */
+export const menuRow = (page: Page, name: string, price: string): Locator => {
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return page.getByRole('link', {
+    name: new RegExp(`^${escape(name)}\\b.*${escape(price)}$`),
+  });
+};
+
+/**
  * Compose the standard burrito and land on the cart.
  *
  * Burrito 1095 + chicken 0 = 1095; tax 8.25% of 1095 = 90.3375 → 90; total

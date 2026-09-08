@@ -7202,3 +7202,73 @@ one moment the information is worthless.
   refused by `placeOrder` and that is correct, but the refusal arrives as a
   failure rather than as the warning this item added. The warning is a render,
   and that customer is past the last render.
+
+## C-080 — The menu says what the food is (PRD 5 P0-4)
+
+Commit `PENDING`.
+
+`MenuItem.description` had been in the schema since `init` and was read by
+nothing. Twenty-five items, five categories, one continuous scroll, and every
+row saying only a name and a price — so "what is a California burrito" was
+answered by tapping into the composer, reading nothing there either, and
+tapping back.
+
+**Built:**
+- **`description` mapped through `loadMenu` and rendered on the two LIVE-menu
+  surfaces**, `/menu` and the composer. Absent-not-null, the same
+  `exactOptionalPropertyTypes` shape as `station` and `windows`, because an
+  item nobody has described is absent rather than `null` — a `null` reaching
+  the page renders an empty line under the name.
+- **On `/menu` it is inside the tap target**, so it is inside the link's
+  accessible name too. The row's name/description/price body is now built once
+  and wrapped by either the link or the sold-out `div`, rather than written
+  twice — the two branches differing by anything except styling is how they
+  drift.
+- **A sticky category strip**, `<nav aria-label="Jump to a category">`, of
+  plain in-page anchors, with `scroll-mt-20` on each `<section>` so the target
+  heading does not land underneath the bar that was just tapped.
+- **`DescriptionForm` + `saveItemDescription`** in the menu editor, in
+  `WeightForm`'s straight-save idiom: no confirm panel, because a description
+  is not money. Blank saves as `NULL`, which is how a description is removed.
+- **A migration after all** — `20260909120000_item_description`, `TEXT` →
+  `VARCHAR(200)`. Not for the column, which existed; for its width, which only
+  started mattering once something wrote to it.
+- **`SAMPLE_MENU` describes three of its twenty-five items.** `chips` stays
+  undescribed on purpose: it is what the undescribed branch is asserted
+  against, and what every spec matching a bare link name relies on.
+
+**Decided:**
+- **The snapshot regression needed a SECOND assertion, not just a longer
+  mutation.** Adding `description: 'REWRITTEN DESCRIPTION'` to the burrito's
+  update proves the receipt does not JOIN. It cannot prove the receipt does not
+  COPY — a snapshotted `itemDescription` column would sail through a
+  byte-identical comparison. So the "zero joins" test now also asserts the live
+  item HAS a description and that the receipt contains no trace of it under any
+  spelling. Two claims, two tests, because they fail in different ways.
+- **The strip is anchors and CSS, with no JavaScript at all.** No scroll
+  listener, no active-section highlight, no `scrollIntoView`. The browser
+  already does this, and it does it with a working back button.
+- **The description is inside the link rather than beside it.** It is what the
+  row is about, so a screen reader hearing "Burrito, hot off the griddle…,
+  $10.95" is getting the row, and a thumb landing anywhere on two lines of text
+  opens the item.
+- **The editor field caps at 200 in three places and they agree.**
+  `VARCHAR(200)` on the column, `maxLength` on the input, and an explicit
+  refusal in the action — because the first is a 500 and the second is only the
+  browser being helpful.
+
+**Left behind:**
+- **Twenty-two items still have no description.** The mechanism ships; the copy
+  is a restaurant's job, and `SAMPLE_MENU` is a fixture rather than a menu.
+- **The strip does not say where you are.** No active-section styling, because
+  that is the scroll listener this deliberately avoided. On five categories
+  that reads as fine; on twenty it would not.
+- **The strip wraps rather than scrolls sideways.** `flex-wrap` on a phone with
+  five categories is two rows; a restaurant with twelve gets a tall sticky
+  block. `overflow-x-auto` with `flex-nowrap` is the swap, and it costs a
+  horizontal scroll affordance nobody can see.
+- **A description is not searchable and nothing indexes it.** It renders and
+  that is all it does.
+- **The staff receipt still says only the item name**, which is correct, and
+  the "why does the kitchen ticket not show what it is" question will be asked
+  eventually. The answer is in this entry.

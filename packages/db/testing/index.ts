@@ -97,6 +97,7 @@ export async function seedSampleMenu(): Promise<void> {
       id: item.id,
       categoryId: item.categoryId,
       name: item.name,
+      description: item.description ?? null,
       basePriceCents: item.basePriceCents,
       available: item.available,
       prepWeight: item.prepWeight,
