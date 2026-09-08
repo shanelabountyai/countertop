@@ -20,6 +20,8 @@
 // database. It is summed over OPEN_STATUSES by the caller — the same number
 // the auto-pause threshold reads, so "busy" means one thing.
 
+import { isOverdue } from './queue';
+
 /** What the estimate is computed from. Both minute values are settings. */
 export type EstimateState = {
   /** Minutes for a ticket with an empty queue in front of it. */
@@ -88,6 +90,36 @@ export function remainingEstimate(
   const spent = Math.max(0, elapsedMinutes);
   const lowMinutes = estimate.lowMinutes - spent;
   return lowMinutes <= 0 ? null : range(lowMinutes, estimate.highMinutes - spent);
+}
+
+/**
+ * Is this order past the top of the range it was PROMISED (PRD 5 P0-2)?
+ *
+ * THE QUEUE'S OWN COMPARISON, pointed at a different threshold. `isOverdue` is
+ * the `>=` the kitchen card turns red on, and the two questions are genuinely
+ * different — the card's 15-minute flag is about a ticket taking too long, this
+ * is about a specific customer having been told a specific number — but the
+ * arithmetic is one sentence, so it is asked once. A second `>=` written here
+ * would be free to drift from the screen the expo formed their expectation on.
+ *
+ * `>=`, inherited and deliberate: a quote of 15–25 is honest right up to 25 and
+ * stops being honest AT 25. The same rule `isOverdue` documents — a threshold
+ * nobody can check against a clock on the wall is not a threshold.
+ *
+ * Against the SNAPSHOT, never today's settings, for the same reason
+ * `estimateAccuracy` is: an order quoted 15–25 against a deep queue is not
+ * suddenly on time because the kitchen has since emptied and the checkout would
+ * now say 10–20. What makes an order late is the promise it was given.
+ *
+ * A null quote is never late. Orders placed before C-042 were told nothing, and
+ * "running behind" is a claim about a promise — inventing one to grade them
+ * against is the same error a backfill would have been.
+ */
+export function isPastQuote(quotedHighMinutes: number | null, elapsedMinutes: number): boolean {
+  return (
+    quotedHighMinutes !== null &&
+    isOverdue(Math.max(0, elapsedMinutes), { queueFlagMinutes: quotedHighMinutes })
+  );
 }
 
 // ---------------------------------------------------------------------------

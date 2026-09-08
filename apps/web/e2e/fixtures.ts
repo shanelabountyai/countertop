@@ -411,3 +411,55 @@ export async function clearRestaurantContact(): Promise<void> {
     await prisma.$disconnect();
   }
 }
+
+/**
+ * Move an order's placement back, relative to the quote SNAPSHOTTED on it
+ * (PRD 5 P0-2, C-078).
+ *
+ * The one thing a fixture may do that a spec may not, for `backdateQueue`'s
+ * reason: there is no way to make an order late through the screens and no way
+ * to wait twenty-five minutes for one either.
+ *
+ * The caller says WHERE relative to the order's own quote, never a literal
+ * number of minutes. The quote is `prepBaseMinutes` plus the open weight at
+ * placement — so it depends on what the seed happens to have on the queue, and
+ * a spec that hardcoded "26 minutes ago" would be asserting against a number it
+ * had guessed rather than against the promise the product made.
+ */
+export async function ageOrder(
+  customerName: string,
+  minutesAgo: (quote: { lowMinutes: number; highMinutes: number }) => number,
+): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  try {
+    const order = await prisma.order.findFirstOrThrow({
+      where: { customerName },
+      orderBy: { placedAt: 'desc' },
+      select: { id: true, quotedLowMinutes: true, quotedHighMinutes: true },
+    });
+    // An order with no quote cannot be aged against one, and silently aging it
+    // by NaN minutes would surface as a status page rendering nothing.
+    if (order.quotedLowMinutes === null || order.quotedHighMinutes === null) {
+      throw new Error(`${customerName}'s order carries no snapshotted quote to age against`);
+    }
+    const minutes = minutesAgo({
+      lowMinutes: order.quotedLowMinutes,
+      highMinutes: order.quotedHighMinutes,
+    });
+    // `setTime` off a clock read, not `new Date(millis)`: the argument form is
+    // banned repo-wide (no-time-axis) and the ban is right — this is an instant
+    // shifted by an offset, which crosses no calendar axis at all. Not
+    // `instantMinutesAfter` either, for the reason above `closeRestaurantToday`:
+    // a fixture must never import `@countertop/core` directly.
+    const placedAt = new Date();
+    placedAt.setTime(placedAt.getTime() - minutes * 60_000);
+    await prisma.order.update({
+      where: { id: order.id },
+      // Only `placedAt`: the quote stays exactly as placement wrote it, which
+      // is the half of P0-2 under test.
+      data: { placedAt },
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+}

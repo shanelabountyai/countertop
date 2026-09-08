@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { card, placeOrderFor, reseed } from './fixtures';
+import { ageOrder, card, placeOrderFor, reseed } from './fixtures';
 
 // C-014: the customer's status page (P0-5, P0-7, P0-8).
 //
@@ -113,6 +113,30 @@ test('a cancelled order gets its own view with the reason, and stops polling', a
   // Longer than one poll interval: a page still polling would have polled.
   await page.waitForTimeout(8_000);
   expect(polls).toBe(0);
+});
+
+test('an order past the range it was quoted says so, instead of "any minute now"', async ({
+  page,
+}) => {
+  // C-078 (PRD 5 P0-2). The defect: this page polled faithfully every five
+  // seconds and said "Should be ready any minute now" indefinitely, while the
+  // kitchen screen beside it had the same order in bold red — "running late".
+  const link = await placeOrderFor(page, 'Nadia Okonkwo');
+
+  // One minute short of the high end. Inside the promise, so the honest answer
+  // is still the vague one.
+  await ageOrder('Nadia Okonkwo', (quote) => quote.highMinutes - 1);
+  await page.goto(link);
+  await expect(page.getByTestId('status-estimate')).toHaveText('Should be ready any minute now.');
+
+  // AT the high end, against the quote snapshotted on this order — not against
+  // what the checkout would quote somebody walking in now.
+  await ageOrder('Nadia Okonkwo', (quote) => quote.highMinutes);
+  await page.goto(link);
+  const estimate = page.getByTestId('status-estimate');
+  await expect(estimate).toContainText('Running a bit behind');
+  // The whole point: the false sentence is gone, not merely joined.
+  await expect(estimate).not.toContainText('any minute now');
 });
 
 test('the status page has no detectable accessibility violations', async ({ page }) => {

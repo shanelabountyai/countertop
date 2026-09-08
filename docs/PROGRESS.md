@@ -7036,3 +7036,92 @@ them.
   facts and a customer reading them wants the number that rings the counter
   today, not the one that rang it when they ordered. The snapshot rule is
   untouched by this item.
+
+## C-078 — The status page tells the truth about being late (PRD 5 P0-2)
+
+Commit `TBD`.
+
+The status page polled faithfully every five seconds and said "Should be ready
+any minute now" for as long as anyone left it open — forty times, sixty times —
+while the kitchen screen beside it already had the same order in bold red,
+"22 min since ordered — running late". Two screens, one order, one clock, and
+the one facing the customer was the one that could not say it.
+
+**Built:**
+- **`isPastQuote(quotedHighMinutes, elapsedMinutes)` in `packages/core`**, next
+  to `remainingEstimate` — "how much longer?" and "are we past what we
+  promised?" are the same customer asking about the same window. It is
+  `isOverdue`, the queue card's own `>=`, pointed at a different threshold. The
+  two questions are genuinely different — the card's 15-minute flag is about a
+  ticket taking too long, this is about a specific person having been told a
+  specific number — but the arithmetic is one sentence, so it is asked once.
+- **`isOverdue`'s second parameter widened to `Pick<AgingThresholds,
+  'queueFlagMinutes'>`**, which is the only field it ever read. That is what
+  lets a caller with a different threshold hand over the number it actually
+  has instead of dressing it up as a whole `AgingThresholds` with an irrelevant
+  `readyFlagMinutes` beside it. Zero call-site churn: `AgingThresholds` is
+  assignable to the `Pick`.
+- **The comparison is against the quote SNAPSHOTTED on the order** at C-042,
+  never against `currentCheckout()`'s live estimate. An order quoted 15–25
+  against a deep queue is not suddenly on time because the kitchen has since
+  emptied and the checkout would now say 10–20.
+- **Late is the FIRST branch of the estimate line**, so "any minute now" past
+  the promised high end is structurally unreachable rather than merely
+  unlikely. That ordering is the requirement, not a preference — see *Decided*.
+- **The same red the queue card flags with** (`font-bold text-red-700`), so the
+  customer's page and the expo's screen are visibly saying the same thing about
+  the same order rather than two differently-worded things.
+- **`ageOrder(customerName, minutesAgo)` in the e2e fixtures**, which takes the
+  offset as a FUNCTION of the order's own snapshotted quote. The quote is
+  `prepBaseMinutes` plus the open weight at placement, so it depends on what
+  the seed happens to have on the queue; a spec hardcoding "26 minutes ago"
+  would be asserting against a number it had guessed.
+
+**Decided:**
+- **Late is asked before the range, not after it.** `remaining` can be a live,
+  non-null range at the same moment the order is past its promise — that is
+  exactly what happens when the queue got busier since placement, because the
+  live estimate is computed from today's open weight. The old code would then
+  have read "Usually ready in about 10–20 min" to somebody five minutes past
+  what they were told. Ordering the branches is what makes the acceptance
+  criterion ("neither ever renders 'any minute now' past the high end") a
+  property of the code rather than of the arithmetic lining up.
+- **`>=`, inherited from `isOverdue` and kept deliberately.** A quote of 15–25
+  is honest right up to 25 and stops being honest AT 25. Same rule `isOverdue`
+  documents for the queue flag: a threshold nobody can check against the clock
+  on the wall is not a threshold. The unit test pins the boundary rather than
+  testing either side of it.
+- **A null quote is never late.** Orders placed before C-042 were told nothing,
+  and "running behind" is a claim about a promise. Inventing one to grade them
+  against is the same error a backfill would have been, which is the reason
+  those columns are nullable in the first place.
+- **The estimate line changes, not the headline.** "Cooking now" is true and is
+  real information; replacing it would trade one fact for another rather than
+  add the missing one. The PRD's phrasing says "the headline acknowledges it",
+  and every testable criterion under it names the estimate copy — so the late
+  sentence lands in the estimate slot, in the queue's own red, which is the
+  half that was lying.
+- **The live estimate stays live for the range it still shows.** Only the
+  LATENESS verdict moved to the snapshot. Recomputing the displayed range on
+  every poll is P0-7 working — an estimate that could only shrink is a
+  countdown — and nothing about admitting lateness argues against it.
+
+**Left behind:**
+- **The estimate line is outside the `role="status"` region.** The panel above
+  it announces a status change under a poll; this paragraph flipping from a
+  range to "running a bit behind" repaints silently. Pre-existing, and the fix
+  is one attribute — but a second live region on the same page is a decision
+  about which one wins when both change on the same poll, which is more than
+  this item is.
+- **No estimate is offered for HOW late.** "Running a bit behind" says the
+  promise is past and nothing about the new one. A revised range would be a
+  second promise made from the same settings that got the first one wrong, and
+  P0-7's whole discipline is that a precise wrong number is worse than an
+  honest vague one. The number that would actually be worth showing is the one
+  P1-4's accuracy report is being collected to find.
+- **Nothing tells the kitchen the customer can now see it.** The expo's card
+  and the customer's page agree, which is the item; whether that changes what
+  an expo does with a red card is a product question nobody has asked yet.
+- **`ageOrder` writes `placedAt` directly**, like `backdateQueue` before it.
+  There is no way to make an order late through the screens and no way to wait
+  twenty-five minutes for one, so this stays a fixture privilege.

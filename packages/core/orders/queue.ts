@@ -53,7 +53,11 @@ export function elapsedMinutes(since: Date, now: Date): number {
  */
 export function isOverdue(
   waitingMinutes: number,
-  thresholds: AgingThresholds = DEFAULT_AGING,
+  // Only the one field it actually reads, so a caller with a DIFFERENT
+  // threshold — `isPastQuote` compares against the range this order was
+  // promised, not against the kitchen's flag — can hand over the number it has
+  // instead of dressing it up as a whole `AgingThresholds`.
+  thresholds: Pick<AgingThresholds, 'queueFlagMinutes'> = DEFAULT_AGING,
 ): boolean {
   return waitingMinutes >= thresholds.queueFlagMinutes;
 }

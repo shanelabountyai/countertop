@@ -2083,6 +2083,54 @@ output names the mode for every route, in one table, for free — which makes
 "did any route change mode?" a cheaper question than it looks, and one worth
 asking whenever a component starts reading something.
 
+### The branch order that was the requirement, not the style (C-078)
+
+The status page had three things it could say while the kitchen still had your
+order: a range, "any minute now", or — new in this item — "running a bit
+behind". The acceptance criterion was oddly specific about one of them:
+*neither ever renders "any minute now" past the high end.*
+
+The obvious build is to add the late case as a third branch and let the
+arithmetic sort it out. That passes. It also stays broken, and the reason is
+worth writing down.
+
+**The two numbers on that page come from different clocks.** The range shown is
+recomputed on every poll from *today's* settings and *today's* open weight —
+deliberately, since C-014, because an estimate that could only shrink would be
+a countdown rather than an estimate. The lateness verdict is measured against
+the range **snapshotted on the order at placement**, because what makes an
+order late is the promise it was actually given. So when the queue gets busier
+after an order is placed, the live estimate can still be handing back a
+perfectly non-null "10–20 min" for an order that is already five minutes past
+what its customer was told. Check the range first and the page says "usually
+ready in about 10–20 min" to somebody it can already see is late — a different
+false sentence than the one the item set out to kill, reached by the same
+route.
+
+Putting the late test **first** makes both false sentences unreachable rather
+than merely improbable: the other two branches cannot be entered once it is
+true. The test that would have caught the wrong order requires the tester to
+have thought of a queue that grew after placement, which is exactly the kind of
+thing a test suite is written by someone who has already thought of. The
+ordering needs nobody to have thought of it.
+
+**The general version: when a requirement says "never says X", the cheapest
+place to satisfy it is control flow, not coverage.** A guard that makes the bad
+state unrepresentable costs one line and no vigilance; an assertion that the
+bad state does not currently arise costs a test and stays true only for the
+inputs somebody imagined.
+
+The other half of this item is a smaller note in the same key. Reusing the
+queue's `isOverdue` for a completely different threshold did not need a shared
+config object or an extracted helper — it needed its second parameter
+**narrowed** from `AgingThresholds` to `Pick<AgingThresholds,
+'queueFlagMinutes'>`, which is the only field it had ever read. Every existing
+caller still type-checks, because the wider type is assignable to the narrower
+one, and the new caller gets to pass the number it actually has instead of
+fabricating a `readyFlagMinutes` beside it that nothing will look at. Asking a
+function to accept less is a smaller change than asking a caller to invent
+more.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

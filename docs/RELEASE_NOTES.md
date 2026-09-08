@@ -2271,3 +2271,28 @@ The phone can be written however the restaurant writes it — parentheses,
 dashes, whatever is on the door — and the link works out the digits. Leave a
 field blank and that line simply is not shown; nothing renders an empty space
 where an address should be.
+
+## C-078 — Your order page admits when it is running late
+
+**"Should be ready any minute now" now stops being said once it stops being
+true.** The status page refreshes itself every five seconds, and it used to
+repeat that sentence indefinitely — long past the time the customer had been
+quoted — while the kitchen screen a few feet away had the very same order
+flagged in red as running late. Two screens looking at one order, and the one
+the customer was holding was the one that could not say it.
+
+**Past the top of the range you were quoted, the page says so** — "Running a
+bit behind — the kitchen still has your order" — in the same red the kitchen's
+own screen uses. Nobody has to phone the counter to find out that the thing
+they can already feel is true.
+
+**It is measured against what YOU were told, not against how busy the kitchen
+is now.** If you were quoted 15–25 minutes when the queue was deep, you are
+late at 25 — even if the rush has since cleared and someone ordering now would
+be quoted ten. The promise the restaurant made you is the promise it is
+graded against.
+
+**It still does not invent a new time.** The page says it is behind; it does
+not follow that with a second guess made from the same numbers that produced
+the first one. A vague honest sentence beats a precise wrong one, which is the
+same rule the estimate has followed since it existed.

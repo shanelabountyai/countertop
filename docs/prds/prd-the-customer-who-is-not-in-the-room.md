@@ -41,11 +41,11 @@ The product's founding premise is that phone orders tie up staff. It currently r
 - [x] The fields are editable on the existing settings screen, in the C-023 idiom
 - [x] Test: the status page for a cancelled order exposes a `tel:` link; the menu footer renders today's hours matching the gate's own answer
 
-**P0-2: The status page admits an order is late** *(DX 11)*
-- [ ] Past the top of the quoted range, the headline acknowledges it — "Running a bit behind — the kitchen still has your order" — using the **same** `overdue` computation the queue card uses, not a second one
-- [ ] The quoted range is already snapshotted on the order (C-042), so the comparison is against what this customer was actually promised, not against today's settings
-- [ ] "Should be ready any minute now" survives only for the window between the range's low end and its high end
-- [ ] Test: an order whose elapsed time exceeds its snapshotted quoted high end renders the late copy, not "any minute now"; an order inside its range renders the range
+**P0-2: The status page admits an order is late** *(DX 11)* — **shipped, C-078**
+- [x] Past the top of the quoted range, the headline acknowledges it — "Running a bit behind — the kitchen still has your order" — using the **same** `overdue` computation the queue card uses, not a second one
+- [x] The quoted range is already snapshotted on the order (C-042), so the comparison is against what this customer was actually promised, not against today's settings
+- [x] "Should be ready any minute now" survives only for the window between the range's low end and its high end
+- [x] Test: an order whose elapsed time exceeds its snapshotted quoted high end renders the late copy, not "any minute now"; an order inside its range renders the range
 
 **P0-3: A last-call warning before the door closes** *(DX 3)*
 - [ ] `GateResult`'s open branch carries `lastOrderMinute` — it is already computed at `orderingWindow()` and thrown away
@@ -132,7 +132,7 @@ The product's founding premise is that phone orders tie up staff. It currently r
 ## Phasing — one item per session
 
 - **C-077 — The restaurant has an address and a phone** ✅ — P0-1, three nullable columns on the settings singleton, the footer on five routes, and the `tel:` link on the two views whose copy already asks for a call.
-- **C-078 — The status page tells the truth about being late** — P0-2, reusing the queue's `overdue` computation against the snapshotted quote.
+- **C-078 — The status page tells the truth about being late** ✅ — P0-2, reusing the queue's `overdue` computation against the snapshotted quote.
 - **C-079 — Last call** — P0-3, `lastOrderMinute` carried on the open gate result, one component, three surfaces, TZ×2 test.
 - **C-080 — The menu says what the food is** — P0-4, `description` rendered and editable, plus the category jump strip.
 - **C-081 — An untouched choice looks untouched** — P0-5 and P0-6 together; both are composer-local and both are the same class of defect (the UI stating something the customer did not say).

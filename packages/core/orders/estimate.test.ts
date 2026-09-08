@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   estimateAccuracy,
+  isPastQuote,
   readyEstimate,
   remainingEstimate,
   type EstimateState,
@@ -90,6 +91,45 @@ describe('remainingEstimate', () => {
 
   it('ignores a clock skewed backwards rather than lengthening the wait', () => {
     expect(remainingEstimate(quoted, -5)).toEqual(quoted);
+  });
+});
+
+describe('isPastQuote', () => {
+  // What this customer was told at checkout, snapshotted on their order.
+  const HIGH = 25;
+
+  it('is not late anywhere inside the window it promised', () => {
+    expect(isPastQuote(HIGH, 0)).toBe(false);
+    expect(isPastQuote(HIGH, 15)).toBe(false);
+    expect(isPastQuote(HIGH, HIGH - 1)).toBe(false);
+  });
+
+  it('turns AT the high end, not a minute after it', () => {
+    // The boundary is pinned deliberately: `isOverdue`'s `>=`, inherited. A
+    // range sold as "15–25" is a promise about the whole of minute 25, and a
+    // page still saying "any minute now" at 25 is one somebody can check
+    // against the clock on the wall and catch.
+    expect(isPastQuote(HIGH, HIGH)).toBe(true);
+    expect(isPastQuote(HIGH, HIGH + 20)).toBe(true);
+  });
+
+  it('grades against THIS order\'s quote, not against a busier or emptier one', () => {
+    // 30 minutes in. Late for the customer promised 15–25, on time for the one
+    // promised 30–40 in the middle of a rush — same clock, same kitchen, two
+    // different promises, which is the whole reason the quote is snapshotted.
+    expect(isPastQuote(25, 30)).toBe(true);
+    expect(isPastQuote(40, 30)).toBe(false);
+  });
+
+  it('never calls an order late that was never promised anything', () => {
+    // Placed before C-042. A backfill would have invented the promise; so
+    // would returning true here.
+    expect(isPastQuote(null, 0)).toBe(false);
+    expect(isPastQuote(null, 500)).toBe(false);
+  });
+
+  it('ignores a clock skewed backwards rather than reading it as early', () => {
+    expect(isPastQuote(HIGH, -5)).toBe(false);
   });
 });
 
