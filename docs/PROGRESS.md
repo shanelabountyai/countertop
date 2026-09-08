@@ -7039,7 +7039,7 @@ them.
 
 ## C-078 — The status page tells the truth about being late (PRD 5 P0-2)
 
-Commit `TBD`.
+Commit `346a88d`.
 
 The status page polled faithfully every five seconds and said "Should be ready
 any minute now" for as long as anyone left it open — forty times, sixty times —

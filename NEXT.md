@@ -1,64 +1,65 @@
 # Next
 
-**C-077 shipped** (`1a79be7`, SHA recorded in `8c0fc9c`, CI green). PRD 5 P0-1
-is done: three nullable contact columns on the settings singleton, a footer on
-the five customer routes, and the `tel:` link inside the cancelled and
-abandoned status panels.
+**C-078 shipped** (`346a88d`, SHA recorded in the follow-up, gate green: 201
+passed + 14 skipped = 215). PRD 5 P0-2 is done: the status page stops saying
+"any minute now" once it is past the range the order was actually quoted, and
+says "Running a bit behind — the kitchen still has your order" in the queue
+card's own red.
 
-**Next item: `C-078` — the status page tells the truth about being late**
-(`docs/prds/prd-the-customer-who-is-not-in-the-room.md` P0-2). The status page
-polls faithfully every five seconds and says "Should be ready any minute now"
-forty times while the kitchen screen already knows the order is `overdue` and
-renders "— running late" in bold red. Reuse the queue's OWN `overdue`
-computation (`isOverdue` / `queueAging` in `packages/core/orders/queue.ts`),
-compared against the quote SNAPSHOTTED on the order at C-042 — not against
-today's settings. No migration.
+**Next item: `C-079` — last call** (`docs/prds/prd-the-customer-who-is-not-in-the-room.md`
+P0-3). `GateResult`'s open branch already computes `lastOrderMinute` inside
+`orderingWindow()` and throws it away; carry it out, and when the gate is open
+and `lastOrderMinute − now ≤ 30`, render "Last online orders in 12 min" from
+ONE component on `/menu`, `/cart` and `/checkout`. The gate is already one code
+path with three triggers and the warning must not become three. No migration.
+Test: cutoff 10 min out renders it, 40 min out does not, identical under
+`TZ=UTC` and `TZ=Pacific/Kiritimati`.
 
-Model: **Sonnet.** One comparison, one copy change, two tests. The `overdue`
-computation already exists and the snapshotted quote already exists; the whole
-item is wiring them to a sentence. Opus is only warranted again at PRD 6's
-C-088 (binding the placement replay to its session).
+Model: **Sonnet.** One field carried out of an existing return type, one
+component, three mount points, a TZ×2 test. Opus is only warranted again at
+PRD 6's C-088 (binding the placement replay to its session).
 
-Also unbuilt in PRD 5 after C-078: **C-079** (last call), **C-080** (menu
-descriptions + category strip), **C-081** (the untouched "Skip" pill + focus to
-the error), **C-082** (a way back to your own order — gated on a Product Open
-Question), **C-083** (cart quantity steppers). Then **C-088, C-089, C-090,
-C-093** in PRD 6.
+Also unbuilt in PRD 5 after C-079: **C-080** (menu descriptions + category
+strip), **C-081** (the untouched "Skip" pill + focus to the error), **C-082** (a
+way back to your own order — gated on a Product Open Question), **C-083** (cart
+quantity steppers). Then **C-088, C-089, C-090, C-093** in PRD 6.
 
-## What C-077 leaves behind
+## What C-078 leaves behind
 
-- **A sixth customer route can forget the footer, and one already has.** The
-  composer at `/menu/[itemId]` is a customer screen and is not in P0-1's five.
-  A `(customer)` route group with a layout makes it structural — and moves six
-  directories, which is the change to make when a SECOND thing belongs on every
-  customer screen, not for this one. C-080 touches the composer; if it grows
-  another cross-screen element, do the route group then.
-- **The status page reads the contact columns twice** — once for the panel's
-  `tel:` link, once inside the footer. A prop would fix it and would also be
-  the thing a page can render the footer without.
-- **An extension in the phone field dials as digits.** `(562) 555-0148 ext. 2`
-  becomes `tel:56255501482`. Deliberate: the alternative is a parser, and a
-  parser wrong about a real number is worse than a dialler right about most.
-- **No map link.** The address is text; a maps URL is a second decision about
-  which map.
+- **The estimate line is outside the `role="status"` region.** The panel above
+  it announces a status change under a poll; this paragraph flipping from a
+  range to "running a bit behind" repaints silently. Pre-existing, and the fix
+  is one attribute — but a second live region on the same page is a decision
+  about which one wins when both change on the same poll.
+- **No estimate for HOW late.** "Running a bit behind" says the promise is past
+  and nothing about a new one. Deliberate: a revised range is a second promise
+  from the same settings that got the first one wrong. P1-4's accuracy report
+  is what would eventually make one honest.
+- **Nothing tells the kitchen the customer can now see it.** The two screens
+  agree, which is the item; whether that changes what an expo does with a red
+  card is a product question nobody has asked.
+- **`ageOrder` writes `placedAt` directly**, like `backdateQueue`. There is no
+  way to make an order late through the screens and no way to wait twenty-five
+  minutes for one, so it stays a fixture privilege.
 
-## Rules C-077 established
+## Rules C-078 established
 
-- **A fixture must NEVER `import('@countertop/core')` directly.** It loads
-  under Playwright's transform as plain CJS and leaves the broken copy in the
-  require cache, so the next spec to reach `@countertop/db/menu` dies on
-  `Unexpected token 'export'` — in a file that did nothing wrong, a hundred
-  tests later, and it passes in isolation. Reach core THROUGH `@countertop/db`
-  (`loadClock()` is the clock). The reason is a comment in `fixtures.ts`.
-- **Adding a database read to a component is a statement about every page that
-  renders it.** `/` was the last statically prerendered route and nothing
-  failed — the tell was the `○` beside `/` in the build's own route table where
-  every other customer route had `ƒ`. Check that table whenever a shared
-  component starts reading something.
-- **A footer's hours are a WORDING of the gate's state, not a second reading.**
-  `todaysHours` takes the same `GateState` `checkoutGate` takes. It says
-  nothing about the cutoff or the pause switch — those decide whether an order
-  can be PLACED; the hours are when the door is open.
+- **When a requirement says "never says X", satisfy it in control flow, not in
+  coverage.** The late branch goes FIRST so the two false sentences are
+  unreachable; an assertion that they do not currently arise is only as good as
+  the inputs somebody imagined. The trap here was real — the displayed range is
+  computed from TODAY's open weight while lateness is measured against the
+  SNAPSHOTTED quote, so a queue that grew after placement makes `remaining`
+  non-null for an order that is already past its promise.
+- **Reuse by narrowing the callee's parameter, not by widening the caller.**
+  `isOverdue`'s `AgingThresholds` became `Pick<…, 'queueFlagMinutes'>` — the
+  only field it read. Every existing caller still type-checks, and the new one
+  passes the number it has instead of inventing a `readyFlagMinutes` beside it.
+- **A fixture must NEVER `import('@countertop/core')` directly** (carried from
+  C-077, and it bit again: `instantMinutesAfter` was the obvious helper for
+  `ageOrder` and is unreachable). Reach core THROUGH `@countertop/db`. Also:
+  `new Date(<millis>)` is banned by `no-time-axis` — use `new Date()` then
+  `setTime()`, which crosses no calendar axis.
 
 ## Still open from earlier items
 
@@ -70,9 +71,14 @@ C-093** in PRD 6.
   re-announces "Marked 6 sold out."
 - **No daypart editor**, no overnight daypart window, no schedule view for
   staged prices, and superseded staged rows are never collected.
+- **A sixth customer route can forget the footer** — `/menu/[itemId]` is a
+  customer screen and is not in P0-1's five. C-080 touches the composer; if it
+  grows another cross-screen element, do the `(customer)` route group then.
+- **The status page reads the contact columns twice** — once for the panel's
+  `tel:` link, once inside the footer.
 - **`e2e/refund.spec.ts:211`** ("a no-show is offered a refund rather than
   given one") failed once at 8.0s in a C-108-era sweep and has passed in every
-  sweep since, including C-077's. A timeout, not an assertion. Local `retries`
+  sweep since, including C-078's. A timeout, not an assertion. Local `retries`
   is 0, CI's is 1. First place to look if a refund spec times out again.
 
 ## Still open from C-069 / C-071, if you would rather clear debt
