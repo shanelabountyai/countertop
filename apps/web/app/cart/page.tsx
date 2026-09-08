@@ -8,6 +8,7 @@ import { describeSelection } from '@/lib/menu-labels';
 import { currentGate } from '@/lib/checkout-gate';
 import { GateNotice } from '../checkout/gate-notice';
 import { getCartReview, removeCartLineForm, confirmCartPricesForm } from './actions';
+import { RestaurantFooter } from '@/lib/restaurant-footer';
 
 export const metadata = { title: 'Your cart — Firebird Kitchen' };
 
@@ -18,139 +19,142 @@ export default async function CartPage() {
   const [menu, review, gate] = await Promise.all([loadMenu(), getCartReview(), currentGate()]);
 
   return (
-    <main className="mx-auto max-w-2xl p-6">
-      <Link href="/menu" className="inline-flex min-h-12 w-fit items-center text-sm underline underline-offset-4">
-        ← Menu
-      </Link>
-      <h1 className="mt-4 text-3xl font-semibold">Your cart</h1>
+    <>
+      <main className="mx-auto max-w-2xl p-6">
+        <Link href="/menu" className="inline-flex min-h-12 w-fit items-center text-sm underline underline-offset-4">
+          ← Menu
+        </Link>
+        <h1 className="mt-4 text-3xl font-semibold">Your cart</h1>
 
-      {review.lines.length === 0 && (
-        <p className="mt-6 text-neutral-600">Nothing in it yet.</p>
-      )}
+        {review.lines.length === 0 && (
+          <p className="mt-6 text-neutral-600">Nothing in it yet.</p>
+        )}
 
-      <ul className="mt-6 flex flex-col gap-4">
-        {review.lines.map(({ line, priced, problems, priceChange }) => {
-          const item = menu.items[line.composition.itemId];
-          return (
-            <li key={line.id} className="rounded-lg border border-neutral-300 p-4">
-              <div className="flex items-baseline justify-between gap-4">
-                <h2 className="font-semibold">
-                  {line.composition.quantity} × {item?.name ?? line.composition.itemId}
-                </h2>
-                <span className="tabular-nums">
-                  {priced ? formatCents(priced.lineTotalCents) : '—'}
-                </span>
-              </div>
+        <ul className="mt-6 flex flex-col gap-4">
+          {review.lines.map(({ line, priced, problems, priceChange }) => {
+            const item = menu.items[line.composition.itemId];
+            return (
+              <li key={line.id} className="rounded-lg border border-neutral-300 p-4">
+                <div className="flex items-baseline justify-between gap-4">
+                  <h2 className="font-semibold">
+                    {line.composition.quantity} × {item?.name ?? line.composition.itemId}
+                  </h2>
+                  <span className="tabular-nums">
+                    {priced ? formatCents(priced.lineTotalCents) : '—'}
+                  </span>
+                </div>
 
-              <ul className="mt-2 flex flex-col gap-0.5 text-sm">
-                {line.composition.selections.map((selection) => {
-                  const group = menu.groups[selection.groupId];
-                  const option = group?.options.find((o) => o.id === selection.optionId);
-                  if (!option) return null;
-                  const { text, negated } = describeSelection(option.name, selection.intensity);
-                  return (
-                    <li
-                      key={`${selection.groupId}:${selection.optionId}`}
-                      className={negated ? 'font-semibold text-red-700' : 'text-neutral-700'}
-                    >
-                      {text}
-                    </li>
-                  );
-                })}
-              </ul>
+                <ul className="mt-2 flex flex-col gap-0.5 text-sm">
+                  {line.composition.selections.map((selection) => {
+                    const group = menu.groups[selection.groupId];
+                    const option = group?.options.find((o) => o.id === selection.optionId);
+                    if (!option) return null;
+                    const { text, negated } = describeSelection(option.name, selection.intensity);
+                    return (
+                      <li
+                        key={`${selection.groupId}:${selection.optionId}`}
+                        className={negated ? 'font-semibold text-red-700' : 'text-neutral-700'}
+                      >
+                        {text}
+                      </li>
+                    );
+                  })}
+                </ul>
 
-              {line.composition.note && (
-                <p className="mt-2 text-sm italic text-neutral-700">
-                  “{line.composition.note}”
-                </p>
-              )}
+                {line.composition.note && (
+                  <p className="mt-2 text-sm italic text-neutral-700">
+                    “{line.composition.note}”
+                  </p>
+                )}
 
-              {problems.map((problem) => (
-                <p key={problem.kind + problem.message} className="mt-2 text-sm font-medium text-red-700">
-                  {problem.message}
-                </p>
-              ))}
+                {problems.map((problem) => (
+                  <p key={problem.kind + problem.message} className="mt-2 text-sm font-medium text-red-700">
+                    {problem.message}
+                  </p>
+                ))}
 
-              {priceChange && (
-                <p className="mt-2 text-sm font-medium text-amber-700">
-                  Price changed: {formatCents(priceChange.fromUnitPriceCents)} →{' '}
-                  {formatCents(priceChange.toUnitPriceCents)} each.
-                </p>
-              )}
+                {priceChange && (
+                  <p className="mt-2 text-sm font-medium text-amber-700">
+                    Price changed: {formatCents(priceChange.fromUnitPriceCents)} →{' '}
+                    {formatCents(priceChange.toUnitPriceCents)} each.
+                  </p>
+                )}
 
-              <div className="mt-3 flex gap-3">
-                {/* Edit re-opens the composer on THIS line (C-021). A link,
-                    not a form: it changes nothing until the customer saves,
-                    and it has to survive being opened in a new tab. */}
-                <Link
-                  href={`/menu/${line.composition.itemId}?line=${line.id}`}
-                  className="flex min-h-12 items-center rounded-md border border-neutral-300 px-4 text-sm"
-                >
-                  Edit
-                </Link>
-                <form action={removeCartLineForm.bind(null, line.id)}>
-                  <button
-                    type="submit"
-                    className="min-h-12 rounded-md border border-neutral-300 px-4 text-sm"
+                <div className="mt-3 flex gap-3">
+                  {/* Edit re-opens the composer on THIS line (C-021). A link,
+                      not a form: it changes nothing until the customer saves,
+                      and it has to survive being opened in a new tab. */}
+                  <Link
+                    href={`/menu/${line.composition.itemId}?line=${line.id}`}
+                    className="flex min-h-12 items-center rounded-md border border-neutral-300 px-4 text-sm"
                   >
-                    Remove
-                  </button>
-                </form>
+                    Edit
+                  </Link>
+                  <form action={removeCartLineForm.bind(null, line.id)}>
+                    <button
+                      type="submit"
+                      className="min-h-12 rounded-md border border-neutral-300 px-4 text-sm"
+                    >
+                      Remove
+                    </button>
+                  </form>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+
+        {review.lines.length > 0 && (
+          <section className="mt-8 border-t border-neutral-300 pt-4">
+            <dl className="flex flex-col gap-1 tabular-nums">
+              <div className="flex justify-between">
+                <dt>Subtotal</dt>
+                <dd>{formatCents(review.totals.subtotalCents)}</dd>
               </div>
-            </li>
-          );
-        })}
-      </ul>
+              <div className="flex justify-between">
+                <dt>Tax</dt>
+                <dd>{formatCents(review.totals.taxCents)}</dd>
+              </div>
+              <div className="flex justify-between text-lg font-semibold">
+                <dt>Total</dt>
+                <dd data-testid="cart-total">{formatCents(review.totals.totalCents)}</dd>
+              </div>
+            </dl>
 
-      {review.lines.length > 0 && (
-        <section className="mt-8 border-t border-neutral-300 pt-4">
-          <dl className="flex flex-col gap-1 tabular-nums">
-            <div className="flex justify-between">
-              <dt>Subtotal</dt>
-              <dd>{formatCents(review.totals.subtotalCents)}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt>Tax</dt>
-              <dd>{formatCents(review.totals.taxCents)}</dd>
-            </div>
-            <div className="flex justify-between text-lg font-semibold">
-              <dt>Total</dt>
-              <dd data-testid="cart-total">{formatCents(review.totals.totalCents)}</dd>
-            </div>
-          </dl>
+            {review.needsPriceConfirmation && (
+              <form action={confirmCartPricesForm} className="mt-4">
+                <button
+                  type="submit"
+                  className="min-h-12 w-full rounded-lg border border-amber-600 px-6 font-semibold text-amber-800"
+                >
+                  I understand the new prices
+                </button>
+              </form>
+            )}
 
-          {review.needsPriceConfirmation && (
-            <form action={confirmCartPricesForm} className="mt-4">
-              <button
-                type="submit"
-                className="min-h-12 w-full rounded-lg border border-amber-600 px-6 font-semibold text-amber-800"
+            {review.needsFix && (
+              <p className="mt-4 font-medium text-red-700">
+                Fix or remove the flagged lines before placing this order.
+              </p>
+            )}
+
+            {/* The gate, asked here so a customer is told the restaurant is
+                closed BEFORE they tap into checkout. Checkout asks it again, and
+                so does `placeOrder` — one function, three askers (P0-6). */}
+            {gate.open ? (
+              <Link
+                href="/checkout"
+                className="mt-4 flex min-h-14 w-full items-center justify-center rounded-lg bg-neutral-900 px-6 text-lg font-semibold text-white"
               >
-                I understand the new prices
-              </button>
-            </form>
-          )}
-
-          {review.needsFix && (
-            <p className="mt-4 font-medium text-red-700">
-              Fix or remove the flagged lines before placing this order.
-            </p>
-          )}
-
-          {/* The gate, asked here so a customer is told the restaurant is
-              closed BEFORE they tap into checkout. Checkout asks it again, and
-              so does `placeOrder` — one function, three askers (P0-6). */}
-          {gate.open ? (
-            <Link
-              href="/checkout"
-              className="mt-4 flex min-h-14 w-full items-center justify-center rounded-lg bg-neutral-900 px-6 text-lg font-semibold text-white"
-            >
-              Checkout
-            </Link>
-          ) : (
-            <GateNotice gate={gate} className="mt-4" />
-          )}
-        </section>
-      )}
-    </main>
+                Checkout
+              </Link>
+            ) : (
+              <GateNotice gate={gate} className="mt-4" />
+            )}
+          </section>
+        )}
+      </main>
+      <RestaurantFooter />
+    </>
   );
 }

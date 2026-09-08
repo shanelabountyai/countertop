@@ -15,6 +15,8 @@
 import {
   businessDayOf,
   OPEN_STATUSES,
+  restaurantClock,
+  todaysHours,
   type EstimateState,
   type GateState,
 } from '@countertop/core';
@@ -94,5 +96,47 @@ export async function loadGateState(
     cutoffMinutes: settings.cutoffMinutes,
     prepBaseMinutes: settings.prepBaseMinutes,
     prepPerWeightMinutes: settings.prepPerWeightMinutes,
+  };
+}
+
+/** Everything the customer footer renders (PRD 5 P0-1, C-077). */
+export type RestaurantContact = {
+  /** All three null until an operator fills them in — see the schema. */
+  name: string | null;
+  addressLine: string | null;
+  phone: string | null;
+  /** Today's hours, already worded by `todaysHours`. */
+  hoursToday: string;
+};
+
+/**
+ * The three contact columns and today's opening hours, in one round trip.
+ *
+ * A separate read from `loadGateState`, deliberately: this one is made by
+ * every customer route including `/`, which asks the gate nothing, and it must
+ * not drag the open-weight aggregate along behind it to render an address.
+ *
+ * What it does NOT do is compute its own answer about today. The hours rows
+ * and the closed-today override go straight into `todaysHours`, which is the
+ * same pair the gate reads — one source, worded twice, never decided twice
+ * (P0-1's third bullet).
+ */
+export async function loadRestaurantContact(
+  /** The instant "today" is asked about, passed in like everywhere else. */
+  now: Date = new Date(),
+): Promise<RestaurantContact> {
+  const [settings, hours] = await Promise.all([
+    prisma.restaurantSettings.findUniqueOrThrow({ where: { id: 'singleton' } }),
+    prisma.storeHours.findMany({ orderBy: { dayOfWeek: 'asc' } }),
+  ]);
+
+  return {
+    name: settings.name,
+    addressLine: settings.addressLine,
+    phone: settings.phone,
+    hoursToday: todaysHours(
+      { hours, closedOnDay: settings.closedOnDay },
+      restaurantClock(now, settings.timezone),
+    ),
   };
 }

@@ -34,12 +34,12 @@ The product's founding premise is that phone orders tie up staff. It currently r
 
 ### Must-Have (P0)
 
-**P0-1: The restaurant is findable and callable from every customer screen** *(DX 2)*
-- [ ] Name, street address, phone as a `tel:` link, and today's hours in the footer of every customer route — `/`, `/menu`, `/cart`, `/checkout`, `/status/[token]` — sourced from `RestaurantSettings`
-- [ ] The cancelled and abandoned status views carry the `tel:` link prominently, not only in the footer — those are the two screens whose copy already tells the customer to call
-- [ ] Today's hours are computed in the restaurant's timezone through the existing clock, and read the same `StoreHours` rows the gate reads — one source, not a second copy
-- [ ] The fields are editable on the existing settings screen, in the C-023 idiom
-- [ ] Test: the status page for a cancelled order exposes a `tel:` link; the menu footer renders today's hours matching the gate's own answer
+**P0-1: The restaurant is findable and callable from every customer screen** *(DX 2)* — **shipped, C-077**
+- [x] Name, street address, phone as a `tel:` link, and today's hours in the footer of every customer route — `/`, `/menu`, `/cart`, `/checkout`, `/status/[token]` — sourced from `RestaurantSettings`
+- [x] The cancelled and abandoned status views carry the `tel:` link prominently, not only in the footer — those are the two screens whose copy already tells the customer to call
+- [x] Today's hours are computed in the restaurant's timezone through the existing clock, and read the same `StoreHours` rows the gate reads — one source, not a second copy
+- [x] The fields are editable on the existing settings screen, in the C-023 idiom
+- [x] Test: the status page for a cancelled order exposes a `tel:` link; the menu footer renders today's hours matching the gate's own answer
 
 **P0-2: The status page admits an order is late** *(DX 11)*
 - [ ] Past the top of the quoted range, the headline acknowledges it — "Running a bit behind — the kitchen still has your order" — using the **same** `overdue` computation the queue card uses, not a second one
@@ -131,7 +131,7 @@ The product's founding premise is that phone orders tie up staff. It currently r
 
 ## Phasing — one item per session
 
-- **C-077 — The restaurant has an address and a phone** — P0-1, three nullable columns on the settings singleton, the footer on five routes, and the `tel:` link on the two views whose copy already asks for a call.
+- **C-077 — The restaurant has an address and a phone** ✅ — P0-1, three nullable columns on the settings singleton, the footer on five routes, and the `tel:` link on the two views whose copy already asks for a call.
 - **C-078 — The status page tells the truth about being late** — P0-2, reusing the queue's `overdue` computation against the snapshotted quote.
 - **C-079 — Last call** — P0-3, `lastOrderMinute` carried on the open gate result, one component, three surfaces, TZ×2 test.
 - **C-080 — The menu says what the food is** — P0-4, `description` rendered and editable, plus the category jump strip.

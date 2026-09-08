@@ -2242,3 +2242,32 @@ told us how many people are working each station, and it never has. Splitting
 one honest number into five guesses makes every quote shorter without making a
 single one of them truer — and a quote that is confidently ten minutes early is
 worse than one that is honestly wide.
+
+## C-077 — The restaurant now tells you where it is
+
+**Every customer screen carries the address, the phone number and today's
+hours.** The home page, the menu, the cart, the checkout and the order status
+page. Before this, a customer who had never been to Firebird Kitchen got "Ready
+for pickup — come to the counter" and no way to find out which counter — so
+they went back to Google, and the third-party listing this product exists to
+route around is where they found the answer.
+
+**The phone number is a link that dials.** One tap from the screen, not a
+number to memorise and re-type.
+
+**The two screens that already said "call the restaurant" now give you the
+number.** A cancelled order and an uncollected one both apologise and both used
+to tell the customer to phone; neither had ever shown them a number. The
+number now sits inside the same coloured panel as the apology, not six
+scroll-lengths below it in a footer.
+
+**Today's hours come from the same place the "we are closed" message does.**
+Not a second copy typed into a footer, which is the copy that goes stale on the
+day the hours change. If the manager closes the restaurant for the day, the
+footer says "Closed today" on the same page the checkout is refusing orders on.
+
+**The manager types them once, on the settings screen.** Name, address, phone.
+The phone can be written however the restaurant writes it — parentheses,
+dashes, whatever is on the door — and the link works out the digits. Leave a
+field blank and that line simply is not shown; nothing renders an empty space
+where an address should be.

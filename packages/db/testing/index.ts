@@ -135,7 +135,29 @@ type SettingsOverrides = {
   loyaltyExpiryDays?: number;
   // Retention (PRD 6 P0-4, C-091).
   retentionDays?: number;
+  // Where to find us (PRD 5 P0-1, C-077). Filled by default rather than left
+  // null, because the seeded database is what the e2e suite and the demo both
+  // render — a footer with no address in either is the requirement not landing
+  // anywhere anyone looks. A spec that wants the empty case passes null.
+  name?: string | null;
+  addressLine?: string | null;
+  phone?: string | null;
 };
+
+/** The sample restaurant's own details, the same fiction as `SAMPLE_MENU` —
+ *  a real address would be somebody's actual building. The same three values
+ *  the C-077 migration backfills, so a seeded database and a migrated one show
+ *  the same footer.
+ *
+ *  Deliberately NOT imported by the e2e specs, which write the strings out:
+ *  no spec in that suite imports a @countertop package at module scope, and
+ *  asserting rendered output against the constant that produced it proves the
+ *  render rather than the value. */
+export const SAMPLE_CONTACT = {
+  name: 'Firebird Kitchen',
+  addressLine: '1412 Junipero Ave, Long Beach, CA 90804',
+  phone: '(562) 555-0148',
+} as const;
 
 /**
  * The singleton settings row. Placement reads the timezone (the business day
@@ -172,6 +194,10 @@ export async function seedSettings(overrides: SettingsOverrides = {}): Promise<v
       rewardValueCents: overrides.rewardValueCents ?? 1000,
       loyaltyExpiryDays: overrides.loyaltyExpiryDays ?? 365,
       retentionDays: overrides.retentionDays ?? 365,
+      name: overrides.name !== undefined ? overrides.name : SAMPLE_CONTACT.name,
+      addressLine:
+        overrides.addressLine !== undefined ? overrides.addressLine : SAMPLE_CONTACT.addressLine,
+      phone: overrides.phone !== undefined ? overrides.phone : SAMPLE_CONTACT.phone,
     },
   });
 }

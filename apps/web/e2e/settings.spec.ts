@@ -132,3 +132,35 @@ test('submitting the hours already saved says so instead of writing them', async
   await expect(page.getByRole('heading', { name: 'Nothing was changed' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save these hours' })).toHaveCount(0);
 });
+
+test('the contact details a manager types reach the customer footer (C-077)', async ({ page }) => {
+  await page.goto('/kitchen/settings');
+  await page.getByRole('textbox', { name: 'Restaurant name' }).fill('Firebird Kitchen · Belmont');
+  await page.getByRole('textbox', { name: 'Address' }).fill('88 Ocean Blvd, Long Beach, CA 90802');
+  await page.getByRole('textbox', { name: 'Phone' }).fill('562-555-0199');
+  await page.getByRole('button', { name: 'Save contact details' }).click();
+  await expect(page.getByTestId('settings-saved')).toContainText('Contact details saved');
+
+  // The customer's footer is the assertion, not the form it was typed into.
+  await page.goto('/menu');
+  const footer = page.getByTestId('restaurant-footer');
+  await expect(footer).toContainText('Firebird Kitchen · Belmont');
+  await expect(footer).toContainText('88 Ocean Blvd, Long Beach, CA 90802');
+  // Displayed as written, dialled as digits — a different separator from the
+  // seeded parentheses, and both come out as the same ten digits.
+  const call = footer.getByTestId('call-restaurant');
+  await expect(call).toHaveText('562-555-0199');
+  await expect(call).toHaveAttribute('href', 'tel:5625550199');
+});
+
+test('a blanked contact field is stored as nothing, not as an empty line', async ({ page }) => {
+  await page.goto('/kitchen/settings');
+  await page.getByRole('textbox', { name: 'Phone' }).fill('   ');
+  await page.getByRole('button', { name: 'Save contact details' }).click();
+  await expect(page.getByTestId('settings-saved')).toContainText('Contact details saved');
+
+  await page.goto('/menu');
+  await expect(page.getByTestId('call-restaurant')).toHaveCount(0);
+  // The other two are untouched by the same save.
+  await expect(page.getByTestId('restaurant-footer')).toContainText('Firebird Kitchen');
+});

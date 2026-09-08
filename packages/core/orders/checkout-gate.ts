@@ -84,6 +84,36 @@ export function orderingWindow(
 }
 
 /**
+ * Today's opening hours, in the words a customer reads in the footer
+ * (PRD 5 P0-1).
+ *
+ * The SAME `hours` rows and the SAME closed-today override the gate reads,
+ * taken from the SAME `GateState` — the acceptance criterion is that the
+ * footer's answer about today matches the gate's, and the only way to keep two
+ * answers identical is to stop there being two. This is a wording of that
+ * state, not a second reading of it.
+ *
+ * It deliberately says nothing about the CUTOFF or the pause switch. Those
+ * decide whether an order can be placed; these are the hours the door is
+ * open, which is what somebody looking up an address wants to know — and the
+ * gate notice is already on the screen saying the other thing when it applies.
+ */
+export function todaysHours(
+  state: Pick<GateState, 'hours' | 'closedOnDay'>,
+  clock: RestaurantClock,
+): string {
+  // A closed-today override and a day with no row are the same sentence: both
+  // mean nobody is opening the door, and a footer is the wrong place to
+  // explain which kind of closed it is.
+  if (state.closedOnDay === clock.day) return 'Closed today';
+  const today = state.hours.find((day) => day.dayOfWeek === clock.weekday);
+  if (!today) return 'Closed today';
+  // 1440 formats as "24:00" — midnight at the END of the day, which is the
+  // only reading a closing time can have (see `saveHours`).
+  return `${formatMinuteOfDay(today.openMinute)}–${formatMinuteOfDay(today.closeMinute)}`;
+}
+
+/**
  * Is ordering open?
  *
  * Precedence is deliberate and tested:

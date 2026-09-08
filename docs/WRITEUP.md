@@ -2001,6 +2001,88 @@ building it would not have failed anything. A requirement whose falsity is
 invisible to the test suite is the one to check against the data model before
 the estimate, not after.
 
+### The import that broke a file four tests later (C-077)
+
+The new spec needed the restaurant declared closed for today, so a fixture was
+written to do it — and "today" has to come off the restaurant's own clock,
+never the runner's, or a sweep in another timezone closes the wrong day. The
+obvious way to get it: `const { businessDayOf } = await import('@countertop/core')`.
+
+It worked. The fixture did exactly what it said, the new spec passed all seven
+of its tests, and the sweep went green for another hundred and twenty tests.
+Then `menu-editing.spec.ts` failed with `SyntaxError: Unexpected token 'export'`
+in `packages/core/pricing/index.ts` — a file nothing in this item touched, in a
+spec nothing in this item touched, on a line that had been there for weeks.
+
+Every fixture in this suite that reaches the database imports
+`@countertop/db` or `@countertop/db/menu`, and those import `@countertop/core`
+in turn, transformed on the way through. **No fixture had ever imported
+`@countertop/core` directly**, and that path loads it as plain CommonJS under
+Playwright's transform. The untransformed module then sits in the require
+cache, so the next spec to reach it through the normal path gets the broken
+copy. The damage lands in a different file, on a different feature, minutes
+later.
+
+Two things made it expensive to see. **It passes in isolation** — running
+`menu-editing.spec.ts` alone is green, because nothing has poisoned the cache
+yet, and the instinct on a lone failure in a hundred-test sweep is to suspect
+flake. And **the failing test is not the guilty one**; the stack trace named
+`pricing/index.ts`, `packages/db/menu.ts` and `fixtures.ts`, all of which were
+innocent. The only thing that pointed at the cause was that the error was a
+*module-loading* error rather than an assertion, which means the answer is
+never in the test that failed.
+
+The fix was to take the clock through the door every other fixture already
+uses: `loadClock()` from `@countertop/db/menu`, which is the same reading by
+the same function. One import line, and a comment in `fixtures.ts` saying why
+the direct one is not allowed — because the next person to want a pure helper
+from `packages/core` in a fixture will reach for exactly the same import, and
+the failure it causes will name someone else's file again.
+
+The general version: **a shared process makes an import a global side effect.**
+`workers: 1` is deliberate here — every spec shares one app and one database,
+which is what makes the fixtures honest — and the cost of that is that
+*anything* module-scoped one spec does is done to all of them. A convention
+that every fixture happened to follow was load-bearing and nobody knew, which
+is the definition of the rule worth writing down the first time it breaks.
+
+### The last static page, and the read that quietly froze into it (C-077)
+
+The footer is a server component that reads three columns and renders them.
+Four of the five customer routes it went onto are `force-dynamic` and have
+been since the items that built them — a menu baked at build time goes stale
+the first time the kitchen runs out of anything, and a gate baked at build time
+is a restaurant whose opening hours were decided by the deploy. So the reflex
+was that the footer inherited that.
+
+**The landing page was the exception, and nothing failed.** `/` was a heading,
+a sentence and a link — no database, no clock — so it had always prerendered as
+static, correctly, and nobody had had cause to look at it since. Adding a
+database read to it did not change that. The build succeeded, the types were
+clean, the lint was clean, and the page rendered the right address, because the
+build machine happened to be pointed at a seeded database.
+
+Two things were wrong with that and neither is a test failure. The address on
+the landing page would have been **whatever was in the database when the build
+ran** — an operator's save reaching four screens and not the fifth, which is
+precisely the class of bug the footer exists inside one component to prevent.
+And on a database with no settings row, `findUniqueOrThrow` throws at *build*
+time: a deploy that fails not because the code is wrong but because the
+database was empty at the wrong moment.
+
+What caught it was reading the build's own route table — the `○` beside `/`
+where every other customer route had `ƒ`. That output is printed by every
+build this project has ever run and had never been worth reading before,
+because until this item the answer never changed.
+
+The general version: **adding a read to a component is also a statement about
+every page that renders it.** A server component is not portable the way a
+pure one is; it carries a rendering mode requirement with it, and the page that
+has never needed one is the page that will silently not get it. The build
+output names the mode for every route, in one table, for free — which makes
+"did any route change mode?" a cheaper question than it looks, and one worth
+asking whenever a component starts reading something.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

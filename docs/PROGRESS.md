@@ -6940,3 +6940,99 @@ did not, and the reason it did not is the useful half of the item.
   matched "fryer" would be a second way to do a thing that is one tap away.
 - **Still no menu-change event.** PRD 4's builder Open Question is now the only
   one left open in that document, and nothing in P0 or P1 writes such an event.
+
+## C-077 — The restaurant has an address and a phone (PRD 5 P0-1)
+
+Commit `PENDING`.
+
+The first item of PRD 5, and the smallest in it. The product's founding premise
+is that phone orders tie up staff, and it resolved two of its worst customer
+moments — "come to the counter" and "call the restaurant if that is wrong" —
+with a phone call it did not enable. There was no number, no address and no
+hours on any customer screen, and `RestaurantSettings` had no columns to hold
+them.
+
+**Built:**
+- **Three nullable columns on the settings singleton** — `name`, `addressLine`,
+  `phone` — plus a backfill of the sample restaurant's details onto any
+  singleton that has none. Nullable is the requirement, not a shortcut: a
+  restaurant that has typed nothing renders a footer without that line, never a
+  footer with a blank where an address should be.
+- **One address line, not five columns.** Nothing sorts, filters or geocodes
+  on it, and street/city/state/zip is five ways to render one sentence wrong.
+- **`todaysHours(state, clock)` in `packages/core`**, taking the SAME
+  `GateState` the gate takes. P0-1's third bullet asks that the footer's answer
+  about today match the gate's; the only way to keep two answers identical is
+  to stop there being two, so this is a WORDING of the gate's state, not a
+  second reading of it. A closed-today override and a day with no row are the
+  same sentence.
+- **`RestaurantFooter`, a server component with its own read**, on `/`, `/menu`,
+  `/cart`, `/checkout` and `/status/[token]`. Its own query rather than a prop
+  threaded through five pages, because a prop is five places to forget it.
+- **The `tel:` link inside the cancelled and abandoned panels**, not only in
+  the footer — as a `call` sentence on `STATUS_VIEW`, which is a
+  `Record<OrderStatus, …>`, so a new state has to say whether phoning is the
+  answer for it. That is one declaration rather than a second
+  `status === 'cancelled'` literal, which is what the PRD warned against.
+- **`abandoned` lost "Call the restaurant if that is wrong" from its detail
+  line** and gained the number next to the same instruction. It had been
+  telling customers to call for as long as there was nothing to call.
+- **A "Where to find us" form on the settings screen**, C-023 idiom: plain
+  `<form action={…}>`, trimmed, an emptied field stored as NULL rather than
+  `''`. NO phone format validation — a dialler parses a number better than a
+  regex does, and a pattern strict enough to be worth having rejects a real
+  extension.
+
+**Decided:**
+- **The hours in the footer are the DOOR's hours, not the ordering window.**
+  They deliberately say nothing about the cutoff, the pause switch or the
+  auto-pause threshold. Somebody looking up an address wants to know when the
+  restaurant is open; the gate notice is already on the same screen saying the
+  other thing when it applies. A unit test asserts a paused restaurant still
+  advertises its hours.
+- **`/` became `force-dynamic`.** It was the last statically prerendered route,
+  and the footer's read made that a build-time snapshot of the restaurant's
+  address — and a build that throws on a database with no settings row. Every
+  other customer route already said this.
+- **The footer is added by hand to five routes, not by a `(customer)` route
+  group.** Recorded as a ceiling, below.
+- **The three sample strings are written out in the spec** rather than imported
+  from `SAMPLE_CONTACT`. No spec in this suite imports a `@countertop` package
+  at module scope, and asserting rendered output against the constant that
+  produced it proves the render, not the value.
+
+**Found:**
+- **`/` was the last statically prerendered route**, and adding the footer's
+  read to it froze the restaurant's address into the build — plus a build that
+  throws on a database with no settings row. Nothing failed; the tell was the
+  `○` beside `/` in the build's own route table where every other customer
+  route had `ƒ`.
+- **A fixture importing `@countertop/core` directly broke a different spec a
+  hundred tests later.** `SyntaxError: Unexpected token 'export'` in
+  `packages/core/pricing/index.ts`, inside `menu-editing.spec.ts`, from a
+  fixture in `contact.spec.ts`. Every existing fixture reaches core THROUGH
+  `@countertop/db`, transformed on the way; the direct import loads it as plain
+  CJS and leaves the broken copy in the require cache for everyone. `workers: 1`
+  is what makes that global. Fixed by taking the clock through `loadClock()`,
+  and the reason is now a comment in `fixtures.ts`, because the next person
+  wanting a pure helper there will reach for the same import.
+
+**Left behind:**
+- **A sixth customer route can forget the footer, and one already has.** The
+  composer at `/menu/[itemId]` is a customer screen and is not in P0-1's five.
+  A `(customer)` route group with a layout makes it structural; it also moves
+  six directories, which is the change to make when a second thing belongs on
+  every customer screen rather than for this one.
+- **The status page reads the contact columns twice** — once for the panel's
+  number, once inside the footer. A prop would fix it and would be the thing
+  a page can render the footer without.
+- **An extension in the phone field dials as digits.** `(562) 555-0148 ext. 2`
+  becomes `tel:56255501482`. Deliberate: the alternative is a parser, and a
+  parser that is wrong about a real number is worse than a dialler that is
+  right about most of them.
+- **No map link and no "get directions".** The address is text. P0-1 asks for
+  the address; a maps URL is a second product decision about which map.
+- **Nothing is snapshotted onto an order.** These are the restaurant's own
+  facts and a customer reading them wants the number that rings the counter
+  today, not the one that rang it when they ordered. The snapshot rule is
+  untouched by this item.

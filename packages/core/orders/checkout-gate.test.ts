@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { restaurantClock } from './business-day';
-import { checkoutGate, orderingWindow, type GateState, type StoreHoursDay } from './checkout-gate';
+import {
+  checkoutGate,
+  orderingWindow,
+  todaysHours,
+  type GateState,
+  type StoreHoursDay,
+} from './checkout-gate';
 
 // Every instant is built with Date.UTC — the one form that provably cannot
 // read the process timezone. CI runs this file under TZ=UTC and
@@ -203,6 +209,48 @@ describe('the checkout gate (P0-6)', () => {
         openMinute: 660,
         lastOrderMinute: 1245,
       });
+    });
+  });
+
+  // PRD 5 P0-1's third bullet: the footer's answer about today and the gate's
+  // must be the same answer, so it is read off the same state.
+  describe("today's hours (PRD 5 P0-1)", () => {
+    const hoursAt = (now: Date, overrides: Partial<GateState> = {}) =>
+      todaysHours(state(overrides), restaurantClock(now, TZ));
+
+    it('is the open day, said the way the door says it', () => {
+      expect(hoursAt(LUNCH)).toBe('11:00–21:00');
+    });
+
+    it('is the same string outside service as during it — hours are not a gate', () => {
+      // The gate is shut at 22:00 and open at 13:00; the hours do not move.
+      expect(gate(AFTER_CLOSE).open).toBe(false);
+      expect(hoursAt(AFTER_CLOSE)).toBe(hoursAt(LUNCH));
+    });
+
+    it('says closed on a day with no row, exactly where the gate does', () => {
+      expect(gate(SUNDAY_NOON)).toMatchObject({ open: false, reason: 'outside_hours' });
+      expect(hoursAt(SUNDAY_NOON)).toBe('Closed today');
+    });
+
+    it('says closed under the closed-today override, exactly where the gate does', () => {
+      const closed = { closedOnDay: restaurantClock(LUNCH, TZ).day };
+      expect(gate(LUNCH, closed)).toMatchObject({ open: false, reason: 'closed_today' });
+      expect(hoursAt(LUNCH, closed)).toBe('Closed today');
+    });
+
+    it("ignores the override on a day that is not today's", () => {
+      expect(hoursAt(LUNCH, { closedOnDay: '2026-01-01' })).toBe('11:00–21:00');
+    });
+
+    it('reads a midnight close as the end of the day, not the start', () => {
+      const lateWeek = WEEK.map((day) => ({ ...day, closeMinute: 1440 }));
+      expect(hoursAt(LUNCH, { hours: lateWeek })).toBe('11:00–24:00');
+    });
+
+    it('says nothing about the pause switch — a paused restaurant is still open', () => {
+      expect(gate(LUNCH, { paused: true }).open).toBe(false);
+      expect(hoursAt(LUNCH, { paused: true })).toBe('11:00–21:00');
     });
   });
 

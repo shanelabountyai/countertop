@@ -13,7 +13,8 @@ import Link from 'next/link';
 import { formatMinuteOfDay, restaurantClock, WEEKDAY_NAMES } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
 import { formatCents } from '@/lib/money';
-import { closeTodayForm, reopenTodayForm, saveHours, saveService } from './actions';
+import { prisma } from '@countertop/db';
+import { closeTodayForm, reopenTodayForm, saveContact, saveHours, saveService } from './actions';
 
 export const metadata = { title: 'Settings — Firebird Kitchen' };
 
@@ -39,6 +40,13 @@ export default async function SettingsPage({
   // Read once, here (CLAUDE.md time rules).
   const now = new Date();
   const state = await loadGateState(now);
+  // The three C-077 columns. Read straight off the singleton rather than
+  // through `loadRestaurantContact`, which words today's hours for a customer
+  // and drops the raw values this form has to put back in its inputs.
+  const contact = await prisma.restaurantSettings.findUniqueOrThrow({
+    where: { id: 'singleton' },
+    select: { name: true, addressLine: true, phone: true },
+  });
   const today = restaurantClock(now, state.timezone).day;
   const closedToday = state.closedOnDay === today;
 
@@ -301,6 +309,44 @@ export default async function SettingsPage({
         </button>
       </form>
 
+      <form action={saveContact} className="mt-8 rounded-xl border-2 border-neutral-300 p-4">
+        <h2 className="text-2xl font-semibold">Where to find us</h2>
+        <p className="mt-1 text-lg text-neutral-700">
+          Shown in the footer of every customer screen, and the phone number is a link that dials.
+          Leave one blank and that line simply is not shown.
+        </p>
+        <TextField
+          name="name"
+          label="Restaurant name"
+          value={contact.name}
+          maxLength={80}
+          placeholder="Firebird Kitchen"
+        />
+        <TextField
+          name="addressLine"
+          label="Address"
+          value={contact.addressLine}
+          maxLength={200}
+          placeholder="1412 Junipero Ave, Long Beach, CA 90804"
+          hint="One line, the way you would say it to somebody on the phone."
+        />
+        <TextField
+          name="phone"
+          label="Phone"
+          value={contact.phone}
+          maxLength={40}
+          placeholder="(562) 555-0148"
+          hint="Written however you like — punctuation and all. The link strips it down to the digits."
+          type="tel"
+        />
+        <button
+          type="submit"
+          className="mt-4 min-h-14 rounded-lg bg-neutral-900 px-6 text-lg font-bold text-white"
+        >
+          Save contact details
+        </button>
+      </form>
+
       <section className="mt-8 rounded-xl border-2 border-neutral-200 p-4">
         <h2 className="text-2xl font-semibold">Not editable here</h2>
         <dl className="mt-2 flex flex-col gap-2 text-lg">
@@ -324,6 +370,44 @@ export default async function SettingsPage({
         </p>
       </section>
     </main>
+  );
+}
+
+function TextField({
+  name,
+  label,
+  value,
+  maxLength,
+  placeholder,
+  hint,
+  type = 'text',
+}: {
+  name: string;
+  label: string;
+  value: string | null;
+  maxLength: number;
+  placeholder: string;
+  hint?: string;
+  type?: 'text' | 'tel';
+}) {
+  return (
+    <div className="mt-4">
+      <label className="flex flex-col gap-1 text-lg">
+        {label}
+        {/* `defaultValue=""` rather than `undefined` on a null column: an
+            uncontrolled input handed undefined is React's signal to leave it
+            alone, and the field then keeps whatever the browser restored. */}
+        <input
+          type={type}
+          name={name}
+          defaultValue={value ?? ''}
+          maxLength={maxLength}
+          placeholder={placeholder}
+          className="min-h-12 w-full rounded-md border-2 border-neutral-400 px-3 text-lg"
+        />
+      </label>
+      {hint && <p className="mt-1 text-base text-neutral-600">{hint}</p>}
+    </div>
   );
 }
 

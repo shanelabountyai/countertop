@@ -12,6 +12,7 @@ import { formatCents } from '@/lib/money';
 import { currentGate } from '@/lib/checkout-gate';
 import { GateNotice } from '../checkout/gate-notice';
 import { Lockup } from '@/lib/brand';
+import { RestaurantFooter } from '@/lib/restaurant-footer';
 
 export const metadata = { title: 'Menu — Firebird Kitchen' };
 
@@ -39,59 +40,62 @@ export default async function MenuPage() {
   const items = Object.values(menu.items);
 
   return (
-    <main className="mx-auto max-w-2xl p-6">
-      <header className="mb-8 flex items-center justify-between gap-4">
-        {/* The primary lockup, not plain text (docs/design/README.md). The
-            mark is aria-hidden, so the heading's accessible name is still
-            exactly "Firebird Kitchen". */}
-        <h1>
-          <Lockup />
-        </h1>
-        <Link href="/cart" className="inline-flex min-h-12 w-fit items-center text-sm underline underline-offset-4">
-          View cart
-        </Link>
-      </header>
+    <>
+      <main className="mx-auto max-w-2xl p-6">
+        <header className="mb-8 flex items-center justify-between gap-4">
+          {/* The primary lockup, not plain text (docs/design/README.md). The
+              mark is aria-hidden, so the heading's accessible name is still
+              exactly "Firebird Kitchen". */}
+          <h1>
+            <Lockup />
+          </h1>
+          <Link href="/cart" className="inline-flex min-h-12 w-fit items-center text-sm underline underline-offset-4">
+            View cart
+          </Link>
+        </header>
 
-      {/* Same gate the cart re-asks before checkout (P0-6) — surfaced here too
-          so a customer finds out before building a cart, not after. */}
-      <GateNotice gate={gate} className="mb-8" />
+        {/* Same gate the cart re-asks before checkout (P0-6) — surfaced here too
+            so a customer finds out before building a cart, not after. */}
+        <GateNotice gate={gate} className="mb-8" />
 
-      {menu.categories.map((category) => (
-        <section key={category.id} className="mb-8">
-          <h2 className="mb-3 text-xl font-semibold">{category.name}</h2>
-          <ul className="flex flex-col gap-2">
-            {items
-              .filter((item) => item.categoryId === category.id)
-              .map((item) => (
-                <li key={item.id}>
-                  {/* A sold-out item is RENDERED, not hidden (P0-6): a customer
-                      who cannot find the burrito assumes the site is broken,
-                      one who sees it greyed out knows the kitchen ran out. */}
-                  {unavailableNote(item, clock) === null ? (
-                    <Link
-                      href={`/menu/${item.id}`}
-                      className="flex min-h-12 items-center justify-between gap-4 rounded-lg border border-neutral-300 px-4 py-3 hover:border-neutral-500"
-                    >
-                      <span className="font-medium">{item.name}</span>
-                      <span className="tabular-nums">{formatCents(item.basePriceCents)}</span>
-                    </Link>
-                  ) : (
-                    <div
-                      aria-disabled="true"
-                      className="flex min-h-12 items-center justify-between gap-4 rounded-lg border border-dashed border-neutral-300 px-4 py-3 text-neutral-500"
-                    >
-                      <span className="font-medium">
-                        {item.name}{' '}
-                        <span className="font-normal">— {unavailableNote(item, clock)}</span>
-                      </span>
-                      <span className="tabular-nums">{formatCents(item.basePriceCents)}</span>
-                    </div>
-                  )}
-                </li>
-              ))}
-          </ul>
-        </section>
-      ))}
-    </main>
+        {menu.categories.map((category) => (
+          <section key={category.id} className="mb-8">
+            <h2 className="mb-3 text-xl font-semibold">{category.name}</h2>
+            <ul className="flex flex-col gap-2">
+              {items
+                .filter((item) => item.categoryId === category.id)
+                .map((item) => (
+                  <li key={item.id}>
+                    {/* A sold-out item is RENDERED, not hidden (P0-6): a customer
+                        who cannot find the burrito assumes the site is broken,
+                        one who sees it greyed out knows the kitchen ran out. */}
+                    {unavailableNote(item, clock) === null ? (
+                      <Link
+                        href={`/menu/${item.id}`}
+                        className="flex min-h-12 items-center justify-between gap-4 rounded-lg border border-neutral-300 px-4 py-3 hover:border-neutral-500"
+                      >
+                        <span className="font-medium">{item.name}</span>
+                        <span className="tabular-nums">{formatCents(item.basePriceCents)}</span>
+                      </Link>
+                    ) : (
+                      <div
+                        aria-disabled="true"
+                        className="flex min-h-12 items-center justify-between gap-4 rounded-lg border border-dashed border-neutral-300 px-4 py-3 text-neutral-500"
+                      >
+                        <span className="font-medium">
+                          {item.name}{' '}
+                          <span className="font-normal">— {unavailableNote(item, clock)}</span>
+                        </span>
+                        <span className="tabular-nums">{formatCents(item.basePriceCents)}</span>
+                      </div>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          </section>
+        ))}
+      </main>
+      <RestaurantFooter />
+    </>
   );
 }

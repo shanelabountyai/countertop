@@ -25,6 +25,11 @@ function revalidateGateSurfaces(): void {
   revalidatePath('/cart');
   revalidatePath('/checkout');
   revalidatePath('/menu');
+  // The landing page, which carries the C-077 footer and nothing else the gate
+  // reaches. `/status/[token]` is not listed because it has no static path to
+  // name — it is `force-dynamic` and re-reads on every poll anyway, which is
+  // true of all five.
+  revalidatePath('/');
 }
 
 function done(saved: string): never {
@@ -173,3 +178,34 @@ export async function setClosedToday(closed: boolean): Promise<void> {
 
 export const closeTodayForm = async (): Promise<void> => setClosedToday(true);
 export const reopenTodayForm = async (): Promise<void> => setClosedToday(false);
+
+/**
+ * Where to find us (PRD 5 P0-1, C-077).
+ *
+ * Three free-text fields, trimmed, and an empty one is stored as NULL rather
+ * than as `''` — the footer renders a line only when the column is filled, and
+ * an empty string is a filled column that renders an empty line.
+ *
+ * NO format validation on the phone, deliberately. The caller's dialler parses
+ * a number far better than a regex does, and a pattern strict enough to be
+ * worth having rejects a real extension, a second number, or "call the shop,
+ * not the cell". The bound that matters is length, and it is the VarChar.
+ */
+export async function saveContact(formData: FormData): Promise<void> {
+  const text = (field: string, limit: number, label: string): string | null => {
+    const value = formData.get(field);
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (trimmed.length > limit) rejected(`${label} must be ${limit} characters or fewer.`);
+    return trimmed === '' ? null : trimmed;
+  };
+
+  await prisma.restaurantSettings.update({
+    where: { id: 'singleton' },
+    data: {
+      name: text('name', 80, 'The restaurant name'),
+      addressLine: text('addressLine', 200, 'The address'),
+      phone: text('phone', 40, 'The phone number'),
+    },
+  });
+  done('Contact details saved.');
+}

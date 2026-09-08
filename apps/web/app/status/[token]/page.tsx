@@ -36,6 +36,8 @@ import { LiveUpdates } from '@/lib/live-updates';
 import { describeSelection } from '@/lib/menu-labels';
 import { formatCents } from '@/lib/money';
 import { PAYMENT_LABEL } from '@/lib/status-labels';
+import { CallLink, RestaurantFooter } from '@/lib/restaurant-footer';
+import { loadRestaurantContact } from '@countertop/db/gate';
 
 export const metadata = {
   title: 'Your order — Firebird Kitchen',
@@ -51,32 +53,48 @@ export const dynamic = 'force-dynamic';
 
 /** A `Record<OrderStatus, …>`: a new state cannot ship without the sentence a
  *  customer reads when their order is in it. Same discipline as the kitchen's
- *  section headings — the compiler finds this file, not a grep. */
-const STATUS_VIEW: Record<OrderStatus, { headline: string; detail: string; tone: string }> = {
+ *  section headings — the compiler finds this file, not a grep.
+ *
+ *  `call` is PRD 5 P0-1's second bullet, expressed as a property of the state
+ *  rather than as a second `status === …` literal beside the one below: the
+ *  two views whose answer is "phone the counter" are the two that declare a
+ *  sentence here, and a new state has to say which it is. Null everywhere the
+ *  customer has nothing to ask — an order that is cooking does not need a
+ *  phone number in front of it, and one offered on every screen is one nobody
+ *  reads on the screen that meant it. */
+const STATUS_VIEW: Record<
+  OrderStatus,
+  { headline: string; detail: string; tone: string; call: string | null }
+> = {
   placed: {
     headline: 'Order received',
     detail: 'The kitchen has it and will start it shortly.',
     tone: 'border-sky-700 bg-sky-50 text-sky-900',
+    call: null,
   },
   accepted: {
     headline: 'The kitchen has your order',
     detail: "It's in the queue and coming up.",
     tone: 'border-sky-700 bg-sky-50 text-sky-900',
+    call: null,
   },
   preparing: {
     headline: 'Cooking now',
     detail: 'Your food is on the line.',
     tone: 'border-sky-700 bg-sky-50 text-sky-900',
+    call: null,
   },
   ready: {
     headline: 'Ready for pickup',
     detail: 'Come to the counter and give your name.',
     tone: 'border-green-700 bg-green-50 text-green-900',
+    call: null,
   },
   picked_up: {
     headline: 'Picked up',
     detail: 'Enjoy it — thanks for ordering.',
     tone: 'border-neutral-400 bg-neutral-50 text-neutral-800',
+    call: null,
   },
   cancelled: {
     // The reason is rendered separately, below: it comes off the order, and a
@@ -84,11 +102,16 @@ const STATUS_VIEW: Record<OrderStatus, { headline: string; detail: string; tone:
     headline: 'This order was cancelled',
     detail: 'Nothing was charged.',
     tone: 'border-red-600 bg-red-50 text-red-900',
+    call: 'Still need lunch, or want to know what happened? Call us:',
   },
   abandoned: {
     headline: 'This order was not collected',
-    detail: 'It was made and left on the shelf. Call the restaurant if that is wrong.',
+    // "Call the restaurant" used to end this sentence and there was no number
+    // anywhere on the page to call. The instruction moved to `call`, which
+    // renders the number next to it.
+    detail: 'It was made and left on the shelf.',
     tone: 'border-amber-600 bg-amber-50 text-amber-900',
+    call: 'If that is wrong, call us:',
   },
 };
 
@@ -142,165 +165,183 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
   // is recalculated on every render, and this page re-renders on every poll
   // (P0-7).
   const { estimate } = await currentCheckout();
+  // The phone, for the two views whose copy asks the customer to use it. A
+  // separate read from the footer's own, which is a query rather than a prop
+  // threaded down so that a page can never render the footer and forget it.
+  const { phone } = await loadRestaurantContact(now);
   const remaining = remainingEstimate(estimate, elapsedMinutes(order.placedAt, now));
 
   return (
-    <main className="mx-auto max-w-2xl p-6">
-      <LiveUpdates cursor={cursor} active={!isTerminal(order.status)} />
+    <>
+      <main className="mx-auto max-w-2xl p-6">
+        <LiveUpdates cursor={cursor} active={!isTerminal(order.status)} />
 
-      <h1 className="text-3xl font-semibold">Your order</h1>
-      <p className="mt-4 text-5xl font-bold tabular-nums" data-testid="status-order-number">
-        {formatOrderNumber(order.seq)}
-      </p>
-      <p className="text-xl">under {order.customerName}</p>
+        <h1 className="text-3xl font-semibold">Your order</h1>
+        <p className="mt-4 text-5xl font-bold tabular-nums" data-testid="status-order-number">
+          {formatOrderNumber(order.seq)}
+        </p>
+        <p className="text-xl">under {order.customerName}</p>
 
-      {/* `role="status"` so the headline changing under a poll is announced,
-          not silently repainted — this page updates without a navigation. */}
-      <section
-        role="status"
-        data-testid="order-status"
-        data-status={order.status}
-        className={`mt-6 rounded-lg border-2 p-4 ${view.tone}`}
-      >
-        <p className="text-2xl font-semibold">{view.headline}</p>
-        <p className="mt-1 text-lg">{view.detail}</p>
+        {/* `role="status"` so the headline changing under a poll is announced,
+            not silently repainted — this page updates without a navigation. */}
+        <section
+          role="status"
+          data-testid="order-status"
+          data-status={order.status}
+          className={`mt-6 rounded-lg border-2 p-4 ${view.tone}`}
+        >
+          <p className="text-2xl font-semibold">{view.headline}</p>
+          <p className="mt-1 text-lg">{view.detail}</p>
 
-        {order.status === 'cancelled' && (
-          <p className="mt-2 text-lg" data-testid="cancel-reason">
-            {order.cancelReason
-              ? CANCEL_EXPLANATION[order.cancelReason]
-              : CANCEL_EXPLANATION.other}
-            {order.cancelNote && ` — ${order.cancelNote}`}
+          {order.status === 'cancelled' && (
+            <p className="mt-2 text-lg" data-testid="cancel-reason">
+              {order.cancelReason
+                ? CANCEL_EXPLANATION[order.cancelReason]
+                : CANCEL_EXPLANATION.other}
+              {order.cancelNote && ` — ${order.cancelNote}`}
+            </p>
+          )}
+
+          {/* Inside the coloured panel, not down in the footer: this is the
+              screen where the answer IS a phone call, and a number six
+              scroll-lengths below the apology is a number nobody finds. Absent
+              entirely if the restaurant has not saved one — an invitation to
+              call with nothing to call is worse than the apology alone. */}
+          {view.call && phone && (
+            <p className="mt-3 text-lg">
+              {view.call} <CallLink phone={phone} className="text-lg" />
+            </p>
+          )}
+        </section>
+
+        {/* Only while the kitchen still owes work — `isOpen` is exactly
+            placed/accepted/preparing, asked of the status module rather than
+            spelled out here. Food already on the shelf does not get a time
+            estimate; it gets "come and get it". */}
+        {isOpen(order.status) && (
+          <p className="mt-6 text-lg" data-testid="status-estimate">
+            {remaining ? (
+              <>
+                Usually ready in about <strong>{remaining.label}</strong>.
+              </>
+            ) : (
+              <>Should be ready any minute now.</>
+            )}
           </p>
         )}
-      </section>
 
-      {/* Only while the kitchen still owes work — `isOpen` is exactly
-          placed/accepted/preparing, asked of the status module rather than
-          spelled out here. Food already on the shelf does not get a time
-          estimate; it gets "come and get it". */}
-      {isOpen(order.status) && (
-        <p className="mt-6 text-lg" data-testid="status-estimate">
-          {remaining ? (
-            <>
-              Usually ready in about <strong>{remaining.label}</strong>.
-            </>
-          ) : (
-            <>Should be ready any minute now.</>
+        <section className="mt-6 rounded-lg border border-neutral-300 p-4">
+          <h2 className="font-semibold">What you ordered</h2>
+          <ul className="mt-3 flex flex-col gap-3">
+            {order.lines.map((line) => (
+              <li key={line.id}>
+                <div className="flex justify-between gap-4">
+                  <p className="font-medium">
+                    <span className="tabular-nums">{line.quantity}×</span> {line.itemName}
+                  </p>
+                  <p className="tabular-nums">{formatCents(line.lineTotalCents)}</p>
+                </div>
+                {line.options.length > 0 && (
+                  <p className="text-sm text-neutral-700">
+                    {line.options.map((option, index) => {
+                      const { text, negated } = describeSelection(option.optionName, option.intensity);
+                      return (
+                        <span key={option.id}>
+                          {index > 0 && ', '}
+                          {/* A removal must read as a removal here too: this is
+                              the screen a customer checks us against. */}
+                          <span className={negated ? 'font-bold text-red-700' : ''}>{text}</span>
+                        </span>
+                      );
+                    })}
+                  </p>
+                )}
+                {line.note && <p className="text-sm italic text-neutral-700">{line.note}</p>}
+              </li>
+            ))}
+          </ul>
+
+          {/* Subtotal, tax and total as distinct lines (P0-9), read straight off
+              the snapshot — never recomputed from a menu that has since moved. */}
+          <dl className="mt-4 flex flex-col gap-1 border-t border-neutral-300 pt-3 tabular-nums">
+            <div className="flex justify-between text-sm">
+              <dt>Subtotal</dt>
+              <dd>{formatCents(order.subtotalCents)}</dd>
+            </div>
+            <div className="flex justify-between text-sm">
+              <dt>Tax</dt>
+              <dd>{formatCents(order.taxCents)}</dd>
+            </div>
+            <div className="flex justify-between text-lg font-semibold">
+              <dt>Total</dt>
+              <dd data-testid="status-total">{formatCents(order.totalCents)}</dd>
+            </div>
+
+            {/* An adjusted order says so (PRD 3 P0-3). Showing the original
+                total and nothing else would be the product quietly presenting a
+                figure the counter has already decided not to charge — the
+                customer arrives expecting one number and hears another.
+
+                WHAT IS NOT HERE IS THE POINT: no reason, no note, no staff name.
+                The preset is an operational category and the note is something a
+                cook typed about a mistake, and neither is the customer's to
+                read. This renders one number, off the same events the staff
+                receipt sums. */}
+            {adjustedCents > 0 && (
+              <>
+                <div className="flex justify-between border-t border-neutral-300 pt-2 text-sm">
+                  <dt>Adjusted by the restaurant</dt>
+                  <dd data-testid="status-adjusted">−{formatCents(adjustedCents)}</dd>
+                </div>
+                <div className="flex justify-between text-lg font-semibold">
+                  <dt>You owe</dt>
+                  <dd data-testid="status-outstanding">{formatCents(balance.outstandingCents)}</dd>
+                </div>
+              </>
+            )}
+          </dl>
+
+          {/* P1-8. The customer's half of the same fact the kitchen card flags:
+              an unpaid order means bring a card to the counter. `refunded` is
+              here too — a cancelled order that took money has to say so.
+
+              The DUE figure is the balance, not the total (C-065): telling
+              somebody to bring $34.20 for an order that has been comped to zero
+              is the same defect as not mentioning the comp at all. */}
+          <p className="mt-3 font-semibold" data-testid="status-payment">
+            {refundPending
+              ? // NOT the reason, and not "we tried and the card was refused".
+                // Whether a processor said no is the restaurant's problem to fix
+                // and the customer's only question is whether the money is
+                // coming. Checked FIRST, so the failed attempt can never render
+                // as "Refunded" (P0-4) — the column still says `paid`, which is
+                // true and is exactly what would otherwise be shown.
+                `Refund pending — ${formatCents(balance.collectedCents)} coming back`
+              : releasedWithoutCapture(order.events)
+                ? // A held card that was let go (C-069): the no-show and the
+                  // cancelled prepaid ticket. Checked BEFORE the enum, because a
+                  // released hold leaves `paymentState` at `unpaid` with the whole
+                  // total outstanding — both true, and together they read as "Pay
+                  // at pickup — $11.85 due" to somebody who paid twenty minutes
+                  // ago. That is the sentence that makes them phone.
+                  'Card hold released — you were not charged'
+                : order.paymentState === 'unpaid'
+                  ? balance.outstandingCents > 0
+                    ? `${PAYMENT_LABEL.unpaid} — ${formatCents(balance.outstandingCents)} due`
+                    : 'Nothing to pay'
+                  : PAYMENT_LABEL[order.paymentState]}
+          </p>
+
+          {order.orderNote && (
+            <p className="mt-3 text-sm text-neutral-700">Your note: {order.orderNote}</p>
           )}
-        </p>
-      )}
+        </section>
 
-      <section className="mt-6 rounded-lg border border-neutral-300 p-4">
-        <h2 className="font-semibold">What you ordered</h2>
-        <ul className="mt-3 flex flex-col gap-3">
-          {order.lines.map((line) => (
-            <li key={line.id}>
-              <div className="flex justify-between gap-4">
-                <p className="font-medium">
-                  <span className="tabular-nums">{line.quantity}×</span> {line.itemName}
-                </p>
-                <p className="tabular-nums">{formatCents(line.lineTotalCents)}</p>
-              </div>
-              {line.options.length > 0 && (
-                <p className="text-sm text-neutral-700">
-                  {line.options.map((option, index) => {
-                    const { text, negated } = describeSelection(option.optionName, option.intensity);
-                    return (
-                      <span key={option.id}>
-                        {index > 0 && ', '}
-                        {/* A removal must read as a removal here too: this is
-                            the screen a customer checks us against. */}
-                        <span className={negated ? 'font-bold text-red-700' : ''}>{text}</span>
-                      </span>
-                    );
-                  })}
-                </p>
-              )}
-              {line.note && <p className="text-sm italic text-neutral-700">{line.note}</p>}
-            </li>
-          ))}
-        </ul>
-
-        {/* Subtotal, tax and total as distinct lines (P0-9), read straight off
-            the snapshot — never recomputed from a menu that has since moved. */}
-        <dl className="mt-4 flex flex-col gap-1 border-t border-neutral-300 pt-3 tabular-nums">
-          <div className="flex justify-between text-sm">
-            <dt>Subtotal</dt>
-            <dd>{formatCents(order.subtotalCents)}</dd>
-          </div>
-          <div className="flex justify-between text-sm">
-            <dt>Tax</dt>
-            <dd>{formatCents(order.taxCents)}</dd>
-          </div>
-          <div className="flex justify-between text-lg font-semibold">
-            <dt>Total</dt>
-            <dd data-testid="status-total">{formatCents(order.totalCents)}</dd>
-          </div>
-
-          {/* An adjusted order says so (PRD 3 P0-3). Showing the original
-              total and nothing else would be the product quietly presenting a
-              figure the counter has already decided not to charge — the
-              customer arrives expecting one number and hears another.
-
-              WHAT IS NOT HERE IS THE POINT: no reason, no note, no staff name.
-              The preset is an operational category and the note is something a
-              cook typed about a mistake, and neither is the customer's to
-              read. This renders one number, off the same events the staff
-              receipt sums. */}
-          {adjustedCents > 0 && (
-            <>
-              <div className="flex justify-between border-t border-neutral-300 pt-2 text-sm">
-                <dt>Adjusted by the restaurant</dt>
-                <dd data-testid="status-adjusted">−{formatCents(adjustedCents)}</dd>
-              </div>
-              <div className="flex justify-between text-lg font-semibold">
-                <dt>You owe</dt>
-                <dd data-testid="status-outstanding">{formatCents(balance.outstandingCents)}</dd>
-              </div>
-            </>
-          )}
-        </dl>
-
-        {/* P1-8. The customer's half of the same fact the kitchen card flags:
-            an unpaid order means bring a card to the counter. `refunded` is
-            here too — a cancelled order that took money has to say so.
-
-            The DUE figure is the balance, not the total (C-065): telling
-            somebody to bring $34.20 for an order that has been comped to zero
-            is the same defect as not mentioning the comp at all. */}
-        <p className="mt-3 font-semibold" data-testid="status-payment">
-          {refundPending
-            ? // NOT the reason, and not "we tried and the card was refused".
-              // Whether a processor said no is the restaurant's problem to fix
-              // and the customer's only question is whether the money is
-              // coming. Checked FIRST, so the failed attempt can never render
-              // as "Refunded" (P0-4) — the column still says `paid`, which is
-              // true and is exactly what would otherwise be shown.
-              `Refund pending — ${formatCents(balance.collectedCents)} coming back`
-            : releasedWithoutCapture(order.events)
-              ? // A held card that was let go (C-069): the no-show and the
-                // cancelled prepaid ticket. Checked BEFORE the enum, because a
-                // released hold leaves `paymentState` at `unpaid` with the whole
-                // total outstanding — both true, and together they read as "Pay
-                // at pickup — $11.85 due" to somebody who paid twenty minutes
-                // ago. That is the sentence that makes them phone.
-                'Card hold released — you were not charged'
-              : order.paymentState === 'unpaid'
-                ? balance.outstandingCents > 0
-                  ? `${PAYMENT_LABEL.unpaid} — ${formatCents(balance.outstandingCents)} due`
-                  : 'Nothing to pay'
-                : PAYMENT_LABEL[order.paymentState]}
-        </p>
-
-        {order.orderNote && (
-          <p className="mt-3 text-sm text-neutral-700">Your note: {order.orderNote}</p>
-        )}
-      </section>
-
-      <Link href="/menu" className="mt-6 inline-block underline underline-offset-4">
-        Order something else
-      </Link>
-    </main>
+        <Link href="/menu" className="mt-6 inline-block underline underline-offset-4">
+          Order something else
+        </Link>
+      </main>
+      <RestaurantFooter />
+    </>
   );
 }

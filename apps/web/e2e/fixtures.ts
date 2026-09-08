@@ -367,3 +367,47 @@ export async function restaurantTomorrow(): Promise<string> {
     await prisma.$disconnect();
   }
 }
+
+/**
+ * Declare today closed — the same one-tap override the settings screen writes
+ * (P0-6), reached from a spec that needs the gate shut and the footer's hours
+ * to agree about why (C-077).
+ *
+ * The date comes off the RESTAURANT's clock, never the runner's: a sweep in
+ * another timezone would otherwise close the wrong day and the test would fail
+ * for reasons that have nothing to do with the code under test.
+ *
+ * That clock is reached through `@countertop/db/menu`, NOT by importing
+ * `@countertop/core` here. Importing core directly from a fixture is the one
+ * thing this file must not do: it loads under Playwright's transform as plain
+ * CJS, and the untransformed module then sits in the require cache so the NEXT
+ * spec to reach `@countertop/db/menu` dies on `Unexpected token 'export'` —
+ * a failure in a file that did nothing wrong, four tests later (C-077).
+ */
+export async function closeRestaurantToday(): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  const { loadClock } = await import('@countertop/db/menu');
+  try {
+    await prisma.restaurantSettings.update({
+      where: { id: 'singleton' },
+      data: { closedOnDay: (await loadClock()).day },
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/** Blank out the three C-077 contact columns — the state every database was in
+ *  before that migration, and the one the footer has to render without a hole
+ *  in it. */
+export async function clearRestaurantContact(): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  try {
+    await prisma.restaurantSettings.update({
+      where: { id: 'singleton' },
+      data: { name: null, addressLine: null, phone: null },
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+}

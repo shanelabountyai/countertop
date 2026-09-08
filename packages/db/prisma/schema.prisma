@@ -828,6 +828,29 @@ model StaffMember {
 /// times; the rest is here.
 model RestaurantSettings {
   id            String  @id @default("singleton")
+  // --- Where to find us (PRD 5 P0-1, C-077) ---
+  //
+  // All three NULLABLE, and that is the requirement rather than a shortcut: a
+  // restaurant that has not filled them in renders a footer without them,
+  // never a footer with a blank line where a phone number should be. Nothing
+  // else in the product reads them, so an empty singleton is a working
+  // product with no address on it — which is what every database had until
+  // this migration.
+  //
+  // NOT snapshotted onto an order. These are the restaurant's own facts, and
+  // the customer reading them wants the number that rings the counter TODAY,
+  // not the one that rang it when they ordered.
+  /// Shown in the footer of every customer route. "Firebird Kitchen".
+  name          String? @db.VarChar(80)
+  /// One line, as a human would say it aloud on the phone. Deliberately not
+  /// street/city/state/zip columns: nothing sorts, filters or geocodes on it,
+  /// and five columns to render one line is five ways to render it wrong.
+  addressLine   String? @db.VarChar(200)
+  /// Rendered as a `tel:` link, so it dials from a phone. Free text — the
+  /// customer's dialler is far better at parsing a number than a regex is,
+  /// and a validation that rejects a real extension is worse than none.
+  phone         String? @db.VarChar(40)
+
   /// IANA zone. The daily order-number reset, the store-hours gate and every
   /// report bucket derive from this — never UTC, never the process's zone.
   timezone      String
