@@ -1,6 +1,7 @@
 # Next
 
-**C-080 shipped** (SHA recorded in the follow-up commit; gate green). PRD 5
+**C-080 shipped** (`48956d7`, SHA recorded in the follow-up, gate green: 208
+passed + 14 skipped = 222; 929 unit). PRD 5
 P0-4 is done: `MenuItem.description` is mapped through `loadMenu`
 absent-not-null, rendered on `/menu` (inside the tap target) and in the
 composer, editable in the menu editor as a straight save, and a sticky

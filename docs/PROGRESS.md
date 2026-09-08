@@ -7205,7 +7205,7 @@ one moment the information is worthless.
 
 ## C-080 — The menu says what the food is (PRD 5 P0-4)
 
-Commit `PENDING`.
+Commit `48956d7`.
 
 `MenuItem.description` had been in the schema since `init` and was read by
 nothing. Twenty-five items, five categories, one continuous scroll, and every
