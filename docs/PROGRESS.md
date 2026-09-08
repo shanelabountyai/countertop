@@ -6738,7 +6738,7 @@ Commit `844c337`.
 
 ## C-111 — A price you can stage (PRD 4 P1-2)
 
-Commit `PENDING`.
+Commit `04014cc`.
 
 **Built:**
 - **`StagedPrice(itemId?, optionId?, effectiveDay, priceCents)`**, a hand-written
