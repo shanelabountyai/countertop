@@ -1,6 +1,6 @@
 # Next
 
-**C-081 shipped** (SHA to be recorded in the follow-up commit; gate green:
+**C-081 shipped** (`aceeeab`, SHA recorded in the follow-up, gate green:
 210 passed + 14 skipped = 224 e2e, 929 unit). PRD 5 P0-5 and P0-6 are done:
 an untouched intensity row shows no filled pill (Skip included) and a visible
 "No choice made yet" hint; a failed add-to-cart moves focus to the first

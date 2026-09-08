@@ -7275,7 +7275,7 @@ tapping back.
 
 ## C-081 — An untouched choice looks untouched (PRD 5 P0-5 + P0-6)
 
-Commit `PENDING`.
+Commit `aceeeab`.
 
 Both halves of this item are the same class of defect: the composer stating
 something the customer did not say. P0-5 is the intensity pill that looked
