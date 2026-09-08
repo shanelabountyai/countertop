@@ -2385,3 +2385,56 @@ link instead — and the fix is not to move the description. It is one
 the next thing added to that row breaks nothing. **A locator that encodes
 layout is a test coupled to a decision it was never making**, and the tell is
 that it fails on a change to a part of the screen it does not mention.
+
+### Two things that looked like styling and were not (C-081)
+
+Both halves of P0-5 landed as "make the CSS not do that" and both turned out
+to need a second fix once the underlying value was actually read.
+
+**The Skip pill's fill was cosmetic. Its `checked` was not.** The composer's
+`Choice` type collapses "never touched this row" and "deliberately chose Skip"
+into the same `null` — correct for the DATA, because a negation and an absent
+selection are genuinely different things and `choose()` already tells them
+apart. Rendering copied that collapse verbatim: `checked={(value === '' ? null
+: value) === choice}` is `null === null` the instant an intensity row mounts
+untouched, so Skip's native `<input>` was marked checked before anyone had
+touched anything. Fixing only the pill's fill class — the part that looked
+like the requirement, the visible bug — would have left a screen reader
+announcing "Skip, checked" for a choice nobody made. The fix is the same
+`touched` flag gating both: a data-model distinction the rendering had thrown
+away needs restating for BOTH of a control's outputs, the one a sighted person
+sees and the one a screen reader hears, or fixing the first one paints over
+the second.
+
+**The general takeaway: when a bug is "renders as selected when it shouldn't",
+check whether "selected" is one value or two.** A custom control usually
+duplicates a piece of state across a CSS class and a native attribute — here,
+`className` and `checked` — because the attribute is what makes the control
+behave (spacebar toggles it, a screen reader announces it) and the class is
+what makes it look right. A fix aimed at only the visible half ships an
+accessibility regression that passes every visual review.
+
+**The two P0-6 outputs — a sentence and a focus target — share one computed
+value on purpose.** `firstGroupViolation` is derived once, above `submit()`,
+and read by both the bottom summary and the `.focus()` call. Deriving it twice
+(the naive per-consumer version) is exactly the shape of bug this project
+keeps hitting under a different name: two readers of one fact, each computing
+their own answer, agreeing today and drifting the next time either one is
+edited alone.
+
+**Found by the sweep, not by review: the first draft of that summary reused
+the fieldset's own message verbatim.** "Choose your protein." is already
+rendered inside the Protein fieldset; the bottom paragraph rendering the SAME
+string put it on the page twice, which is invisible to a sighted reviewer (two
+identical lines a few inches apart reads as reinforcement, not a bug) and
+fatal to any exact-text Playwright locator for it — `getByText('Choose your
+protein.')` becomes a strict-mode violation the moment a second one exists
+anywhere on the page, including in a DIFFERENT test file
+(`menu-editing.spec.ts`'s pre-existing "editing a shared modifier group" spec,
+which had nothing to do with this item). The fix composes a DIFFERENT
+sentence from the same group name ("Fix Protein before adding this to your
+cart.") rather than repeating the violation's own text. **Two messages naming
+the same fact should still be two different sentences** — identical text in
+two places on one page is a locator collision waiting for whichever test
+reaches for it by content, and the reviewer who reads the diff will not see it
+either, because the diff looks like the requirement being satisfied twice.

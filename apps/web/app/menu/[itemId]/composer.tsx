@@ -12,7 +12,7 @@
 // server prices it again from the live menu.
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import {
   DEFAULT_LIMITS,
   daypartClosure,
@@ -60,6 +60,10 @@ function choiceOf(selections: OptionSelection[], groupId: string, optionId: stri
   if (!found) return null;
   return found.intensity ?? 'plain';
 }
+
+/** One intensity radiogroup's identity — a group can appear on several
+ *  options (P0-5), so "touched" has to be tracked per option, not per group. */
+const rowKey = (groupId: string, optionId: string): string => `${groupId}:${optionId}`;
 
 /** "Required · choose 1", "Choose up to 3", "Choose 2–4". */
 function groupHint(group: ModifierGroup): string {
@@ -114,6 +118,19 @@ export function Composer({
   // how a form teaches people to ignore its errors.
   const [attempted, setAttempted] = useState(false);
   const [serverErrors, setServerErrors] = useState<string[]>([]);
+  // P0-5. `choice === null` is both "never touched" and "deliberately chose
+  // Skip" — `choose()` stores a negation the same way it stores nothing at
+  // all. Rendering has to tell those apart even though the data doesn't, so a
+  // row is only allowed to show a filled pill once THIS composer has touched
+  // it. Seeded from the editing line, if there is one: a real prior choice
+  // ("no onions") is not untouched just because this screen just mounted.
+  const [touchedRows, setTouchedRows] = useState<Set<string>>(
+    () => new Set((editing?.composition.selections ?? []).map((s) => rowKey(s.groupId, s.optionId))),
+  );
+  // P0-6. Fieldsets, keyed by group id, so a failed submit can move focus to
+  // the first one with a violation rather than leaving the customer to find
+  // it — `tabIndex={-1}` below is what makes a `<fieldset>` a valid target.
+  const fieldsetRefs = useRef<Record<string, HTMLFieldSetElement | null>>({});
 
   const composition: Composition = {
     itemId,
@@ -133,11 +150,33 @@ export function Composer({
   const generalMessages = violations
     .filter((violation) => !('groupId' in violation))
     .map((violation) => violation.message);
+  // P0-6. The bottom summary named "the choices above" and nothing else — a
+  // customer who tried once, got refused, and could not tell which of five
+  // fieldsets was the problem. This is the SAME violation `submit()` sends
+  // focus to, so the sentence and the landing spot always agree.
+  const firstGroupViolation = violations.find(
+    (violation) => 'groupId' in violation && item.modifierGroupIds.includes(violation.groupId),
+  ) as { groupId: string; message: string } | undefined;
+  // The GROUP's name, not its violation's own sentence — reusing that
+  // sentence verbatim put "Choose your protein." on the page twice (once
+  // inside the fieldset, once down here), which broke every existing
+  // `getByText` locator for it, exact text being how Playwright tells one
+  // occurrence from two. A distinct sentence naming the same group satisfies
+  // "names the group" without colliding with the fieldset's own message.
+  const firstViolatingGroupName = firstGroupViolation
+    ? menu.groups[firstGroupViolation.groupId]?.name
+    : undefined;
 
   function submit() {
     setAttempted(true);
     setServerErrors([]);
-    if (!validity.ok) return;
+    if (!validity.ok) {
+      // The SAME violation the bottom summary names — computed once, above,
+      // not the first violation overall, which could be a quantity or note
+      // problem with no fieldset to send anyone to.
+      fieldsetRefs.current[firstGroupViolation?.groupId ?? '']?.focus();
+      return;
+    }
 
     startTransition(async () => {
       // `replaceLine` keeps the line where it was in the cart. Remove-then-add
@@ -187,18 +226,38 @@ export function Composer({
         const messages = attempted ? messagesFor(groupId) : [];
 
         return (
-          <fieldset key={group.id} className="mt-8">
+          <fieldset
+            key={group.id}
+            ref={(el) => {
+              fieldsetRefs.current[group.id] = el;
+            }}
+            // Focusable only programmatically (P0-6) — a fieldset is not
+            // normally a tab stop, and it should not become one for a
+            // keyboard user who has not failed a submit.
+            tabIndex={-1}
+            aria-describedby={messages.length > 0 ? `group-error-${group.id}` : undefined}
+            className="mt-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-700 focus:ring-offset-2"
+          >
             <legend className="text-lg font-semibold">{group.name}</legend>
             <p className="text-sm text-neutral-600">{groupHint(group)}</p>
-            {messages.map((message) => (
-              <p key={message} className="mt-1 text-sm font-medium text-red-700">
-                {message}
-              </p>
-            ))}
+            {messages.length > 0 && (
+              // ONE id for the group's messages, not one per message: the
+              // fieldset's `aria-describedby` above needs a single target,
+              // and a screen reader landing on the fieldset reads the legend
+              // then every paragraph inside this div as its description.
+              <div id={`group-error-${group.id}`}>
+                {messages.map((message) => (
+                  <p key={message} className="mt-1 text-sm font-medium text-red-700">
+                    {message}
+                  </p>
+                ))}
+              </div>
+            )}
 
             <ul className="mt-3 flex flex-col gap-2">
               {group.options.map((option) => {
                 const choice = choiceOf(selections, group.id, option.id);
+                const touched = touchedRows.has(rowKey(group.id, option.id));
                 const negated = choice === 'none';
                 // The MENU's delta until it is selected, the APPLIED one after:
                 // a negated option costs nothing, and showing "+$0.50" beside a
@@ -243,7 +302,10 @@ export function Composer({
                             <label
                               key={value}
                               className={`flex min-h-12 cursor-pointer items-center rounded-md border px-3 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-neutral-900 has-[:focus-visible]:ring-offset-2 ${
-                                (value === '' ? null : value) === choice
+                                // P0-5: filled only once TOUCHED, never on the
+                                // strength of `choice === null` alone — that is
+                                // also what a fresh, unanswered row looks like.
+                                touched && (value === '' ? null : value) === choice
                                   ? 'border-neutral-900 bg-neutral-900 text-white'
                                   : 'border-neutral-300'
                               }`}
@@ -252,16 +314,28 @@ export function Composer({
                                 type="radio"
                                 className="sr-only"
                                 name={`${group.id}:${option.id}`}
-                                checked={(value === '' ? null : value) === choice}
+                                // P0-5, and not styling-only: without `touched`
+                                // here, Skip's `checked` was TRUE the instant
+                                // the row rendered untouched (`null === null`),
+                                // which is a real accessibility defect — a
+                                // screen reader announcing "Skip, checked" for
+                                // a choice nobody made, not merely a filled
+                                // pill nobody tapped.
+                                checked={touched && (value === '' ? null : value) === choice}
                                 // "No onions" stays available when the kitchen
                                 // is out of onions — asking for none of a thing
                                 // there is none of is trivially satisfiable.
                                 disabled={soldOut && value !== '' && value !== 'none'}
-                                onChange={() =>
+                                onChange={() => {
                                   setSelections((current) =>
                                     choose(current, group, option.id, value === '' ? null : value),
-                                  )
-                                }
+                                  );
+                                  setTouchedRows((current) =>
+                                    current.has(rowKey(group.id, option.id))
+                                      ? current
+                                      : new Set(current).add(rowKey(group.id, option.id)),
+                                  );
+                                }}
                               />
                               {label(option.name)}
                               {value === 'extra' && option.extraPriceDeltaCents
@@ -270,6 +344,12 @@ export function Composer({
                             </label>
                           ))}
                         </div>
+                        {/* P0-5's second bullet: the absence of a choice is
+                            STATED, not left to be inferred from every pill
+                            looking the same as an unclicked one. */}
+                        {!touched && (
+                          <p className="px-4 pb-3 text-xs text-neutral-500">No choice made yet</p>
+                        )}
                       </>
                     ) : (
                       <label className="flex min-h-12 cursor-pointer items-center gap-3 px-4 py-3">
@@ -347,9 +427,17 @@ export function Composer({
             {message}
           </p>
         ))}
-        {attempted && !validity.ok && (
+        {/* P0-6: names the group ("Fix Protein…"), not "the choices
+            above" — and the SAME group `submit()` sent focus to, so the
+            sentence and the landing spot never disagree. Rendered ONLY when a
+            group violation exists: an item-level refusal (sold out, outside
+            its window) has no fieldset to point at and is already stated
+            above, by `generalMessages` and by the dedicated banner near the
+            item name. */}
+        {attempted && firstViolatingGroupName && (
           <p className="text-sm font-medium text-red-700">
-            Fix the choices above before {editing ? 'saving this line' : 'adding this to your cart'}.
+            Fix {firstViolatingGroupName} before{' '}
+            {editing ? 'saving this line' : 'adding this to your cart'}.
           </p>
         )}
       </div>

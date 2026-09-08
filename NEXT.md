@@ -1,62 +1,51 @@
 # Next
 
-**C-080 shipped** (`48956d7`, SHA recorded in the follow-up, gate green: 208
-passed + 14 skipped = 222; 929 unit). PRD 5
-P0-4 is done: `MenuItem.description` is mapped through `loadMenu`
-absent-not-null, rendered on `/menu` (inside the tap target) and in the
-composer, editable in the menu editor as a straight save, and a sticky
-category strip of plain in-page anchors jumps to each `<section>`.
+**C-081 shipped** (SHA to be recorded in the follow-up commit; gate green:
+210 passed + 14 skipped = 224 e2e, 929 unit). PRD 5 P0-5 and P0-6 are done:
+an untouched intensity row shows no filled pill (Skip included) and a visible
+"No choice made yet" hint; a failed add-to-cart moves focus to the first
+violating group's fieldset, `aria-describedby` announces its own error text
+to assistive technology, and the bottom summary names the group in its own
+sentence rather than repeating the fieldset's or saying "the choices above".
 
-**Next item: `C-081` — an untouched choice looks untouched** (PRD 5 P0-5 and
-P0-6 together). Both are composer-local and both are the same class of defect
-— the UI stating something the customer did not say. P0-5: no intensity pill
-carries the selected style until one is deliberately tapped, and the untouched
-state carries a visible hint. P0-6: a failed add-to-cart moves focus into the
-first violating group's fieldset and the message names the group ("Choose a
-protein"), not "the choices above" — with the composer's axe assertions still
-passing.
+**Next item is gated.** PRD 5's remaining P0 item is **C-082 — a way back to
+your own order** (P1-1), but its own Open Question is unresolved: it
+deliberately revisits the recorded decision that losing the status link
+means walking to the counter, and the PRD says recorded decisions are not
+re-opened silently. **Ask before building it**: is that decision re-opened,
+or does it stand until P1-3's SMS ships?
 
-Model: **Sonnet.** Two rendering rules and a focus move inside one client
-component, both with named test bullets. Opus is warranted again at PRD 6's
+**If the answer is "leave it, build the next unblocked thing" — that's
+`C-083` — ordering for six** (PRD 5 P1-2): `−`/`+` steppers on each cart
+line so 1 → 2 is a tap rather than a full composer round-trip, plus
+"View cart (6)" in the menu header. Recomputes server-side through the
+existing cart path exactly as a composer save does — no new price logic.
+
+Model: **Sonnet** either way — C-082 is a cookie write plus one menu strip
+with no lookup surface; C-083 is a stepper wired to the existing
+`addToCart`/`updateCartLine` actions. Opus is warranted again at PRD 6's
 C-088 (binding the placement replay to its session).
 
-Also unbuilt in PRD 5 after C-081: **C-082** (a way back to your own order —
-gated on a Product Open Question), **C-083** (cart quantity steppers). Then
-**C-088, C-089, C-090, C-093** in PRD 6.
+## What C-081 leaves behind
 
-## What C-080 leaves behind
-
-- **Twenty-two of twenty-five items have no description.** The mechanism
-  ships; `SAMPLE_MENU` describes `burrito`, `bowl` and `taco-plate` only, and
-  `chips` is deliberately undescribed — it is what the absent branch is
-  asserted against.
-- **The category strip does not say where you are.** No active-section
-  styling, because that is the scroll listener the anchors-only approach
-  avoided. Fine at five categories, not at twenty.
-- **The strip wraps rather than scrolls sideways.** `flex-wrap` on a phone is
-  two rows at five categories; twelve would be a tall sticky block.
-  `overflow-x-auto` + `flex-nowrap` is the swap.
-- **Descriptions are not searchable and nothing indexes them.**
-- **The staff receipt and the kitchen ticket still say only the item name**,
-  which is correct and deliberate — see the PROGRESS entry before "fixing" it.
-
-## Rules C-080 established
-
-- **A byte-identical invariant test proves the receipt does not JOIN; it
-  cannot prove the receipt does not COPY.** A snapshotted `itemDescription`
-  column would sail through all thirteen mutations. Stability under mutation
-  cannot distinguish "never read" from "read once and frozen", so the second
-  claim needs its own assertion. (`docs/WRITEUP.md`, C-080.)
-- **A locator that encodes layout is a test coupled to a decision it was never
-  making.** Nine specs asserted `{ name: /Burrito \$10\.95/ }` — name
-  immediately followed by price — which was an accident of the row being
-  empty. Now one `menuRow(page, name, price)` fixture, so the next thing added
-  to that row breaks nothing.
-- **"No migration needed" and "no column needed" are different claims.** The
-  handoff said one nullable column; the PRD said none. Both half right: the
-  column existed since `init`, and `TEXT` is not a width, so the first writer
-  is the first thing that can put a paragraph in it. `VARCHAR(200)`, matching
-  C-077's address.
+- **The focus ring on the programmatically focused fieldset uses `:focus`,
+  not `:focus-visible`** — a `.focus()` call right after a mouse click on
+  the submit button doesn't reliably trigger `:focus-visible` in Chromium, so
+  the ring is unconditional. Minor visual redundancy for a keyboard user who
+  tabs there by hand, not a defect.
+- **Only intensity-enabled groups got touched-tracking.** A plain
+  checkbox/radio option's unchecked state IS its neutral native look — there
+  is no "Skip" pseudo-option colliding with untouched there.
+- **Two defects were caught by the sweep before they reached a commit, not
+  by review**, both from reusing text/state without checking what already
+  reads it: Skip's native `checked` was `null === null`-true on every
+  untouched row (an accessibility bug hiding under a styling one), and the
+  first draft of the P0-6 summary repeated the fieldset's own message
+  verbatim, which put duplicate text on the page and broke an unrelated
+  spec's exact-text locator via a Playwright strict-mode violation. Full
+  account in `docs/WRITEUP.md`, C-081 — worth reading before touching this
+  composer again, since both traps are "the value already exists nearby,
+  reach for the SAME one" mistakes that recur under different names.
 
 ## Still open from earlier items
 
@@ -70,9 +59,9 @@ gated on a Product Open Question), **C-083** (cart quantity steppers). Then
   staged prices, and superseded staged rows are never collected.
 - **A sixth customer route can forget the footer** — `/menu/[itemId]` is a
   customer screen and is in none of P0-1's five, P0-3's three, or P0-4's two.
-  Three items have now touched the composer without the `(customer)` route
-  group getting done. C-081 is entirely composer-local; if it grows another
-  cross-screen element, do the route group then.
+  C-081 touched only the composer's insides, not its wrapper, so this is
+  still open. If C-083 grows another cross-screen element, do the
+  `(customer)` route group then.
 - **The status page reads the contact columns twice** — once for the panel's
   `tel:` link, once inside the footer.
 - **The status page's estimate line is outside the `role="status"` region**
@@ -82,10 +71,12 @@ gated on a Product Open Question), **C-083** (cart quantity steppers). Then
   with no poll, so twelve minutes on the page still reads "in 12 min".
 - **`setLastOrderIn` cannot express the last `minutesOut` minutes of the local
   day** (C-079); it throws rather than clamping.
+- **Twenty-two of twenty-five items have no description** (C-080) — the
+  mechanism ships, the copy is a restaurant's job.
 - **`e2e/refund.spec.ts:211`** ("a no-show is offered a refund rather than
   given one") failed once at 8.0s in a C-108-era sweep and has passed in every
-  sweep since, including C-080's. A timeout, not an assertion. Local `retries`
-  is 0, CI's is 1. First place to look if a refund spec times out again.
+  sweep since. A timeout, not an assertion. Local `retries` is 0, CI's is 1.
+  First place to look if a refund spec times out again.
 
 ## Still open from C-069 / C-071, if you would rather clear debt
 

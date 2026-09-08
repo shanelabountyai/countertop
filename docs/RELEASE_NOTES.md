@@ -2346,3 +2346,18 @@ one this afternoon and every order taken this morning reads exactly as it did
 when it was placed — which is the rule this whole product is built around, and
 which now has a test that specifically checks a description cannot sneak past
 it.
+
+## C-081 — An untouched choice looks untouched
+
+Two composer defects, one root cause: the screen stating something the
+customer did not say.
+
+**A pill that has not been tapped no longer looks tapped.** Cheese, onions —
+every intensity choice starts with nothing highlighted, including "Skip",
+which is what "you haven't answered yet" should look like. Tap it once and it
+lights up; that light is now earned, not assumed.
+
+**A rejected order tells you which box to fix, and takes you there.** Miss a
+required protein and the screen no longer just says "fix the choices above" —
+it names the group, and moves you straight to it. A screen reader gets both
+facts in the same breath: which group, and why.

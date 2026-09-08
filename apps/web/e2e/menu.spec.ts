@@ -90,6 +90,66 @@ test('skipping a required group blocks the add with a clear message', async ({ p
   await expect(page.getByRole('heading', { name: 'Burrito' })).toBeVisible();
 });
 
+test('a freshly opened composer has no filled pill in any intensity group', async ({ page }) => {
+  await page.goto('/menu/burrito');
+
+  // Cheese and Onions are the burrito's two intensity-enabled groups.
+  // `choice === null` is what BOTH "never touched" and "deliberately chose
+  // Skip" look like in the data — so before C-081, Skip's own pill (and its
+  // native `checked`) came in pre-filled on a screen nobody had touched yet.
+  // Intensity applies per OPTION, not per group — Salsa's three options and
+  // Toppings' three each get their own radiogroup, six on the burrito.
+  const intensityOptions = ['Chipotle', 'Salsa verde', 'Pico de gallo', 'Onions', 'Cilantro', 'Cheese'];
+  for (const name of intensityOptions) {
+    // `getByRole('radio')` alone matches all five pills; the assertion is
+    // "none of them are checked", which needs a single-element locator.
+    await expect(
+      page.getByRole('radiogroup', { name }).getByRole('radio', { checked: true }),
+    ).toHaveCount(0);
+  }
+  // The visible hint P0-5 also asks for: the absence of a choice is stated,
+  // not left to be inferred from a wall of identical-looking pills.
+  await expect(page.getByText('No choice made yet')).toHaveCount(intensityOptions.length);
+
+  // Tapping Skip DOES fill its own pill and clears only ITS hint — the
+  // requirement is about the untouched state, not about Skip forever looking
+  // unselected.
+  await page.getByRole('radiogroup', { name: 'Cheese' }).getByText('Skip').click();
+  await expect(
+    page.getByRole('radiogroup', { name: 'Cheese' }).getByRole('radio', { name: 'Skip' }),
+  ).toBeChecked();
+  await expect(page.getByText('No choice made yet')).toHaveCount(intensityOptions.length - 1);
+});
+
+test('a failed add-to-cart moves focus to the first violating group, naming it', async ({ page }) => {
+  await page.goto('/menu/burrito');
+  await page.getByRole('button', { name: /Add to cart/ }).click();
+
+  // Protein is the burrito's only required group, so it is both the first
+  // violation and the one the customer actually has to act on.
+  const proteinFieldset = page.getByRole('group', { name: 'Protein' });
+  await expect(proteinFieldset).toBeFocused();
+  // `aria-describedby` ties the fieldset to its own error text — the
+  // assistive-technology half of "the error message takes you to the error":
+  // landing here reads the group AND why it failed, not just the group.
+  await expect(proteinFieldset).toHaveAccessibleDescription(/protein/i);
+
+  // The fieldset's own message stays unique on the page — the summary near
+  // the submit button names the group in its OWN sentence, not "the choices
+  // above" and not a duplicate of the fieldset's, which would make every
+  // exact-text locator for it ambiguous.
+  await expect(page.getByText('Choose your protein.')).toHaveCount(1);
+  await expect(page.getByText('Fix Protein before adding this to your cart.')).toBeVisible();
+
+  // The new markup (the focused fieldset, `aria-describedby`, the untouched
+  // hint) is exactly what P0-6 says must not cost the composer its existing
+  // axe pass — checked in THIS failed state, not only the pristine one below.
+  const results = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  expect(results.violations).toEqual([]);
+});
+
 test('a priced option changes the composed price immediately', async ({ page }) => {
   await page.goto('/menu/burrito');
   await expect(total(page)).toHaveText('$10.95');
@@ -182,7 +242,12 @@ test('the composer opened directly says so, and will not add', async ({ page }) 
 
   await page.getByRole('button', { name: /Add to cart/ }).click();
   await expect(page).not.toHaveURL(/\/cart$/);
-  await expect(page.getByText('Fix the choices above before adding this to your cart.')).toBeVisible();
+  // C-081: the bottom summary exists to name a GROUP, and chips has none —
+  // it stays silent rather than repeat a generic "the choices above" that
+  // named nothing. The sentence itself is what says nothing was silently
+  // added — shown above the modifiers already, and AGAIN once `attempted`
+  // turns on `generalMessages`, hence `.first()` rather than a bare locator.
+  await expect(page.getByText(sentence).first()).toBeVisible();
 });
 
 test('a window closing under an open cart takes the 86 path, in gentler words', async ({ page }) => {

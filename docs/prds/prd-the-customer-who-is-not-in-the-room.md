@@ -61,17 +61,17 @@ The product's founding premise is that phone orders tie up staff. It currently r
 - [x] Test: an item with a description shows it on `/menu` without opening the composer; the category strip navigates to each section
 - [x] *Beyond the bullets:* a `VARCHAR(200)` migration — no column was needed, a width was — and the snapshot regression gained a SECOND assertion, because byte-identity proves the receipt does not join and cannot prove it does not copy (`docs/WRITEUP.md`, C-080)
 
-**P0-5: An untouched choice does not look like a made choice** *(DX 5)*
-- [ ] An untouched intensity group renders **no** filled pill; "Skip" takes the selected style only once deliberately tapped
-- [ ] The untouched state carries a visible hint that no choice has been made
-- [ ] This is about rendering the *absence* of a choice. The WRITEUP records "no default-included options" as a deliberate model decision and that decision does not change
-- [ ] Test: render the composer with no selections and assert no pill in any intensity group carries the selected style
+**P0-5: An untouched choice does not look like a made choice** *(DX 5)* — **shipped, C-081**
+- [x] An untouched intensity group renders **no** filled pill; "Skip" takes the selected style only once deliberately tapped — and its native `checked` too, found while wiring the fill: it was `null === null`-true on every untouched row, an accessibility defect underneath the visible one
+- [x] The untouched state carries a visible hint ("No choice made yet") that no choice has been made
+- [x] This is about rendering the *absence* of a choice. The WRITEUP's "no default-included options" decision is untouched — nothing here changes what gets submitted, only what an unanswered row looks and sounds like
+- [x] Test: render the composer with no selections and assert no pill in any intensity group carries the selected style
 
-**P0-6: The error message takes you to the error** *(DX 6)*
-- [ ] On a failed add-to-cart, focus moves to the first violating group's fieldset
-- [ ] The general message names the group ("Choose a protein"), not "the choices above"
-- [ ] Focus movement is announced to assistive technology, and the axe assertions on the composer continue to pass
-- [ ] Test: submit a burrito with no protein and assert `document.activeElement` is inside the Protein fieldset and the message contains "protein"
+**P0-6: The error message takes you to the error** *(DX 6)* — **shipped, C-081**
+- [x] On a failed add-to-cart, focus moves to the first violating group's fieldset
+- [x] The bottom summary names the group ("Fix Protein before adding this to your cart.") in its own sentence — reusing the fieldset's own text verbatim was the first draft and it broke a DIFFERENT spec's exact-text locator; caught by the sweep, not by review
+- [x] Focus movement is announced to assistive technology via `aria-describedby`, one id per group's error text; the composer's axe assertions continue to pass, checked in both the pristine and the failed state
+- [x] Test: submit a burrito with no protein and assert `document.activeElement` is inside the Protein fieldset and the message contains "protein"
 
 ### Nice-to-Have (P1)
 
@@ -136,6 +136,6 @@ The product's founding premise is that phone orders tie up staff. It currently r
 - **C-078 — The status page tells the truth about being late** ✅ — P0-2, reusing the queue's `overdue` computation against the snapshotted quote.
 - **C-079 — Last call** ✅ — P0-3, `lastOrderMinute` carried on the open gate result, one component, three surfaces, TZ×2 test.
 - **C-080 — The menu says what the food is** ✅ — P0-4, `description` rendered and editable, plus the category jump strip.
-- **C-081 — An untouched choice looks untouched** — P0-5 and P0-6 together; both are composer-local and both are the same class of defect (the UI stating something the customer did not say).
+- **C-081 — An untouched choice looks untouched** ✅ — P0-5 and P0-6 together; both are composer-local and both are the same class of defect (the UI stating something the customer did not say).
 - **C-082 — A way back to your own order** — P1-1, gated on the Open Question above.
 - **C-083 — Ordering for six** — P1-2, cart quantity steppers and the header count.

@@ -7272,3 +7272,67 @@ tapping back.
 - **The staff receipt still says only the item name**, which is correct, and
   the "why does the kitchen ticket not show what it is" question will be asked
   eventually. The answer is in this entry.
+
+## C-081 — An untouched choice looks untouched (PRD 5 P0-5 + P0-6)
+
+Commit `PENDING`.
+
+Both halves of this item are the same class of defect: the composer stating
+something the customer did not say. P0-5 is the intensity pill that looked
+selected before anyone tapped it. P0-6 is the error banner that told a
+customer something was wrong without telling them what, or where.
+
+**Built:**
+- **`touchedRows`, a `Set<string>` keyed by `groupId:optionId`.** `Choice`
+  already collapses "never touched" and "deliberately chose Skip" into the
+  same `null` — `choose()` stores a negation the same way it stores nothing at
+  all, which is correct for the DATA. Rendering needed a fact the data doesn't
+  carry: whether THIS composer session has touched the row. Seeded from the
+  editing line's own selections, so a real prior choice ("no onions") is not
+  untouched just because the screen just mounted.
+- **Found while wiring it: the bug was never styling-only.** Skip's `checked`
+  attribute was `(value === '' ? null : value) === choice`, which is
+  `null === null` — TRUE — the instant the row rendered untouched. A screen
+  reader was announcing "Skip, checked" for a choice nobody made; the pill's
+  fill was cosmetic on top of a real accessibility defect. Both `checked` and
+  the fill className now gate on `touched`.
+- **"No choice made yet"** renders under an untouched row's pills, cleared the
+  moment any pill in that row is tapped (P0-5's second bullet).
+- **Fieldset refs + `tabIndex={-1}`.** A failed submit finds the first
+  violation naming a group `item.modifierGroupIds` actually contains, and
+  calls `.focus()` on that fieldset.
+- **`aria-describedby` ties each fieldset to its own error text**, wrapped in
+  one `id`. A screen reader landing on the focused fieldset reads the legend
+  ("group, Protein") and then its description ("Choose your protein.") as one
+  announcement — P0-6's "announced to assistive technology" bullet, done with
+  an attribute rather than a live region.
+- **The bottom summary names the group in its OWN sentence** ("Fix Protein
+  before adding this to your cart."), not the static "Fix the choices above"
+  and — the first draft's actual bug — not a literal repeat of the fieldset's
+  own message either. Reusing that sentence verbatim put "Choose your
+  protein." on the page twice and broke `menu-editing.spec.ts`'s pre-existing
+  exact-text locator for it via a Playwright strict-mode violation, caught by
+  the sweep before it reached the commit. Both sentences now derive from the
+  SAME `firstGroupViolation`, so the group they name can never drift apart.
+
+**Decided:**
+- **One `firstGroupViolation`, computed once, read twice** — by the summary
+  paragraph and by `submit()`'s focus call. Two derivations of "which group is
+  wrong" is how a sentence and a focus target end up naming different groups
+  after the next edit to either one.
+- **`tabIndex={-1}`, not `0`.** A fieldset that has not failed a submit has no
+  business being a tab stop; making it one would insert an empty stop into
+  every keyboard user's path through a composer that has never shown an error.
+- **The hint text is real content, not `aria-hidden`.** It reinforces the
+  absence of a choice for a screen reader too — a custom pill has no native
+  "nothing checked" announcement the way a plain radiogroup does.
+
+**Left behind:**
+- **The focus ring on a programmatically focused fieldset uses `:focus`, not
+  `:focus-visible`.** A `.focus()` call after a mouse click on the submit
+  button does not reliably trigger `:focus-visible` in Chromium, so the ring
+  had to be unconditional — it will show even for a keyboard user who tabs
+  onto the fieldset by hand, which is a minor visual redundancy, not a defect.
+- **Only intensity groups got the touched-tracking.** A plain checkbox/radio
+  group's unselected state IS its neutral native appearance — there is no
+  "Skip" pseudo-option colliding with untouched there, so P0-5 does not apply.
