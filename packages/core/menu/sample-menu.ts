@@ -131,6 +131,16 @@ export const SAMPLE_MENU: Menu = {
   // 3, a burrito on the line is 2, a scooped side is 1, and a bottle out of the
   // fridge is 0. Weight is what the P0-6 throttle and the P0-7 estimate add up,
   // so an order of four bottled waters holds the door open and quotes nothing.
+  //
+  // `station` is WHERE that work happens (C-112). The fryer's five — chips,
+  // chips & guac, taquitos, loaded nachos and churros — are spread across
+  // Sides, Plates and Sweets, and each of those categories also holds food no
+  // fryer touches. That spread is the evidence C-109 rejected the category
+  // grain on, and it is now a fact the 86 board can select on in one tap.
+  //
+  // Absent where `prepWeight` is 0, and only there: nobody MAKES a bottled
+  // water. `sample-menu.test.ts` asserts that pairing in the one direction it
+  // can be wrong in.
   items: {
     burrito: {
       id: 'burrito',
@@ -139,6 +149,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 1095,
       available: true,
       prepWeight: 2,
+      station: 'line',
       modifierGroupIds: ['protein', 'addons', 'salsa', 'toppings'],
     },
     bowl: {
@@ -148,6 +159,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 1195,
       available: true,
       prepWeight: 2,
+      station: 'line',
       // `protein` and `salsa` are the SAME group objects the burrito uses.
       modifierGroupIds: ['size', 'protein', 'salsa'],
     },
@@ -158,6 +170,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 1250,
       available: true,
       prepWeight: 3,
+      station: 'grill',
       modifierGroupIds: ['fillings'],
     },
     chips: {
@@ -167,6 +180,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 350,
       available: true,
       prepWeight: 1,
+      station: 'fryer',
       modifierGroupIds: [],
     },
 
@@ -183,6 +197,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 950,
       available: true,
       prepWeight: 2,
+      station: 'grill',
       modifierGroupIds: ['protein', 'toppings'],
     },
     'california-burrito': {
@@ -192,6 +207,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 1295,
       available: true,
       prepWeight: 3,
+      station: 'grill',
       modifierGroupIds: ['protein', 'tortilla-style', 'addons'],
     },
     'garden-bowl': {
@@ -201,6 +217,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 1050,
       available: true,
       prepWeight: 2,
+      station: 'line',
       modifierGroupIds: ['size', 'rice', 'toppings'],
     },
     'enchilada-plate': {
@@ -210,6 +227,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 1395,
       available: true,
       prepWeight: 3,
+      station: 'grill',
       modifierGroupIds: ['protein', 'rice'],
     },
     'fajita-plate': {
@@ -219,6 +237,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 1595,
       available: true,
       prepWeight: 4,
+      station: 'grill',
       modifierGroupIds: ['protein', 'tortilla-style', 'toppings'],
     },
     'tamale-plate': {
@@ -228,6 +247,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 1250,
       available: true,
       prepWeight: 2,
+      station: 'steam',
       modifierGroupIds: [],
     },
     'torta': {
@@ -237,6 +257,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 1150,
       available: true,
       prepWeight: 2,
+      station: 'grill',
       modifierGroupIds: ['protein', 'toppings', 'addons'],
     },
     'quesadilla': {
@@ -246,6 +267,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 895,
       available: true,
       prepWeight: 2,
+      station: 'grill',
       modifierGroupIds: ['protein'],
     },
     'nachos': {
@@ -255,6 +277,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 1145,
       available: true,
       prepWeight: 2,
+      station: 'fryer',
       modifierGroupIds: ['protein', 'addons', 'toppings'],
     },
     'chips-guac': {
@@ -264,6 +287,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 595,
       available: true,
       prepWeight: 1,
+      station: 'fryer',
       modifierGroupIds: [],
     },
     'taquitos': {
@@ -273,6 +297,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 650,
       available: true,
       prepWeight: 1,
+      station: 'fryer',
       modifierGroupIds: [],
     },
     'rice-side': {
@@ -282,6 +307,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 300,
       available: true,
       prepWeight: 1,
+      station: 'steam',
       modifierGroupIds: ['rice'],
     },
     'beans-side': {
@@ -291,6 +317,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 300,
       available: true,
       prepWeight: 1,
+      station: 'steam',
       modifierGroupIds: [],
     },
     'elote': {
@@ -300,6 +327,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 425,
       available: true,
       prepWeight: 1,
+      station: 'steam',
       modifierGroupIds: ['toppings'],
     },
     'horchata': {
@@ -309,6 +337,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 425,
       available: true,
       prepWeight: 1,
+      station: 'drinks',
       modifierGroupIds: ['size'],
     },
     'agua-fresca': {
@@ -318,6 +347,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 425,
       available: true,
       prepWeight: 1,
+      station: 'drinks',
       modifierGroupIds: ['size'],
     },
     'mexican-coke': {
@@ -345,6 +375,7 @@ export const SAMPLE_MENU: Menu = {
       basePriceCents: 495,
       available: true,
       prepWeight: 1,
+      station: 'fryer',
       modifierGroupIds: [],
     },
     'tres-leches': {

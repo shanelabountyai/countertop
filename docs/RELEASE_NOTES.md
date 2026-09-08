@@ -2209,3 +2209,36 @@ renamed, repriced twice and taken off the menu. That is not carefulness; it is
 the same proof the whole product is built on, and there is a test that mutates
 every menu row the order came from and demands the receipt come back byte for
 byte the same.
+
+## C-112 — The fryer goes down in one tap
+
+**"The fryer is down" is now one tap, and it takes exactly the fried food.**
+Chips & salsa, chips & guac, taquitos, loaded nachos and churros come off the
+menu together — five items that live in three different sections. Side of rice,
+the tamale plate and a paleta, which sit in those same three sections, stay on
+sale. Nobody has to remember which of the twenty-five items meets hot oil.
+
+**Every dish now says where it is made.** The fryer, the grill, the cold line,
+the steam table, the drinks station. It is one word on each item, and it is
+there for exactly one purpose: so a cook can pick a whole station without
+picking a whole menu section.
+
+**It selects; it does not kill.** Tapping a station fills in the same panel
+every other selection fills in — five rows named, and the blast radius in front
+of you before anything happens. Then the same red button, the same undo. There
+is no new way to take food off the menu, which is the point: one mechanism to
+get right, one to test, one to trust at 12:40pm.
+
+**It only ever offers what is on the screen.** Search for "chips" and the fryer
+link offers two items, not five. A shortcut that quietly selected things a
+filter was hiding would take food off the menu nobody looked at — the exact
+failure this whole board exists to prevent, arriving through the convenience.
+
+**What it deliberately does not do is change your wait time.** The original plan
+was for the kitchen's workload to be counted per station, with the quoted wait
+reading whichever station was busiest. That was not built, and the reason is
+written down rather than left as a gap: it would require the restaurant to have
+told us how many people are working each station, and it never has. Splitting
+one honest number into five guesses makes every quote shorter without making a
+single one of them truer — and a quote that is confidently ten minutes early is
+worse than one that is honestly wide.

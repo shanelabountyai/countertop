@@ -6847,3 +6847,96 @@ Commit `04014cc`.
   the sweep, if it is ever worth writing, belongs next to the retention job.
 - **Still no menu-change event.** A staged price writes no event either, which
   leaves PRD 4's builder Open Question exactly where C-109 and C-110 left it.
+
+## C-112 — Stations, as an attribute (PRD 4 P1-3)
+
+Commit `PENDING`.
+
+The last item in PRD 4, and the one whose spec explicitly allowed "or the
+written decision not to". It is both: the attribute shipped, the arithmetic
+did not, and the reason it did not is the useful half of the item.
+
+**Built:**
+- **`enum Station { fryer, grill, line, steam, drinks }` and a nullable
+  `MenuItem.station`.** A column, not a child table — an item has one station —
+  and NULL is a real answer meaning no kitchen work: bottled water, Mexican
+  Coke, tres leches and a paleta are all `prepWeight: 0` and belong to nobody.
+- **The station row on the 86 board**, above the categories and cutting across
+  them. Each link SEEDS a selection — the same thing C-109's category link does
+  and for the same reason, and not a second way to kill. "The fryer is down" is
+  one tap: five items across Sides, Plates and Sweets, with Side of rice, the
+  Tamale plate and a Paleta left on sale. That is the exact scenario PRD 4's
+  first Open Question was written about and the one C-109 could not express.
+- **`seedable(rows)`, one rule for both grains.** The category link had the
+  on-screen-and-unpicked rule inline; the station row needed the same rule, so
+  it became a function both call rather than a second copy. Selecting what a
+  filter is hiding is how a batch takes food off the menu nobody looked at, and
+  now there is one place that can be wrong about it.
+- **`STATIONS` + `STATION_LABELS` in `packages/core`**, and `['Station',
+  STATIONS]` added to the existing vocabulary test in `snapshot.test.ts` — so
+  the Postgres enum and the engine's list are pinned to each other position for
+  position, the mechanism C-057 already built for `CancelReason`. A station
+  added to one and not the other fails a test instead of rendering a button
+  that says "steam".
+- **A hand-written migration with a backfill and deliberately no CHECK.** The
+  invariant worth having is "an item with prep weight has a station", and
+  adding it as a constraint would make a data migration load-bearing for a rule
+  whose only job is catching an authoring mistake — in a repo where items are
+  not authored through the editor at all (C-015). It is asserted against
+  `SAMPLE_MENU` instead, in `sample-menu.test.ts`, which is the one place items
+  are written. The backfill matches the seeded slug ids and is a no-op on any
+  database that does not use them: every station stays NULL, the station row
+  renders nothing, and nothing else reads the column. Verified against the dev
+  database — 5 fryer, 7 grill, 3 line, 4 steam, 2 drinks, 4 unstaffed.
+- **Tests:** four in `sample-menu.test.ts` (work has a station; the items nobody
+  makes have none; every station is labelled; every declared station is used),
+  one encoding C-109's evidence as an assertion (the fryer spans more than one
+  category and none of them wholly — so a menu edit that made the fryer fit
+  inside a category would tell somebody), the vocabulary test, the existing
+  `menu.test.ts` round-trip catching a forgotten mapping, and two e2e: the
+  fryer flow end to end onto `/menu`, and the seeding rule under a search.
+
+**Decided:**
+- **The per-station `openWeight` and the busiest-station estimate are not
+  buildable on this data model, and were written down instead.** `openWeight`
+  sums `Order.prepWeight`, one integer snapshotted at placement; `OrderLine`
+  stores no weight and no station. So a per-station sum needs either new
+  columns on the order snapshot — which PRD 4's own data-model table forbids in
+  the same words ("`Order`, `OrderLine`, `OrderLineOption`: **never**") — or a
+  join from placed orders back to `MenuItem`, which is the defect CLAUDE.md's
+  snapshot rule names first. The requirement contradicts its own document, and
+  only visibly if you go and read what `OrderLine` actually stores.
+- **And it would have been wrong even if it were buildable.** "The estimate
+  reads the busiest station" asserts that stations run in parallel with
+  independent staff. Nothing here models staffing — no cook count, no roster —
+  so the swap shortens every quote AND holds the auto-pause door open longer,
+  on an assumption with no input behind it. Every existing test would still
+  have passed: they supply `openWeight` directly. A requirement whose falsity
+  is invisible to the suite is the one to check against the data model first.
+- **One station per item, and that is already wrong for one item.** A California
+  burrito is flat-top work and fryer work. It is on `grill`. Recorded rather
+  than modelled, because a many-to-many buys nothing the selection needs — but
+  it is the third independent reason the per-station arithmetic would have been
+  built on sand.
+- **A station is an attribute, not a third availability fact.** C-110 settled
+  schedule-versus-86 and C-111 settled staged-versus-typed, both with the human
+  winning. A station is neither of those: it does not say whether something can
+  be ordered. If "this station is down" ever becomes a stored fact rather than
+  a selection somebody makes, it is a fourth column beside `available`, never
+  inside it.
+
+**Left behind:**
+- **The estimate and the throttle still read one open weight.** Deliberate, per
+  above. The upgrade is three things in one job, not one: a station and a
+  weight on `OrderLine`, a staffing input to divide by, and a many-to-many for
+  the items that touch two stations.
+- **No CHECK constraint on "work has a station".** Fixture-level only. When a
+  station ever reaches the estimate, the constraint comes with it and the
+  backfill will already have run.
+- **No station editor.** A station is set by the seed, like `prepWeight` and for
+  the same reason: the editor edits, it does not author (C-015).
+- **Stations are not searched**, the same as category names. The station row is
+  a fixed set of five links already on the screen; a search box that also
+  matched "fryer" would be a second way to do a thing that is one tap away.
+- **Still no menu-change event.** PRD 4's builder Open Question is now the only
+  one left open in that document, and nothing in P0 or P1 writes such an event.

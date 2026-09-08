@@ -1,104 +1,93 @@
 # Next
 
-**`docs/prds/prd-menu-under-pressure.md` P1-3 — stations, shipping as `C-112`,
-or the written decision not to.** A station attribute on each item,
-`openWeight` summed per station, and the estimate reading the busiest one, so
-sixteen points of fryer work stops looking like sixteen points spread across
-three stations. It is the last item in PRD 4, it is an L with a migration, and
-the PRD explicitly allows "or the written decision not to" — decide that first,
-in one line, before building anything.
+**PRD 4 is closed.** C-112 shipped stations as the attribute and wrote down the
+decision against the per-station arithmetic; the only thing still open in
+`docs/prds/prd-menu-under-pressure.md` is its **(Builder)** question about a
+per-batch menu-change event, which no item in P0 or P1 needed.
 
-Model: **Opus.** It touches the estimate and the auto-pause threshold, which
-are the two numbers a customer and the door both depend on. If the answer turns
-out to be "not building it", Sonnet is enough to write the decision down.
+**Next item: `C-077` — the restaurant has an address and a phone**
+(`docs/prds/prd-the-customer-who-is-not-in-the-room.md` P0-1). PRD 5 is ranked
+5 in `docs/prds/INDEX.md` and is entirely unbuilt — C-077 through C-083. Three
+nullable columns on the settings singleton, a footer on five routes, and a
+`tel:` link on the two views whose copy already tells the customer to call.
+The product currently says "call the restaurant" and gives them no number.
 
-## What C-111 leaves behind, that P1-3 will want
+Model: **Sonnet.** Three nullable columns, a component and a link — no money
+path, no clock arithmetic, no snapshot. Opus is only warranted again when PRD
+6's C-088 (binding the placement replay to its session) comes up.
 
-- **`loadMenu(now)` resolves staged prices and reads the restaurant's
-  timezone.** It is no longer a pure mapping — it calls `loadClock` — so a
-  caller with an instant in hand must pass it. `placeOrder`, `rush.ts` and
-  `seed.ts` were all changed to do that; a new caller that forgets gets
-  `new Date()` and prices a backdated order on today's menu.
-- **`effectivePrices(now)` returns `{ today, items, options }`** — the day
-  comes back with the prices deliberately, because the two callers that want
-  one want the other, and two clock readings is how they disagree. If a station
-  ever needs a per-day fact, copy that shape.
-- **`writePrice(target, cents, effectiveDay | null, today)` in
-  `packages/db/menu.ts`** is where the staged-versus-typed precedence lives,
-  two functions below the resolution rule it is the inverse of. Any new writer
-  of a menu price goes through it, not around it.
-- **The migration to copy is `20260908090000_staged_price`**: one table with
-  two nullable FKs and a `("itemId" IS NULL) <> ("optionId" IS NULL)` CHECK,
-  tested in `constraints.test.ts` (`describe('staged prices')`, ten cases).
-  A station on `MenuItem` is a simpler shape than that — a column, not a child
-  table — because an item has one station.
-- **`formatDayLabel` and `nextDay` in `packages/core/orders/business-day.ts`**
-  are calendar arithmetic on calendar values, built with `Date.UTC` and read
-  back in UTC. If anything else needs a day label, they are it; do not write a
-  second one.
+Also unbuilt after PRD 5: **C-088, C-089, C-090, C-093** in PRD 6.
 
-## Rules C-111 established that P1-3 must not break
+## What C-112 leaves behind
 
-- **A schedule and a human fact are different columns** — now settled twice,
-  at C-110 (daypart vs 86) and at C-111 (staged price vs typed price), with
-  the human winning both times. A station is neither; it is an attribute. If
-  P1-3 ever grows "this station is down", that is a THIRD fact and it belongs
-  beside `available`, not inside it.
-- **The price authority never learns about a schedule.** `priceLine` is
-  unchanged and all three call sites got staged prices for free, because the
-  resolution happens in the one mapping. A station's weight must reach
-  `openWeight` the same way — through the thing that already computes it, not
-  through a fourth reader.
-- **`loadMenu` is the one mapping and `menu.test.ts` round-trips
-  `SAMPLE_MENU` exactly.** A `stationId` added to the schema and forgotten in
-  the mapping fails there, not in an estimate.
+- **`MenuItem.station` is nullable and NULL means no kitchen work.** Four items
+  (`mexican-coke`, `bottled-water`, `tres-leches`, `paleta`) are `prepWeight: 0`
+  and have none. `sample-menu.test.ts` asserts that pairing in both directions;
+  add an item with weight and no station and it fails there.
+- **`seedable(rows)` in `availability/page.tsx` is the ONE rule** for what a
+  "Select these N" link adds: on screen, and not already picked. Both the
+  station row and the category link call it. A third grain calls it too.
+- **`STATIONS` / `STATION_LABELS` live in `packages/core/menu/types.ts`**, and
+  `['Station', STATIONS]` is in the vocabulary test in
+  `packages/db/snapshot.test.ts` — the Postgres enum and the engine's list are
+  pinned position for position. Adding a station means: the enum, `STATIONS`,
+  `STATION_LABELS` (a type error if forgotten), and a migration.
+- **The migration `20260908120000_item_station` backfills by seeded slug id**
+  and is a verified no-op on any database that does not use them. Copy that
+  shape for any column that wants to reach the deployed menu without a reseed.
 
-## Ceilings recorded rather than fixed (C-111)
+## Rules C-112 established
 
-- **A staged change lands at local midnight and nowhere else.** The upgrade is
-  an instant column plus a wall-clock → instant converter with a DST policy,
-  and it is the same converter a "starts at 4pm" daypart editor would need.
-  One job, two features.
-- **No schedule view.** Queued changes render on the row they will hit and
-  nowhere else. `loadStagedPrices()` already returns the future rows ordered by
-  day, so what is missing is a page, not a mechanism.
-- **The "extra" surcharge cannot be staged.** The only price on the editor that
-  can be blank; a nullable staged value would need its own column, CHECK and
-  resolution rule for the least-used price on the menu. The row has no date
-  field at all rather than one that silently does nothing.
-- **Superseded staged rows are never collected.** They survive until a live
-  edit on the same row deletes them. Indexed and filtered in SQL, so reads stay
-  cheap; the sweep belongs beside the C-091 retention job if it is ever worth
-  writing.
-- **`loadMenu` now throws without a settings row**, where before it returned a
-  menu. Deliberate, and there is a test that says so.
+- **A station is an attribute, not a third availability fact.** C-110 settled
+  schedule-vs-86 and C-111 staged-vs-typed, both with the human winning. A
+  station says nothing about whether food can be ordered. If "this station is
+  down" ever becomes stored, it is a FOURTH column beside `available`, never
+  inside it and never inside `station`.
+- **The estimate and the auto-pause threshold read ONE open weight**, and that
+  is now a decision with three reasons behind it, not an omission. Do not
+  "improve" it into a per-station maximum without first shipping all three of:
+  a station and a weight on `OrderLine`, a staffing input, and a many-to-many
+  for the items that touch two stations.
+- **A requirement whose falsity is invisible to the suite is the one to check
+  against the data model first.** Every existing test supplies `openWeight`
+  directly, so the busiest-station swap would have gone green.
 
-## Still open from C-109 / C-110
+## Ceilings recorded rather than fixed (C-112)
 
-- **No per-batch menu-change event.** PRD 4's builder Open Question is still
-  unanswerable: neither the bulk path, nor the single toggles, nor a daypart,
-  nor a staged price writes a menu-change event at all.
-- **`setAvailability` is read-then-write** (`ponytail:` comment on it),
-  last-write-wins.
+- **One station per item, and it is already wrong once.** A California burrito
+  is fryer work and flat-top work; it is on `grill`.
+- **No CHECK for "work has a station".** Fixture-level only, because the
+  constraint would have made a data backfill load-bearing for a rule that only
+  catches an authoring mistake, in a repo where items are authored only in
+  `SAMPLE_MENU` (C-015). It comes with the estimate work if that ever happens.
+- **No station editor**, same as `prepWeight` and for the same reason.
+- **Stations are not searched.** Five links already on screen; a search box
+  that also matched "fryer" would be a second way to do a one-tap thing.
+
+## Still open from C-109 / C-110 / C-111
+
+- **No per-batch menu-change event** — PRD 4's builder Open Question, still
+  unanswerable: nothing in the bulk path, the single toggles, a daypart, a
+  staged price or a station writes a menu-change event at all.
+- **`setAvailability` is read-then-write** (`ponytail:` comment), last-write-wins.
 - **`done=off` survives a page reload**, so refreshing after a batch
   re-announces "Marked 6 sold out."
-- **No daypart editor**, and no overnight daypart window. Both C-110's, both
-  unchanged. The staging UI built here is the natural place a daypart editor
-  would live — both are "a menu change with a time on it" — and it now has a
-  working native date input to copy.
-- **Category names are still not searched.** Do not add it out of obligation.
+- **No daypart editor**, and no overnight daypart window.
+- **A staged change lands at local midnight and nowhere else**; no schedule
+  view; the "extra" surcharge cannot be staged; superseded staged rows are
+  never collected.
 
 ## One flake, still recorded rather than fixed
 
 `e2e/refund.spec.ts:211` ("a no-show is offered a refund rather than given
 one") failed once in a full sweep at 8.0s and has passed in every sweep since,
-including C-109's, C-110's and C-111's. A timeout, not an assertion. Local
-`retries` is 0 and CI's is 1, so CI retries past it silently. First place to
-look if a refund spec times out again.
+including C-109's through C-112's. A timeout, not an assertion. Local `retries`
+is 0 and CI's is 1, so CI retries past it silently. First place to look if a
+refund spec times out again.
 
 ## Still open from C-069 / C-071, if you would rather clear debt
 
-- A void the provider refuses is chased by nothing (marked `ponytail:` in
+- A void the provider refuses is chased by nothing (`ponytail:` in
   `settleAuthorization`); a real processor expires holds on its own.
 - The rush no longer exercises a refund end to end — both its prepaid exits are
   voids now, which is C-069 working. ~six lines to restore.

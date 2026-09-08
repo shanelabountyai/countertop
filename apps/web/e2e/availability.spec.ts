@@ -309,8 +309,9 @@ test('the batch names its full blast radius before it applies, and survives a re
 
 test('a category offers to select what it is showing, and only that', async ({ page }) => {
   await page.goto('/kitchen/availability');
-  // A shortcut that SEEDS a selection — not a second way to kill, and not a
-  // claim that a category maps to a station.
+  // A shortcut that SEEDS a selection — not a second way to kill. It is not
+  // the station grain either: stations now exist beside it (C-112) and cut
+  // across these categories, which is the whole reason both rows are here.
   await page.getByRole('link', { name: 'Select these 4 in Drinks' }).click();
 
   await expect(page.getByRole('heading', { name: '4 selected. This will stop:' })).toBeVisible();
@@ -319,4 +320,71 @@ test('a category offers to select what it is showing, and only that', async ({ p
   }
   // Nothing outside the category came along.
   await expect(page.getByRole('link', { name: 'Selected Churros' })).toHaveCount(0);
+});
+
+// ---------------------------------------------------------------------------
+// C-112 — the station (PRD 4 P1-3).
+//
+// The case PRD 4's first Open Question was written about and C-109 could not
+// express: "the fryer is down". Five items across three categories, each of
+// those categories also holding food no fryer touches — so this test failing
+// by selecting a whole category would be the reverse-case failure the PRD
+// calls worse than the one it fixes.
+// ---------------------------------------------------------------------------
+
+test('the fryer goes down in one tap, across three categories and taking nothing else', async ({
+  page,
+}) => {
+  await page.goto('/kitchen/availability');
+
+  const stations = page.getByRole('region', { name: 'Stations' });
+  // "Fryer 5 items — select them": the count is IN the accessible name, so a
+  // station that quietly stopped offering two of its five fails here.
+  await expect(stations.getByRole('link', { name: /^Fryer 5 items/ })).toBeVisible();
+  await stations.getByRole('link', { name: /^Fryer 5 items/ }).click();
+
+  // Exactly the fried five, and they are not one category.
+  await expect(page.getByRole('heading', { name: '5 selected. This will stop:' })).toBeVisible();
+  for (const name of ['Chips & salsa', 'Chips & guac', 'Taquitos', 'Loaded nachos', 'Churros']) {
+    await expect(page.getByRole('link', { name: `Selected ${name}` })).toBeVisible();
+  }
+  // The un-fried food sharing those three categories is untouched — Side of
+  // rice (Sides), the Tamale plate (Plates) and a Paleta (Sweets) are the
+  // three a category-level 86 would have taken with it.
+  for (const name of ['Side of rice', 'Tamale plate', 'Paleta']) {
+    await expect(page.getByRole('link', { name: `Selected ${name}` })).toHaveCount(0);
+  }
+
+  await page.getByRole('button', { name: 'Mark all 5 sold out' }).click();
+  await expect(page.getByRole('heading', { name: 'Marked 5 sold out.' })).toBeVisible();
+
+  // P0-4, through the station path: the same `available` booleans one tap
+  // writes, so the customer menu moves with it.
+  await page.goto('/menu');
+  for (const name of ['Chips & salsa', 'Chips & guac', 'Taquitos', 'Loaded nachos', 'Churros']) {
+    await expect(page.getByText(`${name} — Sold out`)).toBeVisible();
+  }
+  await expect(page.getByRole('link', { name: /Side of rice/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Tamale plate/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Paleta/ })).toBeVisible();
+});
+
+test('a station seeds only what the search is showing, and adds to what is picked', async ({
+  page,
+}) => {
+  // The rule the station row shares with the category link: selecting what a
+  // filter is hiding is how a batch takes food off the menu nobody looked at.
+  await page.goto('/kitchen/availability?q=chips');
+
+  const stations = page.getByRole('region', { name: 'Stations' });
+  // Two of the fryer's five match "chips", so the link offers two, not five.
+  await expect(stations.getByRole('link', { name: /^Fryer 2 items/ })).toBeVisible();
+  await stations.getByRole('link', { name: /^Fryer 2 items/ }).click();
+  await expect(page.getByRole('heading', { name: '2 selected. This will stop:' })).toBeVisible();
+
+  // And a station ADDS: the two already picked survive the next station tap.
+  await page.getByRole('link', { name: 'Show all' }).click();
+  await expect(page.getByRole('heading', { name: '2 selected. This will stop:' })).toBeVisible();
+  await stations.getByRole('link', { name: /^Cold line 3 items/ }).click();
+  await expect(page.getByRole('heading', { name: '5 selected. This will stop:' })).toBeVisible();
 });

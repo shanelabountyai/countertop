@@ -58,6 +58,11 @@ export async function loadMenu(now: Date = new Date()): Promise<Menu> {
           basePriceCents: staged.items.get(item.id) ?? item.basePriceCents,
           available: item.available,
           prepWeight: item.prepWeight,
+          // Absent, not null (C-112) — the same reason the windows below are
+          // absent rather than empty. `menu.test.ts` round-trips SAMPLE_MENU
+          // exactly, so a station added to the schema and forgotten here fails
+          // there rather than as a missing button on the 86 board.
+          ...(item.station === null ? {} : { station: item.station }),
           // Absent, not empty — the same `exactOptionalPropertyTypes` care the
           // option's `extraPriceDeltaCents` needs below, and the same reason:
           // `windows: []` and no key at all are different values, and only the

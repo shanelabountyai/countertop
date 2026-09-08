@@ -100,6 +100,7 @@ export async function seedSampleMenu(): Promise<void> {
       basePriceCents: item.basePriceCents,
       available: item.available,
       prepWeight: item.prepWeight,
+      station: item.station ?? null,
       sortOrder: index,
     })),
   });

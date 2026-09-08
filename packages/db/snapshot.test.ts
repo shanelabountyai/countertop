@@ -5,6 +5,7 @@ import {
   ORDER_EVENT_KINDS,
   ORDER_STATUSES,
   PAYMENT_STATES,
+  STATIONS,
 } from '@countertop/core';
 import type { Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -340,6 +341,7 @@ describe('the persisted vocabulary matches the engine', () => {
     ['EventActor', EVENT_ACTORS],
     ['OrderEventKind', ORDER_EVENT_KINDS],
     ['PaymentState', PAYMENT_STATES],
+    ['Station', STATIONS],
   ];
 
   for (const [typeName, engineValues] of ENUMS) {

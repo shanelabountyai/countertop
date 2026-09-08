@@ -84,6 +84,41 @@ export type DaypartWindow = {
   endMinute: number;
 };
 
+/**
+ * Where in the kitchen an item is made (C-112, PRD 4 P1-3).
+ *
+ * An ATTRIBUTE, and the smallest useful half of stations. What it buys is the
+ * selection the 86 board could not previously express: "the fryer is down"
+ * spans Sides, Plates and Sweets on this menu and excludes rice, tamales and
+ * paletas inside each of them, which is precisely why C-109 rejected the
+ * category grain and left the station open. A station SEEDS a selection; it is
+ * not a second way to kill, and nothing was unbuilt to add it.
+ *
+ * What it deliberately does NOT do is reach the estimate or the auto-pause
+ * threshold. Those still read ONE open weight, for two reasons written up in
+ * docs/WRITEUP.md: a per-station sum cannot be computed without a station on
+ * the order SNAPSHOT — the live menu must never be joined back to for it — and
+ * "the estimate reads the busiest station" assumes stations run in parallel
+ * with independent staff, which nothing here models.
+ *
+ * Order matters: the database enum stores exactly this list in exactly this
+ * order, asserted by the vocabulary test in `packages/db/snapshot.test.ts`.
+ */
+export const STATIONS = ['fryer', 'grill', 'line', 'steam', 'drinks'] as const;
+export type Station = (typeof STATIONS)[number];
+
+/** What a station is CALLED on a screen a cook reads at arm's length.
+ *
+ *  Beside the list rather than in the page, so a station added to `STATIONS`
+ *  without a label is a type error rather than a button reading "steam". */
+export const STATION_LABELS: Record<Station, string> = {
+  fryer: 'Fryer',
+  grill: 'Grill',
+  line: 'Cold line',
+  steam: 'Steam table',
+  drinks: 'Drinks',
+};
+
 export type Category = {
   id: CategoryId;
   name: string;
@@ -108,6 +143,19 @@ export type MenuItem = {
    * is a weight nobody thought about — and the compiler is the thing that asks.
    */
   prepWeight: number;
+  /**
+   * WHERE the work in `prepWeight` happens (C-112). ABSENT means nowhere, and
+   * that is a claim rather than a gap: a bottled drink and a paleta are
+   * `prepWeight: 0`, so no station owes them anything. `sample-menu.test.ts`
+   * asserts the direction that matters — an item with prep weight has a
+   * station — because the compiler cannot.
+   *
+   * Optional rather than a required nullable, for the same
+   * `exactOptionalPropertyTypes` reason as `windows` below: absent and
+   * `undefined` are different values, and only the first matches an item
+   * written with no station.
+   */
+  station?: Station;
   /**
    * When this item is served (P1-1). ABSENT means all day, every day, which is
    * what almost every item is — optional rather than a required empty list so

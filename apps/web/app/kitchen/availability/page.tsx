@@ -30,14 +30,30 @@
 // would take rice and paletas off the menu to do it — the reverse-case failure
 // the PRD calls worse than the one it is fixing. A category keeps a "select
 // these N" link, which seeds a selection rather than being a second way to
-// kill. Stations (C-112) stay open and would seed the same selection.
+// kill.
+//
+// C-112: and a STATION seeds one too, which is the case a category could not
+// express. "The fryer is down" is five items spread across Sides, Plates and
+// Sweets, each of which also holds food no fryer touches — so the station row
+// below is the tap that C-109 said would need nothing unbuilt, and it needed
+// nothing unbuilt. It seeds; it does not kill. What a station deliberately
+// does NOT do is change the estimate or the auto-pause threshold: see
+// docs/WRITEUP.md for why the per-station open weight was written down rather
+// than built.
 //
 // The selection lives in the URL beside `q`, so the whole screen is still a
 // GET that works unhydrated, a second tablet can be opened on the same
 // selection, and a filter changing underneath a selection cannot silently drop
 // half of it — every link is rebuilt from the URL, not from the DOM.
 import Link from 'next/link';
-import { itemsUsingGroup, searchMenu, selectionReach } from '@countertop/core';
+import {
+  itemsUsingGroup,
+  searchMenu,
+  selectionReach,
+  STATION_LABELS,
+  STATIONS,
+} from '@countertop/core';
+import type { MenuItem } from '@countertop/core';
 import { loadMenu } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
 import { setBulkAvailable, setItemAvailable, setOptionAvailable } from '../actions';
@@ -187,6 +203,21 @@ export default async function AvailabilityPage({
   const toggled = (ids: string[], id: string) =>
     ids.includes(id) ? ids.filter((other) => other !== id) : [...ids, id];
 
+  /** The rows a "Select these N" link would ADD: on screen, and not already
+   *  picked. One rule for both grains (C-112) — a category link and a station
+   *  link that disagreed about what a filter hides would be two answers to the
+   *  question this page exists to answer honestly. Selecting what a search is
+   *  hiding is how a batch takes food off the menu nobody looked at. */
+  const seedable = (rows: MenuItem[]) =>
+    rows.filter((item) => shown.itemIds.has(item.id) && !selectedItems.has(item.id));
+
+  // Only the stations this menu actually staffs, in the engine's order. A
+  // station with nothing on screen renders nothing rather than a dead "0".
+  const stations = STATIONS.map((station) => ({
+    station,
+    seeds: seedable(items.filter((item) => item.station === station)),
+  })).filter((entry) => entry.seeds.length > 0);
+
   // Built up front so the "Options" heading and the no-matches line can ask
   // whether anything survived, rather than each re-deriving it mid-JSX.
   const groups = Object.values(menu.groups)
@@ -242,6 +273,36 @@ export default async function AvailabilityPage({
           </Link>
         )}
       </form>
+
+      {/* The stations (P1-3, C-112). A row of links, not a filter and not a
+          second kill: each one ADDS its items to the selection below, so the
+          fryer going down is one tap and then one look at what that costs.
+          They cut ACROSS the categories underneath on purpose — that crossing
+          is the whole reason this row exists rather than a category tap. */}
+      {stations.length > 0 && (
+        <section aria-label="Stations" className="mt-4">
+          <h2 className="text-sm font-medium">Select a whole station</h2>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {stations.map(({ station, seeds }) => (
+              <li key={station}>
+                <Link
+                  href={boardHref(
+                    [...liveItemIds, ...seeds.map((item) => item.id)],
+                    liveOptionIds,
+                  )}
+                  className="flex min-h-12 items-center rounded-lg border-2 border-neutral-400 px-4 text-lg font-semibold"
+                >
+                  {STATION_LABELS[station]}
+                  <span className="ml-2 font-normal text-neutral-600 tabular-nums">
+                    {seeds.length}
+                  </span>
+                  <span className="sr-only"> items — select them</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* The batch (P0-3). It names every item and option it will affect
           BEFORE it applies — the same courtesy C-107 gave a single row, at the
@@ -335,14 +396,14 @@ export default async function AvailabilityPage({
         // An empty heading under a search is a row of dead furniture on the
         // screen the search exists to shorten.
         if (inCategory.length === 0) return null;
-        const unpicked = inCategory.filter((item) => !selectedItems.has(item.id));
+        const unpicked = seedable(inCategory);
         return (
           <section key={category.id} className="mt-8">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-xl font-semibold">{category.name}</h2>
-              {/* Seeds a selection; it does not kill anything. And it adds the
-                  rows that are ON SCREEN — selecting what a filter is hiding
-                  is how a batch takes food off the menu nobody looked at. */}
+              {/* Seeds a selection; it does not kill anything. Same `seedable`
+                  rule as the station row above — one answer to "what would
+                  this add", for both grains. */}
               {unpicked.length > 0 && (
                 <Link
                   href={boardHref(

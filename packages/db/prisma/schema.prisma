@@ -105,6 +105,30 @@ enum PaymentState {
   authorized
 }
 
+/// Where in the kitchen an item is made (C-112, PRD 4 P1-3).
+///
+/// An ATTRIBUTE, not a routing table: the queue is still one list and there
+/// are no station screens (that is P2 in the master PRD). What this buys today
+/// is the selection the 86 board could not express — "the fryer is down" spans
+/// Sides, Plates and Sweets on this menu and excludes rice, tamales and
+/// paletas inside them, which is exactly why C-109 rejected the category grain.
+///
+/// NULL is legal and means no kitchen work: a bottle out of the fridge and a
+/// paleta out of the freezer belong to nobody. `sample-menu.test.ts` asserts
+/// the direction that matters — an item with prep weight has a station.
+enum Station {
+  /// Chips, taquitos, nachos, churros. The station this feature was written for.
+  fryer
+  /// The flat-top: plates, tortas, quesadillas, anything that meets heat to order.
+  grill
+  /// Cold assembly — burritos and bowls built down the line.
+  line
+  /// The steam table: tamales, rice, beans, elote.
+  steam
+  /// Poured to order. Bottled drinks are weight 0 and have no station.
+  drinks
+}
+
 enum CancelReason {
   out_of_item
   too_busy
@@ -266,6 +290,11 @@ model MenuItem {
   /// P0-7 estimate sum this across open orders instead of counting them. 0 is
   /// legal — a bottle out of the fridge is no work.
   prepWeight     Int                 @default(1)
+  /// WHERE the work in `prepWeight` happens (C-112). Nullable: an item with no
+  /// prep weight is made nowhere. Read by the 86 board to seed a selection —
+  /// and by nothing else, deliberately: the estimate and the auto-pause
+  /// threshold still read ONE open weight (see docs/WRITEUP.md).
+  station        Station?
   sortOrder      Int
   modifierGroups ItemModifierGroup[]
   /// When this item is served (P1-1). No rows = all day, every day.

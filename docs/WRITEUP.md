@@ -1945,6 +1945,62 @@ reading a stack trace. Here the stack trace was right and the environment was
 innocent; what made it look otherwise was that the failure surfaced one spec
 downstream of the code that caused it.
 
+### The requirement that could not be built without breaking its own document (C-112)
+
+P1-3 was one sentence: *a station on each item, `openWeight` summed per
+station, and the estimate reading the busiest one.* It was the last item in
+PRD 4, it was marked L with a migration, and the PRD allowed "or the written
+decision not to". So the first question was which half of that sentence was
+real.
+
+**The first half is a column. The second half cannot be written.** `openWeight`
+is summed from `Order.prepWeight`, which is one integer snapshotted at
+placement. `OrderLine` carries the item's name, its price and its quantity —
+and no weight, and no station. So a *per-station* open weight has exactly two
+possible sources: new columns on the order snapshot, or a join from placed
+orders back to `MenuItem` to ask where each line is made.
+
+The join is the defect this project's own CLAUDE.md names first: *if an order
+row ever joins to a menu table, that is the defect.* And the columns are ruled
+out by PRD 4's own data-model table, three sections above the requirement —
+"`Order`, `OrderLine`, `OrderLineOption`: **never.** Nothing in this PRD writes
+to a snapshot table." **The requirement contradicts its own document**, and it
+does so quietly, because the contradiction is only visible if you go and look
+at what `OrderLine` actually stores.
+
+**The second reason is worse than the first, because it would have shipped
+green.** "The estimate reads the busiest station" is a claim that stations run
+in parallel with independent people at them. Nothing in this system models
+staffing — there is no cook count, no shift, no station roster. Substituting
+the busiest station's weight for the total makes every quote *shorter*, always,
+by an amount that depends on how work happens to spread; and the auto-pause
+threshold reads the same number, so the door would also stay open longer. Two
+numbers a customer and the counter both depend on, both moved, on an assumption
+the data cannot support. Every existing test would still have passed: they
+supply `openWeight` directly.
+
+**And the third only appeared once the seed was written.** A California burrito
+has fries in it. It is flat-top work *and* fryer work, and `station` is one
+column. Per-station arithmetic built on one-station-per-item is already
+misallocating three points before staffing is even considered — so even the
+version with the snapshot columns and a staffing model would have needed a
+different data shape than the one the requirement described.
+
+**What shipped is the half that has no argument against it.** `MenuItem.station`
+seeds a selection on the 86 board: the fryer going down is one tap, five items
+across three categories, and the rice, the tamales and the paletas sharing
+those categories stay on sale. That is exactly the mechanism C-109 predicted a
+station would slot into, and nothing had to be unbuilt to accept it. The
+estimate and the throttle still read one open weight, which is a number that
+means what it says.
+
+The general version: **an L-sized requirement is sometimes an S plus a claim.**
+Splitting it is not scope-cutting if the claim is the part that cannot be
+justified — and the tell that it is a claim rather than a feature is that
+building it would not have failed anything. A requirement whose falsity is
+invisible to the test suite is the one to check against the data model before
+the estimate, not after.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required
