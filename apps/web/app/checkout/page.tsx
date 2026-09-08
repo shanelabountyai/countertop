@@ -12,6 +12,7 @@ import { formatCents } from '@/lib/money';
 import { getCartReview } from '../cart/actions';
 import { CheckoutForm } from './checkout-form';
 import { GateNotice } from './gate-notice';
+import { LastCall } from './last-call';
 import { describeSelection } from '@/lib/menu-labels';
 import { RestaurantFooter } from '@/lib/restaurant-footer';
 
@@ -37,6 +38,7 @@ export default async function CheckoutPage() {
         <h1 className="mt-4 text-3xl font-semibold">Checkout</h1>
 
         {!gate.open && <GateNotice gate={gate} className="mt-6" />}
+        <LastCall gate={gate} className="mt-6" />
 
         {/* Siblings in a STABLE list, deliberately. Placing an order clears the
             cart cookie, which re-runs this server component — and a

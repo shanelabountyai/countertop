@@ -59,7 +59,18 @@ export type GateState = {
 };
 
 export type GateResult =
-  | { open: true }
+  | {
+      open: true;
+      /** Today's cutoff, local minutes since midnight — carried out of
+       *  `orderingWindow` rather than thrown away (PRD 5 P0-3). */
+      lastOrderMinute: number;
+      /** ...and how far off it is, measured HERE against the same wall-clock
+       *  reading the hours were compared against. A screen subtracting it from
+       *  its own idea of `now` would be a second answer to the question this
+       *  function exists to answer once — and the two would disagree across a
+       *  minute boundary. Always >= 1: at 0 the gate is closed. */
+      minutesUntilLastOrder: number;
+    }
   | {
       open: false;
       reason: GateReason;
@@ -201,7 +212,11 @@ export function checkoutGate(state: GateState, clock: RestaurantClock): GateResu
     };
   }
 
-  return { open: true };
+  return {
+    open: true,
+    lastOrderMinute,
+    minutesUntilLastOrder: lastOrderMinute - clock.minuteOfDay,
+  };
 }
 
 /**

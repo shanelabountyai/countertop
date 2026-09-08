@@ -2296,3 +2296,27 @@ graded against.
 not follow that with a second guess made from the same numbers that produced
 the first one. A vague honest sentence beats a precise wrong one, which is the
 same rule the estimate has followed since it existed.
+
+## C-079 — The menu tells you the kitchen is about to stop
+
+Online ordering closes before the restaurant does — fifteen minutes before, so
+the last ticket has time to be cooked. Until now the only way to discover that
+was to build an order, tap checkout, and be told you had missed it by four
+minutes. The information existed the whole time; it was only ever shown to
+people it could no longer help.
+
+**Half an hour out, every ordering screen says so** — "Last online orders in 12
+min — we stop taking them at 20:45." On the menu, in the cart, and at checkout,
+the same sentence, so it cannot be missed by having started on the wrong page.
+
+**It counts down to the door, not to closing time.** Those are different
+minutes, and the one that matters to somebody deciding whether to order is the
+earlier one.
+
+**It says the time as well as the countdown.** "In 12 min" is what makes it
+urgent; "we stop at 20:45" is what you can actually plan around when you look
+up from your phone two minutes later.
+
+**Nobody has to be told twice.** The warning and the "we're closed" notice are
+the same voice in the same colour, and the second one only ever appears where
+the first one has run out.

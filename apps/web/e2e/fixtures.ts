@@ -463,3 +463,47 @@ export async function ageOrder(
     await prisma.$disconnect();
   }
 }
+
+/**
+ * Put today's last-order minute exactly `minutesOut` minutes from now
+ * (PRD 5 P0-3, C-079).
+ *
+ * Read off the RESTAURANT's clock and expressed as an offset from it, for
+ * `setDaypart`'s reason: fixed hours would make the spec's outcome depend on
+ * what time the sweep happens to run.
+ *
+ * Both knobs move together because only their difference matters. The close
+ * stays inside the day (`closeMinute` is capped at 1440 by a CHECK), and the
+ * cutoff absorbs whatever is left — so this works at every minute of the local
+ * day except the last `minutesOut` of it, where the target minute is tomorrow
+ * and the schema has no way to say so. That window throws rather than quietly
+ * setting something else: a fixture that half-worked would surface as an
+ * assertion failure about the warning, three files away from the cause.
+ */
+export async function setLastOrderIn(minutesOut: number): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  const { loadClock } = await import('@countertop/db/menu');
+  try {
+    const clock = await loadClock();
+    const target = clock.minuteOfDay + minutesOut;
+    if (target > 1440) {
+      throw new Error(
+        `last call ${minutesOut} min out lands past midnight (local ${clock.minuteOfDay}); no hours row can say that`,
+      );
+    }
+    // 15 minutes of kitchen time after the door shuts, where the day has room
+    // for it — the seeded default is 0, and a cutoff of 0 would make this
+    // fixture indistinguishable from "we close now".
+    const closeMinute = Math.min(1440, target + 15);
+    await prisma.storeHours.update({
+      where: { dayOfWeek: clock.weekday },
+      data: { openMinute: 0, closeMinute },
+    });
+    await prisma.restaurantSettings.update({
+      where: { id: 'singleton' },
+      data: { cutoffMinutes: closeMinute - target },
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+}

@@ -7,6 +7,7 @@ import { formatCents } from '@/lib/money';
 import { describeSelection } from '@/lib/menu-labels';
 import { currentGate } from '@/lib/checkout-gate';
 import { GateNotice } from '../checkout/gate-notice';
+import { LastCall } from '../checkout/last-call';
 import { getCartReview, removeCartLineForm, confirmCartPricesForm } from './actions';
 import { RestaurantFooter } from '@/lib/restaurant-footer';
 
@@ -25,6 +26,10 @@ export default async function CartPage() {
           ← Menu
         </Link>
         <h1 className="mt-4 text-3xl font-semibold">Your cart</h1>
+
+        {/* Above the lines, not down beside the checkout button: a customer
+            with an empty cart is the one the warning is FOR. */}
+        <LastCall gate={gate} className="mt-6" />
 
         {review.lines.length === 0 && (
           <p className="mt-6 text-neutral-600">Nothing in it yet.</p>

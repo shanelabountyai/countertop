@@ -7125,3 +7125,80 @@ the one facing the customer was the one that could not say it.
 - **`ageOrder` writes `placedAt` directly**, like `backdateQueue` before it.
   There is no way to make an order late through the screens and no way to wait
   twenty-five minutes for one, so this stays a fixture privilege.
+
+## C-079 — Last call (PRD 5 P0-3)
+
+Commit `PENDING`.
+
+`orderingWindow()` has always computed the minute the door shuts — the gate
+uses it to compose "we stop taking online orders at 20:45" for the customer who
+arrives too late. It threw the number away for the customer who arrived in
+time. So the only way to learn the cutoff existed was to miss it, which is the
+one moment the information is worthless.
+
+**Built:**
+- **`GateResult`'s open branch carries `lastOrderMinute` and
+  `minutesUntilLastOrder`.** The first is the number `orderingWindow` already
+  had; the second is the arithmetic against `clock.minuteOfDay` done in the
+  gate, once, rather than on three screens that each read a clock. Two fields
+  and not one because the copy uses both — the countdown is what makes it
+  urgent, the time is what a customer plans against — and neither is derivable
+  from the other without a second reading of `now`.
+- **`LastCall` in `apps/web/app/checkout/last-call.tsx`**, mounted on `/menu`,
+  `/cart` and `/checkout`. One component, the same three screens that already
+  ask the gate. It computes nothing: it reads two numbers off an open gate
+  result and decides whether 30 is bigger than one of them.
+- **`LAST_CALL_MINUTES = 30` lives in that component, once.** The PRD's own
+  Open Question says thirty is a guess, which is the argument for keeping it
+  where answering it is a single edit.
+- **`setLastOrderIn(minutesOut)` in the e2e fixtures**, which moves today's
+  `closeMinute` and `cutoffMinutes` together so the last-order minute lands a
+  given number of minutes from the restaurant's own clock. Same discipline as
+  `setDaypart`: an offset from now, never fixed hours, so the spec's outcome
+  does not depend on what time the sweep happens to run.
+
+**Decided:**
+- **The countdown is computed in the gate, not in the component.** The
+  component is one place today, so three screens cannot disagree — but the
+  screen and the SERVER still could: a page rendered at 20:44:59 and a POST
+  landing at 20:45:01 are two readings of `now`. Doing the subtraction where
+  the hours comparison already happened makes the warning and the refusal
+  quote the same instant by construction, which is the same reason
+  `currentCheckout` loads the gate and the estimate off one read.
+- **The countdown runs to the last ORDER minute, not to closing time.** They
+  are `cutoffMinutes` apart, and a warning aimed at the wrong one is fifteen
+  minutes of confidently lying to somebody who is still deciding.
+- **The auto-pause threshold does not get the same treatment.** P0-3's third
+  bullet offers it "if that is cheap to express" and it is not: the throttle
+  has no minute to count down to. What it has is a weight that moves with every
+  placement and every pickup, so "close to the threshold" is a slope, not a
+  time, and a warning derived from it would flicker on and off as the queue
+  breathed. The bullet's own fallback applies — the requirement is the hours
+  case, and the pause case is P1.
+- **Quieter than `GateNotice`, same amber.** They are the two halves of one
+  answer and never render together, so they should read as one voice; but one
+  reports a shut door and the other an open one, and a customer who has learned
+  to skim past the amber block would skim past this too.
+
+**Left behind:**
+- **The warning is not a live region and does not tick.** Sit on `/menu` for
+  twelve minutes and it still says "in 12 min", because these three routes are
+  `force-dynamic` server renders with no poll. The status page has the polling
+  machinery; putting it on the menu means a client component and a second
+  cursor for a number that is only ever a hint. A reload is honest and cheap.
+- **The last `minutesOut` minutes of the local day are unreachable from the
+  fixture.** `closeMinute` is capped at 1440 by a CHECK and there is no hours
+  row that means "tomorrow", so `setLastOrderIn(40)` throws between 23:20 and
+  midnight. It throws rather than clamping, so the cause is named at the
+  fixture instead of surfacing as a mysterious assertion three files away.
+  The unit tests carry the real coverage and are time-agnostic by construction.
+- **The seeded restaurant now shows the warning after 23:30.** Round-the-clock
+  hours with `cutoffMinutes: 0` means last call is midnight, so from 23:30 the
+  banner is on every customer screen in the suite. It is truthful given those
+  hours and nothing asserts its absence, but it is a rendering difference the
+  screenshot specs would show if anyone ran them that late.
+- **Nothing warns the customer who is already IN checkout when the door
+  shuts.** The form was rendered while the gate was open; the POST will be
+  refused by `placeOrder` and that is correct, but the refusal arrives as a
+  failure rather than as the warning this item added. The warning is a render,
+  and that customer is past the last render.

@@ -54,11 +54,11 @@ const gate = (now: Date, overrides: Partial<GateState> = {}) =>
 
 describe('the checkout gate (P0-6)', () => {
   it('is open in the middle of service', () => {
-    expect(gate(LUNCH)).toEqual({ open: true });
+    expect(gate(LUNCH)).toMatchObject({ open: true });
   });
 
   it('opens exactly at the opening minute, not a minute after', () => {
-    expect(gate(OPENING)).toEqual({ open: true });
+    expect(gate(OPENING)).toMatchObject({ open: true });
   });
 
   describe('trigger 1 — the manual switch', () => {
@@ -93,7 +93,7 @@ describe('the checkout gate (P0-6)', () => {
 
   describe('trigger 2 — the open-weight threshold', () => {
     it('stays open one unit of work below the threshold', () => {
-      expect(gate(LUNCH, { maxOpenWeight: 60, openWeight: 59 })).toEqual({ open: true });
+      expect(gate(LUNCH, { maxOpenWeight: 60, openWeight: 59 })).toMatchObject({ open: true });
     });
 
     it('closes AT the threshold, not one past it', () => {
@@ -116,7 +116,7 @@ describe('the checkout gate (P0-6)', () => {
       // Ten bottled waters (weight 0) and ten fajita plates (weight 4) are ten
       // tickets either way. Only one of them is a kitchen that should stop
       // taking orders — which the old count could not tell apart.
-      expect(gate(LUNCH, { maxOpenWeight: 20, openWeight: 0 })).toEqual({ open: true });
+      expect(gate(LUNCH, { maxOpenWeight: 20, openWeight: 0 })).toMatchObject({ open: true });
       expect(gate(LUNCH, { maxOpenWeight: 20, openWeight: 40 })).toMatchObject({
         reason: 'too_busy',
       });
@@ -148,26 +148,26 @@ describe('the checkout gate (P0-6)', () => {
     });
 
     it('ignores a closed-today override for a DIFFERENT day', () => {
-      expect(gate(LUNCH, { closedOnDay: '2026-07-08' })).toEqual({ open: true });
+      expect(gate(LUNCH, { closedOnDay: '2026-07-08' })).toMatchObject({ open: true });
     });
 
     it('stops new orders the configured minutes before close', () => {
       // 21:00 close, 15-minute cutoff: 20:45 is the first refused minute.
       const lastOrder = at({ d: 8, h: 3 }); // 20:00 — still fine
-      expect(gate(lastOrder)).toEqual({ open: true });
+      expect(gate(lastOrder)).toMatchObject({ open: true });
 
       const cutoff = new Date(Date.UTC(2026, 6, 8, 3, 45, 0)); // Tue 20:45
       expect(gate(cutoff)).toMatchObject({
         reason: 'closing_soon',
         message: expect.stringContaining('20:45'),
       });
-      expect(gate(new Date(Date.UTC(2026, 6, 8, 3, 44, 0)))).toEqual({ open: true });
+      expect(gate(new Date(Date.UTC(2026, 6, 8, 3, 44, 0)))).toMatchObject({ open: true });
     });
 
     it('honours a different cutoff', () => {
       const twentyToNine = new Date(Date.UTC(2026, 6, 8, 3, 40, 0)); // Tue 20:40
       expect(gate(twentyToNine, { cutoffMinutes: 30 })).toMatchObject({ reason: 'closing_soon' });
-      expect(gate(twentyToNine, { cutoffMinutes: 15 })).toEqual({ open: true });
+      expect(gate(twentyToNine, { cutoffMinutes: 15 })).toMatchObject({ open: true });
     });
 
     it('says "come to the counter" while staff are still inside', () => {
@@ -199,6 +199,44 @@ describe('the checkout gate (P0-6)', () => {
       const saturdayOnly = [{ dayOfWeek: 6, openMinute: 9 * 60, closeMinute: 14 * 60 }];
       expect(gate(SUNDAY_NOON, { hours: saturdayOnly })).toMatchObject({
         message: 'We are closed right now. We open on Saturday at 09:00.',
+      });
+    });
+  });
+
+  // PRD 5 P0-3: the open branch carries the cutoff and how far off it is, so
+  // the last-call warning on three screens reads ONE answer instead of
+  // computing three from three readings of the clock.
+  describe('last call (P0-3)', () => {
+    it('carries the cutoff and the minutes left on an open gate', () => {
+      // Tue 20:00, 21:00 close, 15-minute cutoff: last orders at 20:45, which
+      // is 1245 minutes in and 45 away.
+      expect(gate(HOUR_BEFORE_CLOSE)).toEqual({
+        open: true,
+        lastOrderMinute: 1245,
+        minutesUntilLastOrder: 45,
+      });
+    });
+
+    it('counts down to the last order minute, not to closing time', () => {
+      // The kitchen shuts at 21:00 and the door shuts at 20:45. A countdown to
+      // the wrong one of those is fifteen minutes of lying to somebody who is
+      // still deciding.
+      const twentyThirtyFive = new Date(Date.UTC(2026, 6, 8, 3, 35, 0));
+      expect(gate(twentyThirtyFive)).toMatchObject({ minutesUntilLastOrder: 10 });
+    });
+
+    it('is never zero — at zero the gate is shut instead', () => {
+      // The warning renders "in {n} min" straight off this number, so a 0 here
+      // would be a screen saying "in 0 min" on an order that cannot be placed.
+      const lastMinute = new Date(Date.UTC(2026, 6, 8, 3, 44, 0)); // Tue 20:44
+      expect(gate(lastMinute)).toMatchObject({ minutesUntilLastOrder: 1 });
+      expect(gate(new Date(Date.UTC(2026, 6, 8, 3, 45, 0))).open).toBe(false);
+    });
+
+    it('moves with the cutoff, because the cutoff is what closes the door', () => {
+      expect(gate(HOUR_BEFORE_CLOSE, { cutoffMinutes: 30 })).toMatchObject({
+        lastOrderMinute: 1230,
+        minutesUntilLastOrder: 30,
       });
     });
   });

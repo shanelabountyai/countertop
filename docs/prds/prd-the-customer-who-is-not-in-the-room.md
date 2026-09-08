@@ -48,10 +48,10 @@ The product's founding premise is that phone orders tie up staff. It currently r
 - [x] Test: an order whose elapsed time exceeds its snapshotted quoted high end renders the late copy, not "any minute now"; an order inside its range renders the range
 
 **P0-3: A last-call warning before the door closes** *(DX 3)*
-- [ ] `GateResult`'s open branch carries `lastOrderMinute` — it is already computed at `orderingWindow()` and thrown away
-- [ ] When the gate is open and `lastOrderMinute − now ≤ 30`, the menu, cart and checkout show "Last online orders in 12 min", from **one component**, because the gate is already one code path with three triggers and the warning must not become three
-- [ ] The same treatment fires when the auto-pause threshold is close, if that is cheap to express; if it is not, the requirement is the hours case and the pause case is P1
-- [ ] Test: with hours set so the cutoff is 10 minutes out, `/menu` renders the warning; 40 minutes out, it does not; and the warning renders identically under `TZ=UTC` and `TZ=Pacific/Kiritimati`
+- [x] `GateResult`'s open branch carries `lastOrderMinute` — it is already computed at `orderingWindow()` and thrown away
+- [x] When the gate is open and `lastOrderMinute − now ≤ 30`, the menu, cart and checkout show "Last online orders in 12 min", from **one component**, because the gate is already one code path with three triggers and the warning must not become three
+- [x] The same treatment fires when the auto-pause threshold is close, if that is cheap to express; if it is not, the requirement is the hours case and the pause case is P1 — *it is not: the throttle has a weight that moves with every placement, not a minute to count down to, so a warning off it flickers. Resolved by this bullet's own fallback; the pause case is P1.*
+- [x] Test: with hours set so the cutoff is 10 minutes out, `/menu` renders the warning; 40 minutes out, it does not; and the warning renders identically under `TZ=UTC` and `TZ=Pacific/Kiritimati`
 
 **P0-4: The menu says what the food is** *(DX 4)*
 - [ ] The menu row renders `MenuItem.description` under the name when present — the column is already in the schema and read by nothing
@@ -133,7 +133,7 @@ The product's founding premise is that phone orders tie up staff. It currently r
 
 - **C-077 — The restaurant has an address and a phone** ✅ — P0-1, three nullable columns on the settings singleton, the footer on five routes, and the `tel:` link on the two views whose copy already asks for a call.
 - **C-078 — The status page tells the truth about being late** ✅ — P0-2, reusing the queue's `overdue` computation against the snapshotted quote.
-- **C-079 — Last call** — P0-3, `lastOrderMinute` carried on the open gate result, one component, three surfaces, TZ×2 test.
+- **C-079 — Last call** ✅ — P0-3, `lastOrderMinute` carried on the open gate result, one component, three surfaces, TZ×2 test.
 - **C-080 — The menu says what the food is** — P0-4, `description` rendered and editable, plus the category jump strip.
 - **C-081 — An untouched choice looks untouched** — P0-5 and P0-6 together; both are composer-local and both are the same class of defect (the UI stating something the customer did not say).
 - **C-082 — A way back to your own order** — P1-1, gated on the Open Question above.

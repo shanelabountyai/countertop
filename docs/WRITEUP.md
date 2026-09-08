@@ -2273,3 +2273,48 @@ consequential save that did not have one.
 
 Four of the eleven recorded defects were found in those twelve items, and three
 of the four were defects in code the earlier items had shipped green.
+
+### Carrying the number out, and where the subtraction happens (C-079)
+
+The last-call warning is one subtraction: the minute the door shuts, minus the
+minute it is now. The requirement said to carry `lastOrderMinute` out of the
+gate, which the gate had been computing and discarding since the checkout gate
+was written. Everything else looked like a rendering job.
+
+There are three places that subtraction could live, and only one of them is
+right.
+
+**On each screen** is the version the codebase's own rules already forbid: the
+menu, the cart and checkout would each read a clock, and "one orderability
+function, three call sites, one answer" would quietly become three answers that
+usually agree.
+
+**In the one component** is the version that looks like it satisfies the rule,
+and is where a careful build lands. One component, mounted three times, one
+copy of the arithmetic — the three screens genuinely cannot disagree. But the
+screen is not the only party to this conversation. The server refuses the
+placement, and a page rendered at 20:44:59 against a POST landing at 20:45:01
+is still two readings of `now`, one of them saying "you have a minute" and the
+other saying "you are too late". The component can only ever be one place among
+the *screens*.
+
+**In the gate** is the version where the question has one answer, full stop.
+The gate already took a wall-clock reading to compare today's hours against;
+doing the subtraction there means the countdown, the hours comparison and the
+refusal that eventually follows all quote the same instant, by construction
+rather than by everyone remembering to pass the same `now` down.
+
+**The general version: carrying a value out of a function is easy; the decision
+is where its derivatives get computed.** A raw field handed to three callers is
+an invitation for three of them to derive the same thing three ways. If the
+derivative is what the callers actually want, derive it at the source and hand
+that out too — a second field on a return type is cheaper than a second clock.
+
+The corner cut, since it has a real ceiling: the e2e fixture expresses "last
+call in N minutes" by moving today's closing time, and `closeMinute` is capped
+at 1440 because there is no hours row that means "tomorrow". So the fixture
+cannot be used in the final N minutes of the restaurant's local day, and throws
+there rather than silently setting something else. The unit tests take a frozen
+`now` and have no such window, which is where the coverage that matters lives;
+the e2e is asserting that three screens mount the component, and that is a
+claim a spec skipped near midnight would not silently weaken.

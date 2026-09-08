@@ -11,6 +11,7 @@ import { loadClock, loadMenu } from '@countertop/db/menu';
 import { formatCents } from '@/lib/money';
 import { currentGate } from '@/lib/checkout-gate';
 import { GateNotice } from '../checkout/gate-notice';
+import { LastCall } from '../checkout/last-call';
 import { Lockup } from '@/lib/brand';
 import { RestaurantFooter } from '@/lib/restaurant-footer';
 
@@ -57,6 +58,9 @@ export default async function MenuPage() {
         {/* Same gate the cart re-asks before checkout (P0-6) — surfaced here too
             so a customer finds out before building a cart, not after. */}
         <GateNotice gate={gate} className="mb-8" />
+        {/* ...and the other side of the same answer: still open, but not for
+            long (P0-3). One component, here and on the cart and checkout. */}
+        <LastCall gate={gate} className="mb-8" />
 
         {menu.categories.map((category) => (
           <section key={category.id} className="mb-8">
