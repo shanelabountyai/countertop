@@ -7391,3 +7391,47 @@ the cart without a trip to it.
   daypart-closure, and line-edit specs — none of them about this feature,
   all of them reading a rendered string this change restructured. Full account
   in `docs/WRITEUP.md`, C-083.
+
+## C-082 — A way back to your own order (PRD 5 P1-1)
+
+Commit *(recorded next)*.
+
+Gated on an Open Question at the end of C-083: P1-1 deliberately revisits the
+WRITEUP's recorded decision that losing the status link means walking to the
+counter. Asked and answered 2026-09-09 — re-open it now rather than wait on
+P1-3's unbuilt SMS, since the fix is one cookie and adds no lookup surface.
+
+**Built:**
+- **`rememberOrder(token)` / `readRecentOrderTokens()`** in
+  `lib/recent-orders.ts` — a second `httpOnly` session cookie, same idiom as
+  `cart-session.ts`: no `maxAge`, capped at the last 5 tokens, and idempotent
+  by construction (a replayed idempotency key hands back the same
+  `statusToken`, and appending a token already in the list is a no-op).
+  Nothing new stored server-side — `Order` already had `statusToken`.
+- **`placeCartOrder` calls `rememberOrder`** right after a successful
+  placement, alongside the existing `logPlacement` and before `clearCart`.
+- **A strip on `/menu`**: one line per remembered token whose order is
+  `!isTerminal` — the one status module's own function, the same one the
+  status page uses to stop polling. "Your order #005 is cooking — track it",
+  linking straight to `/status/[token]`.
+- **`STATUS_PROGRESS_PHRASE`** in `lib/status-labels.ts`, a second
+  `Record<OrderStatus, …>` beside the existing staff-facing `STATUS_LABEL` —
+  the customer's own words ("cooking") rather than the staff's ("Preparing"),
+  kept total so a new status cannot ship without a phrase for it.
+
+**Decided:**
+- **No enumeration surface.** The strip is keyed only on tokens this browser
+  was already handed by a successful placement — never a lookup by name,
+  phone or order number, which is exactly the hole the token exists to close
+  (Non-Goals).
+- **Filter by state, not by time.** A picked-up, cancelled or abandoned order
+  drops off the strip immediately rather than after some elapsed window — the
+  strip is a way back to something still happening, and a stale link to a
+  finished order is the confirmation screen's job, not the menu's.
+
+**Left behind:**
+- **A shared browser sees every order placed from it**, up to 5, until each
+  finishes — there is no per-customer identity to separate them (same
+  limitation the cart cookie already accepts).
+- **No log line for "customer used the strip"** — same "no per-batch event"
+  gap this project has left open since PRD 4.

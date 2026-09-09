@@ -28,6 +28,26 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
 };
 
 /**
+ * The same states, in the customer's own voice ("Your order #005 is
+ * cooking"), for the `/menu` "way back to your order" strip (PRD 5 P1-1).
+ *
+ * Deliberately not `STATUS_LABEL` — that one is staff jargon ("Preparing")
+ * and this is a sentence fragment a customer reads. Only the non-terminal
+ * entries ever render (the strip filters with `isTerminal`), but the map is
+ * total so a new state cannot ship without a phrase for it, same discipline
+ * as `STATUS_LABEL`.
+ */
+export const STATUS_PROGRESS_PHRASE: Record<OrderStatus, string> = {
+  placed: 'received',
+  accepted: 'in the queue',
+  preparing: 'cooking',
+  ready: 'ready for pickup',
+  picked_up: 'picked up',
+  cancelled: 'cancelled',
+  abandoned: 'not collected',
+};
+
+/**
  * The cancellation preset, in words.
  *
  * Here rather than in the queue since C-057, because the report now names the

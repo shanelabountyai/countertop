@@ -17,6 +17,7 @@ import {
 import { placeOrder, type OrderReceipt, type PlacementError } from '@countertop/db/placement';
 import { enrolMember } from '@countertop/db/loyalty';
 import { clearCart, readCart } from '@/lib/cart-session';
+import { rememberOrder } from '@/lib/recent-orders';
 import { logPlacement } from '@/lib/log';
 
 /** What the confirmation screen renders. No UUID: customers and staff use the
@@ -270,6 +271,10 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
     outcome: { result: 'placed', orderId: result.order.id, replayed: result.replayed },
     enrolment,
   });
+
+  // P1-1 (C-082). After the order exists, remembered so `/menu` can offer a
+  // way back to it without the confirmation screen surviving in a tab.
+  await rememberOrder(result.order.statusToken);
 
   // The cart's job is done. Clearing it after the write, not before, means a
   // failed placement leaves the customer their food.

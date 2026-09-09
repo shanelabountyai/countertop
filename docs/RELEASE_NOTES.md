@@ -2373,3 +2373,16 @@ always the total the server just calculated — never client arithmetic.
 
 **The menu header shows how much is in the cart**, "View cart (6)", without a
 trip to the cart page to find out.
+
+## C-082 — A way back to your own order
+
+Close the tab after placing an order, and the only way back used to be the
+counter — a person interrupting the kitchen mid-rush to answer a question the
+app already knew.
+
+**The menu now remembers.** Placing an order remembers its tracking link in
+your browser, and `/menu` shows a strip: "Your order #005 is cooking — track
+it". It disappears once the order is picked up, cancelled, or not collected —
+it's a way back to something still happening, not a receipt archive. Still
+the same unguessable link as always; nothing new is looked up by name, phone,
+or order number.

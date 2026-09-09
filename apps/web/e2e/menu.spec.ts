@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { menuRow, reseed, setDaypart } from './fixtures';
+import { menuRow, pickUp, placeOrderFor, reseed, setDaypart } from './fixtures';
 
 // C-007: the customer menu and the item composer (P0-1, P0-2 display side).
 //
@@ -340,6 +340,39 @@ test('a line id that is no longer in the cart composes a fresh one instead', asy
   await page.goto(href!);
   await expect(page.getByRole('button', { name: /Add to cart/ })).toBeVisible();
   await expect(page.getByRole('radio', { name: /Chicken/ })).not.toBeChecked();
+});
+
+// C-082 (PRD 5 P1-1): a way back to your own order, with no lookup surface —
+// the strip is keyed only on the unguessable token this browser was already
+// handed, never on a name, phone or order number.
+test('the menu offers a way back to an order still cooking', async ({ page }) => {
+  await placeOrderFor(page, 'Nina Ortiz');
+  const orderNumber = await page.getByTestId('order-number').innerText();
+
+  await page.goto('/menu');
+  const strip = page.getByTestId('recent-orders').getByRole('link');
+  await expect(strip).toContainText(/Your order #\d+ is received — track it/);
+  await expect(strip).toContainText(orderNumber);
+
+  await strip.click();
+  await expect(page.getByTestId('status-order-number')).toBeVisible();
+});
+
+test('a picked-up order drops off the menu strip', async ({ page, context }) => {
+  const link = await placeOrderFor(page, 'Owen Blake');
+  await page.goto('/menu');
+  await expect(page.getByTestId('recent-orders')).toContainText('is received');
+
+  const kitchen = await context.newPage();
+  await kitchen.goto('/kitchen');
+  await pickUp(kitchen, 'Owen Blake');
+
+  await page.goto('/menu');
+  await expect(page.getByTestId('recent-orders')).toHaveCount(0);
+  // The order itself is untouched — this is the strip filtering by state, not
+  // the order or its status page disappearing.
+  await page.goto(link);
+  await expect(page.getByTestId('order-status')).toHaveAttribute('data-status', 'picked_up');
 });
 
 for (const path of ['/menu', '/menu/burrito', '/cart']) {

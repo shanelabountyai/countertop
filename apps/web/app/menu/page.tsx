@@ -4,9 +4,12 @@
 import Link from 'next/link';
 import {
   daypartClosure,
+  formatOrderNumber,
+  isTerminal,
   type MenuItem,
   type RestaurantClock,
 } from '@countertop/core';
+import { findOrderByStatusToken } from '@countertop/db/placement';
 import { loadClock, loadMenu } from '@countertop/db/menu';
 import { formatCents } from '@/lib/money';
 import { currentGate } from '@/lib/checkout-gate';
@@ -15,6 +18,8 @@ import { LastCall } from '../checkout/last-call';
 import { Lockup } from '@/lib/brand';
 import { RestaurantFooter } from '@/lib/restaurant-footer';
 import { readCart } from '@/lib/cart-session';
+import { readRecentOrderTokens } from '@/lib/recent-orders';
+import { STATUS_PROGRESS_PHRASE } from '@/lib/status-labels';
 
 export const metadata = { title: 'Menu — Firebird Kitchen' };
 
@@ -38,17 +43,26 @@ function unavailableNote(item: MenuItem, clock: RestaurantClock): string | null 
 }
 
 export default async function MenuPage() {
-  const [menu, gate, clock, cart] = await Promise.all([
+  const [menu, gate, clock, cart, recentTokens] = await Promise.all([
     loadMenu(),
     currentGate(),
     loadClock(),
     readCart(),
+    readRecentOrderTokens(),
   ]);
   const items = Object.values(menu.items);
   // P1-2: the count is visible without a trip to the cart page. Total
   // quantity across lines, not line count — a group order is six burritos on
   // one line as often as six separate ones.
   const cartCount = cart.lines.reduce((sum, line) => sum + line.composition.quantity, 0);
+
+  // P1-1 (C-082). Looked up by the same unguessable token the confirmation
+  // screen printed — no lookup by name, phone or number, so this adds no
+  // enumeration surface. Filtered to `!isTerminal` with the one status
+  // module's own function: a picked-up, cancelled or abandoned order is not
+  // a "way back" anybody needs a strip for.
+  const recentOrders = (await Promise.all(recentTokens.map((token) => findOrderByStatusToken(token))))
+    .filter((order): order is NonNullable<typeof order> => order !== null && !isTerminal(order.status));
 
   return (
     <>
@@ -64,6 +78,25 @@ export default async function MenuPage() {
             View cart{cartCount > 0 && ` (${cartCount})`}
           </Link>
         </header>
+
+        {/* P1-1 (C-082). One line per still-open recent order — plural is
+            rare (a shared browser, a customer who orders twice in a row) but
+            the strip does not assume there is only ever one. */}
+        {recentOrders.length > 0 && (
+          <ul className="mb-8 flex flex-col gap-2" data-testid="recent-orders">
+            {recentOrders.map((order) => (
+              <li key={order.statusToken}>
+                <Link
+                  href={`/status/${order.statusToken}`}
+                  className="flex min-h-12 items-center rounded-lg border border-neutral-300 px-4 text-sm hover:border-neutral-500"
+                >
+                  Your order {formatOrderNumber(order.seq)} is{' '}
+                  {STATUS_PROGRESS_PHRASE[order.status]} — track it
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
 
         {/* Same gate the cart re-asks before checkout (P0-6) — surfaced here too
             so a customer finds out before building a cart, not after. */}
