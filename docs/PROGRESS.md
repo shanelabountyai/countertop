@@ -7339,7 +7339,7 @@ customer something was wrong without telling them what, or where.
 
 ## C-083 — Ordering for six (PRD 5 P1-2)
 
-Commit *(recorded next)*.
+Commit `9d58fa6`.
 
 Composing a group order meant a full navigation into a burrito composer for
 every unit past the first — six burritos was six round trips. `−`/`+` on each
