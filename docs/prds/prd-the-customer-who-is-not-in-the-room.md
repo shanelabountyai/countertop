@@ -76,7 +76,7 @@ The product's founding premise is that phone orders tie up staff. It currently r
 ### Nice-to-Have (P1)
 
 - **P1-1: A way back to your own order** *(DX 10)* — placement appends the status token to a `recent-orders` cookie (the same mechanism the cart already uses), and `/menu` shows a strip: "Your order #005 is cooking — track it". No enumeration surface, because the token is still the only key and nothing is looked up by number. **This deliberately revisits a recorded decision**: the WRITEUP records "lose the link and the order is unreachable from the customer side (C-014)" with "the counter staff" as the recovery path — which is a person interrupting the expo mid-rush, the exact interruption the product exists to eliminate. P1-3's SMS is the real fix and is unbuilt; this costs a cookie in the meantime.
-- **P1-2: Ordering for a group is not punished** *(DX 12)* — `−`/`+` on each cart line so 1 → 2 is a tap rather than a full navigation into a burrito composer, and "View cart (6)" in the menu header so the count is visible without being on the cart page.
+- **P1-2: Ordering for a group is not punished** *(DX 12)* — **shipped, C-083** — `−`/`+` on each cart line so 1 → 2 is a tap rather than a full navigation into a burrito composer, and "View cart (6)" in the menu header so the count is visible without being on the cart page.
 - **P1-3: Photos** *(DX 4)* — the master PRD's User Story 1 asks for them and they are in neither Non-Goals nor the WRITEUP's caveats. M, plus a migration and an asset story.
 - **P1-4: Stop collecting the phone number, or use it** *(SYS 7)* — the field is captured for the P1-3 SMS stub, which is unbuilt, so it is collected and used by nothing. Either send the link or stop asking. The retention half of this finding lives in `prd-who-did-it-and-what-leaves.md`.
 
@@ -138,4 +138,4 @@ The product's founding premise is that phone orders tie up staff. It currently r
 - **C-080 — The menu says what the food is** ✅ — P0-4, `description` rendered and editable, plus the category jump strip.
 - **C-081 — An untouched choice looks untouched** ✅ — P0-5 and P0-6 together; both are composer-local and both are the same class of defect (the UI stating something the customer did not say).
 - **C-082 — A way back to your own order** — P1-1, gated on the Open Question above.
-- **C-083 — Ordering for six** — P1-2, cart quantity steppers and the header count.
+- **C-083 — Ordering for six** ✅ — P1-2, cart quantity steppers and the header count.

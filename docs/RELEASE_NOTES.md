@@ -2361,3 +2361,15 @@ lights up; that light is now earned, not assumed.
 required protein and the screen no longer just says "fix the choices above" —
 it names the group, and moves you straight to it. A screen reader gets both
 facts in the same breath: which group, and why.
+
+## C-083 — Ordering for six
+
+Composing a group order used to mean a full trip into a burrito composer for
+every extra unit — six burritos was six round trips through the whole flow.
+
+**Each cart line now has a `−`/`+` stepper.** 1 → 2 is a tap. It goes through
+the same price-recomputing path a composer save uses, so the total shown is
+always the total the server just calculated — never client arithmetic.
+
+**The menu header shows how much is in the cart**, "View cart (6)", without a
+trip to the cart page to find out.

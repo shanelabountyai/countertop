@@ -12,6 +12,7 @@ import {
   confirmPrices,
   parseComposition,
   reviewCart,
+  DEFAULT_LIMITS,
   type CartError,
   type CartReview,
 } from '@countertop/core';
@@ -81,6 +82,27 @@ export async function getCartReview(): Promise<CartReview> {
 // page is still hydrating — and there is no client component to write.
 export async function removeCartLineForm(lineId: string): Promise<void> {
   await removeCartLine(lineId);
+  revalidatePath('/cart');
+}
+
+/**
+ * The −/+ steppers (P1-2): a tap, not a trip back into the composer. Goes
+ * through `updateCartLine` — the same server-price-authority path a composer
+ * save uses — so a stepper cannot become a second place quantity gets priced.
+ * Clamped here so a spammed tap at either end is a no-op, not a write.
+ */
+export async function stepCartLineForm(lineId: string, delta: number): Promise<void> {
+  const cart = await readCart();
+  const line = cart.lines.find((l) => l.id === lineId);
+  if (line) {
+    const quantity = Math.min(
+      Math.max(line.composition.quantity + delta, 1),
+      DEFAULT_LIMITS.maxQuantity,
+    );
+    if (quantity !== line.composition.quantity) {
+      await updateCartLine(lineId, { ...line.composition, quantity });
+    }
+  }
   revalidatePath('/cart');
 }
 

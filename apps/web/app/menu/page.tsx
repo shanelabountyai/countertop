@@ -14,6 +14,7 @@ import { GateNotice } from '../checkout/gate-notice';
 import { LastCall } from '../checkout/last-call';
 import { Lockup } from '@/lib/brand';
 import { RestaurantFooter } from '@/lib/restaurant-footer';
+import { readCart } from '@/lib/cart-session';
 
 export const metadata = { title: 'Menu — Firebird Kitchen' };
 
@@ -37,8 +38,17 @@ function unavailableNote(item: MenuItem, clock: RestaurantClock): string | null 
 }
 
 export default async function MenuPage() {
-  const [menu, gate, clock] = await Promise.all([loadMenu(), currentGate(), loadClock()]);
+  const [menu, gate, clock, cart] = await Promise.all([
+    loadMenu(),
+    currentGate(),
+    loadClock(),
+    readCart(),
+  ]);
   const items = Object.values(menu.items);
+  // P1-2: the count is visible without a trip to the cart page. Total
+  // quantity across lines, not line count — a group order is six burritos on
+  // one line as often as six separate ones.
+  const cartCount = cart.lines.reduce((sum, line) => sum + line.composition.quantity, 0);
 
   return (
     <>
@@ -51,7 +61,7 @@ export default async function MenuPage() {
             <Lockup />
           </h1>
           <Link href="/cart" className="inline-flex min-h-12 w-fit items-center text-sm underline underline-offset-4">
-            View cart
+            View cart{cartCount > 0 && ` (${cartCount})`}
           </Link>
         </header>
 

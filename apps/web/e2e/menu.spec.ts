@@ -189,7 +189,9 @@ test('a composed line reaches the cart, with the negation distinct and the tax t
   await page.getByRole('button', { name: /Add to cart/ }).click();
 
   await expect(page).toHaveURL(/\/cart$/);
-  await expect(page.getByRole('heading', { name: '1 × Burrito' })).toBeVisible();
+  // Quantity moved off the heading and onto the stepper (C-083, P1-2).
+  await expect(page.getByRole('heading', { name: 'Burrito', exact: true })).toBeVisible();
+  await expect(page.getByTestId('line-quantity')).toHaveText('1');
   await expect(page.getByText('Extra cheese')).toBeVisible();
 
   // "NO onions" is not "onions" (P0-11's founding case, at the customer end).
@@ -256,7 +258,7 @@ test('a window closing under an open cart takes the 86 path, in gentler words', 
   await page.goto('/menu/chips');
   await page.getByRole('button', { name: /Add to cart/ }).click();
   await expect(page).toHaveURL(/\/cart$/);
-  await expect(page.getByRole('heading', { name: '1 × Chips & salsa' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Chips & salsa', exact: true })).toBeVisible();
 
   // ...and the clock moved. Same fix-or-remove path an 86 uses — the decision
   // recorded at C-110 was that the existing path is the honest one and the
@@ -290,10 +292,7 @@ test('a cart line re-opens pre-filled, and saving replaces it where it sat', asy
   await page.goto('/menu/chips');
   await page.getByRole('button', { name: /Add to cart/ }).click();
   await expect(page).toHaveURL(/\/cart$/);
-  await expect(page.getByRole('heading', { level: 2 })).toHaveText([
-    '1 × Burrito',
-    '1 × Chips & salsa',
-  ]);
+  await expect(page.getByRole('heading', { level: 2 })).toHaveText(['Burrito', 'Chips & salsa']);
 
   const burritoLine = page.getByRole('listitem').filter({ hasText: 'Burrito' }).first();
   await burritoLine.getByRole('link', { name: 'Edit' }).click();
@@ -316,10 +315,8 @@ test('a cart line re-opens pre-filled, and saving replaces it where it sat', asy
   await expect(page).toHaveURL(/\/cart$/);
 
   // Two lines, not three — and the burrito is still the first of them.
-  await expect(page.getByRole('heading', { level: 2 })).toHaveText([
-    '2 × Burrito',
-    '1 × Chips & salsa',
-  ]);
+  await expect(page.getByRole('heading', { level: 2 })).toHaveText(['Burrito', 'Chips & salsa']);
+  await expect(burritoLine.getByTestId('line-quantity')).toHaveText('2');
   await expect(page.getByText('NO onions')).toBeVisible();
   await expect(page.getByText('Guacamole')).toHaveCount(0);
 });

@@ -2438,3 +2438,33 @@ the same fact should still be two different sentences** — identical text in
 two places on one page is a locator collision waiting for whichever test
 reaches for it by content, and the reviewer who reads the diff will not see it
 either, because the diff looks like the requirement being satisfied twice.
+
+### A rendered string is a load-bearing wall until you check who reads it (C-083)
+
+The stepper's whole point is that quantity should not live inside the line's
+`<h2>` any more — it needed its own control, disabled at its own boundary,
+independent of the item name. So the heading went from `"1 × Burrito"` to
+plain `"Burrito"`, with the number moved onto the stepper's own display. That
+is the correct shape for the feature; it is also a rendered string that four
+PRE-EXISTING assertions in `menu.spec.ts` — none of them about the cart's
+quantity control, none of them written for this item — matched by exact text:
+a composed-line-reaches-the-cart check, a daypart-closes-under-an-open-cart
+check, and both ends of the edit-a-line-in-place check. All four failed the
+same way, in the same first e2e pass, for the same reason: a heading whose
+exact text a locator anywhere on the page had come to depend on.
+
+**The general shape, the other side of C-081's coin.** C-081 was reusing an
+existing string in a second place and getting a locator collision from
+duplication. This is deleting part of an existing string and getting a
+locator MISS from every place that had matched the whole thing — same root
+cause (a rendered value has readers you cannot see from the diff that changes
+it), opposite direction. Neither is caught by looking at the changed file:
+`cart/page.tsx`'s diff looks exactly like the requirement, because it is —
+the breakage is only visible from the reader's side, in a file this change
+never touches. **Caught by the gate, not by review**, same as C-081: the fix
+was grep for the pattern being removed (`× Burrito`, `× Chips`) across every
+spec file, not just the one the feature happened to live near, and update all
+four call sites in the same pass rather than the one the first failure named.
+A grep scoped to "specs that mention /cart" would have found three of the
+four and missed `menu.spec.ts`'s own daypart-closure test, which reaches
+`/cart` only as a side effect of adding a chip while it is still served.

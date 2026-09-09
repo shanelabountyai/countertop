@@ -7336,3 +7336,58 @@ customer something was wrong without telling them what, or where.
 - **Only intensity groups got the touched-tracking.** A plain checkbox/radio
   group's unselected state IS its neutral native appearance — there is no
   "Skip" pseudo-option colliding with untouched there, so P0-5 does not apply.
+
+## C-083 — Ordering for six (PRD 5 P1-2)
+
+Commit *(recorded next)*.
+
+Composing a group order meant a full navigation into a burrito composer for
+every unit past the first — six burritos was six round trips. `−`/`+` on each
+cart line makes 1 → 2 a tap, and the menu header now shows how many are in
+the cart without a trip to it.
+
+**Built:**
+- **`stepCartLineForm(lineId, delta)`** in `cart/actions.ts`, a thin wrapper
+  that reads the current line's composition, clamps the new quantity to
+  `[1, DEFAULT_LIMITS.maxQuantity]`, and hands it to the EXISTING
+  `updateCartLine` → `replaceLine` path — the same server-price-authority call
+  a composer save makes. No new pricing logic; the stepper is a second door
+  onto the same room.
+- **Two `<form>` buttons per cart line**, `−` and `+`, in the same
+  no-JavaScript idiom as the existing Remove button — the cart stays editable
+  while the page is still hydrating. `−` disables at quantity 1 (Remove is the
+  existing way to zero a line); `+` disables at `maxQuantity` (20).
+- **"View cart (N)"** in the menu header, `N` the sum of `composition.quantity`
+  across the cart's lines — a group order is as often one line at quantity six
+  as six separate lines, so the count is a total, not a line count.
+
+**Decided:**
+- **Clamp, don't error.** A tap at either boundary is a no-op write rather than
+  a refused one — the disabled attribute already prevents the tap in the UI,
+  and a raw POST past it lands on the same clamped value `validateComposition`
+  would have accepted anyway. Matches the existing form-action idiom
+  (`removeCartLineForm`, `confirmCartPricesForm`) of discarding the
+  `ActionResult` and just revalidating.
+- **Re-baselining on a quantity change is correct, not a side effect to guard
+  against.** `replaceLine` resets `unitPriceAtAddCents` to the live price on
+  every edit — a stepper tap goes through the composer's own save path, so it
+  gets the composer's own "you see today's price" behavior for free.
+
+**Left behind:**
+- **A stepper tap on a line that no longer validates (86'd, outside its
+  daypart) silently fails to save.** `updateCartLine` returns an error
+  `ActionResult` and `stepCartLineForm` discards it — consistent with how
+  `confirmCartPricesForm` already discards its own possible `cart_full`, but
+  nothing tells the customer why the number did not move. The existing
+  `problems` list on that line already names the reason; the stepper just
+  does not surface it as feedback on the tap itself.
+- **The header count includes 86'd and unpriced lines.** It sums
+  `composition.quantity` over every cart line, not just the ones `reviewCart`
+  can still price — a customer whose cart holds a sold-out line sees a number
+  one line's worth higher than what checkout would actually total.
+- **Caught by the gate, not by review: four pre-existing e2e assertions
+  hard-coded the old `'N × Item'` heading text.** Moving the quantity off the
+  `<h2>` and onto the stepper broke `menu.spec.ts`'s cart-reaching,
+  daypart-closure, and line-edit specs — none of them about this feature,
+  all of them reading a rendered string this change restructured. Full account
+  in `docs/WRITEUP.md`, C-083.

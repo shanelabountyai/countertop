@@ -2,13 +2,14 @@
 // `reviewCart` against the menu as it is right now — the cookie carries
 // compositions, never prices.
 import Link from 'next/link';
+import { DEFAULT_LIMITS } from '@countertop/core';
 import { loadMenu } from '@countertop/db/menu';
 import { formatCents } from '@/lib/money';
 import { describeSelection } from '@/lib/menu-labels';
 import { currentGate } from '@/lib/checkout-gate';
 import { GateNotice } from '../checkout/gate-notice';
 import { LastCall } from '../checkout/last-call';
-import { getCartReview, removeCartLineForm, confirmCartPricesForm } from './actions';
+import { getCartReview, removeCartLineForm, confirmCartPricesForm, stepCartLineForm } from './actions';
 import { RestaurantFooter } from '@/lib/restaurant-footer';
 
 export const metadata = { title: 'Your cart — Firebird Kitchen' };
@@ -41,12 +42,39 @@ export default async function CartPage() {
             return (
               <li key={line.id} className="rounded-lg border border-neutral-300 p-4">
                 <div className="flex items-baseline justify-between gap-4">
-                  <h2 className="font-semibold">
-                    {line.composition.quantity} × {item?.name ?? line.composition.itemId}
-                  </h2>
+                  <h2 className="font-semibold">{item?.name ?? line.composition.itemId}</h2>
                   <span className="tabular-nums">
                     {priced ? formatCents(priced.lineTotalCents) : '—'}
                   </span>
+                </div>
+
+                {/* P1-2: 1 → 2 is a tap, not a trip back into the composer.
+                    Forms, like Remove below — no client component, so the
+                    cart stays editable while the page is still hydrating. */}
+                <div className="mt-2 flex items-center gap-2">
+                  <form action={stepCartLineForm.bind(null, line.id, -1)}>
+                    <button
+                      type="submit"
+                      aria-label={`Decrease quantity of ${item?.name ?? 'this item'}`}
+                      disabled={line.composition.quantity <= 1}
+                      className="flex h-12 w-12 items-center justify-center rounded-md border border-neutral-300 text-lg font-semibold disabled:opacity-40"
+                    >
+                      −
+                    </button>
+                  </form>
+                  <span className="min-w-8 text-center tabular-nums" data-testid="line-quantity">
+                    {line.composition.quantity}
+                  </span>
+                  <form action={stepCartLineForm.bind(null, line.id, 1)}>
+                    <button
+                      type="submit"
+                      aria-label={`Increase quantity of ${item?.name ?? 'this item'}`}
+                      disabled={line.composition.quantity >= DEFAULT_LIMITS.maxQuantity}
+                      className="flex h-12 w-12 items-center justify-center rounded-md border border-neutral-300 text-lg font-semibold disabled:opacity-40"
+                    >
+                      +
+                    </button>
+                  </form>
                 </div>
 
                 <ul className="mt-2 flex flex-col gap-0.5 text-sm">
