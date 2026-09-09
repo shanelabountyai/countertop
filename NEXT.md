@@ -1,51 +1,41 @@
 # Next
 
-**C-081 shipped** (`aceeeab`, SHA recorded in the follow-up, gate green:
-210 passed + 14 skipped = 224 e2e, 929 unit). PRD 5 P0-5 and P0-6 are done:
-an untouched intensity row shows no filled pill (Skip included) and a visible
-"No choice made yet" hint; a failed add-to-cart moves focus to the first
-violating group's fieldset, `aria-describedby` announces its own error text
-to assistive technology, and the bottom summary names the group in its own
-sentence rather than repeating the fieldset's or saying "the choices above".
+**C-082 shipped** (`8db3b8b`, SHA recorded in `d3dba8f`, gate green: 214
+passed + 14 skipped = 228 e2e, matches `--list`; 929 unit). The Open Question
+gating it was asked and answered this session: re-open the recorded decision
+now rather than wait on P1-3's unbuilt SMS. `/menu` now shows "Your order
+#005 is cooking — track it" for any remembered order that is not terminal,
+sourced from a second httpOnly cookie (`lib/recent-orders.ts`) written on
+successful placement. No lookup surface added — same unguessable token,
+same idiom as the cart cookie.
 
-**Next item is gated.** PRD 5's remaining P0 item is **C-082 — a way back to
-your own order** (P1-1), but its own Open Question is unresolved: it
-deliberately revisits the recorded decision that losing the status link
-means walking to the counter, and the PRD says recorded decisions are not
-re-opened silently. **Ask before building it**: is that decision re-opened,
-or does it stand until P1-3's SMS ships?
+**PRD 5 is now fully done** — every P0 and both P1 items with no open gate
+(P1-1 and P1-2) are shipped. What's left in that PRD is P1-3 (Photos) and
+P1-4 (stop collecting the phone number, or use it) — both bigger, unscoped
+items, not "next session" sized on their own.
 
-**If the answer is "leave it, build the next unblocked thing" — that's
-`C-083` — ordering for six** (PRD 5 P1-2): `−`/`+` steppers on each cart
-line so 1 → 2 is a tap rather than a full composer round-trip, plus
-"View cart (6)" in the menu header. Recomputes server-side through the
-existing cart path exactly as a composer save does — no new price logic.
+**Next unblocked item:** none picked yet. Options, roughly ascending cost:
+- **P1-4 (phone number)** — decide whether it's in scope to *use* the number
+  (send the SMS P1-3 was a placeholder for) or *stop collecting* it. Mostly a
+  product decision before any code.
+- **P1-3 (Photos)** — M-sized per the PRD (migration + asset story), and the
+  master PRD's Open Question on scope ("are photos in scope for a learning
+  build") is unresolved — ask before starting.
+- Pick up debt instead (see below) — several are one-line-to-small fixes with
+  no gating question.
 
-Model: **Sonnet** either way — C-082 is a cookie write plus one menu strip
-with no lookup surface; C-083 is a stepper wired to the existing
-`addToCart`/`updateCartLine` actions. Opus is warranted again at PRD 6's
-C-088 (binding the placement replay to its session).
+**Model:** whichever comes next, recommend at that item's start per the
+usual rule — Opus for anything touching the payment/session work in PRD 6,
+Sonnet for routine UI/data-model build like everything in PRD 5 has been.
 
-## What C-081 leaves behind
+## What C-082 leaves behind
 
-- **The focus ring on the programmatically focused fieldset uses `:focus`,
-  not `:focus-visible`** — a `.focus()` call right after a mouse click on
-  the submit button doesn't reliably trigger `:focus-visible` in Chromium, so
-  the ring is unconditional. Minor visual redundancy for a keyboard user who
-  tabs there by hand, not a defect.
-- **Only intensity-enabled groups got touched-tracking.** A plain
-  checkbox/radio option's unchecked state IS its neutral native look — there
-  is no "Skip" pseudo-option colliding with untouched there.
-- **Two defects were caught by the sweep before they reached a commit, not
-  by review**, both from reusing text/state without checking what already
-  reads it: Skip's native `checked` was `null === null`-true on every
-  untouched row (an accessibility bug hiding under a styling one), and the
-  first draft of the P0-6 summary repeated the fieldset's own message
-  verbatim, which put duplicate text on the page and broke an unrelated
-  spec's exact-text locator via a Playwright strict-mode violation. Full
-  account in `docs/WRITEUP.md`, C-081 — worth reading before touching this
-  composer again, since both traps are "the value already exists nearby,
-  reach for the SAME one" mistakes that recur under different names.
+- **A shared browser sees every order placed from it**, up to 5, until each
+  finishes — there is no per-customer identity to separate them. Same
+  limitation the cart cookie already accepts; not new here.
+- **No log line for "customer used the strip."** Same shape as the
+  no-per-batch-menu-change-event gap below — nobody currently writes an event
+  for "a customer looked at X," and this doesn't start.
 
 ## Still open from earlier items
 
@@ -59,9 +49,7 @@ C-088 (binding the placement replay to its session).
   staged prices, and superseded staged rows are never collected.
 - **A sixth customer route can forget the footer** — `/menu/[itemId]` is a
   customer screen and is in none of P0-1's five, P0-3's three, or P0-4's two.
-  C-081 touched only the composer's insides, not its wrapper, so this is
-  still open. If C-083 grows another cross-screen element, do the
-  `(customer)` route group then.
+  Still open; touch it if another cross-screen element grows there.
 - **The status page reads the contact columns twice** — once for the panel's
   `tel:` link, once inside the footer.
 - **The status page's estimate line is outside the `role="status"` region**
@@ -73,6 +61,10 @@ C-088 (binding the placement replay to its session).
   day** (C-079); it throws rather than clamping.
 - **Twenty-two of twenty-five items have no description** (C-080) — the
   mechanism ships, the copy is a restaurant's job.
+- **A stepper tap on a line that no longer validates silently fails to save**
+  (C-083) — `updateCartLine`'s error `ActionResult` is discarded; nothing
+  tells the customer why the number did not move.
+- **The header cart count includes 86'd and unpriced lines** (C-083).
 - **`e2e/refund.spec.ts:211`** ("a no-show is offered a refund rather than
   given one") failed once at 8.0s in a C-108-era sweep and has passed in every
   sweep since. A timeout, not an assertion. Local `retries` is 0, CI's is 1.

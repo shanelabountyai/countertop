@@ -7394,7 +7394,7 @@ the cart without a trip to it.
 
 ## C-082 — A way back to your own order (PRD 5 P1-1)
 
-Commit *(recorded next)*.
+Commit `8db3b8b`.
 
 Gated on an Open Question at the end of C-083: P1-1 deliberately revisits the
 WRITEUP's recorded decision that losing the status link means walking to the
