@@ -5,6 +5,7 @@
 // `parseComposition` before anything else looks at it.
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import {
   addLine,
   removeLine,
@@ -100,7 +101,13 @@ export async function stepCartLineForm(lineId: string, delta: number): Promise<v
       DEFAULT_LIMITS.maxQuantity,
     );
     if (quantity !== line.composition.quantity) {
-      await updateCartLine(lineId, { ...line.composition, quantity });
+      const result = await updateCartLine(lineId, { ...line.composition, quantity });
+      // C-083 debt: a flagged line (e.g. an option 86'd out from under it)
+      // re-fails the same validation on every tap. Silently doing nothing
+      // reads as a broken button — say why the number didn't move.
+      if (!result.ok) {
+        redirect(`/cart?stepError=${lineId}:${encodeURIComponent(result.errors[0].message)}`);
+      }
     }
   }
   revalidatePath('/cart');

@@ -17,7 +17,16 @@ export const metadata = { title: 'Your cart — Firebird Kitchen' };
 // Never prerendered: the gate's answer changes through the day.
 export const dynamic = 'force-dynamic';
 
-export default async function CartPage() {
+export default async function CartPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ stepError?: string }>;
+}) {
+  const { stepError } = await searchParams;
+  // `lineId:message`, from stepCartLineForm's redirect on a rejected tap.
+  const [stepErrorLineId, stepErrorMessage] = stepError
+    ? [stepError.slice(0, stepError.indexOf(':')), decodeURIComponent(stepError.slice(stepError.indexOf(':') + 1))]
+    : [undefined, undefined];
   const [menu, review, gate] = await Promise.all([loadMenu(), getCartReview(), currentGate()]);
 
   return (
@@ -76,6 +85,16 @@ export default async function CartPage() {
                     </button>
                   </form>
                 </div>
+
+                {stepErrorLineId === line.id && (
+                  <p
+                    role="status"
+                    data-testid="step-error"
+                    className="mt-2 rounded-lg border border-red-700 bg-red-50 p-2 text-sm font-semibold text-red-900"
+                  >
+                    Quantity not changed: {stepErrorMessage}
+                  </p>
+                )}
 
                 <ul className="mt-2 flex flex-col gap-0.5 text-sm">
                   {line.composition.selections.map((selection) => {

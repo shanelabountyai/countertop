@@ -1,5 +1,20 @@
 # Next
 
+**Debt fix shipped this session** (`fix: a stepper tap on a flagged line
+says why the quantity didn't move`): the stepper's discarded `ActionResult`
+(C-083 debt) — `stepCartLineForm` now redirects with `?stepError=lineId:msg`
+when `updateCartLine` fails (e.g. an option 86'd out from under a flagged
+line), and the cart page renders it on that line as "Quantity not changed:
+…". Gate green (215 passed + 14 e2e skipped = 229, up by the one new spec;
+929 unit).
+
+**Next unblocked item:** none picked yet. Same options as before (see
+"Still open" below for the rest of the debt list) — the header cart-count
+bug (C-083) is the next same-shape one-line-fix if continuing the debt
+sweep, otherwise P1-3/P1-4 need a product decision first.
+
+---
+
 **C-082 shipped** (`8db3b8b`, SHA recorded in `d3dba8f`, gate green: 214
 passed + 14 skipped = 228 e2e, matches `--list`; 929 unit). The Open Question
 gating it was asked and answered this session: re-open the recorded decision
@@ -61,9 +76,6 @@ Sonnet for routine UI/data-model build like everything in PRD 5 has been.
   day** (C-079); it throws rather than clamping.
 - **Twenty-two of twenty-five items have no description** (C-080) — the
   mechanism ships, the copy is a restaurant's job.
-- **A stepper tap on a line that no longer validates silently fails to save**
-  (C-083) — `updateCartLine`'s error `ActionResult` is discarded; nothing
-  tells the customer why the number did not move.
 - **The header cart count includes 86'd and unpriced lines** (C-083).
 - **`e2e/refund.spec.ts:211`** ("a no-show is offered a refund rather than
   given one") failed once at 8.0s in a C-108-era sweep and has passed in every

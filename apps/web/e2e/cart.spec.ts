@@ -36,6 +36,20 @@ test('a stepper changes quantity without a trip back into the composer', async (
   expect(results.violations).toEqual([]);
 });
 
+test('a stepper tap on a flagged line says why the quantity did not change', async ({ page }) => {
+  await addBurritoToCart(page, { guacamole: true });
+  await page.goto('/kitchen/availability');
+  await page.getByRole('button', { name: 'Mark Guacamole sold out' }).click();
+
+  await page.goto('/cart');
+  await expect(page.getByText('Guacamole is sold out.')).toBeVisible();
+  await expect(page.getByTestId('line-quantity')).toHaveText('1');
+
+  await page.getByRole('button', { name: /Increase quantity/ }).click();
+  await expect(page.getByTestId('line-quantity')).toHaveText('1');
+  await expect(page.getByTestId('step-error')).toHaveText('Quantity not changed: Guacamole is sold out.');
+});
+
 test('the menu header shows the cart count without opening the cart', async ({ page }) => {
   await page.goto('/menu');
   await expect(page.getByRole('link', { name: 'View cart' })).toHaveText('View cart');
