@@ -1,57 +1,44 @@
 # Next
 
-**Debt fix shipped this session** (`fix: the header cart count skips flagged
-lines`): the last C-083 debt item — the menu header's "View cart (N)" summed
-`composition.quantity` over every cart line, including ones an 86 or a
-deleted item/option had already flagged. Now runs the same `reviewCart` the
-cart page renders from (tax rate 0 — irrelevant to which lines are flagged)
-and only counts lines with `problems.length === 0`, so the number matches
-what checkout would actually let through. New e2e case in `cart.spec.ts`
-covers a line 86'd after being added. Gate green: 216 passed + 14 skipped e2e
-(230, +1), 929 unit, lint, typecheck, build all clean.
+**C-113 shipped this session** (`2524c33`, SHA recorded in this same commit):
+master PRD P1-3, the SMS stub outbox. One row in `NotificationOutbox` on the
+transition into `ready`, gated on the order having a phone, rendered on the
+staff receipt only. No phone column of its own — the number is read live off
+`Order.customerPhone`, so "forget this customer" (PRD 6 P0-4) gains no second
+place to reach. Gate green: 933 unit (+4), 218 e2e passed + 14 skipped = 232
+(+2), lint/typecheck/build clean.
 
-**Next unblocked item:** none picked yet. The debt list below is now clear of
-one-line fixes — what's left is P1-3/P1-4 (product decisions needed first) or
-the smaller structural items under "Still open."
+Picked over the other open P1 item (order-ahead slots) because it unblocks a
+second PRD: loyalty's own P1-1 (self-serve redemption before tax) names SMS
+as its hard prerequisite. **That prerequisite is still not satisfied** — the
+stub is one-way with no reply channel and no code to confirm a phone
+against, and `docs/prds/prd-loyalty.md` now says so explicitly rather than
+"SMS is unbuilt."
 
----
+**Next unblocked item:** none picked yet. Two real options now, both bigger
+than a one-line fix:
+- **Loyalty P1-1** — self-serve redemption before tax, now that SMS
+  *exists*. Still needs a real answer to "what counts as verification" for a
+  one-way stub before any code — likely needs its own small design pass, not
+  just "start building."
+- **P1-2 (order-ahead scheduling)** — "pickup at 12:30" slots with per-slot
+  capacity, reusing slot-thinking from Bookable. No product-decision gate;
+  straightforward next pick if loyalty's verification question stalls.
 
-**C-082 shipped** (`8db3b8b`, SHA recorded in `d3dba8f`, gate green: 214
-passed + 14 skipped = 228 e2e, matches `--list`; 929 unit). The Open Question
-gating it was asked and answered this session: re-open the recorded decision
-now rather than wait on P1-3's unbuilt SMS. `/menu` now shows "Your order
-#005 is cooking — track it" for any remembered order that is not terminal,
-sourced from a second httpOnly cookie (`lib/recent-orders.ts`) written on
-successful placement. No lookup surface added — same unguessable token,
-same idiom as the cart cookie.
+**Model:** whichever comes next, recommend at that item's start per the usual
+rule. Loyalty P1-1 touches money (tax base, `discountCents`) — lean Opus for
+the design of that one. P1-2 is routine build — Sonnet.
 
-**PRD 5 is now fully done** — every P0 and both P1 items with no open gate
-(P1-1 and P1-2) are shipped. What's left in that PRD is P1-3 (Photos) and
-P1-4 (stop collecting the phone number, or use it) — both bigger, unscoped
-items, not "next session" sized on their own.
+## What C-113 leaves behind
 
-**Next unblocked item:** none picked yet. Options, roughly ascending cost:
-- **P1-4 (phone number)** — decide whether it's in scope to *use* the number
-  (send the SMS P1-3 was a placeholder for) or *stop collecting* it. Mostly a
-  product decision before any code.
-- **P1-3 (Photos)** — M-sized per the PRD (migration + asset story), and the
-  master PRD's Open Question on scope ("are photos in scope for a learning
-  build") is unresolved — ask before starting.
-- Pick up debt instead (see below) — several are one-line-to-small fixes with
-  no gating question.
-
-**Model:** whichever comes next, recommend at that item's start per the
-usual rule — Opus for anything touching the payment/session work in PRD 6,
-Sonnet for routine UI/data-model build like everything in PRD 5 has been.
-
-## What C-082 leaves behind
-
-- **A shared browser sees every order placed from it**, up to 5, until each
-  finishes — there is no per-customer identity to separate them. Same
-  limitation the cart cookie already accepts; not new here.
-- **No log line for "customer used the strip."** Same shape as the
-  no-per-batch-menu-change-event gap below — nobody currently writes an event
-  for "a customer looked at X," and this doesn't start.
+- **No customer-facing surface at all.** The PRD named only the outbox log;
+  nothing here changes what a customer sees or receives.
+- **One message, one trigger.** `readyMessage(seq)` exists as a function
+  (not an inline template) specifically so a second trigger (placed, picked
+  up) has one place to add its own wording later.
+- **No append-only trigger on `NotificationOutbox`**, unlike `OrderEvent` —
+  a `ponytail:` comment in the schema names the upgrade path (a real
+  provider's delivery receipt needing to update a row here).
 
 ## Still open from earlier items
 
@@ -81,6 +68,11 @@ Sonnet for routine UI/data-model build like everything in PRD 5 has been.
   given one") failed once at 8.0s in a C-108-era sweep and has passed in every
   sweep since. A timeout, not an assertion. Local `retries` is 0, CI's is 1.
   First place to look if a refund spec times out again.
+- **`e2e/cart.spec.ts:65`** ("the header cart count drops a line that gets
+  86'd out from under it") failed once at 6.6s mid-sweep during C-113's gate
+  run and passed 3/3 in isolation immediately after, unrelated to anything
+  C-113 touched. Same shape as the refund flake above — a second data point
+  for "timeout under load," not yet enough to call it a pattern.
 
 ## Still open from C-069 / C-071, if you would rather clear debt
 

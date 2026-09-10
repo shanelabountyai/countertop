@@ -7438,6 +7438,8 @@ P1-3's unbuilt SMS, since the fix is one cookie and adds no lookup surface.
 
 ## C-113 — The SMS stub outbox (master PRD P1-3)
 
+Commit `2524c33`.
+
 Loyalty PRD's own P1-1 ("self-serve redemption before tax") names this as its
 hard prerequisite: verification needs SMS, and master-PRD P1-3 was the only
 unbuilt P1 item left standing. Picked over P1-2 (order-ahead slots) because it
