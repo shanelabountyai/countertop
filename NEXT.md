@@ -1,7 +1,7 @@
 # Next
 
-**C-114 shipped this session** (SHA to be recorded in a follow-up commit,
-never by amending): master PRD P1-2, order-ahead scheduling. A "When" picker
+**C-114 shipped this session** (`8cb7530`, SHA recorded in this same commit):
+master PRD P1-2, order-ahead scheduling. A "When" picker
 at checkout offers ASAP or a pickup slot, off by default. `availableSlots` is
 a sibling gate to `checkoutGate` — same manual-pause/closed-today precedence,
 deliberately NOT the throttle, since a slot's own remaining prep weight
