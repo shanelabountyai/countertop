@@ -1,17 +1,18 @@
 # Next
 
-**Debt fix shipped this session** (`fix: a stepper tap on a flagged line
-says why the quantity didn't move`): the stepper's discarded `ActionResult`
-(C-083 debt) — `stepCartLineForm` now redirects with `?stepError=lineId:msg`
-when `updateCartLine` fails (e.g. an option 86'd out from under a flagged
-line), and the cart page renders it on that line as "Quantity not changed:
-…". Gate green (215 passed + 14 e2e skipped = 229, up by the one new spec;
-929 unit).
+**Debt fix shipped this session** (`fix: the header cart count skips flagged
+lines`): the last C-083 debt item — the menu header's "View cart (N)" summed
+`composition.quantity` over every cart line, including ones an 86 or a
+deleted item/option had already flagged. Now runs the same `reviewCart` the
+cart page renders from (tax rate 0 — irrelevant to which lines are flagged)
+and only counts lines with `problems.length === 0`, so the number matches
+what checkout would actually let through. New e2e case in `cart.spec.ts`
+covers a line 86'd after being added. Gate green: 216 passed + 14 skipped e2e
+(230, +1), 929 unit, lint, typecheck, build all clean.
 
-**Next unblocked item:** none picked yet. Same options as before (see
-"Still open" below for the rest of the debt list) — the header cart-count
-bug (C-083) is the next same-shape one-line-fix if continuing the debt
-sweep, otherwise P1-3/P1-4 need a product decision first.
+**Next unblocked item:** none picked yet. The debt list below is now clear of
+one-line fixes — what's left is P1-3/P1-4 (product decisions needed first) or
+the smaller structural items under "Still open."
 
 ---
 
@@ -76,7 +77,6 @@ Sonnet for routine UI/data-model build like everything in PRD 5 has been.
   day** (C-079); it throws rather than clamping.
 - **Twenty-two of twenty-five items have no description** (C-080) — the
   mechanism ships, the copy is a restaurant's job.
-- **The header cart count includes 86'd and unpriced lines** (C-083).
 - **`e2e/refund.spec.ts:211`** ("a no-show is offered a refund rather than
   given one") failed once at 8.0s in a C-108-era sweep and has passed in every
   sweep since. A timeout, not an assertion. Local `retries` is 0, CI's is 1.

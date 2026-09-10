@@ -61,3 +61,19 @@ test('the menu header shows the cart count without opening the cart', async ({ p
   await page.goto('/menu');
   await expect(page.getByRole('link', { name: 'View cart (2)' })).toBeVisible();
 });
+
+test('the header cart count drops a line that gets 86\'d out from under it (C-083)', async ({ page }) => {
+  await addBurritoToCart(page, { guacamole: true });
+
+  await page.goto('/menu');
+  await expect(page.getByRole('link', { name: 'View cart (1)' })).toBeVisible();
+
+  await page.goto('/kitchen/availability');
+  await page.getByRole('button', { name: 'Mark Guacamole sold out' }).click();
+
+  // The line is still in the cart (and still counted in cart.lines.length),
+  // but it can't be placed — the header count now agrees with the cart page's
+  // own "fix or remove" gate instead of promising a number checkout refuses.
+  await page.goto('/menu');
+  await expect(page.getByRole('link', { name: 'View cart' })).toHaveText('View cart');
+});

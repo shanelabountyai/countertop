@@ -6,6 +6,7 @@ import {
   daypartClosure,
   formatOrderNumber,
   isTerminal,
+  reviewCart,
   type MenuItem,
   type RestaurantClock,
 } from '@countertop/core';
@@ -54,7 +55,17 @@ export default async function MenuPage() {
   // P1-2: the count is visible without a trip to the cart page. Total
   // quantity across lines, not line count — a group order is six burritos on
   // one line as often as six separate ones.
-  const cartCount = cart.lines.reduce((sum, line) => sum + line.composition.quantity, 0);
+  //
+  // C-083 debt: a flagged line (86'd since it was added, or referencing an
+  // item/option the menu no longer has) doesn't count — the cart page won't
+  // let it through either, so a number the customer can't actually check out
+  // is worse than a smaller honest one. Same `reviewCart` the cart page
+  // renders from; tax rate doesn't affect which lines are flagged, so 0 here
+  // costs nothing.
+  const cartCount = reviewCart(menu, cart, 0, clock).lines.reduce(
+    (sum, { line, problems }) => (problems.length === 0 ? sum + line.composition.quantity : sum),
+    0,
+  );
 
   // P1-1 (C-082). Looked up by the same unguessable token the confirmation
   // screen printed — no lookup by name, phone or number, so this adds no
