@@ -14,6 +14,7 @@ import {
 } from '@countertop/core';
 import { prisma } from './index';
 import { earnForOrder } from './loyalty';
+import { queueReadyNotification } from './notifications';
 import { eventRow, ORDER_RECEIPT, type OrderReceipt } from './placement';
 import { settleAuthorization } from './authorization';
 import { settleRefund } from './refund';
@@ -71,6 +72,9 @@ export async function applyOrderAction(
       totalCents: true,
       subtotalCents: true,
       customerPhone: true,
+      // The stub's one input besides the phone (P1-3) — already the row being
+      // read, same reasoning as `customerPhone` above.
+      seq: true,
     },
   });
   if (!current) {
@@ -126,6 +130,16 @@ export async function applyOrderAction(
         { id: orderId, customerPhone: current.customerPhone, subtotalCents: current.subtotalCents },
         now,
       );
+    }
+
+    // The stub SMS (P1-3), in the same transaction as the status write for
+    // the same reason the point-earn above is: a row claiming this went out
+    // must not survive the status change losing the race below.
+    //
+    // GATED ON THE PHONE, not on `decision.status === 'ready'` alone — no
+    // phone is no notification, not a notification to nobody.
+    if (decision.status === 'ready' && current.customerPhone) {
+      await queueReadyNotification(tx, orderId, current.seq);
     }
 
     return tx.order.findUniqueOrThrow({ where: { id: orderId }, ...ORDER_RECEIPT });

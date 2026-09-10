@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { STAFF_AUTH_FILE } from './auth-file';
-import { card, placeOrderFor, reseed } from './fixtures';
+import { card, pickUp, placeOrderFor, reseed } from './fixtures';
 
 // C-008: the kitchen queue (P0-4, P0-11).
 //
@@ -633,5 +633,39 @@ test.describe('the staff note', () => {
     await ticket().getByRole('button', { name: 'Save note' }).click();
     await expect(ticket().getByText('Type the note first.')).toBeVisible();
     await expect(ticket().getByTestId('staff-note')).toHaveCount(0);
+  });
+});
+
+// The P1-3 stub: an outbox row on the transition into ready, visible on the
+// staff receipt — nowhere else, because nothing sends anything for real.
+test.describe('the SMS stub', () => {
+  test.beforeEach(() => {
+    reseed();
+  });
+
+  test('logs a row once the order reaches ready, naming the phone that was typed', async ({
+    page,
+  }) => {
+    await placeOrderFor(page, 'Fenwick Okoro', { phone: '(555) 010-2233' });
+    await page.goto('/kitchen');
+    await pickUp(page, 'Fenwick Okoro');
+
+    await page.goto('/kitchen/orders?q=Fenwick Okoro');
+    await page.getByRole('link', { name: /Fenwick Okoro/ }).click();
+
+    const row = page.getByTestId('notification-outbox').locator('li');
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText('is ready for pickup');
+    await expect(row).toContainText('(555) 010-2233');
+  });
+
+  test('logs nothing for an order placed with no phone', async ({ page }) => {
+    await placeOrderFor(page, 'Genoveva Prask');
+    await page.goto('/kitchen');
+    await pickUp(page, 'Genoveva Prask');
+
+    await page.goto('/kitchen/orders?q=Genoveva Prask');
+    await page.getByRole('link', { name: /Genoveva Prask/ }).click();
+    await expect(page.getByTestId('notification-outbox')).toHaveCount(0);
   });
 });

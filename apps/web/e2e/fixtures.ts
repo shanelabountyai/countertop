@@ -146,12 +146,15 @@ export async function placeOrderFor(
   page: Page,
   name: string,
   /** P1-8. Leaves the default alone unless a spec asks — every existing spec
-   *  places a paid order, which is what the checkout form defaults to. */
-  { payAtPickup = false }: { payAtPickup?: boolean } = {},
+   *  places a paid order, which is what the checkout form defaults to.
+   *  `phone` likewise leaves the field blank unless a spec is about what the
+   *  phone gates (loyalty, the P1-3 SMS stub). */
+  { payAtPickup = false, phone }: { payAtPickup?: boolean; phone?: string } = {},
 ): Promise<string> {
   await addBurritoToCart(page);
   await page.getByRole('link', { name: 'Checkout' }).click();
   await page.getByRole('textbox', { name: /Name for the order/ }).fill(name);
+  if (phone) await page.getByRole('textbox', { name: /Phone/ }).fill(phone);
   if (payAtPickup) await page.getByRole('radio', { name: /Pay at pickup/ }).check();
   await page.getByRole('button', { name: /Place order/ }).click();
   await expect(page.getByTestId('order-number')).toBeVisible();

@@ -2386,3 +2386,20 @@ it". It disappears once the order is picked up, cancelled, or not collected —
 it's a way back to something still happening, not a receipt archive. Still
 the same unguessable link as always; nothing new is looked up by name, phone,
 or order number.
+
+## C-113 — A text, stubbed
+
+The kitchen taps "Food is ready" and, today, nothing tells the customer except
+the status page they'd have to be watching. Real SMS is out of scope for this
+build — but the stub is the point where a real provider slots in later without
+touching anything upstream of it.
+
+**One row in a log when an order goes ready**, if a phone was given at
+checkout: "#047 is ready for pickup." Nothing is sent — no carrier, no API
+call — and the staff receipt shows it, so the mechanism is visible before it's
+real.
+
+**No phone number lives in that log.** It reads the order's own phone at
+render time instead of keeping a second copy, so this restaurant's existing
+"forget this customer" control still forgets completely — a stub log was not
+allowed to quietly become a second place a phone number survives.

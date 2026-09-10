@@ -528,6 +528,9 @@ model Order {
   /// rather than an omission, because a member FK here would make the forget
   /// either cascade (changing a report count) or restrict (blocking it).
   loyaltyEvents   LoyaltyEvent[]
+  /// Stub SMS log (P1-3). `Restrict`-free by design: this is a log, not the
+  /// audit trail `events` is, and has no CHECK depending on it.
+  notifications   NotificationOutbox[]
 
   /// Two concurrent placements contend HERE, on the constraint — never on a
   /// check-then-write. The loser catches the violation and retries at seq+1.
@@ -789,6 +792,31 @@ model OrderEvent {
   /// the CHECK constraints, and CI asserts it by name in `pg_class` for the
   /// same reason it asserts those.
   @@index([refundRequestId])
+}
+
+/// The SMS-style status stub (master PRD P1-3, loyalty PRD's P1-1 gate).
+///
+/// STUBBED, like `mockPaymentProvider`: nothing here calls a carrier. One row
+/// is written when an order reaches `ready`, so the visible seam for a real
+/// send is this table rather than a rewrite of the transition that creates it.
+///
+/// NO PHONE COLUMN. The number to text is the order's own `customerPhone`,
+/// read live wherever this renders — the same column `forgetOrderCustomer`
+/// (PRD 6 P0-4) already nulls. A copy of the number here would be a second
+/// place for "forget this customer" to have to reach, and the retention rule
+/// is written against ORDER columns, not this one.
+///
+/// ponytail: no append-only trigger, unlike `OrderEvent` — this is a stub log
+/// with nothing yet reading it for a dispute. Add the trigger the day a real
+/// provider's delivery receipt needs to update a row here.
+model NotificationOutbox {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
 }
 
 /// A name to put on a row (PRD 6 P0-2). NOT an account.

@@ -229,9 +229,11 @@ one-project-at-a-time convention.
   re-authorizing against the new owner. Transfers leave redirects, so old
   links keep working.
 
-P1-2 order-ahead slots, P1-3 SMS notifications, and everything in the PRD's P2
-list. (P1-4 and P1-7 were on this line until they shipped as C-042 and C-041 —
-this list is the one that goes stale, so check it against the ticks above.)
+- [x] **C-113** — *(master PRD P1-3)* SMS-style status notifications, stubbed — the loyalty PRD's own P1-1 gate, unblocked rather than built: `NotificationOutbox`, a table with no phone column of its own, written inside `applyOrderAction`'s transaction on the move INTO `ready` and gated on `Order.customerPhone` being non-null. **No phone stored, deliberately** — the number to render is read live off the order's own column, wherever a row here is shown, so `forgetOrderCustomer` (PRD 6 P0-4) does not gain a second place to reach; a copy would have made "forget this customer" a lie the day after. **No append-only trigger**, unlike `OrderEvent` — this is a stub log nothing yet disputes, not the financial audit trail, and the schema comment names the upgrade path. Rendered on the staff receipt only (`/kitchen/orders/[id]`, a new "SMS (stub)" section beside Activity), gated on `notifications.length > 0` so most orders — which never reach `ready` with a phone on file — show nothing. **Leaves loyalty P1-1 (self-serve redemption before tax) still blocked**: this is a one-way, unverified stub with no reply channel and no code to confirm against, and the loyalty PRD is corrected to say so rather than "SMS is unbuilt."
+
+P1-2 order-ahead slots, and everything in the PRD's P2 list. (P1-3, P1-4 and
+P1-7 were on this line until they shipped as C-113, C-042 and C-041 — this
+list is the one that goes stale, so check it against the ticks above.)
 
 **P1-5 needs no item: it shipped inside P0.** The status token is
 `randomBytes(24)` — 192 bits, above the ≥128 the requirement names — the order

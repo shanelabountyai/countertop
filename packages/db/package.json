@@ -34,6 +34,7 @@
     "./remake": "./remake.ts",
     "./staff": "./staff.ts",
     "./loyalty": "./loyalty.ts",
-    "./retention": "./retention.ts"
+    "./retention": "./retention.ts",
+    "./notifications": "./notifications.ts"
   }
 }

@@ -7435,3 +7435,64 @@ P1-3's unbuilt SMS, since the fix is one cookie and adds no lookup surface.
   limitation the cart cookie already accepts).
 - **No log line for "customer used the strip"** — same "no per-batch event"
   gap this project has left open since PRD 4.
+
+## C-113 — The SMS stub outbox (master PRD P1-3)
+
+Loyalty PRD's own P1-1 ("self-serve redemption before tax") names this as its
+hard prerequisite: verification needs SMS, and master-PRD P1-3 was the only
+unbuilt P1 item left standing. Picked over P1-2 (order-ahead slots) because it
+unblocks a second PRD, not just its own line.
+
+**Built:**
+- **`NotificationOutbox`** (`id`, `orderId`, `message`, `createdAt`) — one hand-
+  written-free migration (`prisma migrate dev`, no CHECK or trigger needed).
+  **No phone column.** The number to notify is the order's own
+  `customerPhone`, read live wherever a row renders — never copied — so
+  `forgetOrderCustomer` (PRD 6 P0-4) gains no second place to reach. The
+  model's own schema comment carries the reasoning.
+- **`queueReadyNotification`** (`packages/db/notifications.ts`), called from
+  inside `applyOrderAction`'s transaction the moment `decision.status ===
+  'ready'`, gated on `current.customerPhone` being non-null — no phone is no
+  notification, not a notification to nobody. In the same transaction as the
+  status write for the reason C-100's earn already established: a row
+  claiming this went out must not survive the status change losing the
+  compare-and-set race.
+- **`readyMessage(seq)`** — the stub's one message, `#NNN is ready for
+  pickup`, built from a fact the transition already has in hand (`seq` joined
+  the function's existing `select`). No provider call anywhere; the visible
+  seam for a real one is this table, the same convention
+  `mockPaymentProvider` set.
+- **Rendered on the staff receipt** (`/kitchen/orders/[id]`), a new "SMS
+  (stub — not actually sent)" section beside Activity, guarded on
+  `notifications.length > 0` — most orders never reach `ready` with a phone
+  on file, and a section that always renders empty is the C-086 mistake this
+  repo has already had to come back and fix once.
+
+**Decided:**
+- **No phone stored, on purpose, not as an afterthought.** A sibling
+  project's outbox stores the address it sent to; this one cannot, because
+  this repo already has a retention promise (PRD 6 P0-4) that a copy of the
+  number would silently violate the day after a customer is forgotten. The
+  render reads `order.customerPhone` directly, so a forgotten customer's stub
+  row correctly degrades to "no phone on file" instead of holding a number
+  that should be gone.
+- **No append-only trigger on `NotificationOutbox`**, unlike `OrderEvent`.
+  This is a stub log nothing yet disputes; the trigger is worth adding the
+  day a real provider's delivery receipt needs to update a row here, and the
+  schema comment says so as a `ponytail:` note.
+- **A second `ready` entry writes a second row.** An order that reverts and
+  re-advances into `ready` gets texted again, which is correct behavior for
+  a real SMS and costs nothing extra to allow.
+
+**Left behind:**
+- **Loyalty PRD's P1-1 (self-serve redemption before tax) is still blocked.**
+  This is a one-way, unverified stub — no reply channel, no code to confirm
+  a phone against — and `docs/prds/prd-loyalty.md` is corrected to say that
+  is what still gates it, rather than "SMS is unbuilt."
+- **No customer-facing surface at all.** The PRD names only the outbox log
+  and the staff receipt was the natural first reader (same reasoning C-086's
+  activity log used); nothing here changes what a customer sees.
+- **The message has one wording, one trigger.** A second trigger (placed,
+  picked up) would want its own line in `readyMessage`'s neighborhood; the
+  function exists as a function rather than an inline template specifically
+  so that has one place to land.

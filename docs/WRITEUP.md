@@ -2468,3 +2468,27 @@ four call sites in the same pass rather than the one the first failure named.
 A grep scoped to "specs that mention /cart" would have found three of the
 four and missed `menu.spec.ts`'s own daypart-closure test, which reaches
 `/cart` only as a side effect of adding a chip while it is still served.
+
+### A stub log that would have quietly widened the retention promise (C-113)
+
+The obvious shape for an SMS outbox — copy the sibling projects' — stores the
+address a message was sent to, right on the log row. Building it that way here
+would have been wrong the moment it shipped, not eventually: this repo already
+has a "forget this customer" control (PRD 6 P0-4) whose whole claim is that a
+scrub reaches every column holding a phone number, and a copy sitting in a new
+table is a column the scrub does not know exists.
+
+**The fix costs nothing at the point it's made and everything if it's missed
+later.** `NotificationOutbox` stores no phone at all — the number to show is
+read live off `Order.customerPhone` wherever a row renders, so a forgotten
+customer's stub entry degrades to "no phone on file" by construction, the
+same way every other screen in the product already reads that column. No
+second scrub target, no test asserting the new table stays in sync with the
+old promise, because there is nothing in it to fall out of sync.
+
+**The general shape:** a new table that names the same real-world fact an
+existing table already owns (here, "whose phone this is") is a duplicate
+truth in waiting, and the question worth asking before adding the column is
+not "does this table need it" but "does something elsewhere already promise
+to forget it." The retention sweep would not have failed loudly — it would
+have kept passing its own test while quietly stopping being true.

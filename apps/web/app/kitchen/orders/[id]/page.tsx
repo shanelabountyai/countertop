@@ -37,6 +37,7 @@ import {
 import { loadGateState } from '@countertop/db/gate';
 import { findOrderByIdForStaff, loadOrderActivity, loadRemakesOf } from '@countertop/db/history';
 import { memberByPhone } from '@countertop/db/loyalty';
+import { listOrderNotifications } from '@countertop/db/notifications';
 import { formatCents } from '@/lib/money';
 import { formatPlacedAt } from '@/lib/format-time';
 import { describeSelection } from '@/lib/menu-labels';
@@ -81,11 +82,12 @@ export default async function OrderHistoryDetailPage({
   const { id } = await params;
   const { adjustError, reversalError, redeemError, revertError, refundError, noteError, forget } =
     await searchParams;
-  const [gateState, order, activity, remakes] = await Promise.all([
+  const [gateState, order, activity, remakes, notifications] = await Promise.all([
     loadGateState(new Date()),
     findOrderByIdForStaff(id),
     loadOrderActivity(id),
     loadRemakesOf(id),
+    listOrderNotifications(id),
   ]);
   if (!order) notFound();
 
@@ -889,6 +891,30 @@ export default async function OrderHistoryDetailPage({
           </button>
         </form>
       </section>
+
+      {/* The SMS stub (P1-3). Rendered rather than logged nowhere, same
+          reasoning C-086 gives the activity log below: a row nobody can see
+          is a column, not a feature. The phone is read live off `order`
+          rather than off the row itself — the table stores no number of its
+          own (schema.prisma has the why), so a forgotten customer's stub
+          reads "no phone on file" instead of a number that should be gone. */}
+      {notifications.length > 0 && (
+        <section className="mt-6 rounded-lg border border-neutral-300 p-4">
+          <h2 className="font-semibold">SMS (stub — not actually sent)</h2>
+          <ol className="mt-3 flex flex-col gap-2" data-testid="notification-outbox">
+            {notifications.map((entry) => (
+              <li key={entry.id} className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-sm tabular-nums text-neutral-600">
+                  {formatPlacedAt(entry.createdAt, gateState.timezone)}
+                </span>
+                <span className="text-lg">
+                  “{entry.message}” → {order.customerPhone ?? 'no phone on file'}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {/* The append-only log, finally read by somebody (C-086). It has been
           written since C-003 and looked at only by the report's tally and by
