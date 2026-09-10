@@ -7498,3 +7498,82 @@ unblocks a second PRD, not just its own line.
   picked up) would want its own line in `readyMessage`'s neighborhood; the
   function exists as a function rather than an inline template specifically
   so that has one place to land.
+
+## C-114 — Order-ahead scheduling (master PRD P1-2)
+
+Picked over loyalty's P1-1 (self-serve redemption before tax): that item
+needs its own design pass on what "verification" means for a one-way SMS
+stub before any code, and this one had no such gate — a straightforward
+build once C-113's SMS stub existed to name as the still-blocking
+prerequisite for loyalty in `docs/PROGRESS.md`'s own C-113 entry.
+
+**Built:**
+- **`packages/core/orders/schedule.ts`** — a SIBLING gate to `checkoutGate`,
+  not a branch on it: `availableSlots` answers "can a promise be made for a
+  specific future minute", which is a structurally different question from
+  "can an order be placed right now." Same precedence as the ASAP gate's
+  first two triggers (manual pause, then the calendar) — a kitchen that told
+  ASAP customers to come back tomorrow cannot turn around and accept a
+  promise for later today — but deliberately does NOT inherit the throttle
+  or the "closing soon" wording: a scheduled slot's own remaining weight,
+  summed on the SAME prep-weight scale `maxOpenWeight` throttles the live
+  queue on (P1-7), is its own capacity check.
+- **`zonedTimeToInstant`**, in `business-day.ts` rather than `schedule.ts` —
+  the one LOCAL → INSTANT conversion in the codebase, and that module's
+  header now names it as the one exception to "never local to instant."
+  Resolves the DST ambiguity (a doubled or skipped local hour, once a year
+  each direction) with a single offset-refinement pass against `Intl`'s
+  `longOffset` rather than throwing, because a customer booking a slot the
+  same module just generated must never see an exception.
+- **`Order.requestedFor`** (nullable `Timestamptz(3)`) and four
+  `RestaurantSettings` columns (`scheduledOrdersEnabled`,
+  `slotIntervalMinutes`, `slotLeadMinutes`, `maxSlotWeight`), each with a
+  hand-written CHECK mirroring the settings screen's own bound — same house
+  pattern as `checkout_gate`. `scheduledOrdersEnabled` defaults false, and
+  that is load-bearing the same way `loyaltyEnabled` is: off renders no
+  picker anywhere and writes no `requestedFor`, so the seeded rush and
+  every existing spec pass unchanged.
+- **`placeOrder`** branches on `input.requestedForMinute`: present, it
+  re-derives `availableSlots` fresh (never trusting the client's list, the
+  same discipline `reviewCart` applies to a cart) and refuses on a stale or
+  full minute (`slot_unavailable`); absent, ASAP is unchanged. A scheduled
+  order stores no quote (`quotedLowMinutes`/`High`/`OpenWeight` all null) —
+  its promise IS `requestedFor`, not a range against a queue it skipped,
+  the same "no record" honesty pre-C-042 orders already use.
+- **Checkout, confirmation, status page, kitchen queue, settings** all
+  updated: a "When" picker at checkout (rendered only when a slot exists —
+  same invisibility rule as loyalty's checkbox); the confirmation and
+  status page show "Pickup at HH:MM" instead of the ASAP estimate; the
+  queue card carries a "Pickup HH:MM" badge; a new settings form saves the
+  three tunables plus the switch.
+- **`cartPrepWeight`** pulled out of `buildOrderSnapshot` — the P1-2
+  capacity check and the snapshot both needed "how much kitchen work is
+  this cart", and a second copy of that reduce was the wrong way to answer
+  it twice.
+
+**Decided:**
+- **Same-day only.** No multi-day slot picker — "order Tuesday for
+  Thursday" is explicitly the master PRD's P2 catering lead-time line, not
+  this one grown up early.
+- **The confirmation screen renders the pickup time in the VIEWER'S OWN
+  device clock**, not the restaurant's — the one deliberate exception to
+  this project's own "never the client's clock" rule, reasoned through in
+  the component's own comment: a customer picking up their own order can be
+  trusted to read their own device's time correctly, and the alternative
+  costs a second settings query on a screen that clears the cart the moment
+  it renders. The status page and kitchen queue, both server components
+  with real access to the restaurant's timezone, use `restaurantClock`
+  instead.
+
+**Left behind:**
+- **The queue's 15-minute "N min since ordered — running late" flag does
+  not know about `requestedFor`.** A scheduled order sitting untouched
+  well before its slot can still redden — `queueAging` reads only
+  `placedAt`. The "Pickup HH:MM" badge is the mitigation (a cook sees why),
+  not the fix; the fix is `queueAging` reading `requestedFor` itself.
+- **No fixture pinned to an actual DST-transition date** for
+  `zonedTimeToInstant` — noted as a `ponytail:` comment on the function
+  itself.
+- **A fully-booked day degrades silently to ASAP-only**, the same way a
+  program with loyalty off degrades to no punch card — no "sorry, nothing
+  left today" copy, just an absent picker.

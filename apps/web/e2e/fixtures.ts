@@ -250,6 +250,28 @@ export async function loyaltyMembers(): Promise<
 }
 
 /**
+ * Order-ahead scheduling (master PRD P1-2, C-114). Same shape as
+ * `setLoyaltyEnabled` and the same reasoning: the real toggle has its own
+ * spec (`switches order-ahead on from the settings screen` in
+ * schedule.spec.ts) driving the actual form, and every other spec wants the
+ * feature OFF, which `reseed()` already restores.
+ */
+export async function setSchedulingEnabled(
+  scheduledOrdersEnabled: boolean,
+  overrides: { slotIntervalMinutes?: number; slotLeadMinutes?: number; maxSlotWeight?: number } = {},
+): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  try {
+    await prisma.restaurantSettings.update({
+      where: { id: 'singleton' },
+      data: { scheduledOrdersEnabled, ...overrides },
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/**
  * A staff correction on the only member's balance (PRD 7 P0-2's `adjust`).
  *
  * The one thing a fixture may do that a spec may not, for the same reason

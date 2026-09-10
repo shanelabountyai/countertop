@@ -2403,3 +2403,20 @@ real.
 render time instead of keeping a second copy, so this restaurant's existing
 "forget this customer" control still forgets completely — a stub log was not
 allowed to quietly become a second place a phone number survives.
+
+## C-114 — Order ahead
+
+Every order until now assumed one thing: you're ordering for right now. But
+"I'll swing by at 12:30" is a real, common intent this product had no way to
+hear — a customer either waits in the live queue or doesn't order at all.
+
+**Checkout can now offer a pickup time instead of ASAP**, in slots with their
+own capacity — a slot fills independently of how busy the live queue is, so a
+kitchen slammed right now can still take a promise for later today. The
+confirmation, the customer's status page, and the kitchen's own queue card
+all say the same pickup time back, in the right clock: the kitchen sees it in
+the restaurant's own time, the customer sees it in theirs.
+
+**Off by default**, like every optional feature this project has shipped — a
+restaurant that never turns it on sees no picker anywhere and nothing about
+its existing checkout changes.

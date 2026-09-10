@@ -145,7 +145,7 @@ Each queue card shows everything the line cook needs without tapping through: or
 ### Nice-to-Have (P1)
 
 - **P1-1: Sales report** ✅ *(C-016)* — items sold by day/hour, top sellers, modifier attach rates (e.g., % of burritos adding guac — a genuinely fun query to write), plus no-show (`abandoned`) rate. All day/hour bucketing uses the restaurant's configured timezone, not UTC; the seeded rush report is the regression fixture.
-- **P1-2: Order-ahead scheduling** — "pickup at 12:30" slots with per-slot capacity; reuses slot-thinking from Bookable
+- **P1-2: Order-ahead scheduling** ✅ *(C-114)* — "pickup at 12:30" slots with per-slot capacity; reuses slot-thinking from Bookable
 - **P1-3: SMS-style status notifications** ✅ *(C-113)* — outbox log on `ready`, same stub convention as prior projects; uses the phone captured in P0-8
 - **P1-4: Estimated-time tuning** ✅ *(C-042)* — the quoted range and the queue depth behind it are snapshotted on the order, and `/kitchen/report` compares them against the actual `ready` timestamps from the P0-4 event log, naming which of the two P0-7 settings to move. Suggested, never auto-applied
 - **P1-5: Status page hardening** ✅ *(shipped inside P0 — closed as satisfied, not built twice)* — the tokenized status link is ≥128-bit random and unguessable; enumeration of sequential order numbers cannot resolve another customer's status page; terminal states render a final view

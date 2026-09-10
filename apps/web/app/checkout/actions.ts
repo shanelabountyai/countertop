@@ -29,6 +29,9 @@ export type OrderConfirmation = {
   /** The customer's status link (C-014 renders the page behind it). */
   statusToken: string;
   placedAt: Date;
+  /** P1-2. Null for an ASAP order — the confirmation shows the estimate
+   *  instead. */
+  requestedFor: Date | null;
   subtotalCents: number;
   taxCents: number;
   totalCents: number;
@@ -115,6 +118,7 @@ const confirm = (order: OrderReceipt, enrolment: EnrolmentLogOutcome | null): Or
   customerName: order.customerName,
   statusToken: order.statusToken,
   placedAt: order.placedAt,
+  requestedFor: order.requestedFor,
   subtotalCents: order.subtotalCents,
   taxCents: order.taxCents,
   totalCents: order.totalCents,
@@ -194,6 +198,19 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
   const { joinLoyalty } = raw;
   if (joinLoyalty !== undefined && typeof joinLoyalty !== 'boolean') return MALFORMED;
 
+  // The P1-2 slot picker. Absent is ASAP; present is a minute the customer's
+  // browser read off `availableSlots` moments ago — `placeOrder` re-checks it
+  // against a fresh read rather than trusting this number at all. Shape only,
+  // here: an out-of-range or non-integer value fails that re-check the same
+  // way a full slot does, so there is nothing more specific to reject with.
+  const { requestedForMinute } = raw;
+  if (
+    requestedForMinute !== undefined &&
+    (typeof requestedForMinute !== 'number' || !Number.isInteger(requestedForMinute))
+  ) {
+    return MALFORMED;
+  }
+
   const customerName = optionalString(raw.customerName);
   const customerPhone = optionalString(raw.customerPhone);
   const orderNote = optionalString(raw.orderNote);
@@ -216,6 +233,7 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
       now,
       ...(clientTotalCents === undefined ? {} : { clientTotalCents }),
       ...(payNow === undefined ? {} : { paidNow: payNow }),
+      ...(requestedForMinute === undefined ? {} : { requestedForMinute }),
     });
   } catch (thrown) {
     // `priceLine` throws on an unknown id rather than pricing it as zero

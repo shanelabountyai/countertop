@@ -8,6 +8,7 @@ import {
   instantDaysBefore,
   instantMinutesAfter,
   restaurantClock,
+  zonedTimeToInstant,
 } from './business-day';
 
 // Every instant here is built with Date.UTC — the one form that provably
@@ -224,5 +225,40 @@ describe('nextDay', () => {
 
   it('hands back anything that is not a day', () => {
     expect(nextDay('tomorrow')).toBe('tomorrow');
+  });
+});
+
+describe('zonedTimeToInstant (P1-2) — the one local -> instant conversion', () => {
+  const TZ = 'America/Los_Angeles';
+
+  it('round-trips through restaurantClock for an ordinary minute', () => {
+    const instant = zonedTimeToInstant('2026-07-07', 13 * 60 + 30, TZ);
+    expect(restaurantClock(instant, TZ)).toMatchObject({
+      day: '2026-07-07',
+      minuteOfDay: 13 * 60 + 30,
+    });
+  });
+
+  it('resolves the same pairing identically regardless of the process timezone', () => {
+    // The point of the offset-refinement pass: this function's OWN behaviour
+    // must not depend on the process timezone, even though it is the one
+    // exemption from the "never local to instant" rule. CI runs this file
+    // under TZ=UTC and TZ=Pacific/Kiritimati expecting identical results.
+    const instant = zonedTimeToInstant('2026-01-15', 9 * 60, TZ);
+    expect(restaurantClock(instant, TZ).minuteOfDay).toBe(9 * 60);
+  });
+
+  it('agrees with the UTC offset on each side of a DST change', () => {
+    // Noon local on a winter day is 20:00 UTC (PST, UTC-8); noon local on a
+    // summer day is 19:00 UTC (PDT, UTC-7) — the same local minute, a
+    // different UTC hour, because the offset itself moved.
+    const winter = zonedTimeToInstant('2026-01-15', 12 * 60, TZ);
+    const summer = zonedTimeToInstant('2026-07-15', 12 * 60, TZ);
+    expect(restaurantClock(winter, 'UTC').minuteOfDay).toBe(20 * 60);
+    expect(restaurantClock(summer, 'UTC').minuteOfDay).toBe(19 * 60);
+  });
+
+  it('throws on a malformed day rather than guessing', () => {
+    expect(() => zonedTimeToInstant('07/07/2026', 780, TZ)).toThrow();
   });
 });

@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
   elapsedMinutes,
+  formatMinuteOfDay,
   formatOrderNumber,
   isOpen,
   isPastQuote,
@@ -27,6 +28,7 @@ import {
   paymentTotals,
   refundNeedsAttention,
   remainingEstimate,
+  restaurantClock,
   type CancelReason,
   type OrderStatus,
 } from '@countertop/core';
@@ -165,7 +167,7 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
   // has a ready time after the restaurant stops taking new ones. The estimate
   // is recalculated on every render, and this page re-renders on every poll
   // (P0-7).
-  const { estimate } = await currentCheckout();
+  const { estimate, timezone } = await currentCheckout();
   // The phone, for the two views whose copy asks the customer to use it. A
   // separate read from the footer's own, which is a query rather than a prop
   // threaded down so that a page can never render the footer and forget it.
@@ -226,37 +228,48 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
             placed/accepted/preparing, asked of the status module rather than
             spelled out here. Food already on the shelf does not get a time
             estimate; it gets "come and get it". */}
-        {isOpen(order.status) && (
-          <p
-            className={`mt-6 text-lg ${late ? 'font-bold text-red-700' : ''}`}
-            data-testid="status-estimate"
-          >
-            {/* Late is asked FIRST, and that ordering is the requirement rather
-                than a preference: "any minute now" past the promised high end
-                is the page saying something it can already see is false, forty
-                times, five seconds apart, while the kitchen screen has been
-                shouting "running late" in red the whole time. Structurally
-                unreachable now — the two branches below cannot be entered once
-                this one is true.
-
-                `remaining` can still be a live range here (a queue that got
-                busier since placement quotes longer than this order was), which
-                is exactly the case that used to read "usually ready in about
-                10–20 min" to somebody five minutes past their promise.
-
-                The same red the queue card flags with, deliberately: one
-                condition, one colour, so the customer's page and the expo's
-                screen are visibly saying the same thing about the same order. */}
-            {late ? (
-              <>Running a bit behind — the kitchen still has your order.</>
-            ) : remaining ? (
-              <>
-                Usually ready in about <strong>{remaining.label}</strong>.
-              </>
-            ) : (
-              <>Should be ready any minute now.</>
-            )}
+        {/* P1-2. A scheduled order's promise IS `requestedFor`, not a range
+            against a live queue it skipped — the same reason placement never
+            stored a quote for it. Told apart the same way everywhere else on
+            this order is: the column's own presence, never a second flag. */}
+        {isOpen(order.status) && order.requestedFor ? (
+          <p className="mt-6 text-lg" data-testid="status-estimate">
+            Pickup at{' '}
+            <strong>{formatMinuteOfDay(restaurantClock(order.requestedFor, timezone).minuteOfDay)}</strong>.
           </p>
+        ) : (
+          isOpen(order.status) && (
+            <p
+              className={`mt-6 text-lg ${late ? 'font-bold text-red-700' : ''}`}
+              data-testid="status-estimate"
+            >
+              {/* Late is asked FIRST, and that ordering is the requirement rather
+                  than a preference: "any minute now" past the promised high end
+                  is the page saying something it can already see is false, forty
+                  times, five seconds apart, while the kitchen screen has been
+                  shouting "running late" in red the whole time. Structurally
+                  unreachable now — the two branches below cannot be entered once
+                  this one is true.
+
+                  `remaining` can still be a live range here (a queue that got
+                  busier since placement quotes longer than this order was), which
+                  is exactly the case that used to read "usually ready in about
+                  10–20 min" to somebody five minutes past their promise.
+
+                  The same red the queue card flags with, deliberately: one
+                  condition, one colour, so the customer's page and the expo's
+                  screen are visibly saying the same thing about the same order. */}
+              {late ? (
+                <>Running a bit behind — the kitchen still has your order.</>
+              ) : remaining ? (
+                <>
+                  Usually ready in about <strong>{remaining.label}</strong>.
+                </>
+              ) : (
+                <>Should be ready any minute now.</>
+              )}
+            </p>
+          )
         )}
 
         <section className="mt-6 rounded-lg border border-neutral-300 p-4">

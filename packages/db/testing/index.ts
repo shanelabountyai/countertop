@@ -136,6 +136,13 @@ type SettingsOverrides = {
   loyaltyExpiryDays?: number;
   // Retention (PRD 6 P0-4, C-091).
   retentionDays?: number;
+  // Order-ahead scheduling (master PRD P1-2, C-114). Off by default, same
+  // reasoning as loyalty: every existing spec must pass with no slot picker
+  // anywhere.
+  scheduledOrdersEnabled?: boolean;
+  slotIntervalMinutes?: number;
+  slotLeadMinutes?: number;
+  maxSlotWeight?: number;
   // Where to find us (PRD 5 P0-1, C-077). Filled by default rather than left
   // null, because the seeded database is what the e2e suite and the demo both
   // render — a footer with no address in either is the requirement not landing
@@ -195,6 +202,10 @@ export async function seedSettings(overrides: SettingsOverrides = {}): Promise<v
       rewardValueCents: overrides.rewardValueCents ?? 1000,
       loyaltyExpiryDays: overrides.loyaltyExpiryDays ?? 365,
       retentionDays: overrides.retentionDays ?? 365,
+      scheduledOrdersEnabled: overrides.scheduledOrdersEnabled ?? false,
+      slotIntervalMinutes: overrides.slotIntervalMinutes ?? 15,
+      slotLeadMinutes: overrides.slotLeadMinutes ?? 20,
+      maxSlotWeight: overrides.maxSlotWeight ?? 20,
       name: overrides.name !== undefined ? overrides.name : SAMPLE_CONTACT.name,
       addressLine:
         overrides.addressLine !== undefined ? overrides.addressLine : SAMPLE_CONTACT.addressLine,

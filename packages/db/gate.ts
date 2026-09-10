@@ -16,9 +16,11 @@ import {
   businessDayOf,
   OPEN_STATUSES,
   restaurantClock,
+  sumWeightBySlot,
   todaysHours,
   type EstimateState,
   type GateState,
+  type SlotConfig,
 } from '@countertop/core';
 import { prisma } from './index';
 import { hasLoyaltyPepper, type LoyaltyOffer } from './loyalty';
@@ -35,7 +37,19 @@ export async function loadGateState(
    *  what decides which orders are TODAY's (CLAUDE.md time rules). */
   now: Date,
 ): Promise<
-  GateState & EstimateState & { timezone: string; taxRatePpm: number; loyalty: LoyaltyOffer }
+  GateState &
+    EstimateState & {
+      timezone: string;
+      taxRatePpm: number;
+      loyalty: LoyaltyOffer;
+      /** P1-2. False renders no slot picker anywhere and writes no
+       *  `requestedFor` — same invisibility rule `loyaltyEnabled` set. */
+      scheduledOrdersEnabled: boolean;
+      scheduleConfig: SlotConfig;
+      /** Prep weight already promised to each of TODAY's slots, keyed by
+       *  local minute-of-day — `availableSlots`' third argument. */
+      weightBySlot: Map<number, number>;
+    }
 > {
   const [settings, hours] = await Promise.all([
     // Throws rather than defaulting, like `loadSettings`: a missing settings
@@ -50,18 +64,28 @@ export async function loadGateState(
   // separate READS — the gate and the estimate still share exactly one, which
   // is the property that matters.
   const today = businessDayOf(now, settings.timezone);
-  const open = await prisma.order.aggregate({
-    _sum: { prepWeight: true },
-    where: {
-      status: { in: [...OPEN_STATUSES] },
-      // The negation of `isLeftOver`, in the one dialect Prisma speaks (P1-6).
-      // A `preparing` row somebody forgot to tap on Tuesday is not work the
-      // kitchen owes: summed in, it inflates every quoted wait and can hold the
-      // P0-6 auto-pause closed forever. The kitchen queue still shows it,
-      // flagged, which is where it gets closed out.
-      businessDay: { gte: today },
-    },
-  });
+  const [open, scheduled] = await Promise.all([
+    prisma.order.aggregate({
+      _sum: { prepWeight: true },
+      where: {
+        status: { in: [...OPEN_STATUSES] },
+        // The negation of `isLeftOver`, in the one dialect Prisma speaks (P1-6).
+        // A `preparing` row somebody forgot to tap on Tuesday is not work the
+        // kitchen owes: summed in, it inflates every quoted wait and can hold the
+        // P0-6 auto-pause closed forever. The kitchen queue still shows it,
+        // flagged, which is where it gets closed out.
+        businessDay: { gte: today },
+      },
+    }),
+    // Exact match on `today`, unlike the aggregate above: a scheduled order is
+    // same-day by construction (P1-2 does not build multi-day slots), so a
+    // leftover from a prior day carries a stale minute that means nothing on
+    // today's clock face and must not be bucketed onto it.
+    prisma.order.findMany({
+      where: { status: { in: [...OPEN_STATUSES] }, businessDay: today, requestedFor: { not: null } },
+      select: { requestedFor: true, prepWeight: true },
+    }),
+  ]);
 
   return {
     timezone: settings.timezone,
@@ -96,6 +120,20 @@ export async function loadGateState(
     cutoffMinutes: settings.cutoffMinutes,
     prepBaseMinutes: settings.prepBaseMinutes,
     prepPerWeightMinutes: settings.prepPerWeightMinutes,
+    scheduledOrdersEnabled: settings.scheduledOrdersEnabled,
+    scheduleConfig: {
+      intervalMinutes: settings.slotIntervalMinutes,
+      leadMinutes: settings.slotLeadMinutes,
+      maxSlotWeight: settings.maxSlotWeight,
+    },
+    weightBySlot: sumWeightBySlot(
+      scheduled.map((row) => ({
+        // `requestedFor` cannot be null — the query filtered on it — but the
+        // client's type has no way to say that back.
+        minuteOfDay: restaurantClock(row.requestedFor!, settings.timezone).minuteOfDay,
+        prepWeight: row.prepWeight,
+      })),
+    ),
   };
 }
 

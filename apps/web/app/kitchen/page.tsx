@@ -8,6 +8,7 @@
 import Link from 'next/link';
 import {
   DEFAULT_AGING,
+  formatMinuteOfDay,
   formatOrderNumber,
   groupQueue,
   checkoutGate,
@@ -399,6 +400,18 @@ export default async function KitchenPage({
                     {needsAcknowledgment(order.status) && !leftOverCard && (
                       <p className="mb-2 w-fit rounded bg-sky-700 px-2 py-1 text-lg font-bold uppercase text-white">
                         New — not yet accepted
+                      </p>
+                    )}
+                    {/* P1-2. A customer who picked a slot is not "running
+                        late" for sitting untouched — they asked for THIS time,
+                        not now. ponytail: the "N min since ordered" line below
+                        does not know that yet and can still redden on a
+                        scheduled ticket well before its slot; this badge is
+                        the mitigation until `queueAging` reads
+                        `requestedFor` itself (docs/WRITEUP.md). */}
+                    {order.requestedFor && (
+                      <p className="mb-2 w-fit rounded bg-indigo-700 px-2 py-1 text-lg font-bold uppercase text-white">
+                        Pickup {formatMinuteOfDay(restaurantClock(order.requestedFor, gateState.timezone).minuteOfDay)}
                       </p>
                     )}
                     <div className="flex flex-wrap items-baseline justify-between gap-2">

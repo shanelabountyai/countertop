@@ -23,7 +23,7 @@ export const metadata = { title: 'Checkout — Firebird Kitchen' };
 export const dynamic = 'force-dynamic';
 
 export default async function CheckoutPage() {
-  const [menu, review, { gate, estimate, loyalty }] = await Promise.all([
+  const [menu, review, { gate, estimate, loyalty, schedule }] = await Promise.all([
     loadMenu(),
     getCartReview(),
     currentCheckout(),
@@ -136,7 +136,12 @@ export default async function CheckoutPage() {
             prop rather than as a promise. */}
         <CheckoutForm
           cartEmpty={review.lines.length === 0}
-          canPlace={gate.open && !review.needsFix && !review.needsPriceConfirmation}
+          reviewOk={!review.needsFix && !review.needsPriceConfirmation}
+          asapOpen={gate.open}
+          // Scheduling deliberately does not fold into `gate` (P1-2): a
+          // kitchen at capacity right now can still take a promise for later
+          // today, which is exactly the case this list exists to surface.
+          slots={schedule && schedule.open ? schedule.slots : []}
           clientTotalCents={review.totals.totalCents}
           loyalty={loyalty.offered ? { terms: loyalty.terms, expiryDays: loyalty.expiryDays } : null}
         />

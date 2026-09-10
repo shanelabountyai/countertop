@@ -446,25 +446,25 @@ model ItemModifierGroup {
 model Order {
   /// Internal only. The UUID never appears in any UI (P0-8) — customers and
   /// staff use `seq` + `customerName`.
-  id              String        @id @default(uuid())
+  id                String               @id @default(uuid())
   /// Restaurant-timezone calendar day, "YYYY-MM-DD". Never a Postgres `date`.
-  businessDay     String        @db.Char(10)
+  businessDay       String               @db.Char(10)
   /// The human-callable number: #047. Resets daily, per business day.
-  seq             Int
-  customerName    String        @db.VarChar(40)
-  customerPhone   String?       @db.VarChar(32)
-  orderNote       String?       @db.VarChar(140)
-  status          OrderStatus
+  seq               Int
+  customerName      String               @db.VarChar(40)
+  customerPhone     String?              @db.VarChar(32)
+  orderNote         String?              @db.VarChar(140)
+  status            OrderStatus
   /// Orders the kitchen queue.
-  placedAt        DateTime      @db.Timestamptz(3)
+  placedAt          DateTime             @db.Timestamptz(3)
   /// Drives both aging flags (the 15-minute queue flag and the 10/20/30-minute
   /// `ready` no-show flag). Every OTHER transition time is derived from the
   /// append-only event log, which is the single source — a denormalized column
   /// per status can disagree with it, and a logged revert would have to decide
   /// whether to un-set one (decided C-003).
-  statusChangedAt DateTime      @db.Timestamptz(3)
-  subtotalCents   Int
-  taxCents        Int
+  statusChangedAt   DateTime             @db.Timestamptz(3)
+  subtotalCents     Int
+  taxCents          Int
   /// Snapshotted with the money. A later rate change must not make this
   /// receipt's arithmetic unexplainable.
   ///
@@ -473,13 +473,13 @@ model Order {
   /// chips that is legally the wrong number in most US states, and it is
   /// deferred rather than unnoticed (C-070). This column keeps its meaning
   /// under that plan and is never dropped.
-  taxRatePpm      Int
-  totalCents      Int
+  taxRatePpm        Int
+  totalCents        Int
   /// Snapshotted with the money (P1-7): the sum of each line's item weight
   /// times its quantity, as the menu read at placement. Re-deriving it through
   /// `menuItemId` would let re-weighting an item change how heavy a queue that
   /// has already been cooked was.
-  prepWeight      Int
+  prepWeight        Int
   /// What this order was PROMISED at placement (P1-4), snapshotted like the
   /// money and for the same reason: recomputing an old order's estimate from
   /// today's settings grades this afternoon's arithmetic against itself and
@@ -492,6 +492,19 @@ model Order {
   /// in front of this order. Without it the report can prove the quotes are
   /// wrong but not WHICH of the two P0-7 settings is wrong.
   quotedOpenWeight  Int?
+  /// The pickup instant the CUSTOMER chose (P1-2), or null for an ASAP order.
+  /// Null on every order this restaurant places until `scheduledOrdersEnabled`
+  /// is switched on, and null forever on an ASAP order after that — the two
+  /// kinds are told apart by this column alone, never by a separate flag that
+  /// could disagree with it.
+  ///
+  /// Set ONCE at placement, from the restaurant's own calendar day and the
+  /// slot minute the customer picked (`zonedTimeToInstant`), and never read
+  /// back through `menuItemId` or any other menu table — same snapshot
+  /// discipline as every other placement-time column here. A scheduled order
+  /// carries no `quotedLowMinutes`/`quotedHighMinutes` (both null): its
+  /// promise IS this instant, not a range against the live queue.
+  requestedFor      DateTime?            @db.Timestamptz(3)
   /// WHERE THE BAG IS, RIGHT NOW (PRD 2 P0-5) — and the one mutable column on
   /// this table that is deliberately outside the snapshot.
   ///
@@ -506,31 +519,31 @@ model Order {
   /// it, so the customer's status page, the staff receipt and placement cannot
   /// render it even by accident, and the queue read is the only shape that
   /// carries it. No report reads it, and no price is computed from it.
-  shelfLocation   String?       @db.VarChar(16)
-  paymentState    PaymentState  @default(unpaid)
-  cancelReason    CancelReason?
-  cancelNote      String?       @db.VarChar(140)
+  shelfLocation     String?              @db.VarChar(16)
+  paymentState      PaymentState         @default(unpaid)
+  cancelReason      CancelReason?
+  cancelNote        String?              @db.VarChar(140)
   /// The customer's status link (>=128 bits of randomness). Unguessable, so
   /// enumerating order numbers cannot reach someone else's order.
-  statusToken     String        @unique
+  statusToken       String               @unique
   /// P0-10. The CONSTRAINT is the mechanism; the disabled submit button is UX.
-  idempotencyKey  String        @unique
-  lines           OrderLine[]
-  events          OrderEvent[]
+  idempotencyKey    String               @unique
+  lines             OrderLine[]
+  events            OrderEvent[]
   /// Events on OTHER orders that point at this one (C-066). In practice: the
   /// `remake` event on the order that replaced this one. `Restrict` on the far
   /// side, so the link between a wrong order and its remake cannot be tidied
   /// away — it is the only record that either happened.
-  remadeBy        OrderEvent[] @relation("OrderRemake")
+  remadeBy          OrderEvent[]         @relation("OrderRemake")
   /// Ledger rows earned or redeemed against this order (PRD 7). `Restrict` on
   /// the far side: the order outlives them. `Order` itself gains NO column and
   /// NO foreign key to any loyalty table — P0-6 states that as a requirement
   /// rather than an omission, because a member FK here would make the forget
   /// either cascade (changing a report count) or restrict (blocking it).
-  loyaltyEvents   LoyaltyEvent[]
+  loyaltyEvents     LoyaltyEvent[]
   /// Stub SMS log (P1-3). `Restrict`-free by design: this is a log, not the
   /// audit trail `events` is, and has no CHECK depending on it.
-  notifications   NotificationOutbox[]
+  notifications     NotificationOutbox[]
 
   /// Two concurrent placements contend HERE, on the constraint — never on a
   /// check-then-write. The loser catches the violation and retries at seq+1.
@@ -677,15 +690,15 @@ model OrderLineOption {
 /// Append-only, enforced by a trigger in the migration. An undo writes a
 /// `revert` row; nothing is ever deleted or updated.
 model OrderEvent {
-  id         String         @id @default(uuid())
-  orderId    String
-  order      Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  at         DateTime       @db.Timestamptz(3)
-  kind       OrderEventKind
-  fromStatus OrderStatus?
-  toStatus   OrderStatus?
+  id              String         @id @default(uuid())
+  orderId         String
+  order           Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  at              DateTime       @db.Timestamptz(3)
+  kind            OrderEventKind
+  fromStatus      OrderStatus?
+  toStatus        OrderStatus?
   /// WHAT KIND of actor. Unchanged, and it keeps its meaning.
-  actor      EventActor
+  actor           EventActor
   /// WHICH ONE (PRD 6 P0-2). The two columns answer different questions and
   /// neither replaces the other: `actor` stays the thing the engine decides,
   /// this is the thing the shift knows.
@@ -697,9 +710,9 @@ model OrderEvent {
   ///
   /// `Restrict`, like the analytics FKs: attribution must not disappear
   /// because somebody tidied up a staff list.
-  staffId    String?
-  staff      StaffMember?   @relation(fields: [staffId], references: [id], onDelete: Restrict)
-  reason     String?
+  staffId         String?
+  staff           StaffMember?   @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  reason          String?
   /// Money moved by THIS event, in integer cents (PRD 3 P0-1, C-063).
   ///
   /// A column and not a key in `detail`, because the event stream is now the
@@ -707,20 +720,20 @@ model OrderEvent {
   /// JSON is a balance no index can help and no CHECK can constrain. A CHECK
   /// ties it to the kinds that move money: `payment` and `refund` must carry
   /// one, everything else must not.
-  amountCents Int?
+  amountCents     Int?
   /// The processor's own reference for this movement, for the day there is a
   /// processor. Null throughout — `provider: 'mock'` in `detail` is the honest
   /// record that no call was made — and here now because adding it later means
   /// a migration over a table that only grows.
-  providerRef String?        @db.VarChar(128)
+  providerRef     String?        @db.VarChar(128)
   /// The order this event points AT (C-066). Non-null only on `remake` today.
   ///
   /// ONE DIRECTION: the remake's own event names the original, and the
   /// original's receipt finds its remake by reverse lookup off the index
   /// below. Recording it on both orders would be one fact stored twice, and
   /// two copies of a fact are two things that can disagree.
-  relatedOrderId String?
-  relatedOrder   Order?       @relation("OrderRemake", fields: [relatedOrderId], references: [id], onDelete: Restrict)
+  relatedOrderId  String?
+  relatedOrder    Order?         @relation("OrderRemake", fields: [relatedOrderId], references: [id], onDelete: Restrict)
   /// The refund REQUEST this attempt was made against (PRD 3 P0-6, C-071).
   ///
   /// Non-null on `refund` and `refund_failed`, null on everything else, and
@@ -741,11 +754,11 @@ model OrderEvent {
   /// refuses every delete on this table, so this is the constraint saying the
   /// same thing where a future migration can see it.
   refundRequestId String?
-  refundRequest   OrderEvent?  @relation("RefundAttempt", fields: [refundRequestId], references: [id], onDelete: Restrict)
+  refundRequest   OrderEvent?    @relation("RefundAttempt", fields: [refundRequestId], references: [id], onDelete: Restrict)
   /// The attempts made against this request — the reverse of the link above,
   /// and what `loadRefundExceptions` asks: a request with `none` of these of
   /// kind `refund` is money owed and unsent.
-  refundAttempts  OrderEvent[] @relation("RefundAttempt")
+  refundAttempts  OrderEvent[]   @relation("RefundAttempt")
   /// The AUTHORIZATION this event settles (PRD 3 P1-1, C-069).
   ///
   /// Non-null on `capture` and `authorization_voided`, null on everything
@@ -765,13 +778,13 @@ model OrderEvent {
   /// `Restrict`, like the other self-link: the append-only trigger already
   /// refuses every delete on this table, and this says the same thing where a
   /// future migration can see it.
-  authorizationId String?      @unique
-  authorization   OrderEvent?  @relation("AuthorizationSettlement", fields: [authorizationId], references: [id], onDelete: Restrict)
+  authorizationId String?        @unique
+  authorization   OrderEvent?    @relation("AuthorizationSettlement", fields: [authorizationId], references: [id], onDelete: Restrict)
   /// The one row that settled this hold — captured or released. The reverse of
   /// the link above, and a `?` rather than a `[]` because the unique constraint
   /// makes it at most one.
-  settlement      OrderEvent?  @relation("AuthorizationSettlement")
-  detail     Json?
+  settlement      OrderEvent?    @relation("AuthorizationSettlement")
+  detail          Json?
 
   @@index([orderId, at])
   /// Postgres does not index a foreign key for you, and `Restrict` scans this
@@ -828,23 +841,23 @@ model NotificationOutbox {
 /// says `actor: 'staff'` and nothing else, and no backfill can invent the
 /// names now.
 model StaffMember {
-  id        String       @id @default(uuid())
+  id            String         @id @default(uuid())
   /// What appears on the row. Unique because two people called Sam is a naming
   /// problem for the restaurant to solve at the point of hiring, not an
   /// ambiguity a permanent log should carry.
-  name      String       @unique @db.VarChar(40)
+  name          String         @unique @db.VarChar(40)
   /// SHA-256 of the salted PIN, hex. Unique, so two people cannot pick the
   /// same four digits and make every event they write ambiguous.
   ///
   /// A four-digit PIN behind a shared passcode is a STAMP, not a credential —
   /// 10,000 possibilities is not a security boundary and this schema does not
   /// pretend otherwise. Whoever can type a PIN is already inside.
-  pinDigest String       @unique
+  pinDigest     String         @unique
   /// Someone who leaves is deactivated, never deleted: their name stays on
   /// every row they wrote.
-  active    Boolean      @default(true)
-  createdAt DateTime     @db.Timestamptz(3)
-  events    OrderEvent[]
+  active        Boolean        @default(true)
+  createdAt     DateTime       @db.Timestamptz(3)
+  events        OrderEvent[]
   /// Corrections this person made to a loyalty balance (PRD 7 P0-2).
   /// `Restrict`, like every other attribution: a name outlives the rows it is
   /// on.
@@ -858,7 +871,7 @@ model StaffMember {
 /// Exactly one row, enforced by a CHECK in the migration. C-013 adds prep
 /// times; the rest is here.
 model RestaurantSettings {
-  id            String  @id @default("singleton")
+  id          String  @id @default("singleton")
   // --- Where to find us (PRD 5 P0-1, C-077) ---
   //
   // All three NULLABLE, and that is the requirement rather than a shortcut: a
@@ -872,46 +885,62 @@ model RestaurantSettings {
   // the customer reading them wants the number that rings the counter TODAY,
   // not the one that rang it when they ordered.
   /// Shown in the footer of every customer route. "Firebird Kitchen".
-  name          String? @db.VarChar(80)
+  name        String? @db.VarChar(80)
   /// One line, as a human would say it aloud on the phone. Deliberately not
   /// street/city/state/zip columns: nothing sorts, filters or geocodes on it,
   /// and five columns to render one line is five ways to render it wrong.
-  addressLine   String? @db.VarChar(200)
+  addressLine String? @db.VarChar(200)
   /// Rendered as a `tel:` link, so it dials from a phone. Free text — the
   /// customer's dialler is far better at parsing a number than a regex is,
   /// and a validation that rejects a real extension is worse than none.
-  phone         String? @db.VarChar(40)
+  phone       String? @db.VarChar(40)
 
   /// IANA zone. The daily order-number reset, the store-hours gate and every
   /// report bucket derive from this — never UTC, never the process's zone.
-  timezone      String
+  timezone             String
   /// Parts per million. 8.25% = 82_500 (see packages/core/pricing).
   ///
   /// The single rate for every category. Step M2 of the deferred per-line tax
   /// plan (above `model OrderLine`) adds a rate PER category and keeps this
   /// column — it is what every order placed before that migration is explained
   /// by, so the tidy-up that drops it is the defect (C-070).
-  taxRatePpm    Int
+  taxRatePpm           Int
   /// The manual pause switch (P0-6). Always overrides the other two triggers.
-  ordersPaused  Boolean @default(false)
+  ordersPaused         Boolean @default(false)
   /// Shown to customers instead of the default while paused.
-  pauseMessage  String? @db.VarChar(200)
+  pauseMessage         String? @db.VarChar(200)
   /// Auto-pause threshold, summed over OPEN_STATUSES as prep weight (P1-7).
   /// Resumes below it. The default is 60 — 25 orders x 2.4, a little under the
   /// 2.7 the seeded rush actually averages — so it holds the door at roughly
   /// the queue depth the old 25-order count did, while telling a queue of
   /// drinks from a queue of plates.
-  maxOpenWeight Int     @default(60)
+  maxOpenWeight        Int     @default(60)
   /// A "YYYY-MM-DD" in the restaurant's timezone declared closed, or null.
   /// A string, never a Postgres `date` — same reason as `Order.businessDay`.
-  closedOnDay   String? @db.Char(10)
+  closedOnDay          String? @db.Char(10)
   /// New orders stop this many minutes before close (P0-6, default 15).
-  cutoffMinutes Int     @default(15)
+  cutoffMinutes        Int     @default(15)
   /// P0-7. Minutes a ticket takes with an empty queue in front of it.
-  prepBaseMinutes Int @default(12)
+  prepBaseMinutes      Int     @default(12)
   /// P0-7. Added per unit of open prep weight — the same OPEN_STATUSES sum the
   /// auto-pause threshold reads, so "busy" means one thing (P1-7).
-  prepPerWeightMinutes Int @default(1)
+  prepPerWeightMinutes Int     @default(1)
+
+  // --- Order-ahead scheduling (PRD master P1-2, C-114) ---
+
+  /// DEFAULT FALSE, and load-bearing the same way `loyaltyEnabled` is: with it
+  /// off, the checkout screen offers no slot picker and `Order.requestedFor`
+  /// stays null on every order — the seeded rush passes unchanged.
+  scheduledOrdersEnabled Boolean @default(false)
+  /// How far apart slots are offered, e.g. every 15 minutes.
+  slotIntervalMinutes    Int     @default(15)
+  /// How soon the FIRST slot may be, minutes from the moment the customer is
+  /// looking. Separate from the ASAP estimate (P0-7): a scheduled order skips
+  /// the live queue that estimate is computed against.
+  slotLeadMinutes        Int     @default(20)
+  /// Prep weight a single slot may hold before it stops being offered — the
+  /// same scale `maxOpenWeight` throttles the live queue on (P1-7).
+  maxSlotWeight          Int     @default(20)
 
   // --- Loyalty (PRD 7, C-100). Decision 8 of 2026-09-02 lifted the master
   // PRD's Non-Goal; decisions 9 and 10 set the numbers. ---
@@ -954,7 +983,7 @@ model RestaurantSettings {
   /// It bounds NOTHING else. `seq`, the money, the lines, the option names and
   /// every event are what was sold, and the sweep leaves all of them exactly
   /// as they are so no report moves (`packages/db/retention.ts`).
-  retentionDays         Int     @default(365)
+  retentionDays Int @default(365)
 }
 
 /// A loyalty member is a PHONE NUMBER (PRD 7 P0-1). No account, no password,

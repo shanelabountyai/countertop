@@ -12,11 +12,13 @@
 // Server-only by construction rather than by the `server-only` package: it
 // imports Prisma, which does not survive a client bundle.
 import {
+  availableSlots,
   checkoutGate,
   readyEstimate,
   restaurantClock,
   type GateResult,
   type ReadyEstimate,
+  type ScheduleResult,
 } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
 import type { LoyaltyOffer } from '@countertop/db/loyalty';
@@ -35,16 +37,29 @@ export async function currentCheckout(): Promise<{
    *  same read as the gate rather than from a second query the checkout page
    *  would have to remember to make. */
   loyalty: LoyaltyOffer;
+  /** P1-2's sibling gate — null when the feature is off, which renders no
+   *  slot picker anywhere, the same invisibility rule `loyalty` follows. */
+  schedule: ScheduleResult | null;
+  /** So a reader of a scheduled order's `requestedFor` (an instant) can word
+   *  it in the restaurant's own wall-clock time, the way every other minute
+   *  on these screens is worded (CLAUDE.md time rules) — never the visitor's
+   *  browser zone, which is a fact about their device and not about pickup. */
+  timezone: string;
 }> {
   // Read once, here, and passed down — the weight of today's open orders and
   // the wall-clock reading the gate compares hours against are the same
   // instant's answers (CLAUDE.md time rules).
   const now = new Date();
   const state = await loadGateState(now);
+  const clock = restaurantClock(now, state.timezone);
   return {
-    gate: checkoutGate(state, restaurantClock(now, state.timezone)),
+    gate: checkoutGate(state, clock),
     estimate: readyEstimate(state),
     loyalty: state.loyalty,
+    schedule: state.scheduledOrdersEnabled
+      ? availableSlots(state, state.scheduleConfig, state.weightBySlot, clock)
+      : null,
+    timezone: state.timezone,
   };
 }
 

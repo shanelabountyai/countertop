@@ -189,6 +189,23 @@ export type OrderSnapshot = {
 };
 
 /**
+ * The kitchen work a cart is, off the LIVE menu (P1-7): item weight times
+ * quantity, summed.
+ *
+ * Pulled out of `buildOrderSnapshot` so the P1-2 slot-capacity check can ask
+ * this same question before deciding whether to build a snapshot at all — an
+ * order that will not fit in the slot it asked for has no business being
+ * priced first.
+ */
+export function cartPrepWeight(menu: Menu, cart: Cart): number {
+  return cart.lines.reduce((total, line) => {
+    const item = menu.items[line.composition.itemId];
+    if (!item) throw new Error(`Unknown item: ${line.composition.itemId}`);
+    return total + item.prepWeight * line.composition.quantity;
+  }, 0);
+}
+
+/**
  * Copy a cart into order rows, pricing every line from the menu as it is RIGHT
  * NOW (P0-2: the server is the price authority, at cart-add AND again here).
  *
@@ -250,11 +267,7 @@ export function buildOrderSnapshot(
 
   // Weight comes off the live menu, like every price above it, and then stops
   // moving. `quantity` multiplies it: three burritos are three burritos' work.
-  const prepWeight = cart.lines.reduce((total, line) => {
-    const item = menu.items[line.composition.itemId];
-    if (!item) throw new Error(`Unknown item: ${line.composition.itemId}`);
-    return total + item.prepWeight * line.composition.quantity;
-  }, 0);
+  const prepWeight = cartPrepWeight(menu, cart);
 
   const totals = priceOrder(
     lines.map(({ unitPriceCents, quantity, lineTotalCents }) => ({

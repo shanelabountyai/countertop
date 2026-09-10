@@ -157,6 +157,48 @@ export async function saveService(formData: FormData): Promise<void> {
 }
 
 /**
+ * Order-ahead scheduling (master PRD P1-2, C-114).
+ *
+ * ONE form, unlike loyalty's split on/off-plus-read-only screen: none of
+ * these three numbers is a customer-held liability the way a reward's dollar
+ * value is, so there is nothing here a shrink could quietly take away from
+ * somebody who already has it. Turning the switch off leaves every column as
+ * it was — the checkout screen simply stops offering the picker.
+ */
+export async function saveScheduling(formData: FormData): Promise<void> {
+  const scheduledOrdersEnabled = formData.get('scheduledOrdersEnabled') === 'on';
+
+  // CHECK restaurant_settings_slot_interval_in_range.
+  const slotIntervalMinutes = parseBounded(formData.get('slotIntervalMinutes'), 5, 60);
+  if (slotIntervalMinutes === null) {
+    rejected('Slots every must be a whole number of minutes, 5 to 60.');
+  }
+
+  // CHECK restaurant_settings_slot_lead_in_range.
+  const slotLeadMinutes = parseBounded(formData.get('slotLeadMinutes'), 0, 240);
+  if (slotLeadMinutes === null) {
+    rejected('Earliest slot must be a whole number of minutes, 0 to 240.');
+  }
+
+  // CHECK restaurant_settings_max_slot_weight_positive. Same 500 ceiling as
+  // `maxOpenWeight` — this screen's own, not the constraint's.
+  const maxSlotWeight = parseBounded(formData.get('maxSlotWeight'), 1, 500);
+  if (maxSlotWeight === null) {
+    rejected('Cap each slot at must be a whole number of prep points, 1 to 500.');
+  }
+
+  await prisma.restaurantSettings.update({
+    where: { id: 'singleton' },
+    data: { scheduledOrdersEnabled, slotIntervalMinutes, slotLeadMinutes, maxSlotWeight },
+  });
+  done(
+    scheduledOrdersEnabled
+      ? 'Order-ahead settings saved. Customers can now pick a pickup time at checkout.'
+      : 'Order-ahead settings saved. The picker is off — checkout offers ASAP only.',
+  );
+}
+
+/**
  * The one-tap "we are not opening today" override (P0-6).
  *
  * The date is computed HERE from the restaurant's own clock, never taken from

@@ -9,7 +9,7 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { isEnrollablePhone, type LoyaltyTerms } from '@countertop/core';
+import { isEnrollablePhone, type LoyaltyTerms, type Slot } from '@countertop/core';
 import { placeCartOrder, type CheckoutError, type OrderConfirmation } from './actions';
 import { formatCents } from '@/lib/money';
 import { PAYMENT_LABEL } from '@/lib/status-labels';
@@ -26,7 +26,9 @@ export type LoyaltyOfferProps = { terms: LoyaltyTerms; expiryDays: number } | nu
 
 export function CheckoutForm({
   cartEmpty,
-  canPlace,
+  reviewOk,
+  asapOpen,
+  slots,
   clientTotalCents,
   loyalty,
 }: {
@@ -35,10 +37,17 @@ export function CheckoutForm({
    *  case rather than being conditionally rendered around it, because it is
    *  holding the order number the customer just earned. */
   cartEmpty: boolean;
-  /** False while the gate is shut, or the cart needs fixing. The server
-   *  refuses independently — this only stops someone typing a name for
-   *  nothing. */
-  canPlace: boolean;
+  /** False while the cart needs fixing (a flagged line, an unconfirmed price
+   *  change) — true regardless of whether ASAP or a slot is what ends up
+   *  submittable. The server refuses independently either way; this only
+   *  stops someone typing a name in for nothing. */
+  reviewOk: boolean;
+  /** THE checkout gate's answer for right now (P0-6). */
+  asapOpen: boolean;
+  /** P1-2. Empty when scheduling is off, or the calendar refuses it outright
+   *  (paused, closed today) — never filtered down to only the OPEN ones, so a
+   *  full slot still renders, greyed, rather than quietly vanishing. */
+  slots: Slot[];
   clientTotalCents: number;
   loyalty: LoyaltyOfferProps;
 }) {
@@ -53,6 +62,11 @@ export function CheckoutForm({
   // field itself stays uncontrolled — the value that gets placed is read off
   // the FormData, like every other field here.
   const [phone, setPhone] = useState('');
+  // Absent means ASAP. Chosen once a slot is picked, and the ONLY thing that
+  // makes a scheduled submission valid — a slot list with nothing selected
+  // yet is not a request the button should accept.
+  const [requestedForMinute, setRequestedForMinute] = useState<number | null>(null);
+  const canPlace = reviewOk && (requestedForMinute === null ? asapOpen : true);
 
   // The receipt wins over everything: this render happens immediately after
   // the cart was cleared by the placement that produced it.
@@ -85,6 +99,7 @@ export function CheckoutForm({
         // The radio is the customer's INTENT; the server decides the state.
         payNow: formData.get('payment') === 'now',
         clientTotalCents,
+        ...(requestedForMinute === null ? {} : { requestedForMinute }),
       });
       if (result.ok) {
         setConfirmation(result.confirmation);
@@ -139,6 +154,50 @@ export function CheckoutForm({
           className="min-h-12 rounded-lg border border-neutral-400 px-3"
         />
       </label>
+
+      {/* Order-ahead (P1-2). Rendered only when at least one slot exists —
+          off, paused, closed-today and "nothing left before close" all look
+          the same to a customer: no picker, ASAP is the only path. */}
+      {slots.length > 0 && (
+        <fieldset className="flex flex-col gap-2 rounded-lg border border-neutral-300 p-4">
+          <legend className="px-1 font-medium">When</legend>
+          <label className="flex min-h-12 items-center gap-2">
+            <input
+              type="radio"
+              checked={requestedForMinute === null}
+              onChange={() => setRequestedForMinute(null)}
+              className="size-5"
+            />
+            As soon as possible
+            {!asapOpen && (
+              <span className="text-sm text-red-700">— not taking ASAP orders right now</span>
+            )}
+          </label>
+          <label className="flex min-h-12 items-center gap-2">
+            <input
+              type="radio"
+              checked={requestedForMinute !== null}
+              onChange={() => setRequestedForMinute(slots.find((slot) => slot.remainingWeight > 0)?.minuteOfDay ?? slots[0]!.minuteOfDay)}
+              className="size-5"
+            />
+            Pick a pickup time
+          </label>
+          {requestedForMinute !== null && (
+            <select
+              value={requestedForMinute}
+              onChange={(event) => setRequestedForMinute(Number(event.target.value))}
+              className="min-h-12 w-fit rounded-lg border border-neutral-400 px-3"
+            >
+              {slots.map((slot) => (
+                <option key={slot.minuteOfDay} value={slot.minuteOfDay} disabled={slot.remainingWeight <= 0}>
+                  {slot.label}
+                  {slot.remainingWeight <= 0 ? ' — full' : ''}
+                </option>
+              ))}
+            </select>
+          )}
+        </fieldset>
+      )}
 
       {/* The punch card (PRD 7 P0-1). Unchecked by default, no interstitial,
           no second screen: ordering without it is a first-class path and this
@@ -247,6 +306,17 @@ function Confirmation({ confirmation }: { confirmation: OrderConfirmation }) {
         {confirmation.orderNumber}
       </p>
       <p className="text-lg">under {confirmation.customerName}</p>
+      {/* P1-2. Rendered in the VIEWER'S OWN device time, deliberately unlike
+          every other minute this product shows — the restaurant's timezone
+          would need a second query for a screen that clears the cart the
+          moment it renders, and this is the one clock a customer picking up
+          their own order can be trusted to read correctly for themselves. */}
+      {confirmation.requestedFor && (
+        <p className="mt-1 text-lg font-semibold" data-testid="confirmed-pickup-time">
+          Pickup at{' '}
+          {confirmation.requestedFor.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+        </p>
+      )}
       {/* The gap C-101 and C-102 both wrote down: a customer ticked the box,
           was enrolled, and was told nothing. One line, no balance — the points
           land when the food does. */}

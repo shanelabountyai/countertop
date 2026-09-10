@@ -21,9 +21,10 @@
  * this, which is what the CLAUDE.md bans on `getHours` and `getTimezoneOffset`
  * exist to force.
  *
- * The direction matters: instant → local, never local → instant. A DST jump
- * makes the reverse ambiguous (2:30am happens twice in the autumn and not at
- * all in the spring); this direction is always a single answer.
+ * The direction matters: instant → local, never local → instant, with ONE
+ * exception below (`zonedTimeToInstant`, P1-2) — a DST jump makes the reverse
+ * ambiguous (2:30am happens twice in the autumn and not at all in the
+ * spring), where this direction is always a single answer.
  *
  * Throws on an unknown timezone rather than falling back to UTC: a typo in the
  * settings row must fail loudly at the first placement, not silently reset the
@@ -251,4 +252,58 @@ export function nextDay(day: string): string {
     new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]) + 1)),
     'UTC',
   ).day;
+}
+
+/**
+ * Read the UTC offset `Intl` has for `timezone` at `instant`, in minutes east
+ * of UTC (so `America/Los_Angeles` in summer is `-420`). `zonedTimeToInstant`'s
+ * one helper.
+ */
+function offsetMinutesAt(instant: Date, timezone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    timeZoneName: 'longOffset',
+  }).formatToParts(instant);
+  const raw = parts.find((part) => part.type === 'timeZoneName')?.value;
+  const match = raw ? /^GMT([+-])(\d{2}):(\d{2})$/.exec(raw) : null;
+  if (!match) throw new Error(`Could not read the UTC offset in timezone ${timezone}`);
+  const sign = match[1] === '-' ? -1 : 1;
+  return sign * (Number(match[2]) * 60 + Number(match[3]));
+}
+
+/**
+ * A restaurant-calendar day and a local minute-of-day, as the instant that
+ * pairing names in `timezone` (P1-2) — `Order.requestedFor`'s value.
+ *
+ * THE ONE LOCAL → INSTANT CONVERSION IN THIS MODULE, called out by name in the
+ * header above. The reverse of `restaurantClock`, and ambiguous in exactly the
+ * hour a clock falls back each year and impossible in the hour it springs
+ * forward — resolved with a single refinement pass (read the offset at a naive
+ * guess, apply it, read the offset again at the refined instant) rather than
+ * thrown, because a customer booking a slot `packages/core/orders/schedule.ts`
+ * just generated must never see an exception.
+ *
+ * ponytail: no fixture pinned to an actual DST-transition date. A slot booked
+ * inside a restaurant's one skipped or doubled local hour a year picks A real
+ * instant near that minute rather than the mathematically "correct" one
+ * (there isn't one), and is untested. Upgrade path: a fixture on the
+ * transition date, if a restaurant ever runs a rush across one.
+ */
+export function zonedTimeToInstant(day: string, minuteOfDay: number, timezone: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!match) throw new Error(`Malformed business day: ${day}`);
+  const [, year, month, date] = match;
+  const naiveUtcMs = Date.UTC(Number(year), Number(month) - 1, Number(date)) + minuteOfDay * 60_000;
+
+  // Every `new Date(<number>)` below is the local -> instant exception this
+  // module's header names, not a parse through the process timezone — the
+  // number is epoch milliseconds already resolved by `offsetMinutesAt`
+  // against the RESTAURANT's timezone, never the process's.
+  // eslint-disable-next-line no-restricted-syntax
+  const firstGuessOffset = offsetMinutesAt(new Date(naiveUtcMs), timezone);
+  const refinedMs = naiveUtcMs - firstGuessOffset * 60_000;
+  // eslint-disable-next-line no-restricted-syntax
+  const secondGuessOffset = offsetMinutesAt(new Date(refinedMs), timezone);
+  // eslint-disable-next-line no-restricted-syntax
+  return new Date(naiveUtcMs - secondGuessOffset * 60_000);
 }

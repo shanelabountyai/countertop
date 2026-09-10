@@ -14,7 +14,14 @@ import { formatMinuteOfDay, restaurantClock, WEEKDAY_NAMES } from '@countertop/c
 import { loadGateState } from '@countertop/db/gate';
 import { formatCents } from '@/lib/money';
 import { prisma } from '@countertop/db';
-import { closeTodayForm, reopenTodayForm, saveContact, saveHours, saveService } from './actions';
+import {
+  closeTodayForm,
+  reopenTodayForm,
+  saveContact,
+  saveHours,
+  saveScheduling,
+  saveService,
+} from './actions';
 
 export const metadata = { title: 'Settings — Firebird Kitchen' };
 
@@ -306,6 +313,56 @@ export default async function SettingsPage({
           className="mt-4 min-h-14 rounded-lg bg-neutral-900 px-6 text-lg font-bold text-white"
         >
           Save service settings
+        </button>
+      </form>
+
+      <form action={saveScheduling} className="mt-8 rounded-xl border-2 border-neutral-300 p-4">
+        <h2 className="text-2xl font-semibold">Order ahead</h2>
+        <p className="mt-1 text-lg text-neutral-700">
+          Lets a customer pick a pickup time instead of ASAP — a slot has its own capacity, so it
+          is never subject to the pause threshold above.
+        </p>
+        <label className="mt-3 flex min-h-12 items-center gap-2 text-lg">
+          <input
+            type="checkbox"
+            name="scheduledOrdersEnabled"
+            defaultChecked={state.scheduledOrdersEnabled}
+            className="size-5"
+          />
+          Offer a pickup-time picker at checkout
+        </label>
+        <NumberField
+          name="slotIntervalMinutes"
+          label="Slots every"
+          suffix="minutes"
+          value={state.scheduleConfig.intervalMinutes}
+          min={5}
+          max={60}
+          hint="How far apart the times in the picker are — every 15 minutes, for example."
+        />
+        <NumberField
+          name="slotLeadMinutes"
+          label="Earliest slot is"
+          suffix="minutes from now"
+          value={state.scheduleConfig.leadMinutes}
+          min={0}
+          max={240}
+          hint="Separate from the estimate above: a scheduled order skips the live queue entirely."
+        />
+        <NumberField
+          name="maxSlotWeight"
+          label="Cap each slot at"
+          suffix="prep points"
+          value={state.scheduleConfig.maxSlotWeight}
+          min={1}
+          max={500}
+          hint="Same prep-point scale as the pause threshold above — how much work one pickup time can hold."
+        />
+        <button
+          type="submit"
+          className="mt-4 min-h-14 rounded-lg bg-neutral-900 px-6 text-lg font-bold text-white"
+        >
+          Save order-ahead settings
         </button>
       </form>
 

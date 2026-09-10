@@ -9,8 +9,11 @@
 // same idempotency key, and write the snapshot and its event atomically.
 import { createHash, randomBytes } from 'node:crypto';
 import {
+  availableSlots,
   buildOrderSnapshot,
   businessDayOf,
+  canBookSlot,
+  cartPrepWeight,
   checkClientTotal,
   totalTampering,
   normalizeIdentity,
@@ -18,6 +21,7 @@ import {
   placementEvent,
   readyEstimate,
   reviewCart,
+  zonedTimeToInstant,
   type Cart,
   type CartError,
   checkoutGate,
@@ -100,7 +104,13 @@ export type PlacementError =
   // The checkout gate refusing the order (P0-6). Carries the trigger, so the
   // screen can say "we open at 11:00" rather than a generic failure — and so
   // the seeded rush can assert WHICH gate bounced an order.
-  | { kind: 'ordering_closed'; reason: GateReason; message: string };
+  | { kind: 'ordering_closed'; reason: GateReason; message: string }
+  // The P1-2 sibling gate refusing a REQUESTED slot: the feature is off, the
+  // minute was never offered, or it filled in the moment between the
+  // customer's screen rendering and this request landing. Never `reason`-typed
+  // like the ASAP gate — none of those three is a customer-facing distinction
+  // worth naming, they are all "pick a different time".
+  | { kind: 'slot_unavailable'; message: string };
 
 export type PlacementInput = {
   cart: Cart;
@@ -121,6 +131,13 @@ export type PlacementInput = {
    *  `PaymentState`: `refunded` is something that happens to an order later,
    *  never something a checkout request may ask for. */
   paidNow?: boolean;
+  /** P1-2. The local minute-of-day the customer picked off `availableSlots`,
+   *  or absent for an ASAP order — the two kinds are told apart by whether
+   *  this is present, the same way `Order.requestedFor` tells them apart
+   *  afterward. Never trusted as a slot's VALIDITY; re-checked here against a
+   *  fresh `availableSlots` read, the same discipline `reviewCart` applies to
+   *  a cart. */
+  requestedForMinute?: number;
 };
 
 export type PlacementResult =
@@ -341,6 +358,7 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
   // asked about the same instant. Two readings could refuse a line for being
   // past 16:00 and open the door for being before it.
   const clock = restaurantClock(now, settings.timezone);
+  const businessDay = businessDayOf(now, settings.timezone);
   const review = reviewCart(menu, cart, settings.taxRatePpm, clock);
   const identity = normalizeIdentity(input);
   const errors: PlacementError[] = identity.ok ? [] : [...identity.violations];
@@ -352,9 +370,41 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
   // Deliberately AFTER the idempotency replay above: a retry of an order that
   // is already on the grill must return that order, not be told the restaurant
   // has since closed. The gate is asked about NEW orders only.
-  const gate = checkoutGate(settings, clock);
-  if (!gate.open) {
-    errors.push({ kind: 'ordering_closed', reason: gate.reason, message: gate.message });
+  //
+  // A REQUESTED slot (P1-2) asks a sibling question instead, and does not ask
+  // this one at all: `availableSlots` already refuses the manual pause and a
+  // closed-today override on its own, and a scheduled promise for later today
+  // is not "too busy right now" or "closing soon" — those are about the ASAP
+  // queue this order is deliberately skipping.
+  let requestedFor: Date | null = null;
+  if (input.requestedForMinute === undefined) {
+    const gate = checkoutGate(settings, clock);
+    if (!gate.open) {
+      errors.push({ kind: 'ordering_closed', reason: gate.reason, message: gate.message });
+    }
+  } else if (!settings.scheduledOrdersEnabled) {
+    // Not a customer-facing distinction: the checkout screen never sends this
+    // field unless the settings row that also controls it said yes.
+    errors.push({
+      kind: 'slot_unavailable',
+      message: 'That pickup time is no longer available. Pick another.',
+    });
+  } else {
+    const schedule = availableSlots(settings, settings.scheduleConfig, settings.weightBySlot, clock);
+    if (!schedule.open) {
+      errors.push({ kind: 'ordering_closed', reason: schedule.reason, message: schedule.message });
+    } else if (!canBookSlot(schedule.slots, input.requestedForMinute, cartPrepWeight(menu, cart))) {
+      // A stale list, not a customer's typo: the picker only ever renders
+      // minutes `availableSlots` itself generated, so this means the slot
+      // filled — or the clock moved past the lead time — in the gap between
+      // that render and this request.
+      errors.push({
+        kind: 'slot_unavailable',
+        message: 'That pickup time is no longer available. Pick another.',
+      });
+    } else {
+      requestedFor = zonedTimeToInstant(businessDay, input.requestedForMinute, settings.timezone);
+    }
   }
 
   if (idempotencyKey === '') {
@@ -386,14 +436,18 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
   // `out_of_item` (C-004). Locking the menu rows for every checkout would buy
   // a millisecond of a window that stays open for minutes regardless.
   const snapshot = buildOrderSnapshot(menu, cart, settings.taxRatePpm);
-  const businessDay = businessDayOf(now, settings.timezone);
 
   // What we are promising this customer (P1-4), off the SAME `settings` read
   // the gate above used — so the quote stored on the order is the one the
   // checkout screen showed, not a second reading of a queue that moved in
   // between. `openWeight` here excludes this order, which is right: the wait
   // is the work already in front of it.
-  const quote = readyEstimate(settings);
+  //
+  // Null for a scheduled order (P1-2): its promise IS `requestedFor`, not a
+  // range against a live queue it is deliberately skipping — the same "no
+  // record" honesty `quotedLowMinutes` already uses for orders placed before
+  // C-042 ever quoted anything.
+  const quote = requestedFor ? null : readyEstimate(settings);
 
   // The server's number is the answer; the client's is evidence (P0-2).
   const mismatch =
@@ -438,9 +492,10 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
           taxRatePpm: snapshot.taxRatePpm,
           totalCents: snapshot.totalCents,
           prepWeight: snapshot.prepWeight,
-          quotedLowMinutes: quote.lowMinutes,
-          quotedHighMinutes: quote.highMinutes,
-          quotedOpenWeight: settings.openWeight,
+          quotedLowMinutes: quote?.lowMinutes ?? null,
+          quotedHighMinutes: quote?.highMinutes ?? null,
+          quotedOpenWeight: quote ? settings.openWeight : null,
+          requestedFor,
           // `authorized` and not `paid` (C-069): the card is held and nothing
           // has been taken. The column is a cache over the log either way —
           // `derivePaymentState` returns exactly this for an order carrying one
