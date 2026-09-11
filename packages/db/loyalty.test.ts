@@ -544,7 +544,12 @@ describe('earning at pickup', () => {
     await enrolled();
     await seedSettings({ loyaltyEnabled: true, pointsPerDollar: 1 });
     const orderId = await place('5550102233');
-    await prisma.order.update({ where: { id: orderId }, data: { subtotalCents: 99 } });
+    // taxCents/totalCents forced to match — C-117's CHECK now enforces
+    // subtotalCents - discountCents + taxCents = totalCents on every row.
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { subtotalCents: 99, taxCents: 0, totalCents: 99 },
+    });
 
     await advanceTo(orderId, 'picked_up');
     expect(await prisma.loyaltyEvent.count()).toBe(0);

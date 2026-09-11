@@ -169,6 +169,8 @@ export type SnapshotLine = {
 
 export type OrderSnapshot = {
   subtotalCents: number;
+  /** See `OrderTotals` (C-117) — zero on every caller that doesn't pass one. */
+  discountCents: number;
   taxCents: number;
   /**
    * The kitchen work this order is (P1-7): the sum of every line's item weight
@@ -218,6 +220,10 @@ export function buildOrderSnapshot(
   menu: Menu,
   cart: Cart,
   taxRatePpm: TaxRatePpm,
+  // A pre-tax reward (PRD 7 P1-1, C-117). Zero for every caller that has no
+  // discount to apply — this parameter has no caller passing a real value
+  // yet; wiring a redemption to it is a later session's item.
+  discountCents = 0,
 ): OrderSnapshot {
   const categoryNames = new Map(menu.categories.map((category) => [category.id, category.name]));
 
@@ -276,6 +282,7 @@ export function buildOrderSnapshot(
       lineTotalCents,
     })),
     taxRatePpm,
+    discountCents,
   );
 
   return { ...totals, taxRatePpm, prepWeight, lines };

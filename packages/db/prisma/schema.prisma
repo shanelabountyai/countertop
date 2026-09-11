@@ -464,6 +464,16 @@ model Order {
   /// whether to un-set one (decided C-003).
   statusChangedAt   DateTime             @db.Timestamptz(3)
   subtotalCents     Int
+  /// A pre-tax reward, snapshotted (PRD 7 P1-1, C-117) — `subtotalCents`
+  /// stays the true sum of the lines, so this is a separate, visible number
+  /// rather than being absorbed into a smaller subtotal. `@default(0)` and
+  /// no backfill needed: zero IS the honest historical value for every order
+  /// this column predates — nothing before C-117 ever applied one.
+  discountCents     Int                  @default(0)
+  /// Computed on `subtotalCents - discountCents`, never on `subtotalCents`
+  /// alone — see `priceOrder`. Redeeming after tax (the P0-4 counter flow,
+  /// still the only live path) means `discountCents` is 0 here and this is
+  /// exactly the pre-C-117 number.
   taxCents          Int
   /// Snapshotted with the money. A later rate change must not make this
   /// receipt's arithmetic unexplainable.
@@ -474,6 +484,9 @@ model Order {
   /// deferred rather than unnoticed (C-070). This column keeps its meaning
   /// under that plan and is never dropped.
   taxRatePpm        Int
+  /// `subtotalCents - discountCents + taxCents`, enforced by a CHECK — see
+  /// the C-117 migration. Not `subtotalCents + taxCents`; that identity held
+  /// only while `discountCents` was always zero.
   totalCents        Int
   /// Snapshotted with the money (P1-7): the sum of each line's item weight
   /// times its quantity, as the menu read at placement. Re-deriving it through

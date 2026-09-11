@@ -179,7 +179,12 @@ describe('reviewCart — the checkout re-check', () => {
 
   it('totals the cart server-side: 1345×2 + 350 = 3040, tax 250.8 → 251', () => {
     const review = reviewCart(SAMPLE_MENU, twoLines(), RATE_8_25, NOON);
-    expect(review.totals).toEqual({ subtotalCents: 3040, taxCents: 251, totalCents: 3291 });
+    expect(review.totals).toEqual({
+      subtotalCents: 3040,
+      discountCents: 0,
+      taxCents: 251,
+      totalCents: 3291,
+    });
     expect(review.placeable).toBe(true);
     expect(review.needsFix).toBe(false);
     expect(review.needsPriceConfirmation).toBe(false);
@@ -200,7 +205,7 @@ describe('reviewCart — the checkout re-check', () => {
   it('an empty cart is not placeable', () => {
     const review = reviewCart(SAMPLE_MENU, EMPTY_CART, RATE_8_25, NOON);
     expect(review.placeable).toBe(false);
-    expect(review.totals).toEqual({ subtotalCents: 0, taxCents: 0, totalCents: 0 });
+    expect(review.totals).toEqual({ subtotalCents: 0, discountCents: 0, taxCents: 0, totalCents: 0 });
   });
 
   it('flags a line whose option was 86d while it sat in the cart', () => {

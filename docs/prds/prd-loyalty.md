@@ -212,14 +212,38 @@ money-path change:
   (`VerifiedPhoneLogOutcome`) — inert on the price, same as C-115's mechanism
   was inert on everything. C-117 is what gives this a UI and a price effect
   to be wrong about.
-- **C-117 — The tax base.** `Order.discountCents`, snapshotted, and
-  `priceOrder` computing tax on `subtotal − discount` rather than `subtotal`.
-  This is the one that makes the reward honest before tax instead of after it
-  — and it is last, deliberately, because it is the one change that touches
-  every receipt's arithmetic and deserves to land with nothing else moving
-  in the same diff.
+- ~~**C-117 — The tax base**~~ **— shipped.** `Order.discountCents`
+  (snapshotted, `@default(0)`, no backfill needed — zero is the honest value
+  for every order this column predates) and `priceOrder` computing tax on
+  `subtotal − discount` rather than `subtotal`. `subtotalCents` itself stays
+  the true Σ lines; the discount is a visible, separate number, and the
+  receipt's arithmetic identity — `totalCents = subtotalCents − discountCents
+  + taxCents` — is now a database CHECK, not only a comment. **One session,
+  nothing else moving in the diff, as planned:** `buildOrderSnapshot` gained
+  a `discountCents` parameter with no caller passing a nonzero value yet —
+  same "plumbing, not wired" shape C-115 and C-116 left. `remakeOrder` was
+  the one other place a money column list lived; it now copies
+  `discountCents` too, so a remake of a (future) discounted order does not
+  silently drop the discount and fail its own CHECK. `redeemReward` /
+  `planRedemption` (P0-4's after-tax counter flow) are untouched — they are
+  still the only *live* path, and stay after-tax until something calls
+  `buildOrderSnapshot` with a real discount. **What P1-1 still needs:** a
+  caller. Verification (C-115) and the bearer token (C-116) prove a phone;
+  this session gives a reward somewhere honest to land; nothing yet asks
+  `planRedemption` for an amount and hands it to placement as
+  `discountCents`. That caller — the actual checkout "use your reward"
+  control — is the next item, and it is also where the after-tax counter
+  flow and the before-tax checkout flow will need to agree on which one runs
+  when both are possible.
 
-P1-1 is **not live** — no copy renders, no checkout control exists — until
-all three ship. C-115 alone changes nothing a customer or the counter can
-observe; `loyaltyEnabled` and the existing staff-attended P0-4 redemption are
-completely unaffected by it.
+P1-1 is **not live** — no copy renders, no checkout control exists —
+with all three of C-115/C-116/C-117 shipped. That was this plan's own
+undercount, caught only once C-117 actually landed: the three sessions above
+are the *mechanism* — a verified phone, a token that carries it, and
+somewhere honest for a reward to land in the arithmetic — and none of them
+is "the checkout control that calls `planRedemption`, mints a
+`discountCents`, and hands it to `placeOrder`." That caller is a fourth,
+unphased piece of work, named as the next item in C-117's own entry above.
+Until it ships, `loyaltyEnabled` and the existing staff-attended P0-4
+redemption remain completely unaffected — this section changed no customer-
+or counter-observable behavior across all three sessions.

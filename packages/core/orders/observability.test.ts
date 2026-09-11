@@ -188,7 +188,7 @@ describe('totalTampering — evidence, not noise', () => {
   // Built through the same field the cart computes, so a test cannot assert a
   // combination `reviewCart` would never produce.
   const review = (totalCents: number, placeable = true): Pick<CartReview, 'totals' | 'placeable'> => ({
-    totals: { subtotalCents: totalCents, taxCents: 0, totalCents },
+    totals: { subtotalCents: totalCents, discountCents: 0, taxCents: 0, totalCents },
     placeable,
   });
 

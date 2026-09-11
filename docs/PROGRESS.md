@@ -7705,3 +7705,70 @@ token, placement validation, logged outcome — ready for C-117's UI to call.
   and `apps/web` has no unit suite (same reasoning `staff.ts`'s own comment
   gives for keeping its crypto in `packages/db`) — every claim this session
   makes is proven in `packages/core` and `packages/db`.
+
+## C-117 — The tax base (PRD 7 P1-1, session 3 of 3)
+
+The change the plan named as last, deliberately: `priceOrder` moves from
+taxing the raw subtotal to taxing `subtotal − discount`, and a placed order
+now has somewhere honest to put a reward applied before tax rather than
+after it.
+
+**Built:**
+- **`packages/core/pricing/pricing.ts`** — `priceOrder` takes a third,
+  optional `discountCents` (default 0). `subtotalCents` stays the true Σ
+  lines — nothing shrinks it — and `taxCents` is computed on
+  `subtotalCents - discountCents`. Guarded the same way `taxOn` already
+  guards its own input: non-integer, negative, or larger-than-subtotal all
+  throw rather than snapshot a tax base nobody could have meant.
+  `OrderTotals` gained the `discountCents` field.
+- **`packages/core/orders/placement.ts`** — `buildOrderSnapshot` gained the
+  same fourth parameter and threads it into `priceOrder`; `OrderSnapshot`
+  carries `discountCents` through to the caller.
+- **`packages/db/prisma/schema.prisma` + a hand-written migration
+  (`20260911110000_order_discount_cents`)** — `Order.discountCents Int
+  @default(0)`, no backfill (zero is the honest value for every order this
+  column predates — none of them had anywhere to put a discount even if one
+  had existed). Three CHECKs: not negative, not exceeding `subtotalCents`,
+  and — the one this ticket exists to add — `totalCents = subtotalCents -
+  discountCents + taxCents`. That identity was a comment in `report.ts`
+  before today (`"subtotalCents + taxCents === totalCents" per order, so it
+  holds here by summation`); it is now enforced at the row, so a future bug
+  upstream of it fails the CHECK instead of quietly producing a receipt
+  nothing reconciles against.
+- **`packages/db/placement.ts`** — `snapshot.discountCents` now flows into
+  the `Order.create` call alongside the other three money columns.
+- **`packages/db/remake.ts`** — the one other place a full money-column list
+  lived. A remake now copies `discountCents` from the original order it's
+  replacing; without this, a remake of a (future) discounted order would
+  have kept the original's `totalCents` while resetting `discountCents` to
+  the column default of 0 — and failed its own new CHECK immediately. Found
+  by re-reading every `subtotalCents` call site before writing the
+  migration, not by a failing test — the CHECK would have caught it the
+  first time a real discount and a remade order met, which without C-117's
+  own constraint could have been a support call rather than a red gate.
+
+**Scope, held to the plan's own line — "nothing else moving in the same
+diff":** `redeemReward` / `planRedemption` (P0-4's after-tax counter
+redemption) are untouched. They are still the only path that can produce a
+nonzero reward today, and they stay after-tax; nothing calls
+`buildOrderSnapshot`'s new parameter with a real value yet. `report.ts`'s
+`SalesTotals` and its summation are untouched too — every order today still
+has `discountCents = 0`, so `subtotalCents + taxCents === totalCents` still
+holds by summation exactly as documented, and rewriting that comment for an
+invariant nothing yet breaks would be getting ahead of the caller that
+doesn't exist yet.
+
+**What this leaves P1-1 needing, corrected from the plan:** the phasing
+section named three sessions for P1-1 and this was the third — but "all
+three ship" turns out not to mean "live." A verified phone (C-115), a token
+that carries it (C-116), and somewhere honest for a reward to land in the
+tax math (C-117) are the mechanism; none of them is a checkout control that
+calls `planRedemption`, computes a `discountCents`, and hands it to
+`placeOrder`. That caller is a fourth, unphased piece of work — recorded in
+the PRD's own phasing entry for C-117 and in `docs/prds/INDEX.md` — and
+until it ships, `loyaltyEnabled` and the existing staff-attended P0-4
+redemption remain completely unaffected by all three sessions combined.
+
+**Gate:** 1007 unit (+8 over C-116's 999 — seven `priceOrder` discount cases
+plus one `buildOrderSnapshot` threading test), 221 e2e passed + 14 skipped =
+235 (unchanged — still nothing new to click), lint/typecheck/build clean.

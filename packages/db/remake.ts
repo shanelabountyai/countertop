@@ -71,6 +71,7 @@ export async function remakeOrder(
       customerPhone: true,
       orderNote: true,
       subtotalCents: true,
+      discountCents: true,
       taxCents: true,
       taxRatePpm: true,
       totalCents: true,
@@ -131,6 +132,11 @@ export async function remakeOrder(
           placedAt: now,
           statusChangedAt: now,
           subtotalCents: original.subtotalCents,
+          // Copied whole, like every other money column here — a remake that
+          // dropped the original's discount would report a total the CHECK
+          // (subtotalCents - discountCents + taxCents = totalCents) refuses,
+          // since `totalCents` below is also the original's, unchanged.
+          discountCents: original.discountCents,
           taxCents: original.taxCents,
           taxRatePpm: original.taxRatePpm,
           totalCents: original.totalCents,

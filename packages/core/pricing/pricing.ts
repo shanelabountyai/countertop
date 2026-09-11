@@ -27,6 +27,9 @@ export type PricedLine = {
 
 export type OrderTotals = {
   subtotalCents: number;
+  /** A pre-tax reward, snapshotted (PRD 7 P1-1, C-117). Zero on every order
+   *  with no redemption — this is a real amount, not a null-shaped omission. */
+  discountCents: number;
   taxCents: number;
   totalCents: number;
 };
@@ -117,16 +120,40 @@ export function priceLine(menu: Menu, composition: Composition): PricedLine {
 }
 
 /**
- * Order total = Σ lines + tax on the subtotal.
+ * Order total = Σ lines − discount + tax on (Σ lines − discount).
  *
- * Tax is computed ONCE, on the subtotal — not per line and summed. Per-line
- * rounding drifts by a cent per line against every receipt a customer can
- * check with a calculator.
+ * Tax is computed ONCE, on the discounted subtotal — not per line and summed,
+ * and not on the pre-discount subtotal. A reward applied after tax (the P0-4
+ * counter flow) makes the shop remit sales tax on money the customer never
+ * handed over; this is the honest base (PRD 7 P1-1, C-117).
+ *
+ * `subtotalCents` itself stays the true Σ lines — what was actually sold, and
+ * what the sales report sums — so `discountCents` is a separate, visible
+ * number rather than being absorbed into a smaller subtotal. The identity a
+ * receipt now reconciles against is `totalCents === subtotalCents -
+ * discountCents + taxCents`, not the old two-term sum; the migration's CHECK
+ * enforces exactly this so the arithmetic can never drift from the schema.
+ *
+ * `discountCents` defaults to zero — every call site that predates C-117
+ * keeps computing the old, undiscounted totals unchanged.
  */
-export function priceOrder(lines: PricedLine[], ratePpm: TaxRatePpm): OrderTotals {
+export function priceOrder(
+  lines: PricedLine[],
+  ratePpm: TaxRatePpm,
+  discountCents = 0,
+): OrderTotals {
   const subtotalCents = lines.reduce((sum, line) => sum + line.lineTotalCents, 0);
-  const taxCents = taxOn(subtotalCents, ratePpm);
-  return { subtotalCents, taxCents, totalCents: subtotalCents + taxCents };
+  if (!Number.isInteger(discountCents)) {
+    throw new Error(`Discount must be integer cents, got ${discountCents}`);
+  }
+  if (discountCents < 0) {
+    throw new Error(`Discount cannot be negative, got ${discountCents}`);
+  }
+  if (discountCents > subtotalCents) {
+    throw new Error(`Discount ${discountCents} cannot exceed subtotal ${subtotalCents}`);
+  }
+  const taxCents = taxOn(subtotalCents - discountCents, ratePpm);
+  return { subtotalCents, discountCents, taxCents, totalCents: subtotalCents - discountCents + taxCents };
 }
 
 /**

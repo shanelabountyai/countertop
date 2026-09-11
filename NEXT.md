@@ -1,61 +1,66 @@
 # Next
 
-**C-116 shipped this session** (`61f7d23`, SHA recorded in this same commit):
-PRD 7 P1-1, session 2 of 3 — checkout wiring for phone verification. A
-bearer token (`issueVerifiedPhoneToken`/`verifiedPhoneFromToken` in
-`packages/db/verification.ts`, same signed shape as `staff.ts`'s
-`shiftStamp`/`staffIdFromStamp`) carries a confirmed phone-verification code
-from confirmation to placement, bound to the checkout attempt's own
-`idempotencyKey` so it cannot be replayed onto a different order. No new
-session or cookie. `packages/core/loyalty/verification.ts` gained
-`canUseVerifiedToken` (the pure decision on an already-signature-checked
-token); `apps/web/app/checkout/actions.ts` gained
-`requestCheckoutVerification`/`confirmCheckoutVerification` and
-`placeCartOrder` validates an optional `verifiedPhoneToken` against the
-placed order's own snapshotted phone. Gate green: 999 unit (+14 over
-C-115's 985), 221 e2e passed + 14 skipped = 235 (unchanged — no UI shipped
-this session), lint/typecheck/build clean.
+**C-117 shipped this session** (SHA recorded in a follow-up commit): PRD 7
+P1-1, session 3 of 3 — the tax base. `Order.discountCents` (snapshotted,
+`@default(0)`, hand-written migration with three CHECKs — not negative, not
+exceeding `subtotalCents`, and `totalCents = subtotalCents - discountCents +
+taxCents` enforced at the row) and `priceOrder` computing tax on `subtotal −
+discount` rather than the raw subtotal. `buildOrderSnapshot` threads the new
+parameter through; `remakeOrder` now copies `discountCents` so a remade
+order of a (future) discounted one can't silently drop it and fail its own
+new CHECK. Gate green: 1007 unit (+8 over C-116's 999), 221 e2e passed + 14
+skipped = 235 (unchanged — no UI shipped this session), lint/typecheck/build
+clean.
 
-**Scope decision, recorded in `docs/prds/prd-loyalty.md`'s phasing section
-and `docs/WRITEUP.md`: no checkout FORM control renders this session.** The
-backlog bullet's own words ("the self-serve control itself") read like a UI
-requirement on a fast pass; the PRD's own next sentence ("no checkout
-control exists... until all three ship") says otherwise, and a "verify your
-phone" widget with no `discountCents` yet to spend against would be a
-control that does nothing for the customer who used it. The mechanism is
-real and tested end to end in `packages/core`/`packages/db`; it has no
-caller from a rendered form yet.
+**Corrected in the PRD this session, not just shipped:** the phasing section
+said P1-1 goes live once all three of C-115/C-116/C-117 ship. That was an
+undercount. The three sessions are the *mechanism* — a verified phone, a
+token that carries it, somewhere honest for a reward to land in the tax
+math — and none of them is a checkout control. Nothing calls
+`planRedemption`, computes a `discountCents`, and hands it to `placeOrder`
+yet. `docs/prds/prd-loyalty.md`'s C-117 entry and `docs/prds/INDEX.md` both
+say so now.
 
-**Next unblocked item: C-117 — the tax base.** `Order.discountCents`,
-snapshotted, and `priceOrder` computing tax on `subtotal − discount` rather
-than `subtotal` — the change that makes a reward honest before tax instead
-of after it. This is also very likely where the actual "redeem your reward"
-checkout UI belongs: once there is a price effect to show, C-116's
-`confirmCheckoutVerification`/`verifiedPhoneToken` plumbing has something
-worth calling it for. Read `docs/prds/prd-loyalty.md`'s "P1-1's own
-phasing" section fully before starting — it is last "deliberately, because
-it is the one change that touches every receipt's arithmetic and deserves
-to land with nothing else moving in the same diff."
+**Next unblocked item: the checkout self-serve redemption control —
+unphased, the fourth piece P1-1 actually needs.** Read
+`docs/prds/prd-loyalty.md`'s C-117 entry (the closing paragraph) before
+starting. Shape, roughly: a "use your reward" affordance on the checkout
+form, gated on a verified phone (C-116's `verifiedPhoneToken`) and an
+available balance (`planRedemption`), that computes a `discountCents` and
+passes it through `placeOrder` → `buildOrderSnapshot` → `priceOrder`. Two
+things this needs a decision on, not just code:
+1. **P0-4's after-tax counter redemption and this before-tax checkout
+   redemption are now two different mechanisms that both spend the same
+   balance.** They need to agree on which one runs when both are possible
+   for the same order — likely "whichever happens first wins, and the other
+   is refused as already-redeemed," but that's a guess, not a decision.
+2. **`report.ts`'s `SalesTotals`** currently sums `subtotalCents`/
+   `taxCents`/`totalCents` and its own test asserts `subtotalCents +
+   taxCents === totalCents` per bucket — true only because `discountCents`
+   is always 0 today. The first real discount breaks that identity, and the
+   report needs a `discountCents` bucket and an updated invariant before or
+   in the same session a real discount can be produced.
 
-**Model: C-117 touches money — the tax base every receipt reconciles
-against — Opus, not Sonnet.**
+**Model: this item is customer-facing money UI on top of the arithmetic
+C-117 just landed — still Opus**, not Sonnet: it decides how two redemption
+paths interact and touches what a receipt shows.
 
-## What C-116 leaves behind
+## What C-117 leaves behind
 
-- **Still no checkout control a customer can reach.** Same "plumbing, not
-  wired" shape C-115 left, one layer further along — `requestCheckoutVerification`/
-  `confirmCheckoutVerification` have no caller yet.
-- **The verified-phone outcome is logged (`VerifiedPhoneLogOutcome`), never
-  persisted.** No new column this session, deliberately — C-117 is what
-  decides whether a placed order needs to remember `verified` beyond its
-  own log line.
-- **No e2e or `apps/web` unit coverage** — there is nothing to click yet,
-  and `apps/web` has no unit suite. Every claim this session makes is
-  proven in `packages/core` and `packages/db`.
-- **`VERIFY_TOKEN_TTL_MINUTES` (10) is a guess**, not a measurement — long
-  enough to get through the rest of the checkout form after verifying,
-  short enough not to be a "remembered device." Revisit if the rush demo or
-  real use says otherwise.
+- **No checkout control a customer can reach — still.** Same shape C-115
+  and C-116 left, one layer further along: the tax base exists and is
+  tested, but nothing produces a nonzero `discountCents` yet.
+- **`redeemReward`/`planRedemption` (P0-4) are untouched and still
+  after-tax.** Deliberately — C-117's own scope was "nothing else moving in
+  the same diff." They become the interaction problem above the moment a
+  before-tax path exists alongside them.
+- **`report.ts`'s `subtotalCents + taxCents === totalCents` comment and test
+  are accurate today and stale the moment a real discount exists.** See
+  point 2 above — this is the first place a real discount will break
+  something that isn't a schema CHECK.
+- **No receipt anywhere renders `discountCents`.** Checkout page, cart page,
+  status page, staff order-detail page — none of them read the new field.
+  The UI work is entirely in the next item, not this one.
 
 ## Still open from earlier items
 

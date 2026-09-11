@@ -2449,3 +2449,16 @@ device and never a cookie.
 No button to click yet. Verifying a phone with nothing to spend behind it
 yet would be a control that does nothing, so this stays server-side plumbing
 until the next session gives a verified reward an actual price to apply.
+
+## C-117 — Taxing the reward, not the price before it
+
+Redeem a reward at the counter today and it comes off the total after tax —
+honest, but it means the shop remits sales tax on money the customer never
+handed over. This session gives a reward somewhere better to land: an
+order can now carry its own snapshotted discount, and tax is computed on
+what's left after it, not before.
+
+Nothing changes yet for a real customer — the counter's existing reward
+button still works exactly as it did, and this only becomes visible once a
+future session gives self-serve checkout a control that actually asks for
+one.

@@ -190,11 +190,23 @@ describe('the order snapshot (P0-3, P0-9)', () => {
   it('is an empty, zero-total snapshot for an empty cart', () => {
     expect(buildOrderSnapshot(SAMPLE_MENU, { lines: [] }, RATE_PPM)).toEqual({
       subtotalCents: 0,
+      discountCents: 0,
       taxCents: 0,
       taxRatePpm: RATE_PPM,
       totalCents: 0,
       prepWeight: 0,
       lines: [],
+    });
+  });
+
+  it('threads a discount into the snapshot as the tax base (C-117)', () => {
+    // Subtotal 3590. 500 off -> 3090 base. 3090 x 8.25% = 254.925 -> 255.
+    const snapshot = buildOrderSnapshot(SAMPLE_MENU, CART, RATE_PPM, 500);
+    expect(snapshot).toMatchObject({
+      subtotalCents: 3590,
+      discountCents: 500,
+      taxCents: 255,
+      totalCents: 3090 + 255,
     });
   });
 });

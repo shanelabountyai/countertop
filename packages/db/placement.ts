@@ -488,6 +488,7 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
           placedAt: now,
           statusChangedAt: now,
           subtotalCents: snapshot.subtotalCents,
+          discountCents: snapshot.discountCents,
           taxCents: snapshot.taxCents,
           taxRatePpm: snapshot.taxRatePpm,
           totalCents: snapshot.totalCents,

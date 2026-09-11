@@ -206,6 +206,7 @@ describe('priceOrder — Σ lines + tax', () => {
   it('sums the lines, taxes the subtotal, and keeps all three distinct', () => {
     expect(priceOrder(lines, RATE_8_25)).toEqual({
       subtotalCents: 3935,
+      discountCents: 0,
       taxCents: 325,
       totalCents: 4260,
     });
@@ -214,6 +215,7 @@ describe('priceOrder — Σ lines + tax', () => {
   it('still reports a tax line at a zero rate', () => {
     expect(priceOrder(lines, NO_TAX)).toEqual({
       subtotalCents: 3935,
+      discountCents: 0,
       taxCents: 0,
       totalCents: 3935,
     });
@@ -228,9 +230,54 @@ describe('priceOrder — Σ lines + tax', () => {
   it('is zero across the board for an empty order', () => {
     expect(priceOrder([], RATE_8_25)).toEqual({
       subtotalCents: 0,
+      discountCents: 0,
       taxCents: 0,
       totalCents: 0,
     });
+  });
+});
+
+describe('priceOrder — a pre-tax discount (PRD 7 P1-1, C-117)', () => {
+  const lines = [{ unitPriceCents: 3935, quantity: 1, lineTotalCents: 3935 }];
+
+  it('taxes subtotal minus discount, not the raw subtotal', () => {
+    // 3935 - 1000 = 2935 base. 2935 x 8.25% = 242.1875 -> 242. Total 2935+242=3177.
+    expect(priceOrder(lines, RATE_8_25, 1000)).toEqual({
+      subtotalCents: 3935,
+      discountCents: 1000,
+      taxCents: 242,
+      totalCents: 3177,
+    });
+  });
+
+  it('keeps subtotalCents as the true Σ lines — the discount does not shrink it', () => {
+    expect(priceOrder(lines, RATE_8_25, 1000).subtotalCents).toBe(3935);
+  });
+
+  it('taxes nothing when the discount consumes the whole subtotal', () => {
+    expect(priceOrder(lines, RATE_8_25, 3935)).toEqual({
+      subtotalCents: 3935,
+      discountCents: 3935,
+      taxCents: 0,
+      totalCents: 0,
+    });
+  });
+
+  it('refuses a discount larger than the subtotal', () => {
+    expect(() => priceOrder(lines, RATE_8_25, 3936)).toThrow(/cannot exceed subtotal/);
+  });
+
+  it('refuses a negative discount', () => {
+    expect(() => priceOrder(lines, RATE_8_25, -1)).toThrow(/cannot be negative/);
+  });
+
+  it('refuses a non-integer discount', () => {
+    expect(() => priceOrder(lines, RATE_8_25, 10.5)).toThrow(/integer cents/);
+  });
+
+  it('totalCents always reconciles as subtotal - discount + tax', () => {
+    const totals = priceOrder(lines, RATE_8_25, 1000);
+    expect(totals.totalCents).toBe(totals.subtotalCents - totals.discountCents + totals.taxCents);
   });
 });
 
