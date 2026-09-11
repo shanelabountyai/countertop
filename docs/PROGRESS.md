@@ -8025,3 +8025,106 @@ entry documents — this session added no e2e, because a concurrency invariant
 is not something a browser can assert.
 
 C-119 committed and pushed at 0a65b4a
+
+---
+
+## C-120 — The punch card in the rush
+
+The capstone demo now shows the feature the last five sessions built. Loyalty
+state is **seeded alongside** the rush; the thirty-orders-in-twenty-minutes
+script and its five ugly cases are untouched.
+
+**The decision, taken before any code:** the rush's ugly-case list is the
+master PRD's Success Metrics *verbatim*, so adding a sixth case would have
+been editing acceptance criteria. The owner chose to seed instead. That keeps
+a specified list specified and still fixes the demo — and it turns out the
+rush already varies orders along axes the Success Metrics never mention
+(`paidNow`, `slow`, which cook taps the card), so "this customer has a punch
+card" is another such axis rather than a new case.
+
+**Built:**
+- **`RUSH_REGULARS`** — five of the thirty customers are members, enrolled a
+  month before the anchor through `enrolMember` (the real writer, so the
+  digests are peppered like everyone else's). Their opening points are `earn`
+  rows with a NULL `orderId`: a paper punch card carried over, which is the
+  honest shape for points this system did not issue. An `adjust` would have
+  been easier and would have put "Staff corrections +315" on the program
+  screen for corrections nobody made — C-118's own trap, one table over.
+- **`RushOrder` gained `phone` and `redeemsReward`.** Five orders carry a
+  phone; two spend a reward at checkout, through the real C-115 → C-119 path
+  (`startPhoneVerification` → the stub's echoed code →
+  `confirmPhoneVerificationForCheckout` → a token bound to that order's own
+  idempotency key). No order was added, removed or re-timed.
+- **The two redemptions are deliberately a pair.** Ivy's order is collected,
+  so the reward lands on a sold order and the sales report's Rewards column
+  has something in it. Owen's is cancelled out from under a spent reward, so
+  C-119's settlement hands the points back — in the demo, not only in a unit
+  test.
+- **`runRush` turns the program on** (`seedSettings({ loyaltyEnabled: true })`)
+  and **throws** if `LOYALTY_PHONE_PEPPER` is unset rather than silently
+  running a rush with no punch card in it.
+- **`rush-demo.ts` prints a Punch card section** and the sales summary gained
+  a rewards line.
+- **A fifteenth portfolio screenshot**, `15-loyalty.png`, taken against a
+  finished rush so every number on it is something that happened.
+- **Eight assertions in `rush.test.ts`**, including the two hand-calculated
+  discounted receipts and the reconciliation NEXT.md set as the bar: every
+  `redeem`'s own `amountCents` equals its order's `discountCents`, and no
+  member's balance is negative after a whole service.
+
+**Found by doing it — a real defect the rush caught the moment it had phones:**
+`queueReadyNotification` (P1-3, C-113) writes an outbox row on every
+transition into `ready`, with nothing stopping a second one. Rae Sutton's
+ticket is the rush's wrong-advance case — ready at minute 12, reverted at 13,
+ready again at 16 — so she is queued the identical "#010 is ready for pickup"
+**twice**, four minutes apart, for one bag of food. Invisible before this
+session because no rush order carried a phone and that function is gated on
+one. Latent rather than live: nothing sends these yet.
+
+**Not fixed here, deliberately.** The fix is a constraint, so a hand-written
+migration, and its grain is a real decision — one notification per order
+forever closes the door on a second KIND of notification later. Its own item;
+`NEXT.md` carries it. It is written down as a *passing* test that asserts the
+wrong number with the reason, so the fix will fail it and be pointed straight
+at itself.
+
+**Also corrected, because the screenshot made it visible:** three pieces of
+copy on `/kitchen/loyalty` still described the pre-C-118 world — the program
+panel said a reward is spent by *the counter*, the reward definition said "off
+what an order still owes" as though that were the only path, and the "What
+they cost" tile said "Taken off orders as adjustments", which is the wrong
+mechanism for a checkout redemption (that one is inside the snapshot, not an
+adjustment). Both paths are now stated separately.
+
+**Decided:**
+- **Five members, not thirty.** The phone is optional on the real form and a
+  demo where everybody fills in an optional field is not showing an optional
+  field. There is an assertion for the twenty-five orders with no phone.
+- **Opening balances are `earn` with a null `orderId`.** The partial unique
+  index is on `(orderId) WHERE kind = 'earn'` and Postgres treats NULLs as
+  distinct in a unique index, so several coexist without contending — which
+  is correct: they are different members' history, not two earns on one order.
+- **The demo's two reward figures are made to reconcile on screen.** The
+  ledger counts every reward spent ($20.00); Sales counts only orders that
+  sold ($10.00). Both correct, and a viewer left to spot the gap would read it
+  as a bug, so the script says why in a line of its own.
+
+**Left behind:**
+- **The double "ready" notification.** The item above.
+- **The rush still never exercises a refund end to end** — both its prepaid
+  exits are voids, which is C-069 working. Unchanged by this session and
+  still ~six lines.
+- **No member in the rush has a balance that expires.** `expireInactiveBalances`
+  has unit tests and no demo; showing it would need a regular backdated past
+  365 days, which is a different fixture shape.
+- **Nothing in the rush redeems at the COUNTER.** Both redemptions are
+  self-serve, so `redeemReward`'s own path — and the staff receipt's reward
+  button — are still demonstrated only by the e2e suite.
+
+**Gate:** 1051 unit (+9 over C-119's 1042), identical under
+`TZ=Pacific/Kiritimati`, lint / typecheck / build clean. E2E 218 passed + 15
+skipped (the new screenshot test is the fifteenth) + the same ten pre-existing
+container failures C-118's entry documents; 243 on `--list`, and 218 + 15 + 10
+reconciles.
+
+C-120 committed and pushed at PENDING

@@ -128,6 +128,20 @@ test.describe('after service', () => {
     await expect(page.getByRole('heading', { name: 'Top sellers' })).toBeVisible();
     await page.screenshot({ path: shot('11-report-after'), fullPage: true });
   });
+
+  // C-120. The punch card, with a service behind it rather than an empty
+  // program describing itself — the rush now seeds five members, two spent
+  // rewards and one handed back, so every number on this screen is something
+  // that happened rather than a zero.
+  test('the punch card, after a service', async ({ page }) => {
+    await page.setViewportSize({ width: 1180, height: 1200 });
+    await page.goto('/kitchen/loyalty');
+    // The liability's two halves (C-106) — the number that distinguishes this
+    // screen from a members count, so waiting on it is waiting on the screen
+    // being worth a screenshot.
+    await expect(page.getByTestId('loyalty-redeemable')).toBeVisible();
+    await page.screenshot({ path: shot('15-loyalty'), fullPage: true });
+  });
 });
 
 test.describe('the operator', () => {

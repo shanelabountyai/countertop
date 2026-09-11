@@ -1,103 +1,110 @@
 # Next
 
-**C-119 shipped this session** (`0a65b4a`): the member lock — the defect C-118 named and
-left, closed on **both** redemption paths. PRD 7 P1-1 is live *and* safe
-under concurrency.
+**C-120 shipped this session**: the punch card in the rush. The capstone demo
+now shows the feature the last five sessions built — five of the thirty
+customers are regulars, two spend a reward at checkout, and one of those two
+is the guacamole cancellation, so C-119's settlement handing the points back
+is on screen rather than only in a unit test.
 
-The defect was reproduced before anything was written — a throwaway probe
-firing two checkouts for one member returned `placements ok = 2, redeems = 2,
-balance = -100`. One customer, two $10 rewards, one punch card. C-104's
-partial unique index cannot catch it: that index is per ORDER, and these are
-two orders.
+**The rush's five ugly cases were not touched.** That list is the master PRD's
+Success Metrics verbatim; a sixth case would have been editing acceptance
+criteria to match the code. Seeding state alongside it was the owner's call
+and the smaller change — and the rush already varies orders along axes the
+Success Metrics never mention (`paidNow`, `slow`, which cook taps the card),
+so "this customer has a punch card" is another such axis.
 
-**The fix is two statements in the other order.** `lockMemberBalance` runs
-the `lastActivityAt` UPDATE a redemption owes anyway *first* — taking
-Postgres's row lock — and sums the ledger behind it, so the second attempt
-blocks, wakes, and finds the points gone.
-`confirmCheckoutRedemption` re-asks `planCheckoutRedemption` the same
-question the plan was built from, inside placement's transaction and
-**before** `Order.create` so a refusal leaves no gap in the day's numbers.
-Both paths *throw* their refusal rather than returning it, because inside a
-transaction a returned refusal commits what preceded it. No migration, no
-balance column — **C-100's written refusal of one stands** — and no change to
-what the product promises anyone. `redeemReward` got the same reorder; it has
-had this defect since C-104.
+**The rush earned its keep on the first run**, which is the thing worth
+reading `docs/WRITEUP.md`'s C-120 entry for. Two finds, both from looking at
+what the system actually did rather than from anything the suite was asked to
+check — see the next item, and the loyalty-screen copy that had quietly gone
+stale two sessions ago and is now fixed.
 
-**Read `docs/WRITEUP.md`'s C-119 entry before writing another concurrency
-test.** The short version: the six obvious regression tests all passed, and
-then five of six *kept* passing with the lock deliberately neutered, because
-two `placeOrder` calls do enough work before their transactions that the
-first commits before the second opens. The mechanism needed a test that holds
-one transaction open on purpose. "The test passes" and "the test would fail
-if the code were wrong" are different claims and only the second is worth
-anything.
+## Next unblocked item: a reverted ticket is texted twice
 
-## Next unblocked item: the rush script does not show the punch card
+**A real defect, found by C-120, deliberately not fixed by it.**
 
-Pick this one unless you would rather clear debt below. It is the largest
-gap between what the product *does* and what its capstone demo *shows*.
+`queueReadyNotification` (P1-3, C-113) writes an outbox row on every
+transition *into* `ready`, with nothing stopping a second one. Rae Sutton's
+ticket is the rush's wrong-advance case — ready at minute 12, reverted at 13,
+ready again at 16 — so she is queued the identical `#010 is ready for pickup`
+**twice**, four minutes apart, for one bag of food.
 
-The seeded rush is both the portfolio demo and a test — CLAUDE.md says so —
-and self-serve redemption is now a customer-visible feature it never
-exercises. Nothing in `rush-demo.ts` enrols a member, earns points, or spends
-a reward, so the one recording that is supposed to walk somebody through this
-product ends without ever mentioning the thing the last five sessions built.
+- **Latent, not live.** Nothing sends these; the outbox is a stub log and the
+  master PRD still parks real SMS on its P2 list. So this is a correctness
+  problem, not an incident.
+- **Invisible until C-120.** The function is gated on `customerPhone` and no
+  rush order carried one before this session.
+- **Already written down as a test that passes:** `TEXTS THE REVERTED TICKET
+  TWICE — a defect this rush found, not a rule` in `rush.test.ts`, asserting
+  `toHaveLength(2)` and a total of 5 with the reason in its own name. Fixing
+  the defect makes it fail, which is the point — **edit that test as part of
+  the fix, do not delete it.**
 
-**This needs a decision before it needs code, and it is a real one.** The
-rush's ugly-case list is the master PRD's Success Metrics *verbatim* — a
-mid-rush option 86 with an affected cart, a wrong-advance and undo, a no-show
-aging to `abandoned`, a deliberate double-submit, orders arriving while
-paused. Adding a sixth case means either:
-- **amending the Success Metrics** to name a redemption, which is editing the
-  master PRD's acceptance criteria and should be recorded as a decision with
-  a reason, not done quietly; or
-- **seeding loyalty state alongside the rush without adding a rush case** —
-  a member with a balance, one order carrying a checkout redemption — so the
-  queue, the receipts and the loyalty screen all have something real on them
-  during the demo, while the thirty-orders-in-twenty-minutes script stays
-  exactly as specified.
+**The decision it needs before code.** The fix is a constraint, so a
+hand-written migration (CLAUDE.md's rule), and the grain is the real question:
+- a unique index on `NotificationOutbox(orderId)` — one notification per order
+  **forever**, which is right for "ready" and closes the door on a second KIND
+  of notification later (a delay apology, a "we're closing" nudge); or
+- a partial unique index on `(orderId)` scoped to the ready message's kind,
+  which needs a `kind` column the table does not have — a wider change, and
+  the one that leaves room; or
+- dedupe on the un-sent window only, so a genuine second service on one order
+  (a remake?) can still notify.
 
-The second is smaller, keeps a specified list specified, and still fixes the
-demo. **Ask the owner which.** Whichever way it goes, the rush is a *test* as
-well as a demo, so the case that gets added has to assert something — "zero
-stuck, lost or duplicated orders" is the bar the other five are held to, and
-the redemption equivalent is that the ledger and the snapshots reconcile at
-the end of the rush.
+**Ask the owner which.** The first is cheapest and is a door being closed; the
+second is the shape this table probably wants eventually.
 
-**Model: Sonnet is probably enough** if the decision above is taken first and
-the answer is the second option — it is seed data and assertions against
-mechanisms that already exist and are already tested. Opus if the Success
-Metrics are being amended, because that is a PRD change.
+**Model: Opus.** It is a migration with a constraint whose grain is a product
+decision, on the one table that will grow a second use.
 
-## What C-119 leaves behind
+## What C-120 leaves behind
 
-- **No deadlock is constructible — but that is an argument, not a test.** The
-  lock is one row, taken once, at the top of both transactions. A second lock
-  taken anywhere in either would change that, and nothing enforces it.
-- **`reward_terms_changed` has no test.** Reaching it needs the reward's cash
-  value edited between a plan and its confirmation, and C-106 deliberately
-  ships no control for that value, so the only way to exercise it is a raw
-  settings write mid-transaction. Recorded rather than faked.
-- **Nothing bounds a staff `adjust` below zero.** Both plan functions refuse
-  it and the CHECKs hold each row's sign, but a person typing −500 into the
-  correction control still can. Pre-existing, screen-level, not this item's.
-- **The sleeps in the lock test are 250ms each.** Deterministic in practice
-  and not a guarantee. If it ever flakes, it is the machine being slower than
-  half a second, not the lock failing — raise the pauses, do not delete the
-  test.
+- **The double "ready" notification.** The item above.
+- **Nothing in the rush redeems at the COUNTER.** Both redemptions are
+  self-serve, so `redeemReward` and the staff receipt's reward button are
+  still demonstrated only by the e2e suite, not by the demo.
+- **No member in the rush has a balance that expires.**
+  `expireInactiveBalances` has unit tests and no demo; showing it needs a
+  regular backdated past 365 days, which is a different fixture shape.
+- **The rush still never exercises a refund end to end** — both its prepaid
+  exits are voids, which is C-069 working. ~six lines, and it pairs naturally
+  with any future rush work.
+- **`15-loyalty.png` is the only screenshot of a screen with seeded loyalty on
+  it.** The customer-facing reward control at checkout has no capture, because
+  the screenshot block that seeds a rush is staff-side.
+- **Five existing captures are now content-stale and were NOT regenerated.**
+  `05-kitchen-queue`, `06-kitchen-card`, `10-kitchen-viewport` (mid-rush cards,
+  one of which is now a $4.06 discounted ticket) and `07-report-midservice`,
+  `11-report-after` (the report's new Rewards column). They were left alone
+  on purpose: regenerating them **in a container re-renders every font**, and
+  it is verifiable — `12-staff-login.png`, a static page that cannot have
+  changed, comes back 9007 → 7764 bytes on a regeneration here. Committing
+  that would have been fourteen binary diffs of which nine were pure noise.
+  **Regenerate the whole set on the machine that produced their siblings:**
+  `SCREENSHOTS=1 PORT=3400 npm run test:e2e -- screenshots.spec.ts`.
+  `15-loyalty.png` IS committed — it is new, has no prior version to be
+  inconsistent with, and the alternative was a documented screen with no
+  capture — but it is this container's rendering and should be regenerated
+  with the rest.
 
-## Still open from C-118
+## Still open from C-118 / C-119
 
-- **No `PhoneVerification` sweep** (C-115's `ponytail:`) — every reward costs
-  at least one row and nothing ever deletes them.
+- **No `PhoneVerification` sweep** (C-115's `ponytail:`) — and C-120 makes that
+  table busier still: every rush run now issues two codes.
 - **A customer who abandons a checkout and comes back verifies again.** The
   new attempt gets a new `idempotencyKey`, so the old token is bound to an
-  attempt that no longer exists. C-116's binding working as designed, and
-  also a second SMS per order on a real carrier.
-- **`Order.discountCents` has exactly one producer.** If a second ever
-  appears (a promo code, a manager's pre-tax comp),
-  `settleRedemptionForOrder` assumes the discount and the `redeem` row are
-  the same fact.
+  attempt that no longer exists. C-116's binding working as designed, and also
+  a second SMS per order on a real carrier.
+- **`Order.discountCents` has exactly one producer.** If a second appears (a
+  promo code, a manager's pre-tax comp), `settleRedemptionForOrder` assumes
+  the discount and the `redeem` row are the same fact.
+- **No deadlock is constructible on the member lock — but that is an argument,
+  not a test.** One row, taken once, at the top of both transactions.
+- **`reward_terms_changed` has no test.** Reaching it needs the reward's cash
+  value edited mid-placement and C-106 ships no control for that value.
+- **Nothing bounds a staff `adjust` below zero.** Screen-level, pre-existing.
+- **The sleeps in the lock test are 250ms.** If it ever flakes, raise them;
+  do not delete the test.
 
 ## Environment note for whoever runs the gate next
 
@@ -105,27 +112,23 @@ Metrics are being amended, because that is a PRD change.
 `contact`, `last-call` ×2, `menu-editing` ×2, `menu` ×3 and `refund` ×2 die
 with `Error: request for './menu/index' is from a module not been linked` —
 an ESM loader failure in the fixtures that use a late
-`await import('@countertop/db')` (`setDaypart`, `setLastOrderIn`,
-`failRefundFor`, the staged-price helpers, `clearRestaurantContact`).
-Verified pre-existing at C-118 by stashing that whole change and running the
-same ten specs on `f239791`, where they fail identically; unchanged this
-session. Everything else is green: 218 passed + 14 skipped. If you can
-reproduce this on the developer's own machine it is a real bug and its own
-item; if you cannot, it is the container's loader and belongs in this note
-rather than in the backlog.
+`await import('@countertop/db')`. Verified pre-existing at C-118 by stashing
+that whole change and running the same ten on `f239791`, where they fail
+identically; unchanged since. Everything else is green: **218 passed + 15
+skipped + 10 failed = 243, which is what `--list` reports.** (The fifteenth
+skip is C-120's new screenshot test; screenshots are `SCREENSHOTS=1` only.)
 
 **Also container-only:** Playwright wants browser build 1234 and the image
 ships 1194. Symlinking `/opt/pw-browsers/chromium_headless_shell-1234/…` at
-the expected path is what let the e2e leg run at all; it is not a repo
-change and there is nothing to commit for it.
+the expected path is what lets the e2e leg run; not a repo change.
 
 ## Still open from earlier items
 
 - **No per-batch menu-change event** — PRD 4's builder Open Question, still the
   only thing open in that document.
 - **`setAvailability` is read-then-write** (`ponytail:` comment),
-  last-write-wins. **Worth re-reading now**: C-119's lock is the cheapest
-  precedent in the repo for fixing exactly this shape.
+  last-write-wins. **C-119's member lock is the cheapest precedent in the repo
+  for fixing exactly this shape.**
 - **`done=off` survives a page reload**, so refreshing after a batch
   re-announces "Marked 6 sold out."
 - **No daypart editor**, no overnight daypart window, no schedule view for
@@ -166,9 +169,7 @@ change and there is nothing to commit for it.
 
 - A void the provider refuses is chased by nothing (`ponytail:` in
   `settleAuthorization`); a real processor expires holds on its own.
-- The rush no longer exercises a refund end to end — both its prepaid exits are
-  voids now, which is C-069 working. ~six lines to restore. **Pairs naturally
-  with the rush item above.**
+- The rush no longer exercises a refund end to end — ~six lines to restore.
 - The staff receipt's payment line still reads "Pay at pickup" on a released
   hold; only the customer's status page got the honest sentence.
 - A reversal cannot be pointed at a specific comp, and `refund_failed` rows

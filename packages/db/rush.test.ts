@@ -531,3 +531,230 @@ describe('a card held at checkout, taken or let go', () => {
     }
   });
 });
+
+// ── The punch card, through a whole service (PRD 7, C-120) ──────────────────
+//
+// NOT a sixth ugly case — the five above are the master PRD's Success Metrics
+// verbatim and this session did not touch that list. What this block asserts
+// is that the loyalty state the rush now seeds is COHERENT after twenty
+// minutes of real service: the ledger and the snapshots agree to the cent, no
+// balance went negative, and the two orders that spent a reward ended up in
+// the two different places an order can end up.
+
+describe('the punch card across the rush', () => {
+  beforeAll(async () => {
+    await runRush(RUSH_ANCHOR);
+  }, 180_000);
+
+  it('discounts exactly the two orders that spent a reward, and prices them before tax', async () => {
+    const discounted = await prisma.order.findMany({
+      where: { discountCents: { gt: 0 } },
+      orderBy: { seq: 'asc' },
+      select: {
+        customerName: true,
+        status: true,
+        subtotalCents: true,
+        discountCents: true,
+        taxCents: true,
+        totalCents: true,
+      },
+    });
+
+    // Hand-calculated against the sample menu, both of them.
+    //
+    // Owen: burrito 1095 + chicken 0 + guacamole 250 + NO onions 0 = 1345.
+    // Tax on 1345 − 1000 = 345 → floor(345 × 0.0825 + 0.5) = 28. Total 373.
+    //
+    // Ivy: torta 1150 + carnitas 150 + light onions 0 + extra tortilla 75
+    // = 1375. Tax on 375 → 31. Total 406.
+    //
+    // The point of writing both out: tax is on the DISCOUNTED base. Taxed on
+    // the full subtotal these would be 111c and 113c, and the totals $4.56
+    // and $4.88 — which is the 82c-per-order the shop was remitting on food
+    // nobody paid for, twice, in a demo somebody can add up on screen.
+    expect(discounted).toEqual([
+      {
+        customerName: 'Owen Brandt',
+        status: 'cancelled',
+        subtotalCents: 1345,
+        discountCents: 1000,
+        taxCents: 28,
+        totalCents: 373,
+      },
+      {
+        customerName: 'Ivy Castellanos',
+        status: 'picked_up',
+        subtotalCents: 1375,
+        discountCents: 1000,
+        taxCents: 31,
+        totalCents: 406,
+      },
+    ]);
+  });
+
+  it('reconciles the ledger against the snapshots, to the cent', async () => {
+    // The bar the other five cases are held to, in this one's terms. A
+    // `redeem` carries its own copy of what the reward was worth; the order
+    // carries `discountCents`. Two numbers, two tables, written in one
+    // transaction — and if they ever disagree the money path has a hole in it
+    // that no single-table assertion would find.
+    const redeemed = await prisma.loyaltyEvent.aggregate({
+      where: { kind: 'redeem' },
+      _sum: { amountCents: true },
+      _count: { _all: true },
+    });
+    const snapshotted = await prisma.order.aggregate({ _sum: { discountCents: true } });
+
+    expect(redeemed._count._all).toBe(2);
+    expect(redeemed._sum.amountCents).toBe(snapshotted._sum.discountCents);
+    expect(redeemed._sum.amountCents).toBe(2000);
+
+    // And every `redeem` points at an order that exists and carries exactly
+    // its amount — not just the same total by luck of two sums matching.
+    const rows = await prisma.loyaltyEvent.findMany({
+      where: { kind: 'redeem' },
+      select: { amountCents: true, order: { select: { discountCents: true } } },
+    });
+    for (const row of rows) expect(row.order?.discountCents).toBe(row.amountCents);
+  });
+
+  it('hands the reward back on the order that was cancelled, and keeps it on the one that sold', async () => {
+    // C-119's settlement, in a demo rather than a unit test. Owen's ticket was
+    // cancelled out from under a spent reward; Ivy's was collected.
+    const owen = await memberNamed('Owen Brandt');
+    const ivy = await memberNamed('Ivy Castellanos');
+
+    // Owen: 100 in, 100 spent, 100 returned — and no earn, because nobody got
+    // the food. Back where he started.
+    expect(owen.balance).toBe(100);
+    expect(owen.kinds).toEqual({ earn: 1, redeem: 1, adjust: 1 });
+    expect(owen.returned).toBe(100);
+
+    // Ivy: 100 in, 100 spent, and 13 earned on the $13.75 of food she
+    // actually bought — the SUBTOTAL, not the discounted total, because a
+    // customer earns on what the food cost (P0-3).
+    expect(ivy.balance).toBe(13);
+    expect(ivy.kinds).toEqual({ earn: 2, redeem: 1 });
+    expect(ivy.returned).toBe(0);
+  });
+
+  it('earns nothing for the member who never collected', async () => {
+    // The no-show. The contrast that makes an earn mean something: a member
+    // whose food was cooked and never picked up keeps the points she walked
+    // in with and gains none.
+    const cass = await memberNamed('Cass Iverson');
+    expect(cass.balance).toBe(75);
+    expect(cass.kinds).toEqual({ earn: 1 });
+  });
+
+  it('earns once on the ticket a cook advanced by mistake and reverted', async () => {
+    // Rae's order reached `picked_up` the long way — advanced early, reverted,
+    // advanced again. C-102's `skipDuplicates` on the per-order index is what
+    // makes that one earn rather than two, and the rush is where it happens
+    // against a real transition rather than a fixture.
+    const rae = await memberNamed('Rae Sutton');
+    expect(rae.kinds.earn).toBe(2); // the opening balance, and this order's
+    const earnsOnOrders = await prisma.loyaltyEvent.count({
+      where: { kind: 'earn', orderId: { not: null }, member: { displayName: 'Rae Sutton' } },
+    });
+    expect(earnsOnOrders).toBe(1);
+  });
+
+  it('leaves no member owing points, which is the invariant C-119 protects', async () => {
+    // Over a whole service, with two redemptions, a cancellation, a revert and
+    // three earns landing on the same five members. A negative balance here is
+    // a reward spent twice.
+    const balances = await prisma.loyaltyEvent.groupBy({
+      by: ['memberId'],
+      _sum: { points: true },
+    });
+    expect(balances.length).toBeGreaterThan(0);
+    for (const row of balances) expect(row._sum.points ?? 0).toBeGreaterThanOrEqual(0);
+  });
+
+  it('enrols five of the thirty, because the phone field is optional', async () => {
+    // A demo where every customer fills in an optional field is not showing an
+    // optional field. Five members, and twenty-five orders with no phone on
+    // them at all.
+    expect(await prisma.loyaltyMember.count()).toBe(5);
+    const withPhone = await prisma.order.count({ where: { customerPhone: { not: null } } });
+    const withoutPhone = await prisma.order.count({ where: { customerPhone: null } });
+    expect(withPhone).toBe(5);
+    expect(withoutPhone).toBeGreaterThan(20);
+  });
+
+  it('TEXTS THE REVERTED TICKET TWICE — a defect this rush found, not a rule', async () => {
+    // THIS ASSERTION DOCUMENTS A BUG. It is written down rather than left
+    // silent because the number is wrong and should change.
+    //
+    // `queueReadyNotification` (P1-3, C-113) writes an outbox row on every
+    // transition INTO `ready`, with nothing stopping a second one. Rae's
+    // ticket is the rush's wrong-advance case: marked ready at minute 12,
+    // reverted at 13, marked ready again at 16 — so she is queued the same
+    // "#010 is ready for pickup" twice, four minutes apart, for one bag of
+    // food.
+    //
+    // Latent, not live: nothing sends these yet, the outbox is a stub log
+    // (master PRD P2 still parks real SMS). And invisible until THIS session,
+    // because no rush order carried a phone before C-120 and
+    // `queueReadyNotification` is gated on one — the rush grew phones and
+    // immediately found something, which is the rush being a test.
+    //
+    // NOT FIXED HERE, deliberately: the fix is a constraint and therefore a
+    // hand-written migration, and its grain is a real decision — one
+    // notification per order forever closes the door on a second KIND of
+    // notification later. That is its own item; `NEXT.md` carries it.
+    const queued = await prisma.notificationOutbox.findMany({
+      select: { message: true, order: { select: { customerName: true } } },
+    });
+    const forRae = queued.filter((row) => row.order?.customerName === 'Rae Sutton');
+    expect(forRae).toHaveLength(2);
+    expect(forRae[0]?.message).toBe(forRae[1]?.message);
+
+    // Four customers reached `ready` with a phone on the order; five rows
+    // exist. When the defect is fixed this becomes 4 and this test fails,
+    // which is the point of writing it down.
+    expect(queued).toHaveLength(5);
+  });
+
+  it('never lets a placed order join a loyalty table to render itself', async () => {
+    // The snapshot rule, read from the loyalty side. `Order.discountCents` is
+    // a COLUMN on the order — copied at placement, taxed on, and frozen — so
+    // deleting the member who earned it must leave the receipt byte-identical.
+    // The ledger cascades with the member (C-100); the order does not.
+    const before = await prisma.order.findFirstOrThrow({
+      where: { customerName: 'Ivy Castellanos', discountCents: { gt: 0 } },
+      ...ORDER_RECEIPT,
+    });
+    await prisma.loyaltyMember.deleteMany({ where: { displayName: 'Ivy Castellanos' } });
+    const after = await prisma.order.findFirstOrThrow({
+      where: { id: before.id },
+      ...ORDER_RECEIPT,
+    });
+    expect(after).toEqual(before);
+  });
+});
+
+/** One member's ledger, summarised. Read through the database rather than
+ *  through `memberByPhone`, because the phone is what this test would have to
+ *  hard-code and the display name is already in the rush's own table. */
+async function memberNamed(displayName: string): Promise<{
+  balance: number;
+  kinds: Partial<Record<string, number>>;
+  /** Points handed back by C-119's settlement, positive. */
+  returned: number;
+}> {
+  const member = await prisma.loyaltyMember.findFirstOrThrow({
+    where: { displayName },
+    select: { events: { select: { kind: true, points: true, reason: true } } },
+  });
+  const kinds: Partial<Record<string, number>> = {};
+  let balance = 0;
+  let returned = 0;
+  for (const event of member.events) {
+    kinds[event.kind] = (kinds[event.kind] ?? 0) + 1;
+    balance += event.points;
+    if (event.reason === 'loyalty_reward_returned') returned += event.points;
+  }
+  return { balance, kinds, returned };
+}

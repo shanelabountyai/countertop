@@ -304,7 +304,19 @@ money-path change:
   five of six placement-level concurrency tests stay green with the lock
   neutered, so the mechanism needed a deterministic test of its own.
 
-P1-1 is **live** as of C-118, and **safe under concurrency as of C-119.** It was **not** live with all three of
+- ~~**C-120 — The punch card in the rush**~~ **— shipped.** Not a P1-1
+  requirement: the capstone demo had never shown the program. Loyalty state is
+  SEEDED alongside the rush — five members, two checkout redemptions, one of
+  them cancelled so C-119's settlement is visible — and the master PRD's
+  Success Metrics were deliberately NOT amended, which was the owner's call.
+  **What it found:** the rush's first-ever phone numbers surfaced a P1-3
+  defect (a reverted ticket is texted twice), and its first-ever screenshot of
+  `/kitchen/loyalty` surfaced three pieces of copy still describing the
+  pre-C-118 world, one of them labelling a checkout redemption an
+  "adjustment". Both in `docs/WRITEUP.md`.
+
+P1-1 is **live** as of C-118, **safe under concurrency as of C-119**, and
+**visible in the capstone demo as of C-120.** It was **not** live with all three of
 C-115/C-116/C-117 shipped — that was this plan's own undercount, caught only
 once C-117 actually landed: those three sessions are the *mechanism* — a
 verified phone, a token that carries it, and somewhere honest for a reward

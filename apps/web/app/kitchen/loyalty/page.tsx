@@ -80,7 +80,7 @@ export default async function LoyaltyPage({
         <h2 className="text-2xl font-semibold">The program is {program.enabled ? 'on' : 'off'}</h2>
         <p className="mt-1 text-lg text-neutral-700" data-testid="loyalty-switch-state">
           {program.enabled
-            ? 'Customers are offered the punch card at checkout, points are earned at pickup, and the counter can spend a reward off what an order still owes.'
+            ? 'Customers are offered the punch card at checkout, points are earned at pickup, and a reward can be spent two ways: by the customer at checkout, which comes off the food before tax, or by the counter afterwards, which comes off what the order still owes.'
             : 'Nobody is offered the punch card, nothing is earned, and no reward can be spent. Balances already earned stay exactly where they are.'}
         </p>
         <form action={program.enabled ? turnLoyaltyOff : turnLoyaltyOn} className="mt-3">
@@ -199,7 +199,13 @@ export default async function LoyaltyPage({
           <Stat
             label="What they cost"
             value={formatCents(window.redeemedCents)}
-            note="Taken off orders as adjustments"
+            // C-120: this said "Taken off orders as adjustments", which was
+            // true while `redeemReward` was the only way to spend one. A
+            // CHECKOUT redemption is not an adjustment — it is inside the
+            // snapshot, as `discountCents`, with tax computed on what is left
+            // — so the old note described the wrong mechanism for whichever
+            // share of this figure came in through the customer's own screen.
+            note="Off the food at checkout, or off what is owed at the counter"
             testId="loyalty-cost"
           />
           <Stat
@@ -273,9 +279,19 @@ export default async function LoyaltyPage({
           <Term label="Points earned">
             {points(terms.pointsPerDollar)} per whole dollar of subtotal — tax earns nothing
           </Term>
+          {/* TWO SENTENCES, because there are two paths and they take the
+              reward off different numbers (C-118). Stating only the counter's
+              made this line quietly wrong for every customer who redeemed on
+              their own screen — and the difference is real money: before tax
+              the shop stops remitting sales tax on the discount. */}
           <Term label="A reward is">
-            {points(terms.rewardThresholdPoints)} points, worth {formatCents(terms.rewardValueCents)}{' '}
-            off what an order still owes
+            {points(terms.rewardThresholdPoints)} points, worth {formatCents(terms.rewardValueCents)}
+          </Term>
+          <Term label="Spent at checkout">
+            off the food, before tax is worked out
+          </Term>
+          <Term label="Spent at the counter">
+            off what the order still owes, after tax
           </Term>
           <Term label="Points expire after">
             {points(program.expiryDays)} days without earning or spending

@@ -2534,3 +2534,39 @@ without, every time.
 
 That distinction — a test that proves the fix versus a test that proves the
 mechanism — is the thing this session was actually about.
+
+## C-120 — The demo finally shows the punch card
+
+The seeded rush is this project's capstone: thirty orders in twenty minutes,
+five deliberately ugly things happening in the middle, one recording that
+walks somebody through the whole product. It has never mentioned the loyalty
+program — five sessions of work that the demo simply did not have.
+
+Now the restaurant has regulars. Five of the thirty customers are on the punch
+card, two of them with a reward saved up, and both spend it at checkout. One
+of those orders is collected, so the sales report shows what the program cost
+in food. The other is the ticket the kitchen cancels when it runs out of
+guacamole — so the demo also shows the points going back to a customer who
+never got their food, which is the half of the feature that's easy to forget
+exists.
+
+**The rush's five ugly cases were not touched.** That list is the product
+spec's acceptance criteria word for word, and adding a sixth would have meant
+editing the criteria to match the code. Seeding state alongside it was the
+smaller, more honest change.
+
+**The rush earned its keep on day one.** Giving five orders a phone number for
+the first time immediately surfaced a bug nobody had seen: a customer whose
+ticket is advanced by mistake and put back gets the "your order is ready" text
+*twice*, four minutes apart, for one bag of food. Nothing sends those messages
+yet — it's a stub — so it's latent rather than live, but it's real, and it was
+invisible until an order with a phone number went through the wrong-advance
+case. It's written down as a test that asserts the wrong number on purpose, so
+whoever fixes it gets pointed straight at it.
+
+Taking the screenshot for the write-up turned up something smaller and the
+same shape: the loyalty screen still described a world where only staff could
+spend a reward, and labelled the money "taken off orders as adjustments" —
+which is the wrong mechanism now that customers redeem before tax. Fixed. The
+lesson both times is that a demo is a test of the descriptions as well as the
+code.

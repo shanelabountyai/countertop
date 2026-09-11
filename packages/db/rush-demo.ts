@@ -10,6 +10,7 @@
 // state, which is the headline result, not a missing screen.
 import { instantMinutesAfter, salesReport, timeInStateReport } from '@countertop/core';
 import { prisma } from './index';
+import { loadLoyaltyProgram } from './loyalty';
 import { loadSettings } from './menu';
 import { loadReportOrders } from './report';
 import {
@@ -155,14 +156,54 @@ async function main(): Promise<void> {
   if (report.inFlight > 0) {
     console.log(`  ${plural(report.inFlight, 'order')} still in flight, not booked`);
   }
+  // What the punch card cost, from the SAME `SalesTotals` the screen reads
+  // (C-118's fourth money column). Printed only when a reward was actually
+  // spent, the same rule the tile on `/kitchen/report` follows — a shop with
+  // no loyalty program should read the summary it read before PRD 7.
+  if (report.totals.discountCents > 0) {
+    console.log(
+      `  ${money(report.totals.discountCents)} of punch-card rewards, off the food before tax`,
+    );
+  }
   for (const item of report.topItems.slice(0, 3)) {
     console.log(`  top: ${item.itemName} ×${item.quantity} — ${money(item.revenueCents)}`);
+  }
+
+  // The program itself (C-120). Loyalty is deliberately absent from the sales
+  // report's own query path — PRD 7 P0-6 makes that a requirement, and a
+  // static check enforces it — so this is a second read, of the screen that
+  // owns the question.
+  const loyalty = await loadLoyaltyProgram(anchor);
+  if (loyalty.enabled) {
+    console.log('\nPunch card');
+    console.log(
+      `  ${plural(loyalty.members, 'member')}, ` +
+        `${loyalty.liability.points} points outstanding — ` +
+        `${money(loyalty.liability.redeemableCents)} of that spendable tomorrow`,
+    );
+    console.log(
+      `  ${plural(loyalty.window.redemptions, 'reward')} spent today, ` +
+        `${money(loyalty.window.redeemedCents)} off — ` +
+        `${loyalty.window.pointsEarned} points earned back`,
+    );
+    // THE TWO FIGURES ABOVE DO NOT MATCH ON PURPOSE, and a demo that left a
+    // viewer to notice that on their own would look like a bug. The ledger
+    // counts every reward that was spent; Sales counts only orders that SOLD,
+    // so a reward spent on an order that was later cancelled is in one and
+    // not the other. C-119's settlement is why the points are not simply
+    // gone — they went back to the customer who never got the food.
+    if (loyalty.window.redeemedCents !== report.totals.discountCents) {
+      console.log(
+        `  of that, ${money(report.totals.discountCents)} came off food that was actually sold — ` +
+          `${loyalty.window.pointsReturned} points went back to a customer whose order was cancelled`,
+      );
+    }
   }
 
   console.log(
     stopped
       ? '\nOpen /kitchen — the queue is live, mid-service.\n'
-      : '\nOpen /kitchen/report to see the same numbers on the screen.\n',
+      : '\nOpen /kitchen/report to see the same numbers on the screen, and /kitchen/loyalty for the punch card.\n',
   );
 }
 

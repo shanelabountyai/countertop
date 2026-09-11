@@ -31,8 +31,13 @@ import {
   type OrderStatus,
 } from '@countertop/core';
 import { prisma } from './index';
+import { enrolMember, hasLoyaltyPepper } from './loyalty';
 import { loadClock, loadMenu } from './menu';
 import { derivedIdempotencyKey, placeOrder } from './placement';
+import {
+  confirmPhoneVerificationForCheckout,
+  startPhoneVerification,
+} from './verification';
 import { applyOrderAction } from './transitions';
 import {
   resetDatabase,
@@ -70,6 +75,64 @@ export const EIGHTY_SIX_MINUTE = 8;
 
 export const PAUSE_MINUTE = 15;
 export const RESUME_MINUTE = 18;
+
+// ── The punch card (PRD 7, C-120) ───────────────────────────────────────────
+//
+// SEEDED STATE, NOT A SIXTH UGLY CASE. The rush's five cases are the master
+// PRD's Success Metrics verbatim and this session deliberately did not touch
+// that list. What it adds is a restaurant that has regulars: five of the
+// thirty customers are on the punch card, two of them with a reward saved up,
+// and the demo therefore has something on the loyalty screen, a Rewards
+// column on the sales report, and a receipt with a discount on it.
+//
+// Without this the capstone recording walks somebody through a product whose
+// last five sessions built a feature it never shows.
+
+/** What a regular arrived with, before today. */
+type RushRegular = {
+  label: string;
+  phone: string;
+  /** Points carried in. `0` is a member with a card and nothing on it — the
+   *  ordinary case, and the one that makes "40 people can walk in with $10
+   *  off" a number rather than a guess. */
+  openingPoints: number;
+};
+
+/**
+ * The members, enrolled before the rush opens.
+ *
+ * Their opening points are written as `earn` rows with a NULL `orderId` and
+ * an instant a month before the anchor — a paper punch card carried over,
+ * which is the honest shape for "points this system did not issue". An
+ * `adjust` would have been easier and would have put "Staff corrections
+ * +260" on the program screen for corrections nobody made (C-118's own trap,
+ * one table over).
+ *
+ * The partial unique index is on `(orderId) WHERE kind = 'earn'`, and in
+ * Postgres NULLs are distinct in a unique index, so several of these coexist
+ * without contending — which is correct: they are different members' history,
+ * not two earns on one order.
+ */
+const RUSH_REGULARS: RushRegular[] = [
+  // The two with a reward ready. Both spend it at checkout — one order is
+  // collected, the other is cancelled out from under it, which is the pair
+  // C-119's settlement exists for.
+  { label: 'Ivy Castellanos', phone: '5550102233', openingPoints: 100 },
+  { label: 'Owen Brandt', phone: '5550104417', openingPoints: 100 },
+  // Rae's ticket is the one a cook advances by mistake and reverts. Her earn
+  // therefore lands on an order that reached `picked_up` the long way, which
+  // is C-102's revert-safety visible in the demo rather than only in a test.
+  { label: 'Rae Sutton', phone: '5550108890', openingPoints: 40 },
+  // The no-show. A member who never collects earns nothing — the contrast
+  // that makes the earn mean something.
+  { label: 'Cass Iverson', phone: '5550106654', openingPoints: 75 },
+  // A card with nothing on it yet.
+  { label: 'Ada Nkemelu', phone: '5550101102', openingPoints: 0 },
+];
+
+/** How long before the rush the regulars enrolled. Inside the 365-day expiry
+ *  window by a wide margin, so nothing the demo shows is about to vanish. */
+const ENROLLED_DAYS_AGO = 30;
 
 // ── The compositions ────────────────────────────────────────────────────────
 // Hand-written against the 25-item menu. Indices are referenced by the order
@@ -284,6 +347,29 @@ type RushOrder = {
   expectRefusal?: 'option_unavailable' | 'ordering_closed';
   /** A second attempt by the same customer after a refusal. */
   retryOf?: string;
+  /**
+   * The number this customer hands over (P0-8's optional field, PRD 7 P0-1's
+   * key). Present on a MINORITY of the rush, deliberately: the field is
+   * optional on the real form and a demo where everybody fills it in is not
+   * showing an optional field. It is also what `queueReadyNotification` is
+   * gated on, so these are the tickets that put rows in the P1-3 outbox.
+   */
+  phone?: string;
+  /**
+   * This customer spends a punch-card reward at checkout (PRD 7 P1-1).
+   *
+   * NOT A SIXTH UGLY CASE, and the distinction is the one this session was
+   * asked to keep: the five cases in the header are FAILURES the master PRD's
+   * Success Metrics name verbatim, and this list already varies orders along
+   * axes that document never mentions — `paidNow`, `slow`, which cook taps
+   * the card. A customer with a full punch card is another such axis. No
+   * order is added, removed or re-timed for it.
+   *
+   * Requires `phone`, a seeded balance of at least one reward, and a subtotal
+   * the reward fits inside; `seedRushLoyalty` sets the first two up and
+   * `runRush` throws if the third does not hold.
+   */
+  redeemsReward?: true;
 };
 
 /**
@@ -297,7 +383,7 @@ type RushOrder = {
  * rather than only by a unit test.
  */
 export const RUSH_ORDERS: RushOrder[] = [
-  { label: 'Ada Nkemelu', minute: 0, composition: 0 },
+  { label: 'Ada Nkemelu', minute: 0, composition: 0, phone: '5550101102' },
   { label: 'Ben Sorensen', minute: 0, composition: 1 },
   { label: 'Cleo Vance', minute: 1, composition: 8 },
 
@@ -308,6 +394,7 @@ export const RUSH_ORDERS: RushOrder[] = [
     label: 'Cass Iverson',
     minute: 1,
     composition: 3,
+    phone: '5550106654',
     kitchen: [
       { at: 2, step: 'advance' },
       { at: 4, step: 'advance' },
@@ -322,10 +409,18 @@ export const RUSH_ORDERS: RushOrder[] = [
   // with guacamole six minutes before the kitchen ran out. Its SNAPSHOT does
   // not care and never will; the operational answer is a staff cancel with
   // the reason attached, which is what happens at minute 9.
+  //
+  // He also spent a punch-card reward on it (PRD 7 P1-1, C-120). The
+  // cancellation hands the points back — a logged `adjust`, never a delete —
+  // which is C-119's settlement happening in the demo rather than only in a
+  // unit test. $13.45 of food, $10.00 off, 28c of tax, $3.73 authorised and
+  // then voided.
   {
     label: 'Owen Brandt',
     minute: 2,
     composition: 0,
+    phone: '5550104417',
+    redeemsReward: true,
     kitchen: [
       { at: 3, step: 'advance' },
       { at: 5, step: 'advance' },
@@ -346,6 +441,7 @@ export const RUSH_ORDERS: RushOrder[] = [
     label: 'Rae Sutton',
     minute: 4,
     composition: 7,
+    phone: '5550108890',
     kitchen: [
       { at: 5, step: 'advance' },
       { at: 7, step: 'advance' },
@@ -357,7 +453,11 @@ export const RUSH_ORDERS: RushOrder[] = [
   },
 
   { label: 'Hal Brennan', minute: 5, composition: 9 },
-  { label: 'Ivy Castellanos', minute: 5, composition: 10, slow: 2 },
+  // A regular with a full punch card, spending it at checkout (PRD 7 P1-1).
+  // $13.75 of food, $10.00 off, tax on the $3.75 that is left: 31c, so $4.06.
+  // Collected at the counter, so the reward appears on a sold order and the
+  // sales report's Rewards column has something in it.
+  { label: 'Ivy Castellanos', minute: 5, composition: 10, slow: 2, phone: '5550102233', redeemsReward: true },
   { label: 'Jonah Reddick', minute: 6, composition: 11 },
   { label: 'Kira Lindqvist', minute: 7, composition: 12 },
   { label: 'Luca Ferrante', minute: 7, composition: 13 },
@@ -439,6 +539,96 @@ const at = (anchor: Date, minute: number): Date => instantMinutesAfter(anchor, m
 const keyFor = (order: RushOrder): string =>
   derivedIdempotencyKey(`rush-${order.label}-${order.minute}`);
 
+/**
+ * Enrol the regulars and hand them the points they walked in with (C-120).
+ *
+ * BEFORE minute 0 and through `enrolMember`, the real writer — so the digests
+ * are peppered the way every other member's are and the demo's loyalty tables
+ * are not a customer list. A rush that inserted `LoyaltyMember` rows itself
+ * would agree with itself and prove nothing, which is the same sentence this
+ * file's header already makes about orders.
+ *
+ * THROWS on an unset pepper rather than quietly running a rush with no punch
+ * card in it. `enrolMember` refuses by name — `loyalty_pepper_unset` — and a
+ * capstone demo that silently dropped the feature it exists to show is worse
+ * than one that will not start.
+ */
+async function seedRushLoyalty(anchor: Date): Promise<void> {
+  if (!hasLoyaltyPepper()) {
+    throw new Error(
+      'LOYALTY_PHONE_PEPPER is not set: the rush enrols members and would silently seed none. ' +
+        'Set it in .env.local / .env.test, as .env.example describes.',
+    );
+  }
+  const enrolledAt = instantMinutesAfter(anchor, -ENROLLED_DAYS_AGO * 24 * 60);
+
+  for (const regular of RUSH_REGULARS) {
+    const result = await enrolMember({
+      phone: regular.phone,
+      displayName: regular.label,
+      now: enrolledAt,
+    });
+    if (!result.ok) {
+      throw new Error(`could not enrol ${regular.label} for the rush: ${result.reason}`);
+    }
+    if (regular.openingPoints === 0) continue;
+
+    await prisma.loyaltyEvent.create({
+      data: {
+        memberId: result.memberId,
+        // NULL: these points predate this system. See `RUSH_REGULARS`.
+        orderId: null,
+        at: enrolledAt,
+        kind: 'earn',
+        points: regular.openingPoints,
+      },
+    });
+    // `enrolMember` deliberately does not move `lastActivityAt` (C-101), and
+    // an `earn` written directly is not `earnForOrder`, so the expiry clock
+    // is set here — otherwise these regulars would look like they had not
+    // been seen since the day they signed up, which is not what carrying a
+    // balance in means.
+    await prisma.loyaltyMember.update({
+      where: { id: result.memberId },
+      data: { lastActivityAt: enrolledAt },
+    });
+  }
+}
+
+/**
+ * A verified-phone bearer token for the one checkout attempt that spends a
+ * reward (C-116, spent C-118).
+ *
+ * THROUGH THE REAL TWO CALLS, never a hand-built string: the code is issued,
+ * echoed by the stub provider (C-115's `SmsVerifyProvider` seam — there is no
+ * carrier), and confirmed against the same `idempotencyKey` the placement
+ * carries. So the rush exercises verification end to end, which no other
+ * script does.
+ */
+async function verifiedTokenFor(order: RushOrder, now: Date): Promise<string> {
+  const phone = order.phone!;
+  const started = await startPhoneVerification(phone, now);
+  if (!started.ok) {
+    throw new Error(`${order.label} could not request a code: ${started.reason}`);
+  }
+  if (started.echoedCode === null) {
+    throw new Error(
+      `${order.label}: the SMS provider returned no code to confirm with. A real provider is ` +
+        'plugged in, and the rush has no way to read a text message.',
+    );
+  }
+  const confirmed = await confirmPhoneVerificationForCheckout(
+    phone,
+    started.echoedCode,
+    keyFor(order),
+    now,
+  );
+  if (!confirmed.ok) {
+    throw new Error(`${order.label} could not confirm their code: ${confirmed.reason}`);
+  }
+  return confirmed.token;
+}
+
 async function buildCart(order: RushOrder, anchor: Date): Promise<Cart> {
   const composedAt = at(anchor, order.composedMinute ?? order.minute);
   // The menu as it was when the customer composed, which for exactly one
@@ -463,11 +653,23 @@ async function buildCart(order: RushOrder, anchor: Date): Promise<Cart> {
 }
 
 async function submit(order: RushOrder, anchor: Date, cart: Cart): Promise<RushAttempt> {
+  const now = at(anchor, order.minute);
   const input = {
     cart,
     idempotencyKey: keyFor(order),
-    now: at(anchor, order.minute),
+    now,
     customerName: order.label,
+    // Optional on the real form and optional here (C-120): only the regulars
+    // hand one over. It is what `earnForOrder` keys the punch card on and
+    // what `queueReadyNotification` is gated on, so these five tickets are
+    // also the ones that put rows in the P1-3 outbox.
+    ...(order.phone === undefined ? {} : { customerPhone: order.phone }),
+    // The punch card, spent (PRD 7 P1-1). Minted here rather than up front
+    // because the token is bound to this attempt's own `idempotencyKey` and
+    // to an instant ten minutes wide — a token issued at minute 0 for an
+    // order placed at minute 5 would be fine, and one for minute 20 would
+    // not, so it is simply made when it is used.
+    ...(order.redeemsReward ? { verifiedPhoneToken: await verifiedTokenFor(order, now) } : {}),
     // P1-8. Roughly a third of the rush pays at the counter, so the queue on
     // screen holds both kinds — a badge that is on every card is not a signal,
     // and one that is on none is not a demo. Derived from the arrival minute
@@ -561,9 +763,17 @@ export async function runRush(
   // the throttle it ships with — and if it ever stops fitting, `submit` throws
   // naming the customer who bounced, rather than the script quietly delivering
   // twenty-eight orders and calling it thirty.
-  await seedSettings();
+  //
+  // Except for ONE switch: the punch card is on (C-120).
+  // `loyaltyEnabled` ships false and every other seed leaves it false — the
+  // invisibility requirement PRD 7 P0-1 asks for — but a demo of a restaurant
+  // that runs a loyalty program has to have one running.
+  await seedSettings({ loyaltyEnabled: true });
   await seedStoreHours();
   await seedStaff(anchor);
+  // The regulars, before the doors open. Throws rather than silently seeding
+  // no members if the pepper is unset.
+  await seedRushLoyalty(anchor);
 
   const attempts: RushAttempt[] = [];
   const orderIds = new Map<string, string>();

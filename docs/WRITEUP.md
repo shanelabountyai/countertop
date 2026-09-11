@@ -2739,3 +2739,90 @@ The counter path is a useful control here: it *did* go red, because
 so two of them genuinely overlap. Same defect, same fix, and one of the two
 call sites could see it. That is close to the worst case — enough signal to
 feel covered, not enough to be.
+
+### The demo as a test of the descriptions (C-120)
+
+The seeded rush had never had a phone number in it. Thirty orders, twenty
+minutes, five ugly cases, and `customerPhone` null on every one — because the
+field is optional at checkout and nothing in the script needed it.
+
+C-120 gave five of them one, so the punch card would have members. Within a
+minute of the first successful run, the outbox held this:
+
+```
+Cass Iverson  #003 is ready for pickup
+Ada Nkemelu   #001 is ready for pickup
+Rae Sutton    #010 is ready for pickup
+Rae Sutton    #010 is ready for pickup     ← 
+Ivy Castellanos #012 is ready for pickup
+```
+
+Rae's ticket is the rush's wrong-advance case: a cook marks it ready at minute
+12 reaching across the pass for someone else's, catches it at 13 and reverts,
+then marks it ready properly at 16. `queueReadyNotification` writes a row on
+every transition *into* `ready` and there is nothing stopping the second one.
+One bag of food, two identical texts, four minutes apart.
+
+The defect is a year old in project time — C-113 shipped that function — and
+nothing had ever been able to see it, because it is gated on a phone number
+and the only place that produced both a phone number and a reverted ticket was
+a script that had neither.
+
+I did not fix it. The fix is a constraint, which in this repo means a
+hand-written migration, and its *grain* is a real decision: a unique index on
+`(orderId)` means one notification per order forever, which closes the door on
+a second kind of notification later. That is a session, not a drive-by inside
+one about seed data. What I did instead was write it down as a test that
+passes:
+
+```ts
+it('TEXTS THE REVERTED TICKET TWICE — a defect this rush found, not a rule', ...
+  expect(forRae).toHaveLength(2);
+  // Four customers reached `ready` with a phone; five rows exist. When the
+  // defect is fixed this becomes 4 and this test fails, which is the point.
+  expect(queued).toHaveLength(5);
+```
+
+Asserting wrong behaviour is normally a way to cement it. It is defensible
+here because the assertion says, in its own name and its own comment, that the
+number is wrong — so the test cannot be read as a specification, and the fix
+is guaranteed to land on it rather than beside it. The alternative was a
+sentence in a document nobody greps.
+
+**Then the screenshot found the second one.** The item included a portfolio
+capture of `/kitchen/loyalty` against a finished rush. Looking at the rendered
+page rather than at the code, three pieces of copy were describing a product
+that stopped existing two sessions ago:
+
+- *"the counter can spend a reward off what an order still owes"* — true
+  before C-118, and now only half the story.
+- *"A reward is 100 points, worth $10.00 off what an order still owes"* — the
+  after-tax framing, stated as though it were the definition.
+- *"What they cost — Taken off orders as adjustments"* — flatly wrong for a
+  checkout redemption, which lives in the snapshot as `discountCents` and is
+  not an adjustment at all. Both redemptions in that very screenshot were
+  checkout ones, so the tile was mislabelling 100% of the money under it.
+
+Nothing failed. No type was wrong, no test was red, and every one of those
+sentences had been *correct* when it was written. They rotted because a later
+session changed what was true and had no reason to open that file.
+
+The pattern worth keeping: **a feature's prose has the same staleness problem
+as a cached read, and far less protection.** C-118 broke a cached boolean on
+the staff receipt (`rewardUsed`, read off the money side) and a test caught it.
+C-118 also broke three sentences on the loyalty screen, and nothing caught
+them, because a string that describes a mechanism has no dependency on it.
+
+Two things help, and both showed up here:
+
+**Render the thing and look at it.** The screenshot was for the write-up. It
+functioned as a review of every claim on the page, because reading prose in a
+rendered layout is a different activity from reading it as a string literal in
+a `.tsx` file, and only one of them makes you check whether the sentence is
+still true.
+
+**A demo is a test with a wider surface than the assertions in it.** The rush
+caught the notification bug not because anything asserted notifications, but
+because running the real thing with realistic data produces output a person
+reads. Both of this session's finds came from *looking at what the system
+actually did*, not from anything the suite was asked to check.
