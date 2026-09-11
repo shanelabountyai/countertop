@@ -1,54 +1,47 @@
 # Next
 
-**C-114 shipped this session** (`8cb7530`, SHA recorded in this same commit):
-master PRD P1-2, order-ahead scheduling. A "When" picker
-at checkout offers ASAP or a pickup slot, off by default. `availableSlots` is
-a sibling gate to `checkoutGate` — same manual-pause/closed-today precedence,
-deliberately NOT the throttle, since a slot's own remaining prep weight
-(same scale `maxOpenWeight` uses) is its own capacity check. Gate green: 957
-unit (+24 over C-113's 933), 221 e2e passed + 14 skipped = 235 (+3), lint/
-typecheck/build clean.
+**C-115 shipped this session** (`af1c122`, SHA recorded in this same commit):
+PRD 7 P1-1, session 1 of 3 — the phone-verification mechanism. Closes the
+gap C-113's entry named: self-serve redemption at checkout needs proof a
+customer controls the phone number they typed, and C-113's SMS is a
+one-way stub with no reply channel and no code to confirm against.
+`PhoneVerification` (hand-written migration), `packages/core/loyalty/
+verification.ts`'s pure decision functions, `packages/db/verification.ts`'s
+`startPhoneVerification`/`confirmPhoneVerification` and the
+`SmsVerifyProvider` seam. The design decision — the stub echoes the code to
+the requester via the seam's return type, never behind an env flag — is
+recorded in `docs/prds/prd-loyalty.md`'s new "P1-1's own phasing" section.
+Gate green: 985 unit (+28 over C-114's 957), 221 e2e passed + 14 skipped =
+235 (unchanged — no UI shipped this session), lint/typecheck/build clean.
 
-Picked over loyalty's P1-1 (self-serve redemption before tax) because that
-item needs its own design pass first — "what counts as verification for a
-one-way SMS stub" has no answer yet — and this one had a straightforward
-build once C-113 existed.
+**Inert on purpose.** No customer or counter surface changed. `loyaltyEnabled`
+and the existing staff-attended P0-4 redemption are untouched.
 
-**Next unblocked item:** none picked yet. Real options:
-- **Loyalty P1-1** — still gated on the verification-design question
-  `docs/prds/prd-loyalty.md` names. Needs a small design pass before code,
-  not a straight build.
-- **P2 items off the master PRD** — nothing else has a product-decision
-  gate; see the master PRD's "Future Considerations" list. WebSocket
-  transport, a real payment adapter, combos/nested modifiers, reorder,
-  tips, kitchen station routing, a ticket printer, real SMS, and the
-  catering/multi-day-scheduling growth of this session's own item are all
-  candidates with no design blocker.
+**Next unblocked item: C-116 — checkout wiring for P1-1.** Request a code,
+confirm it, and design the bearer-token shape that carries "this phone was
+verified" from confirmation through to placement with no session or cookie
+— same idempotency-key discipline `newStatusToken` already applies
+elsewhere in this codebase. After that, **C-117 — the tax base**:
+`Order.discountCents`, snapshotted, and `priceOrder` computing tax on
+`subtotal − discount`. P1-1 is not live (no customer-visible control exists)
+until both land.
 
-**Model:** whichever comes next, recommend at that item's start per the
-usual rule. Loyalty P1-1 touches money (tax base, `discountCents`) — lean
-Opus for the design of that one. Most P2 items are routine build — Sonnet.
+**Model:** C-116 is routine build once C-115's plumbing exists — Sonnet.
+C-117 touches money (the tax base every receipt reconciles against) and
+should get the same Opus treatment this session's design pass did.
 
-## What C-114 leaves behind
+## What C-115 leaves behind
 
-- **The queue's 15-minute "N min since ordered — running late" flag does not
-  know about `requestedFor`.** A scheduled order sitting untouched well
-  before its slot can still redden — `queueAging` reads only `placedAt`. The
-  "Pickup HH:MM" badge on the card is the mitigation (a cook sees why), not
-  the fix. The real fix touches `queueAging`, which the P0-6 throttle and
-  P0-7 estimate also depend on — its own session, not a rider.
-- **Same-day only.** No multi-day slot picker — the master PRD's own P2 list
-  names "catering / large-order lead-time rules" as P1-2 grown up, a
-  different and larger feature, not this one with an extra input.
-- **A fully-booked day degrades silently to ASAP-only** — no "nothing left
-  today" copy, the same way loyalty-off degrades to no punch card.
-- **The confirmation screen renders the pickup time in the customer's OWN
-  device clock**, not the restaurant's — a deliberate, reasoned exception to
-  this project's time rules (see the component's own comment and the
-  WRITEUP entry). The status page and kitchen queue use the restaurant's
-  timezone as normal.
-- **No fixture pinned to an actual DST-transition date** for
-  `zonedTimeToInstant` — a `ponytail:` comment on the function names the gap.
+- **No sweep ever deletes an old `PhoneVerification` row.** `ponytail:`
+  comment on the model names the upgrade path (a periodic delete past
+  `expiresAt`, same shape as the retention sweep) and the ceiling (fine
+  until a shop sees far more than a few dozen redemption attempts a day).
+- **A column-default clock-skew defect, caught and fixed this session, not
+  left behind** — but worth re-reading before writing another table with a
+  hand-written CHECK spanning two timestamp columns: `docs/WRITEUP.md`'s
+  "A column default that was its own clock-skew bug" entry has the general
+  shape (`DEFAULT now()` is only dangerous the moment something compares
+  that column against a value from a different clock).
 
 ## Still open from earlier items
 
@@ -83,6 +76,18 @@ Opus for the design of that one. Most P2 items are routine build — Sonnet.
   run and passed 3/3 in isolation immediately after, unrelated to anything
   C-113 touched. Same shape as the refund flake above — a second data point
   for "timeout under load," not yet enough to call it a pattern.
+- **The queue's 15-minute "N min since ordered — running late" flag does
+  not know about `requestedFor`** (C-114) — a scheduled order sitting
+  untouched well before its slot can still redden. The "Pickup HH:MM" badge
+  is the mitigation, not the fix; the fix touches `queueAging`, its own
+  session.
+- **Same-day only** for order-ahead (C-114) — multi-day is the master
+  PRD's own catering/lead-time P2 item, not this one grown up early.
+- **A fully-booked day degrades silently to ASAP-only** (C-114) — no
+  "nothing left today" copy, the same way loyalty-off degrades to no punch
+  card.
+- **No fixture pinned to an actual DST-transition date** (C-114) for
+  `zonedTimeToInstant` — a `ponytail:` comment on the function names the gap.
 
 ## Still open from C-069 / C-071, if you would rather clear debt
 
