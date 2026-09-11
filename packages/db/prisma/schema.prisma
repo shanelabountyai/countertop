@@ -832,6 +832,56 @@ model NotificationOutbox {
   @@index([orderId])
 }
 
+/// A one-time code proving control of a phone number, for self-serve
+/// redemption at checkout (PRD 7 P1-1, C-115). NOT an account and NOT a
+/// session: nothing here is logged into and nothing here outlives the few
+/// minutes a code is good for.
+///
+/// KEYED ON `phoneDigest`, THE SAME DIGEST `LoyaltyMember` USES — never the
+/// phone itself, for the identical reason. There is no foreign key to
+/// `LoyaltyMember`: verifying a number is a fact about the number, and
+/// `startPhoneVerification` is what decides whether a member with a reward is
+/// behind it before a code is ever generated.
+///
+/// ONE ROW PER REQUEST, NOT ONE ROW PER PHONE. A resend is a new row, and
+/// confirmation always reads the NEWEST row for a digest — so an old,
+/// unconsumed code simply stops being the one anybody is compared against,
+/// with no separate "invalidate" write and no unique index to manage.
+///
+/// ponytail: no sweep ever deletes an old row here, so this table grows by
+/// one row per verification request forever. Upgrade path: a periodic delete
+/// past `expiresAt` by some margin, same shape as the retention sweep — add
+/// it the day the row count is large enough to matter for a shop that sees at
+/// most a few dozen redemption attempts a day.
+model PhoneVerification {
+  id          String    @id @default(cuid())
+  phoneDigest String
+  /// SHA-256 of the code, domain-separated by the digest — the same honestly
+  /// stated discipline `StaffMember.pinDigest` applies: this keeps the code
+  /// out of a casual read of the table, not out of reach of anyone who holds
+  /// it, and it does not need the loyalty pepper because a code is random and
+  /// single-use, not a value a customer chose and reuses.
+  codeHash    String
+  expiresAt   DateTime  @db.Timestamptz(3)
+  /// Counted BEFORE a hash comparison is even made, never after — so a guess
+  /// that could not possibly succeed does not still teach an attacker
+  /// anything. `packages/core`'s `canAttemptVerification` decides the cap;
+  /// this column is only where the count lives.
+  attempts    Int       @default(0)
+  /// Set on the confirmation that matched. Null forever on a code nobody ever
+  /// got right — there is no negative row.
+  consumedAt  DateTime? @db.Timestamptz(3)
+  /// APP-SUPPLIED, never a database default — like `LoyaltyEvent.at`, and for
+  /// the same reason: `expiresAt` is computed from the caller's own `now`, and
+  /// a `createdAt` from a different clock (the database server's) is exactly
+  /// the skew this project's time rules exist to rule out. A frozen-`now`
+  /// test is what caught it: `CURRENT_TIMESTAMP` in real time versus a fixed
+  /// past `now` failed this row's own expiry CHECK.
+  createdAt   DateTime  @db.Timestamptz(3)
+
+  @@index([phoneDigest, createdAt])
+}
+
 /// A name to put on a row (PRD 6 P0-2). NOT an account.
 ///
 /// There are no roles, no permissions and no per-person login: the shared

@@ -2420,3 +2420,19 @@ the restaurant's own time, the customer sees it in theirs.
 **Off by default**, like every optional feature this project has shipped — a
 restaurant that never turns it on sees no picker anywhere and nothing about
 its existing checkout changes.
+
+## C-115 — Phone verification, the plumbing for self-serve rewards
+
+Today, spending a punch-card reward is a staff action at the counter — a
+person is looking at the customer, which is what makes an unverified phone
+number safe to use as a key. Letting a customer spend their own reward at
+checkout, with nobody standing there, needs the opposite: proof they actually
+control the number they typed.
+
+This session builds that proof, not the checkout button yet. A one-time code,
+good for five minutes, five guesses before it's dead. There's no real carrier
+behind it — same as this project's SMS notifications and its payment
+processor, both deliberately stubbed — so the stub hands the code back to
+whoever asked for it rather than pretending to text it somewhere. The next
+two sessions wire it into checkout and change how tax gets computed on a
+reward applied before it, rather than after.

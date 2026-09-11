@@ -158,3 +158,57 @@ Two Cascades and two Restricts, and the asymmetry is the design: a member's ledg
 - ~~**C-106 — The program's own screen**~~ **— shipped.** P1-2 and P0-6: `/kitchen/loyalty` with the members, the liability in cents, the window's earns, redemptions and their cost, and the redemption rate — plus the static check that reads the report's query path and fails on the word. **One session.** No migration. **The liability is TWO numbers, not one:** every outstanding point at the reward rate, and the whole rewards that could actually be spent tomorrow — C-104's refusal to clamp half a reward is what makes them different amounts, and an owner shown only one of them provisions wrongly in one direction or the other. **The switch shipped and the numbers deliberately did not:** `loyaltyEnabled` is a button, while the reward terms and both windows are rendered read-only with the reason, because changing `rewardValueCents` restates the liability of every point already earned and shrinking `loyaltyExpiryDays` destroys balances with no preview — C-105's dry-run condition is satisfied by not shipping the control, which is the other way to satisfy it.
 
 **Total: six P0 items over seven sessions, plus one P1 session.** Two hand-written migrations certain (C-100, C-105), a third conditional (C-104). P1-1 and P1-3 are not phased — P1-1 is a program of work gated on SMS *verification* (master-PRD P1-3's one-way stub, C-113, does not supply this) that would be its own PRD, and P1-3 belongs to whoever next opens the queue card.
+
+### P1-1's own phasing (design pass, 2026-09-11)
+
+The gap named above, made concrete: there is no real carrier in this product
+(master PRD's own P2 list still parks "real SMS", unbuilt) and no customer
+account or session to hang a "remembered device" on (the resolved
+tokenized-link decision, restated by this document's own Non-Goals). So the
+question is not "how does Twilio's verify API work" — it is how a *stub*
+delivers a one-time code back to a customer with no real phone on the other
+end, in a way the rush demo and the e2e suite can actually click through.
+
+**Decision: the stub echoes the code to the requester, structurally, not
+behind an environment flag.** `local-guard.ts` already states the reason a
+different flag can't carry this: *"an env var nobody set is not a safety
+mechanism."* Gating the echo on `NODE_ENV !== 'production'` would be that
+exact anti-pattern aimed at a real customer-facing surface — this product
+**is** deployed. The boundary instead is a named seam function, the same
+shape `provider.ts`'s `PaymentProvider` already is: `SmsVerifyProvider`
+returns the code (`string`) when the stub is the only implementation there
+is, and returns `null` the day a real provider is plugged in (P2's "real
+SMS"), because a real send has nothing left to hand back. One function,
+swapped whole — no branch, no flag, no forgotten toggle.
+
+Three sessions, matching every prior item's "one requirement per session"
+discipline, because P1-1 itself is three prerequisites that move together
+(PRD line above) and each is its own hand-written migration or its own
+money-path change:
+
+- ~~**C-115 — The verification mechanism**~~ **— shipped.** A `PhoneVerification`
+  table (hand-written migration: two CHECKs, no trigger — this is a mutable,
+  short-lived row, not a ledger), `packages/core/loyalty/verification.ts`'s
+  pure decision functions (`canAttemptVerification`, `planVerificationStart`),
+  and `packages/db/verification.ts`'s `startPhoneVerification` /
+  `confirmPhoneVerification` plus the `SmsVerifyProvider` seam. Five-minute
+  codes, five guesses, confirmation always reads the newest row for a
+  phone digest so a resend needs no separate invalidation. **Not yet wired to
+  anything a customer can reach** — this session is plumbing, the same shape
+  C-100's ledger was before C-101 gave it a checkbox.
+- **C-116 — Checkout wiring.** The self-serve control itself: request a code,
+  confirm it, and a verified token the checkout submission carries. No new
+  session or cookie — the token is a bearer of proof for one placement, the
+  same idempotency-key discipline `newStatusToken` already applies elsewhere,
+  not a "remembered device".
+- **C-117 — The tax base.** `Order.discountCents`, snapshotted, and
+  `priceOrder` computing tax on `subtotal − discount` rather than `subtotal`.
+  This is the one that makes the reward honest before tax instead of after it
+  — and it is last, deliberately, because it is the one change that touches
+  every receipt's arithmetic and deserves to land with nothing else moving
+  in the same diff.
+
+P1-1 is **not live** — no copy renders, no checkout control exists — until
+all three ship. C-115 alone changes nothing a customer or the counter can
+observe; `loyaltyEnabled` and the existing staff-attended P0-4 redemption are
+completely unaffected by it.

@@ -7577,3 +7577,67 @@ prerequisite for loyalty in `docs/PROGRESS.md`'s own C-113 entry.
 - **A fully-booked day degrades silently to ASAP-only**, the same way a
   program with loyalty off degrades to no punch card — no "sorry, nothing
   left today" copy, just an absent picker.
+
+## C-115 — The phone-verification mechanism (PRD 7 P1-1, session 1 of 3)
+
+The design pass this item was gated on, from C-114's entry: what does
+"verification" mean for a one-way SMS stub with no real carrier and no
+customer account to hang a session on? Resolved this session and recorded in
+`docs/prds/prd-loyalty.md`'s new "P1-1's own phasing" section — the short
+version is a `SmsVerifyProvider` seam, the same shape `provider.ts`'s
+`PaymentProvider` already is, whose only implementation today returns the
+code it was asked to send because a stub has no other channel to send it on.
+No env-var gate: `local-guard.ts`'s own stated reason a variable nobody set
+is not a safety boundary applies directly to a deploy that forgot to flip it.
+
+**Built:**
+- **`PhoneVerification`** (hand-written migration): `phoneDigest` (the same
+  HMAC `LoyaltyMember` uses, no FK to it — a code is a fact about a number,
+  not about a member row), `codeHash`, `expiresAt`, `attempts`, `consumedAt`.
+  Two CHECKs (`attempts >= 0`, `expiresAt > createdAt`), no trigger — this is
+  a mutable, short-lived row, not a ledger. **`createdAt` has no database
+  default**, unlike `NotificationOutbox`'s: a frozen-`now` test caught
+  `DEFAULT CURRENT_TIMESTAMP` failing its own row's expiry CHECK the moment
+  the fixture's `now` was in the past relative to the real wall clock — the
+  exact clock-skew this project's time rules exist to rule out, just showing
+  up in a column default instead of application code.
+- **`packages/core/loyalty/verification.ts`** — pure: `canAttemptVerification`
+  decides whether a submitted code is even worth hashing (not requested,
+  already used, over the attempt cap, or expired, checked in that order so a
+  dead code reports why it's dead and not a stale clock's opinion) and
+  `planVerificationStart` decides whether a code should be issued at all
+  (program on, a member, a reward actually available — refused by name
+  before any code exists, not after).
+- **`packages/db/verification.ts`** — `startPhoneVerification` and
+  `confirmPhoneVerification`, plus `sixDigitCode`/`codeHash`
+  (`node:crypto`, `timingSafeEqual`, same discipline `staffByPin` uses).
+  **A resend is a new row, never an update** — confirmation always reads the
+  newest row for a digest, so an old unconsumed code simply stops being the
+  one anybody is compared against, with no separate invalidation write and no
+  unique index fighting a resend.
+- **`resetDatabase()`** gained `PhoneVerification` in its TRUNCATE list — it
+  has no FK to anything, so nothing cascaded it for free the way
+  `NotificationOutbox` rides `Order`'s cascade, and the first test run made
+  that obvious immediately.
+
+**Decided:**
+- **The stub echoes the code to the requester, structurally, not behind an
+  environment flag.** Full reasoning is in the PRD's phasing section; the
+  short version is that this product is actually deployed, so a
+  `NODE_ENV`-gated echo would be a real security hole with a real address,
+  not a toy one — the boundary had to be the seam function's return type
+  (`string | null`), not a variable a future deploy could forget to set.
+- **Three sessions, not one**, matching the PRD's own read of P1-1 as "a
+  program of work." This session is inert plumbing on purpose — nothing a
+  customer or the counter can reach changed, `loyaltyEnabled` and the
+  existing staff-attended P0-4 redemption are untouched, and C-116
+  (checkout wiring) and C-117 (the `discountCents` tax-base change) are next.
+
+**Left behind:**
+- No sweep ever deletes an old `PhoneVerification` row — `ponytail:` comment
+  on the model names the upgrade path (a periodic delete past `expiresAt`,
+  same shape as the retention sweep) and the ceiling (fine until a shop sees
+  far more than a few dozen redemption attempts a day).
+- Nothing wires this to checkout yet — C-116's whole job, including the
+  bearer-token shape that lets a verified phone survive from confirmation to
+  placement with no session or cookie.

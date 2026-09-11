@@ -2497,3 +2497,42 @@ truth in waiting, and the question worth asking before adding the column is
 not "does this table need it" but "does something elsewhere already promise
 to forget it." The retention sweep would not have failed loudly — it would
 have kept passing its own test while quietly stopping being true.
+
+### A column default that was its own clock-skew bug (C-115)
+
+`PhoneVerification.expiresAt` is computed from the caller's own `now` —
+`instantMinutesAfter(now, VERIFY_CODE_TTL_MINUTES)` — the same discipline
+every engine function in this repo already follows. The first draft gave
+`createdAt` a database default, `DEFAULT CURRENT_TIMESTAMP`, copying
+`NotificationOutbox`'s shape without asking why that shape was safe there and
+might not be here.
+
+It wasn't. The CHECK constraint `expiresAt > createdAt` failed on the very
+first test — not because the logic was wrong, but because `createdAt` and
+`expiresAt` were being read off two different clocks. `expiresAt` came from
+the test's frozen fixture `now`, sometime in July 2026; `createdAt` came from
+the real Postgres server's wall clock, September 2026 in actual runtime. Two
+correct-looking values, individually, that disagreed about which one came
+first — exactly the failure mode this project's time rules exist to prevent,
+except this time the "process timezone" was a database server's clock rather
+than Node's, and no lint rule reaches SQL.
+
+**Why it didn't matter for `NotificationOutbox`:** that table's `createdAt`
+is never compared against another column — it's a log timestamp, read and
+displayed, never subtracted from or checked against anything else it also
+wrote. `PhoneVerification` compares two of its own timestamps in a
+constraint, and that comparison is exactly the seam where two different
+clocks can disagree even when both, individually, look like "now."
+
+**The fix:** drop the default, make `createdAt` an explicit application-
+supplied column like `LoyaltyEvent.at` and `LoyaltyMember.enrolledAt`
+already are, and pass the same `now` the caller used for `expiresAt`. One
+clock, one row, no comparison that can disagree with itself.
+
+**The general shape:** "does this table need its own clock" is the wrong
+question — every table with a `DEFAULT now()` looks equally safe by that
+question, because a timestamp column is never wrong on its own. The right
+question is "does any constraint, or any later comparison, put this column
+next to a value that came from somewhere else" — and a hand-written CHECK
+spanning two timestamp columns is the loudest possible signal that the
+answer is yes.

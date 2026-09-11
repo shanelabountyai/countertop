@@ -17,7 +17,7 @@ export async function resetDatabase(): Promise<void> {
   assertLocalDatabase('resetDatabase()');
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
-      "LoyaltyEvent", "LoyaltyMember",
+      "LoyaltyEvent", "LoyaltyMember", "PhoneVerification",
       "OrderEvent", "OrderLineOption", "OrderLine", "Order",
       "StagedPrice", "MenuItemWindow", "ItemModifierGroup", "ModifierOption", "ModifierGroup", "MenuItem",
       "Category", "RestaurantSettings", "StoreHours", "StaffMember"
