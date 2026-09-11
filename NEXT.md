@@ -1,6 +1,6 @@
 # Next
 
-**C-119 shipped this session**: the member lock — the defect C-118 named and
+**C-119 shipped this session** (`0a65b4a`): the member lock — the defect C-118 named and
 left, closed on **both** redemption paths. PRD 7 P1-1 is live *and* safe
 under concurrency.
 
