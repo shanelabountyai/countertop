@@ -1,6 +1,6 @@
 # Next
 
-**C-117 shipped this session** (SHA recorded in a follow-up commit): PRD 7
+**C-117 shipped this session** (`a1f8faa`): PRD 7
 P1-1, session 3 of 3 — the tax base. `Order.discountCents` (snapshotted,
 `@default(0)`, hand-written migration with three CHECKs — not negative, not
 exceeding `subtotalCents`, and `totalCents = subtotalCents - discountCents +
