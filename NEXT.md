@@ -1,6 +1,6 @@
 # Next
 
-**C-118 shipped this session**: the checkout redemption control — PRD 7
+**C-118 shipped this session** (`65dc197`): the checkout redemption control — PRD 7
 P1-1's fourth, unphased piece, and the one that makes **P1-1 live**. A
 customer with a full punch card can now verify their phone from their own
 screen and take $10 off *before tax*: on the sample burrito that is $5.36
