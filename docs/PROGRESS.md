@@ -7918,3 +7918,108 @@ late `await import('@countertop/db')`. **Verified pre-existing by stashing
 this entire change and running those same ten specs on `f239791`, where they
 fail identically.** Everything else passes: 218 passed + 14 skipped, and the
 loyalty spec is 20/20 including all seven new C-118 cases.
+
+---
+
+## C-119 — The member lock
+
+The defect C-118 named and left, closed on both redemption paths. No
+migration, no new column, no product change: a reorder of two statements that
+both already existed, plus a re-check inside the transaction.
+
+**The defect, reproduced before anything was written:** two checkouts for the
+same member in flight at once each read a balance of 100 outside any
+transaction and each wrote a `redeem`. A throwaway probe returned
+`placements ok = 2, redeems = 2, balance = -100` — one customer, two $10
+rewards, one punch card. C-104's partial unique index cannot catch it: that
+index is per ORDER, and these are two orders.
+
+**Built:**
+- **`packages/db/loyalty.ts`** — `lockMemberBalance(tx, memberId, now)`: the
+  `tx.loyaltyMember.update` that moves `lastActivityAt` runs FIRST, taking
+  Postgres's row lock, and the balance is summed after it. Returns a number
+  and decides nothing; each caller re-runs its own plan function against it,
+  because the counter and checkout ask different questions of one balance.
+- **`confirmCheckoutRedemption(tx, plan, now)`** — takes the lock, re-reads
+  the settings row as well as the balance, and re-asks
+  `planCheckoutRedemption` the SAME question the plan was built from.
+  `PlannedCheckoutRedemption` gained `subtotalCents` so it can.
+- **`packages/db/placement.ts`** — the confirmation runs BEFORE
+  `Order.create`, and a refusal throws `RewardLost`, which rolls the
+  transaction back and is caught at `placeOrder`'s own boundary and turned
+  into the ordinary `reward_unavailable` refusal.
+- **`redeemReward`** — the same reorder on the counter path: the
+  `lastActivityAt` update moved from the end of the transaction to the start,
+  and `planRedemption` is re-run against the locked balance. A refusal throws
+  `RedemptionLost` so both halves — the `redeem` AND the `adjustment` — unwind
+  together.
+- **New refusal `reward_terms_changed`**, for the one thing the re-read under
+  the lock can newly discover: the reward's cash value was edited between this
+  checkout being priced and being written, so the order's snapshotted
+  `discountCents` no longer matches what the program is worth.
+
+**Decided:**
+- **A lock, not a balance column.** C-100 refused a balance column with a
+  written reason and named the conditions under which one could exist ("a
+  derived cache with an agreement test"). Meeting those conditions is a
+  migration, five writers to keep honest, and a second source of truth
+  forever — to solve a problem that a reorder of two statements already
+  solves. The repo's "the constraint is the mechanism" rule is satisfied
+  here by the row lock, which is a database mechanism and not a code
+  convention.
+- **The lock is taken BEFORE `Order.create`, not after.** A refusal rolls the
+  transaction back, and rolling back an `Order.create` leaves a gap in the
+  day's numbers — #005 then #007, with nothing in between and nobody able to
+  say why. `takingNextOrderNumber` reads the maximum, so the gap is
+  permanent. Locking first costs nothing. There is a test for the gap.
+- **Both refusals are thrown, not returned.** Inside a transaction a returned
+  refusal commits whatever preceded it — here, the `lastActivityAt` the lock
+  moved, and on the counter path the `adjustment` that takes $10 off a ticket.
+  An `adjustment` with no `redeem` beside it is C-104's "either half alone is
+  a defect somebody finds at close".
+- **The counter path is fixed in the same session.** It has had this defect
+  since C-104 — two staff, two tablets, one member, two of their orders — and
+  shipping a fix that closes the new door while leaving the old one open would
+  have been a worse artefact than a slightly larger diff.
+
+**Found while testing, and it changes what can honestly be claimed:**
+The placement-level concurrency tests **do not prove the lock**. Neuter it —
+move the UPDATE below the SELECT, so the balance is read in front of the lock
+instead of behind it — and every one of them stays green except the counter's.
+Two `placeOrder` calls under `Promise.all` each do enough sequential work
+first (the menu, the gate, the token) that the first transaction commits
+before the second opens, so the re-read alone happens to win. That is
+scheduling luck on one machine, not a property of the code. Verified rather
+than assumed: a probe with an artificial delay confirmed Prisma interactive
+transactions genuinely do interleave here, so the absence of overlap is the
+test's timing and not the client's.
+
+So the mechanism has its own test — `reads the balance BEHIND the member
+lock, not in front of it` — which holds one transaction open on purpose,
+spends the points inside it, and asserts `lockMemberBalance` sees 0 rather
+than 100. It is deterministic, and it fails with `expected 100 to be +0` the
+moment the two statements are swapped. `lockMemberBalance`'s own doc comment
+points at it, because swapping them is a silent change that the rest of the
+suite would wave through.
+
+**Left behind:**
+- **The lock is per member and taken once, so no deadlock is constructible**
+  — but that is an argument, not a test. A second lock taken anywhere in
+  either transaction would change it.
+- **`reward_terms_changed` has no test.** Reaching it needs the reward's cash
+  value edited between a plan and its confirmation, and C-106 deliberately
+  ships no control for that value — so the only way to exercise it is a raw
+  settings write mid-transaction. Recorded rather than faked.
+- **Nothing bounds a STAFF `adjust` below zero.** `planRedemption` and
+  `planCheckoutRedemption` both refuse it and the CHECKs hold each row's sign,
+  but a person typing −500 into the correction control still can. That is a
+  screen-level guard, pre-existing, and not this item's.
+- **Two DIFFERENT members still redeem in parallel, as they should.** The
+  lock only contends with another redemption for the same member; there is a
+  test asserting a member with 200 points gets both.
+
+**Gate:** 1042 unit (+8 over C-118's 1034), identical under
+`TZ=Pacific/Kiritimati`, lint / typecheck / build clean. E2E unchanged at 218
+passed + 14 skipped with the same ten pre-existing container failures C-118's
+entry documents — this session added no e2e, because a concurrency invariant
+is not something a browser can assert.

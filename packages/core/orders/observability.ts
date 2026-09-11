@@ -79,6 +79,10 @@ export type VerifiedPhoneLogOutcome =
   | 'phone_not_enrollable'
   | 'malformed'
   | 'not_a_member'
+  /** The reward's cash value changed between this checkout being priced and
+   *  being written (C-119). Only reachable under the member lock, which is
+   *  the one place that re-reads the settings row mid-placement. */
+  | 'reward_terms_changed'
   | RedemptionRefusalReason
   | TokenRefusal;
 

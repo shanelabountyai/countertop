@@ -8,7 +8,9 @@ import { instantMinutesAfter, loyaltyBalance, orderBalance } from '@countertop/c
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import {
+  confirmCheckoutRedemption,
   enrolMember,
+  lockMemberBalance,
   expireInactiveBalances,
   loadLoyaltyProgram,
   memberByPhone,
@@ -1478,5 +1480,358 @@ describe('the program screen, with two ways to redeem', () => {
     // And the redemption itself is still counted as one, with its cost — the
     // order died, but it did happen and the screen says so.
     expect(report.window).toMatchObject({ redemptions: 1, redeemedCents: 1000, pointsRedeemed: 100 });
+  });
+});
+
+// --- The balance under concurrency (C-119) ---------------------------------
+//
+// The defect C-118 named and left: the balance a redemption is planned
+// against was read outside any transaction, so two redemptions racing each
+// saw the same 100 points and each wrote a `redeem`. The per-order unique
+// index cannot catch it — it is per ORDER, and these are two orders.
+//
+// These tests are the reproduction, kept. Each one FAILED before the member
+// row lock existed, at `balance = -100` with two rewards granted.
+
+describe('two redemptions racing for one balance', () => {
+  const PHONE = '5550102233';
+  const SUBTOTAL = 1495;
+
+  const BURRITO = {
+    id: 'line-1',
+    unitPriceAtAddCents: SUBTOTAL,
+    composition: {
+      itemId: 'burrito',
+      quantity: 1,
+      selections: [
+        { groupId: 'protein', optionId: 'carnitas' },
+        { groupId: 'addons', optionId: 'guacamole' },
+      ],
+    },
+  } as const;
+
+  /** Enrol with exactly ONE reward's worth of points — the fixture the whole
+   *  block turns on: enough for one, never for two. */
+  const memberWithOneReward = async () => {
+    await seedSettings({ loyaltyEnabled: true });
+    const result = await enrolMember({ phone: PHONE, displayName: 'Ivy Castellanos', now: AT });
+    if (!result.ok) throw new Error(result.reason);
+    await prisma.loyaltyEvent.create({
+      data: { memberId: result.memberId, at: AT, kind: 'adjust', points: 100, reason: 'opening balance' },
+    });
+    return result.memberId;
+  };
+
+  /** `now` is a parameter because a token lives ten minutes
+   *  (`VERIFY_TOKEN_TTL_MINUTES`) and one test places an hour later — minting
+   *  at `AT` and placing at `AT + 60` refuses `expired` before the balance is
+   *  ever consulted, which is C-116 working and not the race under test. */
+  const tokenFor = async (idempotencyKey: string, now: Date = AT) => {
+    const started = await startPhoneVerification(PHONE, now);
+    if (!started.ok || started.echoedCode === null) throw new Error('verification refused');
+    const confirmed = await confirmPhoneVerificationForCheckout(
+      PHONE,
+      started.echoedCode,
+      idempotencyKey,
+      now,
+    );
+    if (!confirmed.ok) throw new Error('confirmation refused');
+    return confirmed.token;
+  };
+
+  const placeWithReward = async (idempotencyKey: string, verifiedPhoneToken: string) =>
+    placeOrder({
+      cart: { lines: [BURRITO as never] },
+      customerName: 'Ivy Castellanos',
+      customerPhone: PHONE,
+      idempotencyKey,
+      now: AT,
+      verifiedPhoneToken,
+    });
+
+  const KEY_A = 'd0d0d0d0-0000-4000-8000-500000000001';
+  const KEY_B = 'd1d1d1d1-0000-4000-8000-500000000002';
+
+  it('serves exactly one of two SIMULTANEOUS checkouts, and never goes below zero', async () => {
+    await memberWithOneReward();
+    // Two separate checkout attempts — two idempotency keys, two tokens. This
+    // is not a double-tap; it is one customer with two tabs, which self-serve
+    // redemption is what made possible.
+    const [tokenA, tokenB] = [await tokenFor(KEY_A), await tokenFor(KEY_B)];
+
+    const results = await Promise.all([
+      placeWithReward(KEY_A, tokenA),
+      placeWithReward(KEY_B, tokenB),
+    ]);
+
+    // One order at the discounted price, one refusal by name.
+    const granted = results.filter((result) => result.ok);
+    const refused = results.filter((result) => !result.ok);
+    expect(granted).toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toMatchObject({
+      errors: [expect.objectContaining({ kind: 'reward_unavailable', reason: 'not_enough_points' })],
+    });
+
+    // THE ASSERTION THE DEFECT FAILED: a balance is a sum and it may not be
+    // negative. Before the lock this read −100.
+    expect((await memberByPhone(PHONE))?.balance).toBe(0);
+    expect(await prisma.loyaltyEvent.count({ where: { kind: 'redeem' } })).toBe(1);
+
+    // And the refusal wrote NOTHING: one order, not two, and no orphaned row
+    // from the transaction that rolled back.
+    expect(await prisma.order.count()).toBe(1);
+  });
+
+  it('leaves no gap in the day’s order numbers when it refuses', async () => {
+    // The reason the lock is taken BEFORE `Order.create`. A refusal that
+    // rolled back an order row would leave #001 followed by #003, with
+    // nothing in between and nobody able to say why.
+    await memberWithOneReward();
+    const [tokenA, tokenB] = [await tokenFor(KEY_A), await tokenFor(KEY_B)];
+    await Promise.all([placeWithReward(KEY_A, tokenA), placeWithReward(KEY_B, tokenB)]);
+
+    // A third, ordinary order — no reward, placed after the collision.
+    const after = await placeOrder({
+      cart: { lines: [BURRITO as never] },
+      customerName: 'Wren Alcott',
+      customerPhone: '5550107777',
+      idempotencyKey: 'd2d2d2d2-0000-4000-8000-500000000003',
+      now: AT,
+    });
+    if (!after.ok) throw new Error('the ordinary placement was refused');
+
+    const seqs = (await prisma.order.findMany({ select: { seq: true }, orderBy: { seq: 'asc' } }))
+      .map((order) => order.seq);
+    expect(seqs).toEqual([1, 2]);
+  });
+
+  it('serves one of two simultaneous COUNTER redemptions, on two orders', async () => {
+    // The same defect on the path that has had it since C-104, and the reason
+    // it is fixed in the same session: two staff on two tablets, one member,
+    // two of their orders on the board. Neither order has been redeemed
+    // against, so the per-order index never fires.
+    await memberWithOneReward();
+    const place = async (key: string, name: string) => {
+      const result = await placeOrder({
+        cart: { lines: [BURRITO as never] },
+        customerName: name,
+        customerPhone: PHONE,
+        idempotencyKey: key,
+        now: AT,
+      });
+      if (!result.ok) throw new Error('placement refused');
+      return result.order.id;
+    };
+    const [first, second] = [
+      await place('d3d3d3d3-0000-4000-8000-500000000004', 'Ivy Castellanos'),
+      await place('d4d4d4d4-0000-4000-8000-500000000005', 'Ivy Castellanos'),
+    ];
+
+    const results = await Promise.all([
+      redeemReward(first, AT, 'staff-noor'),
+      redeemReward(second, AT, 'staff-noor'),
+    ]);
+
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.find((result) => !result.ok)).toMatchObject({
+      ok: false,
+      reason: 'not_enough_points',
+    });
+    expect((await memberByPhone(PHONE))?.balance).toBe(0);
+
+    // BOTH HALVES of the loser rolled back, which is the whole reason the
+    // refusal is thrown rather than returned: an `adjustment` with no `redeem`
+    // beside it is ten dollars off somebody's ticket for free.
+    expect(await prisma.loyaltyEvent.count({ where: { kind: 'redeem' } })).toBe(1);
+    expect(await prisma.orderEvent.count({ where: { kind: 'adjustment' } })).toBe(1);
+  });
+
+  it('still serves BOTH when the member can actually afford both', async () => {
+    // The lock serialises; it does not refuse. 200 points is two rewards and
+    // both orders get one — a fix that made concurrent redemptions fail would
+    // be a different defect wearing this one's clothes.
+    const memberId = await memberWithOneReward();
+    await prisma.loyaltyEvent.create({
+      data: { memberId, at: AT, kind: 'adjust', points: 100, reason: 'second reward' },
+    });
+    const [tokenA, tokenB] = [await tokenFor(KEY_A), await tokenFor(KEY_B)];
+
+    const results = await Promise.all([
+      placeWithReward(KEY_A, tokenA),
+      placeWithReward(KEY_B, tokenB),
+    ]);
+
+    expect(results.filter((result) => result.ok)).toHaveLength(2);
+    expect((await memberByPhone(PHONE))?.balance).toBe(0);
+    expect(await prisma.loyaltyEvent.count({ where: { kind: 'redeem' } })).toBe(2);
+    for (const result of results) {
+      if (!result.ok) throw new Error('unreachable');
+      expect(result.order).toMatchObject({ discountCents: 1000, totalCents: 536 });
+    }
+  });
+
+  it('holds under eight at once, which is not a number a person produces', async () => {
+    // Not realism — a margin. Eight tabs is absurd; the point is that the
+    // serialisation is a lock rather than a two-way coincidence, so the
+    // answer is the same at eight as at two.
+    const memberId = await memberWithOneReward();
+    await prisma.loyaltyEvent.create({
+      data: { memberId, at: AT, kind: 'adjust', points: 200, reason: 'three rewards total' },
+    });
+
+    const keys = Array.from(
+      { length: 8 },
+      (_unused, index) => `d5d5d5d5-0000-4000-8000-5000000000${String(index + 10)}`,
+    );
+    const tokens: string[] = [];
+    for (const key of keys) tokens.push(await tokenFor(key));
+
+    const results = await Promise.all(
+      keys.map((key, index) => placeWithReward(key, tokens[index]!)),
+    );
+
+    // Three rewards' worth of points, three orders discounted, five refused.
+    expect(results.filter((result) => result.ok)).toHaveLength(3);
+    expect((await memberByPhone(PHONE))?.balance).toBe(0);
+    expect(await prisma.loyaltyEvent.count({ where: { kind: 'redeem' } })).toBe(3);
+    expect(await prisma.order.count()).toBe(3);
+  });
+
+  it('reads the balance BEHIND the member lock, not in front of it', async () => {
+    // THE MECHANISM, isolated — and the reason this test is shaped so oddly.
+    //
+    // The placement-level tests above do not prove the lock. They prove the
+    // fix, which is two things: re-reading the balance inside the transaction,
+    // and doing it after the UPDATE that locks the row. Neuter the second by
+    // moving the UPDATE below the SELECT and every one of them stays green
+    // except the counter's — because two `placeOrder` calls under
+    // `Promise.all` do enough sequential work apiece (the menu, the gate, the
+    // token) that the first transaction commits before the second opens, so
+    // the re-read alone happens to win. That is scheduling luck on a laptop,
+    // not a property of the code, and a real server under load has no such
+    // luck.
+    //
+    // So this drives one transaction to TAKE the lock and spend the points,
+    // holds it open, and asks `lockMemberBalance` what it sees. The sleeps
+    // make the ordering deterministic rather than likely. Reading 100 here —
+    // a balance that has already been spent — is the defect; reading 0 is the
+    // lock doing its job.
+    const memberId = await memberWithOneReward();
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.loyaltyMember.update({ where: { id: memberId }, data: { lastActivityAt: AT } });
+        await tx.loyaltyEvent.create({
+          data: { memberId, at: AT, kind: 'adjust', points: -100, reason: 'spent' },
+        });
+        await held;
+      },
+      { timeout: 20_000 },
+    );
+    // Long enough for the holder to have taken the row lock.
+    await pause(250);
+
+    const waiter = prisma.$transaction(async (tx) => lockMemberBalance(tx, memberId, AT), {
+      timeout: 20_000,
+    });
+    // Long enough for the waiter to have reached — and blocked on — the lock.
+    await pause(250);
+    release();
+    await holder;
+
+    expect(await waiter).toBe(0);
+  });
+
+  it('serialises two transactions that open at the same instant', async () => {
+    // The mechanism, tested apart from placement.
+    //
+    // This test exists because the placement-level tests above do NOT prove
+    // it. Re-checking the balance inside the transaction is half the fix and
+    // the half that happens to win at the interleaving `Promise.all` over two
+    // `placeOrder` calls produces — each does enough sequential work before
+    // its transaction (the menu, the gate, the token) that the first commits
+    // before the second begins. Neuter the lock by moving the UPDATE after
+    // the SELECT and those tests stay green; only the counter one goes red.
+    //
+    // So this drives `confirmCheckoutRedemption` directly, in two
+    // transactions with nothing in front of them, which is the shape a real
+    // server under load produces and a test with a menu load in the way does
+    // not. Without the row lock the second SELECT reads a balance the first
+    // transaction has not yet committed away, and both confirm.
+    const memberId = await memberWithOneReward();
+    const plan = {
+      memberId,
+      pointsSpent: -100,
+      amountCents: 1000,
+      subtotalCents: SUBTOTAL,
+    };
+
+    const confirm = () =>
+      prisma.$transaction(async (tx) => {
+        const result = await confirmCheckoutRedemption(tx, plan, AT);
+        // Spend the points for real when confirmed, so the second transaction
+        // has something committed to find. `orderId: null` is legal on an
+        // `adjust` but not on a `redeem`, so this writes against a real order.
+        if (result.ok) {
+          await tx.loyaltyEvent.create({
+            data: { memberId, at: AT, kind: 'adjust', points: -100, reason: 'spent' },
+          });
+        }
+        return result;
+      });
+
+    const [first, second] = await Promise.all([confirm(), confirm()]);
+    const confirmed = [first, second].filter((result) => result.ok);
+    expect(confirmed).toHaveLength(1);
+    expect([first, second].find((result) => !result.ok)).toMatchObject({
+      reason: 'not_enough_points',
+    });
+    expect((await memberByPhone(PHONE))?.balance).toBe(0);
+  });
+
+  it('does not move the expiry clock on a redemption it refuses', async () => {
+    // `lockMemberBalance` moves `lastActivityAt` BECAUSE moving it is what
+    // takes the lock — so a refused redemption would leave the clock moved by
+    // a spend that never happened, if the rollback did not carry it.
+    const memberId = await memberWithOneReward();
+    const before = await prisma.loyaltyMember.findUniqueOrThrow({ where: { id: memberId } });
+    const LATER = instantMinutesAfter(AT, 60);
+
+    const [tokenA, tokenB] = [await tokenFor(KEY_A, LATER), await tokenFor(KEY_B, LATER)];
+    const raced = await Promise.all([
+      placeOrder({
+        cart: { lines: [BURRITO as never] },
+        customerName: 'Ivy Castellanos',
+        customerPhone: PHONE,
+        idempotencyKey: KEY_A,
+        now: LATER,
+        verifiedPhoneToken: tokenA,
+      }),
+      placeOrder({
+        cart: { lines: [BURRITO as never] },
+        customerName: 'Ivy Castellanos',
+        customerPhone: PHONE,
+        idempotencyKey: KEY_B,
+        now: LATER,
+        verifiedPhoneToken: tokenB,
+      }),
+    ]);
+
+    // One served, one refused — the precondition this test's real assertion
+    // rests on, stated so a token expiring cannot make it pass vacuously.
+    expect(raced.filter((result) => result.ok)).toHaveLength(1);
+
+    const after = await prisma.loyaltyMember.findUniqueOrThrow({ where: { id: memberId } });
+    // Moved once, by the one that succeeded — never twice, and never by the
+    // one that rolled back.
+    expect(after.lastActivityAt).toEqual(LATER);
+    expect(after.lastActivityAt.getTime()).toBeGreaterThan(before.lastActivityAt.getTime());
   });
 });

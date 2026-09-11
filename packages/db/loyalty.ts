@@ -370,6 +370,33 @@ export async function redeemReward(
 
   try {
     return await prisma.$transaction(async (tx) => {
+      // THE LOCK, FIRST (C-119). The read above is UX — it is what lets this
+      // function refuse by name instead of throwing — and it is not a
+      // mechanism: two staff redeeming for the same member on two different
+      // orders both saw a balance of 100 and both wrote, leaving the member
+      // at −100. The per-order unique index cannot catch that; it is per
+      // ORDER, and these are two orders. `lockMemberBalance` moves
+      // `lastActivityAt` — which a redeem has to move anyway — and the row
+      // lock that UPDATE takes is what serialises the second attempt behind
+      // the first, which then re-reads and sees the points are gone.
+      const balance = await lockMemberBalance(tx, member.id, now);
+      const confirmed = planRedemption({
+        enabled: settings.loyaltyEnabled,
+        balance,
+        outstandingCents: orderBalance(order).outstandingCents,
+        // Still the read's answer, and that is correct: `alreadyRedeemed` is
+        // the one input the per-order index DOES hold, and a second tap on
+        // THIS order lands on it below as a P2002 rather than here.
+        alreadyRedeemed: order.loyaltyEvents.length > 0,
+        terms: settings,
+      });
+      if (!confirmed.ok) {
+        // Thrown, not returned: this is inside the transaction and a returned
+        // refusal would commit whatever preceded it — here, the
+        // `lastActivityAt` the lock moved.
+        throw new RedemptionLost(confirmed.reason, confirmed.message);
+      }
+
       await tx.loyaltyEvent.create({
         data: {
           memberId: member.id,
@@ -396,10 +423,17 @@ export async function redeemReward(
       // refused must not leave its ledger row committed beside it.
       if (!adjusted.ok) throw new Error(`redemption adjustment refused: ${adjusted.reason}`);
 
-      await tx.loyaltyMember.update({ where: { id: member.id }, data: { lastActivityAt: now } });
+      // `lastActivityAt` was moved by `lockMemberBalance` at the top — moving
+      // it is what took the lock — so there is nothing left to write here.
       return { ok: true as const, pointsSpent: plan.pointsSpent, amountCents: plan.amountCents };
     });
   } catch (error) {
+    // The balance moved under this redemption while it held the lock (C-119).
+    // Thrown to roll the transaction back, caught here to become the same
+    // named refusal every other path returns.
+    if (error instanceof RedemptionLost) {
+      return refuseRedemption(error.reason, error.message);
+    }
     // Two taps racing on one order. THE INDEX is the mechanism — the read
     // above is UX — so the loser reads as the refusal it actually is rather
     // than as a crash.
@@ -410,6 +444,20 @@ export async function redeemReward(
       );
     }
     throw error;
+  }
+}
+
+/** A refusal that has to unwind a transaction to be delivered (C-119). An
+ *  Error because that is what rolls a Prisma interactive transaction back;
+ *  it never escapes `redeemReward`, which turns it straight back into the
+ *  named refusal every caller already handles. */
+class RedemptionLost extends Error {
+  constructor(
+    readonly reason: RedemptionRefusal,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'RedemptionLost';
   }
 }
 
@@ -660,6 +708,12 @@ export type PlannedCheckoutRedemption = {
   memberId: string;
   pointsSpent: number;
   amountCents: number;
+  /** The subtotal the plan was bounded against (C-119). Carried so the
+   *  re-check under the lock can ask `planCheckoutRedemption` the SAME
+   *  question rather than a thinner one of its own — a second, simpler rule
+   *  inside the transaction is exactly the "two answers that can disagree"
+   *  shape this repo keeps out of the money path. */
+  subtotalCents: number;
 };
 
 export type CheckoutRedemptionResult =
@@ -724,7 +778,12 @@ export async function planCheckoutReward(input: {
 
   return {
     ok: true,
-    plan: { memberId: member.id, pointsSpent: plan.pointsSpent, amountCents: plan.amountCents },
+    plan: {
+      memberId: member.id,
+      pointsSpent: plan.pointsSpent,
+      amountCents: plan.amountCents,
+      subtotalCents: input.subtotalCents,
+    },
   };
 }
 
@@ -748,6 +807,134 @@ const refuseCheckout = (
  * snapshot — `discountCents`, and a tax base computed on it — so writing an
  * adjustment beside it would take the ten dollars off twice.
  */
+/**
+ * Take the member's row lock, and hand back the balance as it stands behind
+ * it (PRD 7 P1-1, C-119).
+ *
+ * THE UPDATE IS THE LOCK, and that is the whole mechanism. `lastActivityAt`
+ * has to move on a redemption anyway — C-102 and C-104 both say so — so this
+ * writes it FIRST rather than last, and Postgres's row-level lock on an
+ * UPDATE does the rest: a second checkout for the same member blocks on this
+ * statement until the first transaction commits, and then, under READ
+ * COMMITTED, the SELECT below sees the `redeem` that first transaction wrote.
+ * No `FOR UPDATE` raw query, no new column, no CHECK — a reorder of two
+ * statements that both already existed.
+ *
+ * WHAT IT DOES NOT DO IS DECIDE. It returns a number; each caller re-runs its
+ * OWN plan function against it, because the counter and checkout ask
+ * different questions of the same balance (`planRedemption` bounds by what an
+ * order owes, `planCheckoutRedemption` by what the food costs) and a shared
+ * re-check would have to pick one.
+ *
+ * ONE LOCK, TAKEN FIRST, AND NEVER A SECOND. Both callers take exactly this
+ * one row at the top of their transaction, so there is no pair of locks to
+ * acquire in two different orders and no deadlock to construct. It is held
+ * for the few milliseconds the rest of the transaction takes, and only
+ * against another redemption for the SAME member.
+ *
+ * THE ORDER OF THESE TWO STATEMENTS IS THE WHOLE FIX, and swapping them is
+ * silent: the UPDATE still runs, `lastActivityAt` still moves, every
+ * placement-level concurrency test in `loyalty.test.ts` still passes, and the
+ * balance is read in front of the lock instead of behind it. The one test
+ * that catches it is `reads the balance BEHIND the member lock, not in front
+ * of it`, which holds a transaction open on purpose to make the ordering
+ * deterministic. Do not reorder these without reading it.
+ */
+export async function lockMemberBalance(
+  tx: Prisma.TransactionClient,
+  memberId: string,
+  now: Date,
+): Promise<number> {
+  await tx.loyaltyMember.update({ where: { id: memberId }, data: { lastActivityAt: now } });
+  const member = await tx.loyaltyMember.findUniqueOrThrow({
+    where: { id: memberId },
+    select: { events: { select: { kind: true, points: true } } },
+  });
+  return loyaltyBalance(member.events);
+}
+
+/** The re-check's own refusal, beside the ones the plan already names. The
+ *  owner edited the reward's cash value between this checkout being priced
+ *  and being written, so the order's snapshotted `discountCents` no longer
+ *  matches what the program is worth. Rare — C-106 deliberately ships no
+ *  control for those numbers — and refused rather than written at a value
+ *  nothing agrees on. */
+export type RedemptionConfirmRefusal = CheckoutRedemptionRefusal | 'reward_terms_changed';
+
+export type RedemptionConfirmation =
+  | { ok: true }
+  | { ok: false; reason: RedemptionConfirmRefusal; message: string };
+
+/**
+ * Confirm a planned checkout reward is still spendable, under the lock
+ * (C-119).
+ *
+ * CALLED BEFORE THE ORDER ROW EXISTS, deliberately. A refusal here rolls the
+ * whole transaction back, and rolling back an `Order.create` would leave a gap
+ * in the day's order numbers — `takingNextOrderNumber` reads the maximum, so
+ * #005 would be followed by #007 with nothing in between and nobody able to
+ * say why. Locking first costs nothing and the board stays readable.
+ *
+ * Re-reads the SETTINGS too, not only the balance: a program switched off
+ * mid-checkout is a different race than the one this exists for, it is one
+ * more query inside a transaction that is already open, and the alternative
+ * is writing a reward the settings row says is not on offer.
+ */
+export async function confirmCheckoutRedemption(
+  tx: Prisma.TransactionClient,
+  plan: PlannedCheckoutRedemption,
+  now: Date,
+): Promise<RedemptionConfirmation> {
+  const balance = await lockMemberBalance(tx, plan.memberId, now);
+  const settings = await tx.restaurantSettings.findUniqueOrThrow({
+    where: { id: 'singleton' },
+    select: {
+      loyaltyEnabled: true,
+      pointsPerDollar: true,
+      rewardThresholdPoints: true,
+      rewardValueCents: true,
+    },
+  });
+
+  const confirmed = planCheckoutRedemption({
+    enabled: settings.loyaltyEnabled,
+    balance,
+    subtotalCents: plan.subtotalCents,
+    terms: settings,
+  });
+  if (!confirmed.ok) return { ok: false, reason: confirmed.reason, message: confirmed.message };
+  if (confirmed.amountCents !== plan.amountCents) {
+    return {
+      ok: false,
+      reason: 'reward_terms_changed',
+      message: 'The reward changed while you were ordering. Check the new total.',
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Write the `redeem` row a checkout redemption is (P1-1).
+ *
+ * IN THE CALLER'S TRANSACTION, always — there is no default client here,
+ * unlike `adjustOrder`'s. `placeOrder` is the only caller and the whole point
+ * is atomicity with the order row that carries the `discountCents`; a version
+ * of this that could be called on its own would be a way to write half a
+ * redemption, which is the defect the transaction exists to make impossible.
+ *
+ * AND ONLY AFTER `confirmCheckoutRedemption` HAS RUN in that same transaction
+ * (C-119). This function does not check anything — it is the second half of a
+ * pair, and the first half is what holds the lock the balance was read under.
+ *
+ * NO `adjustment` EVENT, and that is the difference from `redeemReward`. The
+ * counter's reward is money taken off an order that was already priced, so it
+ * has to be an append-only adjustment against the snapshot. This one is IN the
+ * snapshot — `discountCents`, and a tax base computed on it — so writing an
+ * adjustment beside it would take the ten dollars off twice.
+ *
+ * `lastActivityAt` is NOT moved here: `lockMemberBalance` already moved it,
+ * because moving it is what takes the lock.
+ */
 export async function writeCheckoutRedemption(
   tx: Prisma.TransactionClient,
   orderId: string,
@@ -769,7 +956,6 @@ export async function writeCheckoutRedemption(
       staffId: null,
     },
   });
-  await tx.loyaltyMember.update({ where: { id: plan.memberId }, data: { lastActivityAt: now } });
 }
 
 /**

@@ -279,7 +279,32 @@ money-path change:
   correct for as long as `redeemReward` was the only writer, and a checkout
   redemption writes no adjustment at all. `docs/WRITEUP.md` has it.
 
-P1-1 is **live** as of C-118. It was **not** live with all three of
+- ~~**C-119 — The member lock**~~ **— shipped.** The defect C-118's own entry
+  named and left: a balance read outside any transaction let two simultaneous
+  checkouts for one member each spend the same reward, and C-104's per-ORDER
+  unique index cannot see it because they are two orders. Reproduced at
+  `balance = -100` before anything was changed. **The fix is a reorder, not a
+  schema change:** `lockMemberBalance` performs the `lastActivityAt` UPDATE a
+  redemption owes anyway FIRST — taking Postgres's row lock — and sums the
+  ledger behind it, so the second attempt blocks, wakes, and finds the points
+  gone. `confirmCheckoutRedemption` then re-asks `planCheckoutRedemption` the
+  SAME question, inside placement's transaction and BEFORE `Order.create` so
+  a refusal leaves no gap in the day's order numbers. Both paths throw their
+  refusal rather than returning it, because inside a transaction a returned
+  refusal commits what preceded it — on the counter path that is an
+  `adjustment` taking $10 off a ticket with no `redeem` beside it, which is
+  C-104's "either half alone is a defect somebody finds at close". **C-100's
+  refusal of a balance column stands**: meeting the conditions it named (a
+  derived cache with an agreement test) is a migration and five writers to
+  keep honest forever, to solve what two statements in the other order
+  already solve. **The counter's `redeemReward` was fixed in the same
+  session** — it has had this defect since C-104, and closing the new door
+  while leaving the old one open would have been the worse artefact. **The
+  trap it hit** is in `docs/WRITEUP.md` and is about the tests, not the code:
+  five of six placement-level concurrency tests stay green with the lock
+  neutered, so the mechanism needed a deterministic test of its own.
+
+P1-1 is **live** as of C-118, and **safe under concurrency as of C-119.** It was **not** live with all three of
 C-115/C-116/C-117 shipped — that was this plan's own undercount, caught only
 once C-117 actually landed: those three sessions are the *mechanism* — a
 verified phone, a token that carries it, and somewhere honest for a reward

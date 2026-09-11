@@ -2502,3 +2502,35 @@ order, which a checkout redemption doesn't touch — so it would have offered
 a second $10 off that the database then refused. And the loyalty screen's
 "Staff corrections" figure would have counted the system's own returned
 rewards as something a person typed.
+
+## C-119 — One reward, one customer, two tabs
+
+The previous session shipped self-serve reward redemption and wrote down the
+hole it left: open checkout in two tabs, verify in both, submit both, and the
+punch card pays out twice. A throwaway probe confirmed it before anything was
+changed — two orders, two $10 rewards, and a balance of minus a hundred
+points.
+
+The fix is two statements in the other order. A redemption already had to
+stamp the member's record with "they were active just now"; doing that *first*
+takes a row lock, so the second checkout waits for the first to finish, then
+looks again and finds the points gone. It gets a refusal naming what happened
+instead of a free ten dollars. No new column, no new table, no change to what
+the product promises anyone.
+
+The same reorder went into the counter's reward button, which has had the same
+hole since it shipped — two staff, two tablets, one regular with two orders on
+the board. Fixing one and not the other would have been closing the new door
+and leaving the old one open.
+
+**The part worth telling:** the obvious tests for this — fire two checkouts at
+once, assert only one wins — pass whether or not the lock is there. Two
+checkouts each do enough work before touching the database that the first
+finishes before the second starts, so a weaker fix looks identical. That is
+luck on one machine, and a busy Friday does not have it. So the lock got a
+test of its own: hold one transaction open, spend the points inside it, and
+check what the other one sees. It reads zero with the lock and a hundred
+without, every time.
+
+That distinction — a test that proves the fix versus a test that proves the
+mechanism — is the thing this session was actually about.

@@ -2633,3 +2633,109 @@ system's own bookkeeping would have appeared under a heading that names a
 person. Not an imprecise number — a false sentence. Both are the same
 mistake: a label that was accurate because of who happened to be writing the
 rows underneath it.
+
+### A green test that proved nothing (C-119)
+
+The concurrency defect was real and easy to reproduce. Two checkouts for one
+member, `Promise.all`, both spend the same reward:
+
+```
+>>> PROBE: placements ok = 2, redeems = 2, balance = -100
+```
+
+The fix was two statements in the other order. `lockMemberBalance` does the
+`UPDATE` that moves `lastActivityAt` — which a redemption has to do anyway —
+*before* summing the ledger, so Postgres's row lock serialises the second
+attempt behind the first, which then reads a balance the first has already
+spent.
+
+Then I wrote the regression tests, and they passed. Six of them: one order
+served and one refused, no gap in the order numbers, both served when the
+member can afford both, eight at once, the counter path, the expiry clock.
+Green.
+
+**Then I neutered the lock to check the tests could see it.** Moved the
+`UPDATE` back below the `SELECT` — balance read in front of the lock instead
+of behind it, which is exactly the defect — and ran them again:
+
+```
+Tests  1 failed | 5 passed | 62 skipped
+```
+
+Five of six still passed. Only the counter path noticed. And it wasn't flaky:
+five consecutive runs, same result.
+
+The reason is mundane and it is the whole lesson. `placeOrder` does a lot
+before it opens a transaction — loads the menu, reads the gate, checks a
+verification token, prices the cart twice. Two of them under `Promise.all`
+interleave in their *setup*, and the first one's transaction opens and
+commits before the second one's does. So re-reading the balance inside the
+transaction — the other half of the fix — is sufficient *at that
+interleaving*. The lock never gets tested because the race never happens.
+
+I checked that this was the explanation rather than assuming it, because
+"they don't overlap" is also what a connection pool of one would look like,
+and that would have meant something quite different. A probe with an
+artificial delay inside two transactions printed:
+
+```
+A:begin | A:read | B:begin | B:read | A:wake | A:write | B:wake | B:write
+```
+
+Prisma's interactive transactions do interleave. The tests just don't take
+long enough for it to matter.
+
+**What that means about the tests I had just written:** they proved the
+system was fixed. They did not prove *what fixed it*, and they would have
+gone on passing if someone later reordered those two statements back. That is
+a worse failure than a red test, because a reordering like this has no
+symptom: `lastActivityAt` still moves, the UPDATE still runs, nothing throws,
+and the suite stays green while the money path quietly stops being safe.
+
+So the mechanism got its own test, shaped to force the ordering rather than
+hope for it:
+
+```ts
+// One transaction takes the lock and spends the points, then holds.
+const holder = prisma.$transaction(async (tx) => {
+  await tx.loyaltyMember.update({ where: { id: memberId }, data: { lastActivityAt: AT } });
+  await tx.loyaltyEvent.create({ data: { memberId, kind: 'adjust', points: -100, ... } });
+  await held;                       // released by the test, not by a timer
+});
+await pause(250);                   // the holder now has the lock
+
+const waiter = prisma.$transaction(async (tx) => lockMemberBalance(tx, memberId, AT));
+await pause(250);                   // the waiter is now blocked ON that lock
+release();
+await holder;
+
+expect(await waiter).toBe(0);       // 100 if the SELECT ran in front of the lock
+```
+
+Deterministic, and it fails with `expected 100 to be +0` the instant the two
+statements are swapped. `lockMemberBalance`'s doc comment points at it by
+name, because the hazard it guards is invisible at the call site.
+
+Three things generalise:
+
+**"The test passes" and "the test would fail if the code were wrong" are
+different claims, and only the second is worth anything.** The cheapest way to
+tell them apart is to break the fix on purpose and watch. It takes two
+minutes. I had six green tests and no evidence.
+
+**Concurrency tests that go through the real entry point often don't race.**
+The entry point has too much in front of it. A test that drives the whole
+stack proves the feature; a test that drives the primitive proves the
+mechanism, and a lock needs the second kind. Both are worth having and they
+are not substitutes.
+
+**A silent-when-wrong change deserves a comment that names its test.** Nothing
+at the call site of `lockMemberBalance` suggests that the order of the two
+statements inside it is load-bearing, and nothing in a diff that swaps them
+would look alarming.
+
+The counter path is a useful control here: it *did* go red, because
+`redeemReward` does its lookups and then enters its transaction immediately,
+so two of them genuinely overlap. Same defect, same fix, and one of the two
+call sites could see it. That is close to the worst case — enough signal to
+feel covered, not enough to be.

@@ -39,12 +39,13 @@ import { eventRow } from './event-row';
 import { loadGateState } from './gate';
 import { loadMenu } from './menu';
 import {
+  confirmCheckoutRedemption,
   hasLoyaltyPepper,
   phoneDigest,
   planCheckoutReward,
   writeCheckoutRedemption,
-  type CheckoutRedemptionRefusal,
   type PlannedCheckoutRedemption,
+  type RedemptionConfirmRefusal,
 } from './loyalty';
 import { verifiedPhoneFromToken } from './verification';
 
@@ -141,7 +142,7 @@ export type PlacementError =
 /** Everything that can stop a reward at checkout: the token's own refusals
  *  (C-116) and the ledger's (C-104/C-118), under one name so a screen renders
  *  one set of words. */
-export type RewardRefusal = CheckoutRedemptionRefusal | VerifiedPhoneLogOutcome;
+export type RewardRefusal = RedemptionConfirmRefusal | VerifiedPhoneLogOutcome;
 
 export type PlacementInput = {
   cart: Cart;
@@ -343,6 +344,27 @@ export function derivedIdempotencyKey(name: string): string {
  */
 export const findOrderByStatusToken = (statusToken: string): Promise<OrderReceipt | null> =>
   prisma.order.findUnique({ where: { statusToken }, ...ORDER_RECEIPT });
+
+/**
+ * A reward that stopped being spendable after this placement was priced
+ * (C-119).
+ *
+ * An Error because that is what rolls a Prisma interactive transaction back,
+ * and the rollback is the point: the order row, its lines, its options and
+ * its `placed` event all go with it, so a customer whose reward evaporated
+ * gets no order rather than an order at a price they never saw. It never
+ * escapes `placeOrder`, which turns it back into the ordinary
+ * `reward_unavailable` refusal the screen already renders.
+ */
+class RewardLost extends Error {
+  constructor(
+    readonly reason: RewardRefusal,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'RewardLost';
+  }
+}
 
 /**
  * Check the token, then ask the ledger what it may spend (PRD 7 P1-1, C-118).
@@ -596,7 +618,15 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
     });
   }
 
-  return takingNextOrderNumber(
+  const rewardRefused = (error: RewardLost): PlacementResult => ({
+    ok: false,
+    errors: [{ kind: 'reward_unavailable', reason: error.reason, message: error.message }],
+    review,
+    mismatch: totalTampering(review, input.clientTotalCents),
+  });
+
+  try {
+    return await takingNextOrderNumber(
     businessDay,
     async (seq) => {
       // ONE TRANSACTION, and C-118 is what made it one. Before this session
@@ -609,6 +639,25 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
       // of here unchanged; what changes is that the losing attempt takes its
       // ledger row down with it.
       const order = await prisma.$transaction(async (tx) => {
+      // BEFORE `Order.create`, and that ordering is the point (C-119).
+      //
+      // The balance this reward was planned against was read outside any
+      // transaction, which made it a read-then-write: two checkouts for one
+      // member, in flight at once, each saw 100 points and each wrote a
+      // `redeem`, leaving the member at −100 with two $10 rewards for one.
+      // The per-order unique index cannot catch it — it is per ORDER, and
+      // these are two orders. `confirmCheckoutRedemption` takes the member's
+      // row lock and re-asks the SAME plan function against what is behind
+      // it; the second checkout blocks here and then sees the points gone.
+      //
+      // First rather than after the order, because a refusal rolls this
+      // transaction back and rolling back an `Order.create` leaves a GAP in
+      // the day's numbers — #005 then #007, with nothing in between and
+      // nobody able to say why. Locking first costs nothing.
+      if (redemption) {
+        const confirmed = await confirmCheckoutRedemption(tx, redemption, now);
+        if (!confirmed.ok) throw new RewardLost(confirmed.reason, confirmed.message);
+      }
       const created = await tx.order.create({
         data: {
           businessDay,
@@ -658,7 +707,9 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
         ...ORDER_RECEIPT,
       });
       // AFTER the order exists and inside its transaction, so the points and
-      // the price they bought commit together or not at all.
+      // the price they bought commit together or not at all. The check that
+      // this is still allowed happened above, under the lock this transaction
+      // is still holding.
       if (redemption) await writeCheckoutRedemption(tx, created.id, redemption, now);
       return created;
       });
@@ -674,5 +725,12 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
         ? ({ ok: true, order: winner, replayed: true, verifiedPhone } as PlacementResult)
         : null;
     },
-  );
+    );
+  } catch (error) {
+    // The one throw this function answers rather than propagates. Everything
+    // else — a price engine refusing an unknown id, a socket dying — is still
+    // the boundary's to catch, which is where `logPlacement` can name it.
+    if (error instanceof RewardLost) return rewardRefused(error);
+    throw error;
+  }
 }
