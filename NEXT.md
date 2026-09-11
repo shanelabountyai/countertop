@@ -1,6 +1,6 @@
 # Next
 
-**C-120 shipped this session**: the punch card in the rush. The capstone demo
+**C-120 shipped this session** (`875cce3`): the punch card in the rush. The capstone demo
 now shows the feature the last five sessions built — five of the thirty
 customers are regulars, two spend a reward at checkout, and one of those two
 is the guacamole cancellation, so C-119's settlement handing the points back

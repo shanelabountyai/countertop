@@ -8127,4 +8127,4 @@ skipped (the new screenshot test is the fifteenth) + the same ten pre-existing
 container failures C-118's entry documents; 243 on `--list`, and 218 + 15 + 10
 reconciles.
 
-C-120 committed and pushed at PENDING
+C-120 committed and pushed at 875cce3
