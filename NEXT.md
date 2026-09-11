@@ -1,47 +1,61 @@
 # Next
 
-**C-115 shipped this session** (`af1c122`, SHA recorded in this same commit):
-PRD 7 P1-1, session 1 of 3 — the phone-verification mechanism. Closes the
-gap C-113's entry named: self-serve redemption at checkout needs proof a
-customer controls the phone number they typed, and C-113's SMS is a
-one-way stub with no reply channel and no code to confirm against.
-`PhoneVerification` (hand-written migration), `packages/core/loyalty/
-verification.ts`'s pure decision functions, `packages/db/verification.ts`'s
-`startPhoneVerification`/`confirmPhoneVerification` and the
-`SmsVerifyProvider` seam. The design decision — the stub echoes the code to
-the requester via the seam's return type, never behind an env flag — is
-recorded in `docs/prds/prd-loyalty.md`'s new "P1-1's own phasing" section.
-Gate green: 985 unit (+28 over C-114's 957), 221 e2e passed + 14 skipped =
-235 (unchanged — no UI shipped this session), lint/typecheck/build clean.
+**C-116 shipped this session** (`61f7d23`, SHA recorded in this same commit):
+PRD 7 P1-1, session 2 of 3 — checkout wiring for phone verification. A
+bearer token (`issueVerifiedPhoneToken`/`verifiedPhoneFromToken` in
+`packages/db/verification.ts`, same signed shape as `staff.ts`'s
+`shiftStamp`/`staffIdFromStamp`) carries a confirmed phone-verification code
+from confirmation to placement, bound to the checkout attempt's own
+`idempotencyKey` so it cannot be replayed onto a different order. No new
+session or cookie. `packages/core/loyalty/verification.ts` gained
+`canUseVerifiedToken` (the pure decision on an already-signature-checked
+token); `apps/web/app/checkout/actions.ts` gained
+`requestCheckoutVerification`/`confirmCheckoutVerification` and
+`placeCartOrder` validates an optional `verifiedPhoneToken` against the
+placed order's own snapshotted phone. Gate green: 999 unit (+14 over
+C-115's 985), 221 e2e passed + 14 skipped = 235 (unchanged — no UI shipped
+this session), lint/typecheck/build clean.
 
-**Inert on purpose.** No customer or counter surface changed. `loyaltyEnabled`
-and the existing staff-attended P0-4 redemption are untouched.
+**Scope decision, recorded in `docs/prds/prd-loyalty.md`'s phasing section
+and `docs/WRITEUP.md`: no checkout FORM control renders this session.** The
+backlog bullet's own words ("the self-serve control itself") read like a UI
+requirement on a fast pass; the PRD's own next sentence ("no checkout
+control exists... until all three ship") says otherwise, and a "verify your
+phone" widget with no `discountCents` yet to spend against would be a
+control that does nothing for the customer who used it. The mechanism is
+real and tested end to end in `packages/core`/`packages/db`; it has no
+caller from a rendered form yet.
 
-**Next unblocked item: C-116 — checkout wiring for P1-1.** Request a code,
-confirm it, and design the bearer-token shape that carries "this phone was
-verified" from confirmation through to placement with no session or cookie
-— same idempotency-key discipline `newStatusToken` already applies
-elsewhere in this codebase. After that, **C-117 — the tax base**:
-`Order.discountCents`, snapshotted, and `priceOrder` computing tax on
-`subtotal − discount`. P1-1 is not live (no customer-visible control exists)
-until both land.
+**Next unblocked item: C-117 — the tax base.** `Order.discountCents`,
+snapshotted, and `priceOrder` computing tax on `subtotal − discount` rather
+than `subtotal` — the change that makes a reward honest before tax instead
+of after it. This is also very likely where the actual "redeem your reward"
+checkout UI belongs: once there is a price effect to show, C-116's
+`confirmCheckoutVerification`/`verifiedPhoneToken` plumbing has something
+worth calling it for. Read `docs/prds/prd-loyalty.md`'s "P1-1's own
+phasing" section fully before starting — it is last "deliberately, because
+it is the one change that touches every receipt's arithmetic and deserves
+to land with nothing else moving in the same diff."
 
-**Model:** C-116 is routine build once C-115's plumbing exists — Sonnet.
-C-117 touches money (the tax base every receipt reconciles against) and
-should get the same Opus treatment this session's design pass did.
+**Model: C-117 touches money — the tax base every receipt reconciles
+against — Opus, not Sonnet.**
 
-## What C-115 leaves behind
+## What C-116 leaves behind
 
-- **No sweep ever deletes an old `PhoneVerification` row.** `ponytail:`
-  comment on the model names the upgrade path (a periodic delete past
-  `expiresAt`, same shape as the retention sweep) and the ceiling (fine
-  until a shop sees far more than a few dozen redemption attempts a day).
-- **A column-default clock-skew defect, caught and fixed this session, not
-  left behind** — but worth re-reading before writing another table with a
-  hand-written CHECK spanning two timestamp columns: `docs/WRITEUP.md`'s
-  "A column default that was its own clock-skew bug" entry has the general
-  shape (`DEFAULT now()` is only dangerous the moment something compares
-  that column against a value from a different clock).
+- **Still no checkout control a customer can reach.** Same "plumbing, not
+  wired" shape C-115 left, one layer further along — `requestCheckoutVerification`/
+  `confirmCheckoutVerification` have no caller yet.
+- **The verified-phone outcome is logged (`VerifiedPhoneLogOutcome`), never
+  persisted.** No new column this session, deliberately — C-117 is what
+  decides whether a placed order needs to remember `verified` beyond its
+  own log line.
+- **No e2e or `apps/web` unit coverage** — there is nothing to click yet,
+  and `apps/web` has no unit suite. Every claim this session makes is
+  proven in `packages/core` and `packages/db`.
+- **`VERIFY_TOKEN_TTL_MINUTES` (10) is a guess**, not a measurement — long
+  enough to get through the rest of the checkout form after verifying,
+  short enough not to be a "remembered device." Revisit if the rush demo or
+  real use says otherwise.
 
 ## Still open from earlier items
 
@@ -88,6 +102,11 @@ should get the same Opus treatment this session's design pass did.
   card.
 - **No fixture pinned to an actual DST-transition date** (C-114) for
   `zonedTimeToInstant` — a `ponytail:` comment on the function names the gap.
+- **No sweep ever deletes an old `PhoneVerification` row** (C-115).
+  `ponytail:` comment on the model names the upgrade path (a periodic
+  delete past `expiresAt`, same shape as the retention sweep) and the
+  ceiling (fine until a shop sees far more than a few dozen redemption
+  attempts a day).
 
 ## Still open from C-069 / C-071, if you would rather clear debt
 
