@@ -53,18 +53,25 @@ export async function GET(request: Request): Promise<Response> {
   const report = salesReport(await loadReportOrders(view.bounds), timezone);
 
   // The By-day table, and only it. It is the rows a bookkeeper reconciles a
-  // month against, and the three money columns are the ones that have to add
-  // up — `net + tax = gross`, per row, the same reconciliation P0-1 asserts on
-  // the screen. No totals row: a spreadsheet sums a column better than a file
-  // that has to be re-parsed around a footer, and the screen already carries
-  // the three tiles.
+  // month against, and the four money columns are the ones that have to add
+  // up — `net − rewards + tax = gross`, per row, the same reconciliation P0-1
+  // asserts on the screen. No totals row: a spreadsheet sums a column better
+  // than a file that has to be re-parsed around a footer, and the screen
+  // already carries the tiles.
+  //
+  // `Rewards` IS UNCONDITIONAL HERE, unlike on the screen, and the difference
+  // is deliberate. The screen hides a column nobody's shop uses; a CSV whose
+  // columns move depending on whether anybody redeemed this month is a file
+  // that breaks the saved formula in somebody's spreadsheet, silently, on the
+  // first good month the punch card has.
   const rows = [
-    ['Business day', 'Orders', 'Items', 'Net sales', 'Tax', 'Gross'],
+    ['Business day', 'Orders', 'Items', 'Net sales', 'Rewards', 'Tax', 'Gross'],
     ...report.days.map((day) => [
       day.day,
       String(day.orders),
       String(day.items),
       decimal(day.subtotalCents),
+      decimal(day.discountCents),
       decimal(day.taxCents),
       decimal(day.totalCents),
     ]),

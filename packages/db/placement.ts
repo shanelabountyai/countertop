@@ -17,6 +17,7 @@ import {
   checkClientTotal,
   totalTampering,
   normalizeIdentity,
+  normalizePhone,
   authorizationEvent,
   placementEvent,
   readyEstimate,
@@ -31,10 +32,21 @@ import {
   type IdentityViolation,
   type OrderEventDraft,
   type TotalMismatch,
+  type VerifiedPhoneLogOutcome,
 } from '@countertop/core';
 import { Prisma, prisma } from './index';
+import { eventRow } from './event-row';
 import { loadGateState } from './gate';
 import { loadMenu } from './menu';
+import {
+  hasLoyaltyPepper,
+  phoneDigest,
+  planCheckoutReward,
+  writeCheckoutRedemption,
+  type CheckoutRedemptionRefusal,
+  type PlannedCheckoutRedemption,
+} from './loyalty';
+import { verifiedPhoneFromToken } from './verification';
 
 /**
  * Everything a receipt, a confirmation and a kitchen ticket render — and
@@ -110,7 +122,26 @@ export type PlacementError =
   // customer's screen rendering and this request landing. Never `reason`-typed
   // like the ASAP gate — none of those three is a customer-facing distinction
   // worth naming, they are all "pick a different time".
-  | { kind: 'slot_unavailable'; message: string };
+  | { kind: 'slot_unavailable'; message: string }
+  /**
+   * A checkout submission asked to spend a reward and could not (PRD 7 P1-1,
+   * C-118).
+   *
+   * REFUSED, NEVER SILENTLY PLACED AT THE UNDISCOUNTED PRICE, and that is the
+   * decision in this kind existing at all. The customer pressed a button
+   * reading "Place order — $13.51"; charging them $23.51 because their
+   * verification expired between typing a code and typing a name is precisely
+   * the "a precise wrong number is worse than an honest range" failure this
+   * product has a rule about. The refusal carries the reason so the screen can
+   * say which of the several things went wrong, and the form keeps everything
+   * typed so re-submitting without the reward is one tap.
+   */
+  | { kind: 'reward_unavailable'; reason: RewardRefusal; message: string };
+
+/** Everything that can stop a reward at checkout: the token's own refusals
+ *  (C-116) and the ledger's (C-104/C-118), under one name so a screen renders
+ *  one set of words. */
+export type RewardRefusal = CheckoutRedemptionRefusal | VerifiedPhoneLogOutcome;
 
 export type PlacementInput = {
   cart: Cart;
@@ -138,10 +169,34 @@ export type PlacementInput = {
    *  fresh `availableSlots` read, the same discipline `reviewCart` applies to
    *  a cart. */
   requestedForMinute?: number;
+  /**
+   * The bearer string a confirmed phone verification minted for THIS checkout
+   * attempt (C-116), spent here (C-118).
+   *
+   * NOT AN AMOUNT, and it never becomes one on the way in. The token proves a
+   * phone; `planCheckoutReward` reads the program's own `rewardValueCents` off
+   * the settings row and bounds it against the subtotal THIS function priced.
+   * There is no field on this type, or on the request behind it, through which
+   * a client can name a discount — the same rule that makes `clientTotalCents`
+   * evidence for a log rather than an input to a column.
+   */
+  verifiedPhoneToken?: string | null;
 };
 
 export type PlacementResult =
-  | { ok: true; order: OrderReceipt; replayed: boolean }
+  | {
+      ok: true;
+      order: OrderReceipt;
+      replayed: boolean;
+      /**
+       * What the submission's verified-phone token did (C-116, spent C-118).
+       *
+       * Returned rather than logged here for the same reason `mismatch` is:
+       * this function has several callers and only one of them is behind a
+       * request. Null when no token was presented, which is the ordinary case.
+       */
+      verifiedPhone: VerifiedPhoneLogOutcome | null;
+    }
   | {
       ok: false;
       errors: PlacementError[];
@@ -242,38 +297,6 @@ export async function takingNextOrderNumber<T>(
   );
 }
 
-/** One `OrderEvent` row from an engine draft. Exported because every writer of
- *  the append-only log — placement here, the queue's transitions in
- *  `transitions.ts` — must spell a row the same way. */
-export const eventRow = (draft: OrderEventDraft, staffId?: string | null) => ({
-  at: draft.at,
-  kind: draft.kind,
-  fromStatus: draft.fromStatus,
-  toStatus: draft.toStatus,
-  actor: draft.actor,
-  // Null rather than absent, so the CHECK sees what it is meant to: money
-  // events carry an amount and nothing else may.
-  amountCents: draft.amountCents ?? null,
-  providerRef: draft.providerRef ?? null,
-  // The order this event points at (C-066). Null on everything but a `remake`.
-  relatedOrderId: draft.relatedOrderId ?? null,
-  // The refund request this attempt was made against (C-071). Null on
-  // everything but a `refund` or a `refund_failed`, and the CHECK says so.
-  refundRequestId: draft.refundRequestId ?? null,
-  // The hold this event settles (C-069). Null on everything but a `capture` or
-  // an `authorization_voided`, and the CHECK says so in both directions.
-  authorizationId: draft.authorizationId ?? null,
-  // WHICH staff member, where `actor` says what KIND (C-086). Stamped ONLY on
-  // an event the engine attributes to staff: the customer's placement and the
-  // system's refund are not somebody's tap, and putting the cook who cancelled
-  // an order onto the refund the engine wrote would be a name on a row that
-  // person did not write. The refund's actor is the seam where that gets
-  // revisited, and PRD 3 is where it belongs.
-  staffId: draft.actor === 'staff' ? (staffId ?? null) : null,
-  reason: draft.reason,
-  ...(draft.detail === undefined ? {} : { detail: draft.detail as Prisma.InputJsonObject }),
-});
-
 export const findOrderByIdempotencyKey = (idempotencyKey: string): Promise<OrderReceipt | null> =>
   prisma.order.findUnique({ where: { idempotencyKey }, ...ORDER_RECEIPT });
 
@@ -322,6 +345,59 @@ export const findOrderByStatusToken = (statusToken: string): Promise<OrderReceip
   prisma.order.findUnique({ where: { statusToken }, ...ORDER_RECEIPT });
 
 /**
+ * Check the token, then ask the ledger what it may spend (PRD 7 P1-1, C-118).
+ *
+ * THE SIGNATURE IS CHECKED BEFORE THE BALANCE IS LOOKED UP, and the phone it
+ * is checked against is the one snapshotted onto THIS order — not the one the
+ * token claims. `verifiedPhoneFromToken` compares the two and refuses
+ * `phone_mismatch`, so a token minted for a number with a reward behind it
+ * cannot be presented on an order placed under a different number. Its other
+ * two refusals close the rest: `wrong_order` binds it to this attempt's
+ * idempotency key, and `expired` to its ten minutes.
+ *
+ * ONE OUTCOME WORD ON EVERY PATH, refusal or not, because C-116 established
+ * that "the token checked out" and "it did not" is the log line support reads
+ * when a customer says their reward did not come off.
+ */
+async function resolveCheckoutReward(
+  token: string,
+  /** The order's OWN phone, as `normalizeIdentity` trimmed it. */
+  customerPhone: string | null,
+  idempotencyKey: string,
+  subtotalCents: number,
+  now: Date,
+): Promise<
+  | { ok: true; plan: PlannedCheckoutRedemption; outcome: VerifiedPhoneLogOutcome }
+  | { ok: false; error: PlacementError; outcome: VerifiedPhoneLogOutcome }
+> {
+  const refuse = (reason: RewardRefusal, message: string) =>
+    ({ ok: false as const, error: { kind: 'reward_unavailable' as const, reason, message }, outcome: reason });
+
+  if (!hasLoyaltyPepper()) {
+    return refuse('loyalty_pepper_unset', 'The loyalty program is not configured.');
+  }
+  const normalized = normalizePhone(customerPhone);
+  if (!normalized) {
+    // The customer cleared or changed the phone field after verifying it.
+    return refuse(
+      'phone_not_enrollable',
+      'Add back the phone number you verified, or place the order without the reward.',
+    );
+  }
+
+  const read = verifiedPhoneFromToken(token, {
+    idempotencyKey,
+    phoneDigest: phoneDigest(normalized.digits),
+    now,
+  });
+  if (!read.ok) return refuse(read.reason, read.message);
+
+  const reward = await planCheckoutReward({ phone: customerPhone, subtotalCents });
+  if (!reward.ok) return refuse(reward.reason, reward.message);
+  return { ok: true, plan: reward.plan, outcome: 'verified' };
+}
+
+/**
  * Place the cart.
  *
  * Order of operations matters and is deliberate:
@@ -344,7 +420,14 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
   // out of the orders table, not out of today's menu.
   if (idempotencyKey !== '') {
     const existing = await findOrderByIdempotencyKey(idempotencyKey);
-    if (existing) return { ok: true, order: existing, replayed: true };
+    // NO TOKEN IS READ ON A REPLAY, deliberately, and it matters more since
+    // C-118 than it did before: the reward is already snapshotted onto the
+    // order this returns, so re-checking a ten-minute token here would refuse
+    // a second tap — with the reward correctly applied on the row — the moment
+    // a customer took eleven minutes over the payment radio.
+    // `verifiedPhone: null` and not a word, because no token was read to have
+    // one — which is the honest log line for a replay and not an omission.
+    if (existing) return { ok: true, order: existing, replayed: true, verifiedPhone: null };
   }
 
   // `loadMenu(now)` and not `loadMenu()`: a staged price is resolved against
@@ -435,7 +518,44 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
   // operational answer already exists — staff cancel it with reason
   // `out_of_item` (C-004). Locking the menu rows for every checkout would buy
   // a millisecond of a window that stays open for minutes regardless.
-  const snapshot = buildOrderSnapshot(menu, cart, settings.taxRatePpm);
+  //
+  // PRICED TWICE, ON PURPOSE, when a reward is in play. The first call is the
+  // undiscounted truth and its `subtotalCents` is what bounds the reward —
+  // taking that bound from `review.totals` instead would tie a database CHECK
+  // (`discountCents <= subtotalCents`) to a number computed by a different
+  // function, and the day the two drifted the symptom would be a 500 at
+  // checkout rather than a test. Both calls are pure and read the same menu.
+  const undiscounted = buildOrderSnapshot(menu, cart, settings.taxRatePpm);
+
+  // The reward (PRD 7 P1-1, C-118), decided here and nowhere else: the token
+  // is checked, the member is looked up, and the AMOUNT comes off the settings
+  // row. `redemption` is null on every checkout that did not present a token,
+  // which is every checkout this product placed before this session.
+  let redemption: PlannedCheckoutRedemption | null = null;
+  let verifiedPhone: VerifiedPhoneLogOutcome | null = null;
+  if (input.verifiedPhoneToken) {
+    const reward = await resolveCheckoutReward(
+      input.verifiedPhoneToken,
+      identity.identity.customerPhone,
+      idempotencyKey,
+      undiscounted.subtotalCents,
+      now,
+    );
+    verifiedPhone = reward.outcome;
+    if (!reward.ok) {
+      return {
+        ok: false,
+        errors: [reward.error],
+        review,
+        mismatch: totalTampering(review, input.clientTotalCents),
+      };
+    }
+    redemption = reward.plan;
+  }
+
+  const snapshot = redemption
+    ? buildOrderSnapshot(menu, cart, settings.taxRatePpm, redemption.amountCents)
+    : undiscounted;
 
   // What we are promising this customer (P1-4), off the SAME `settings` read
   // the gate above used — so the quote stored on the order is the one the
@@ -479,7 +599,17 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
   return takingNextOrderNumber(
     businessDay,
     async (seq) => {
-      const order = await prisma.order.create({
+      // ONE TRANSACTION, and C-118 is what made it one. Before this session
+      // placement was a single `create` and needed no wrapper; a checkout
+      // redemption adds a second row in a different table, and an `Order`
+      // carrying `discountCents: 1000` with no `redeem` beside it is ten
+      // dollars given away with nothing on the ledger to explain it — C-104's
+      // "either half alone is a defect somebody finds at close", one layer
+      // earlier. The P2002 the retry loop above catches still propagates out
+      // of here unchanged; what changes is that the losing attempt takes its
+      // ledger row down with it.
+      const order = await prisma.$transaction(async (tx) => {
+      const created = await tx.order.create({
         data: {
           businessDay,
           seq,
@@ -527,7 +657,12 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
         },
         ...ORDER_RECEIPT,
       });
-      return { ok: true, order, replayed: false } as PlacementResult;
+      // AFTER the order exists and inside its transaction, so the points and
+      // the price they bought commit together or not at all.
+      if (redemption) await writeCheckoutRedemption(tx, created.id, redemption, now);
+      return created;
+      });
+      return { ok: true, order, replayed: false, verifiedPhone } as PlacementResult;
     },
     // Two double-taps racing: the loser reads the winner's order and returns
     // it, which is the same answer the fast path gives. Null means "not this
@@ -535,7 +670,9 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
     async (target) => {
       if (!target.includes('idempotencyKey')) return null;
       const winner = await findOrderByIdempotencyKey(idempotencyKey);
-      return winner ? ({ ok: true, order: winner, replayed: true } as PlacementResult) : null;
+      return winner
+        ? ({ ok: true, order: winner, replayed: true, verifiedPhone } as PlacementResult)
+        : null;
     },
   );
 }

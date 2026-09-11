@@ -220,13 +220,28 @@ export default async function LoyaltyPage({
             balances out over a period longer than the one people save across.
           </p>
         )}
-        {(window.pointsExpired > 0 || window.pointsAdjusted !== 0) && (
+        {(window.pointsExpired > 0 ||
+          window.pointsAdjusted !== 0 ||
+          window.pointsReturned !== 0) && (
           <dl className="mt-3 flex flex-col gap-2 rounded-lg border-2 border-neutral-200 p-4 text-lg">
             {window.pointsExpired > 0 && (
               <div className="flex flex-wrap justify-between gap-4">
                 <dt>Points expired</dt>
                 <dd className="font-semibold tabular-nums" data-testid="loyalty-expired">
                   {points(window.pointsExpired)}
+                </dd>
+              </div>
+            )}
+            {/* Rewards that came back because the order died (C-118). ITS OWN
+                ROW, above the staff one: these are the system's bookkeeping,
+                and a cancelled redemption filed under "Staff corrections"
+                would name a person who did nothing. */}
+            {window.pointsReturned !== 0 && (
+              <div className="flex flex-wrap justify-between gap-4">
+                <dt>Rewards returned on dead orders</dt>
+                <dd className="font-semibold tabular-nums" data-testid="loyalty-returned">
+                  {window.pointsReturned > 0 ? '+' : '−'}
+                  {points(Math.abs(window.pointsReturned))}
                 </dd>
               </div>
             )}

@@ -31,7 +31,7 @@ import {
   type VoidReason,
 } from '@countertop/core';
 import { Prisma, prisma } from './index';
-import { eventRow } from './placement';
+import { eventRow } from './event-row';
 import { mockPaymentProvider, type PaymentProvider } from './provider';
 
 export type SettleAuthorizationReason =

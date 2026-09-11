@@ -229,8 +229,19 @@ type StatusFacts = {
    *   in_flight the kitchen is not finished with it. A report run at 2pm must
    *             not book lunch that is still on the pass.
    */
-  salesRole: 'sold' | 'no_show' | 'cancelled' | 'in_flight';
+  salesRole: SalesRole;
 };
+
+/**
+ * What an order in this state means to the money (C-118 named the type; the
+ * four values are C-016's and unchanged).
+ *
+ * Exported so a reader outside this module can switch over it EXHAUSTIVELY
+ * rather than testing two of the four by `===`. `settleRedemptionFor` is the
+ * first such reader: a fifth role has to decide whether a reward spent at
+ * checkout comes back, and the compiler is what will ask it.
+ */
+export type SalesRole = 'sold' | 'no_show' | 'cancelled' | 'in_flight';
 
 /**
  * The whole lifecycle, in one table.
@@ -354,7 +365,7 @@ export const STATUS_FACTS: Record<OrderStatus, StatusFacts> = {
 const statusesWhere = (fact: keyof StatusFacts): readonly OrderStatus[] =>
   ORDER_STATUSES.filter((s) => STATUS_FACTS[s][fact] === true);
 
-const statusesInSalesRole = (role: StatusFacts['salesRole']): readonly OrderStatus[] =>
+const statusesInSalesRole = (role: SalesRole): readonly OrderStatus[] =>
   ORDER_STATUSES.filter((s) => STATUS_FACTS[s].salesRole === role);
 
 /** P0-6's throttle counts these, and only these. */
@@ -432,8 +443,7 @@ export function canCollectPayment(status: OrderStatus, outstandingCents: number)
 export const isOpen = (status: OrderStatus): boolean => STATUS_FACTS[status].open;
 export const isTerminal = (status: OrderStatus): boolean => STATUS_FACTS[status].terminal;
 export const needsAcknowledgment = (status: OrderStatus): boolean => STATUS_FACTS[status].alerts;
-export const salesRoleOf = (status: OrderStatus): StatusFacts['salesRole'] =>
-  STATUS_FACTS[status].salesRole;
+export const salesRoleOf = (status: OrderStatus): SalesRole => STATUS_FACTS[status].salesRole;
 export const nextStatus = (status: OrderStatus): OrderStatus | null => STATUS_FACTS[status].next;
 export const previousStatus = (status: OrderStatus): OrderStatus | null =>
   STATUS_FACTS[status].previous;

@@ -407,18 +407,21 @@ test('a typed date range bounds the report, and the CSV holds the same days', as
   );
 
   const [header, ...rows] = (await response.text()).split('\r\n');
-  expect(header).toBe('Business day,Orders,Items,Net sales,Tax,Gross');
+  expect(header).toBe('Business day,Orders,Items,Net sales,Rewards,Tax,Gross');
   expect(rows).toHaveLength(1);
 
   // Plain decimals, not "$1,234.56" — a currency symbol and a thousands
   // separator both arrive in a spreadsheet as text, and the column a
   // bookkeeper opened the file to sum would not sum.
-  const [day, orders, items, net, tax, gross] = rows[0]!.split(',');
+  const [day, orders, items, net, rewards, tax, gross] = rows[0]!.split(',');
   expect(day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   expect(orders).toBe('1');
   expect(items).toBe('2');
-  // The same reconciliation P0-1 asserts on the screen, per row, in the file.
-  expect(Math.round(Number(net) * 100) + Math.round(Number(tax) * 100)).toBe(
-    Math.round(Number(gross) * 100),
-  );
+  // The same reconciliation P0-1 asserts on the screen, per row, in the file —
+  // three terms since C-118, the same identity C-117's CHECK holds at the row.
+  expect(
+    Math.round(Number(net) * 100) -
+      Math.round(Number(rewards) * 100) +
+      Math.round(Number(tax) * 100),
+  ).toBe(Math.round(Number(gross) * 100));
 });

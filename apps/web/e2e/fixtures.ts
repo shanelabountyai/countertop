@@ -250,6 +250,28 @@ export async function loyaltyMembers(): Promise<
 }
 
 /**
+ * The only member's balance, summed off the ledger (C-118).
+ *
+ * SUMMED, never read from a column, because there is no balance column — the
+ * same property `memberByPhone` has and the same reason C-100 gives for it.
+ * A spec asserting "the points came back" has to be asking the ledger, or it
+ * is asserting against a cache that could be the thing that is wrong.
+ */
+export async function loyaltyBalance(): Promise<number | null> {
+  const { prisma } = await import('@countertop/db');
+  try {
+    const member = await prisma.loyaltyMember.findFirst({
+      select: { events: { select: { points: true } } },
+      orderBy: { enrolledAt: 'asc' },
+    });
+    if (!member) return null;
+    return member.events.reduce((sum, event) => sum + event.points, 0);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/**
  * Order-ahead scheduling (master PRD P1-2, C-114). Same shape as
  * `setLoyaltyEnabled` and the same reasoning: the real toggle has its own
  * spec (`switches order-ahead on from the settings screen` in

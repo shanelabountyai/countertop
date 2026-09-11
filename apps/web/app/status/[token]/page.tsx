@@ -310,6 +310,19 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
               <dt>Subtotal</dt>
               <dd>{formatCents(order.subtotalCents)}</dd>
             </div>
+            {/* The reward, INSIDE the snapshot and above the tax it changed
+                (PRD 7 P1-1, C-118) — unlike the adjustment below, which sits
+                under the total because it is a second fact beside a
+                write-once figure. This one is not: the tax on this receipt
+                was computed on `subtotal − reward`, and a customer reading
+                $14.95 of food and 41c of tax with nothing between them cannot
+                make those two numbers explain each other. */}
+            {order.discountCents > 0 && (
+              <div className="flex justify-between text-sm font-medium text-green-800">
+                <dt>Punch card reward</dt>
+                <dd data-testid="status-discount">−{formatCents(order.discountCents)}</dd>
+              </div>
+            )}
             <div className="flex justify-between text-sm">
               <dt>Tax</dt>
               <dd>{formatCents(order.taxCents)}</dd>

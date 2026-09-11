@@ -99,7 +99,7 @@ describe('the sales report, against the database', () => {
 
     // 19:30Z is 12:30 in Los Angeles.
     expect(report.hours).toEqual([
-      { hour: 12, orders: 1, items: 1, subtotalCents: 1345, taxCents: 111, totalCents: 1456 },
+      { hour: 12, orders: 1, items: 1, subtotalCents: 1345, discountCents: 0, taxCents: 111, totalCents: 1456 },
     ]);
     expect(report.days[0]?.day).toBe('2026-07-14');
     // 1095 + 0 chicken + 250 guac + 0 onions(negated) = 1345.

@@ -23,7 +23,6 @@ import {
   canCollectPayment,
   formatOrderNumber,
   hasReward,
-  LOYALTY_REWARD_REASON,
   orderBalance,
   paymentTotals,
   MAX_CANCEL_NOTE_LENGTH,
@@ -36,7 +35,7 @@ import {
 } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
 import { findOrderByIdForStaff, loadOrderActivity, loadRemakesOf } from '@countertop/db/history';
-import { memberByPhone } from '@countertop/db/loyalty';
+import { memberByPhone, orderHasRedemption } from '@countertop/db/loyalty';
 import { listOrderNotifications } from '@countertop/db/notifications';
 import { formatCents } from '@/lib/money';
 import { formatPlacedAt } from '@/lib/format-time';
@@ -128,13 +127,17 @@ export default async function OrderHistoryDetailPage({
   // asks (C-104) — so a button that renders is a button that works, and a
   // refusal the screen shows is the refusal the server would have given.
   //
-  // `alreadyRedeemed` is read off the MONEY side, from the activity already
-  // loaded, rather than costing a second query for the ledger side. The two
-  // rows are written in one transaction and cannot disagree; the ledger's own
-  // partial unique index is still what makes that true under two taps.
-  const rewardUsed = activity.some(
-    (entry) => entry.kind === 'adjustment' && entry.reason === LOYALTY_REWARD_REASON,
-  );
+  // `alreadyRedeemed` IS READ OFF THE LEDGER (corrected at C-118). It used to
+  // be inferred from the MONEY side — an `adjustment` carrying
+  // `LOYALTY_REWARD_REASON`, already loaded, no second query — and that was
+  // right for as long as `redeemReward` was the only way to spend a reward,
+  // because it writes both rows in one transaction. A checkout redemption
+  // writes no adjustment at all: the reward is INSIDE the snapshot, as
+  // `discountCents`. So the money side began answering "no reward used" on an
+  // order that plainly carries one, and this panel would have offered a
+  // second $10 off that the ledger's unique index then refused — the exact
+  // "a button that renders is a button that works" rule C-104 wrote for it.
+  const rewardUsed = await orderHasRedemption(order.id);
   const redemption = member
     ? planRedemption({
         enabled: gateState.loyalty.offered,
@@ -373,6 +376,19 @@ export default async function OrderHistoryDetailPage({
             <dt>Subtotal</dt>
             <dd>{formatCents(order.subtotalCents)}</dd>
           </div>
+          {/* A reward spent at CHECKOUT (PRD 7 P1-1, C-118), above the tax
+              because it is what the tax was computed on — and distinct from
+              the `Adjusted` line below, which is a counter decision recorded
+              beside a write-once total rather than part of it. Both can appear
+              on one order and they mean different things; a member who
+              redeemed at checkout and was then comped for a wrong order is
+              exactly that receipt. */}
+          {order.discountCents > 0 && (
+            <div className="flex justify-between text-sm font-medium text-green-800">
+              <dt>Punch card reward</dt>
+              <dd data-testid="history-discount">−{formatCents(order.discountCents)}</dd>
+            </div>
+          )}
           <div className="flex justify-between text-sm">
             <dt>Tax</dt>
             <dd>{formatCents(order.taxCents)}</dd>

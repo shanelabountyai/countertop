@@ -2462,3 +2462,43 @@ Nothing changes yet for a real customer — the counter's existing reward
 button still works exactly as it did, and this only becomes visible once a
 future session gives self-serve checkout a control that actually asks for
 one.
+
+## C-118 — Spending a reward at checkout
+
+Three sessions of plumbing now have a button. A customer with a full punch
+card types their phone number at checkout, gets a code, and takes $10 off —
+before tax, so the shop stops remitting sales tax on food nobody paid for.
+On a $14.95 order that is $5.36 rather than $6.18, and the difference is 82c
+the state was collecting on a discount.
+
+The code exists because nobody is standing at the counter. At the till, a
+person is the verification; online, typing a stranger's phone number would
+spend their punch card, so a one-time code is the cheapest thing that makes
+"this is my number" true.
+
+Three decisions worth naming:
+
+**A reward that can't be granted refuses the order.** If the balance moves
+between confirming a code and pressing submit, the order doesn't quietly
+place at full price — the customer pressed a button reading "$5.36" and
+charging $14.95 for it is a worse failure than a refusal they can act on.
+Nothing is written, nothing typed is lost.
+
+**The points come back if the order dies.** A reward at the counter is spent
+on food that already exists. This one is spent before anything is cooked, so
+a cancelled order — or a no-show — hands the punch card back, as a visible
+ledger entry rather than by deleting the one that took it. And it takes them
+again if that order is un-cancelled and collected after all, which is the
+half that's easy to forget.
+
+**The sales report gained a column rather than losing one.** Rewards are
+reported next to net sales instead of being netted into it, so "what did the
+punch card cost us in food this month" is a number on the screen. The
+alternative was cheaper to build and would have made that number invisible.
+
+Two things this session broke elsewhere and fixed: the staff receipt was
+deciding whether a reward had been used by looking at the money side of an
+order, which a checkout redemption doesn't touch — so it would have offered
+a second $10 off that the database then refused. And the loyalty screen's
+"Staff corrections" figure would have counted the system's own returned
+rewards as something a person typed.

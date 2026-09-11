@@ -72,7 +72,7 @@ That is a good decision and this PRD does not undo it. But it means the shop's f
 
 ### Nice-to-Have (P1)
 
-- **P1-1: Self-serve redemption at checkout, before tax.** The version customers actually want, and it is one feature with three prerequisites. It needs a **verified** identity, because a customer typing a phone number at checkout to spend the balance behind it is theft with no counter-party present. Verification needs SMS — master-PRD P1-3 shipped as C-113, but as an unverified one-way stub (an outbox log, no reply channel, no code to confirm against); *that* gap, not "SMS is unbuilt," is what still blocks this item. Applying the reward before tax then needs a snapshotted `Order.discountCents` and `subtotal − discount` as the tax base — because `priceOrder` currently defines `subtotalCents` as exactly the sum of the lines, and a discount that breaks that identity breaks every receipt that reconciles. All three move together or none of them do.
+- ~~**P1-1: Self-serve redemption at checkout, before tax.**~~ **— shipped, C-115 → C-118.** The version customers actually want, and it is one feature with three prerequisites. It needs a **verified** identity, because a customer typing a phone number at checkout to spend the balance behind it is theft with no counter-party present. Verification needs SMS — master-PRD P1-3 shipped as C-113, but as an unverified one-way stub (an outbox log, no reply channel, no code to confirm against); *that* gap, not "SMS is unbuilt," is what still blocks this item. Applying the reward before tax then needs a snapshotted `Order.discountCents` and `subtotal − discount` as the tax base — because `priceOrder` currently defines `subtotalCents` as exactly the sum of the lines, and a discount that breaks that identity breaks every receipt that reconciles. All three move together or none of them do.
 - **P1-2: The program's own screen.** Members, points outstanding **valued in cents as a liability**, redemptions and their cost per period, and the redemption rate. Deliberately its own page, not a tile on the sales report, per P0-6. The owner cannot judge whether the program is worth running without the liability number, and the liability number is the one nobody builds.
 - **P1-3: A member chip on the queue card.** "Member — reward available" so the counter offers it rather than waiting to be asked, which is most of the emotional value of the whole program. P1 because it modifies the queue card, which `prd-the-counter-handoff.md` owns, and it must not compete with the negation treatment for attention on that card.
 
@@ -236,14 +236,54 @@ money-path change:
   flow and the before-tax checkout flow will need to agree on which one runs
   when both are possible.
 
-P1-1 is **not live** — no copy renders, no checkout control exists —
-with all three of C-115/C-116/C-117 shipped. That was this plan's own
-undercount, caught only once C-117 actually landed: the three sessions above
-are the *mechanism* — a verified phone, a token that carries it, and
-somewhere honest for a reward to land in the arithmetic — and none of them
-is "the checkout control that calls `planRedemption`, mints a
-`discountCents`, and hands it to `placeOrder`." That caller is a fourth,
-unphased piece of work, named as the next item in C-117's own entry above.
-Until it ships, `loyaltyEnabled` and the existing staff-attended P0-4
-redemption remain completely unaffected — this section changed no customer-
-or counter-observable behavior across all three sessions.
+- ~~**C-118 — The caller**~~ **— shipped.** The fourth, unphased session
+  named below: the checkout control itself. `planCheckoutRedemption` in
+  `packages/core` — a SECOND pure decision beside `planRedemption`, not a
+  flag inside it, because the two bound different things: the counter asks
+  what an order still OWES and checkout asks whether the FOOD costs enough
+  to carry a whole reward before tax exists. New refusal
+  `reward_exceeds_subtotal`, which is the code path keeping C-117's
+  `discountCents <= subtotalCents` CHECK out of reach. `placeOrder` takes an
+  optional `verifiedPhoneToken`, checks it against the order's own
+  snapshotted phone, prices the reward off the settings row, and writes the
+  order and its `redeem` row in ONE transaction — a snapshot carrying a
+  discount with no ledger row beside it is C-104's "either half alone is a
+  defect somebody finds at close", one layer earlier. **One session. No
+  migration** — C-117 landed the column and C-100/C-104 landed the indexes.
+  **The two decisions this item needed, not just code:**
+  1. *How the two redemption paths agree.* **Checkout wins structurally, and
+     it needed no new mechanism.** Checkout is always first — the counter
+     needs an order that exists — so binding the checkout `redeem` to the
+     new `orderId` inside placement's transaction means C-104's partial
+     unique index and `planRedemption`'s own `alreadyRedeemed` already
+     refuse the counter path, by the name they already had. The alternative
+     — letting the counter reverse a checkout redemption — cannot be built
+     without unwinding a snapshotted `discountCents` and the tax computed on
+     it, which is the snapshot rule.
+  2. *`report.ts`'s `SalesTotals`.* **A fourth column, and `subtotalCents`
+     stays GROSS.** Netting the reward into the subtotal would have restored
+     the old two-term identity for free and made the punch card's cost in
+     food invisible on the one screen an owner decides with. The
+     reconciliation is now `net − rewards + tax = gross`, asserted on every
+     day row, every hour row and the window — the same identity C-117's
+     CHECK enforces at the row.
+  **The case the counter flow never had:** a checkout reward is spent BEFORE
+  the food exists, so a cancel or a no-show hands the points back — a logged
+  `adjust`, never a delete — and RE-SPENDS them if that order is reverted
+  and collected after all, because `abandoned` is revertable and a one-way
+  return would let a no-show who finally walks in keep both the $10 off and
+  the 100 points that bought it. `lastActivityAt` does not move on a
+  settlement: an order that died is something that happened TO a member.
+  **The trap it hit:** the staff panel read `alreadyRedeemed` off the MONEY
+  side — an `adjustment` carrying `LOYALTY_REWARD_REASON` — which was
+  correct for as long as `redeemReward` was the only writer, and a checkout
+  redemption writes no adjustment at all. `docs/WRITEUP.md` has it.
+
+P1-1 is **live** as of C-118. It was **not** live with all three of
+C-115/C-116/C-117 shipped — that was this plan's own undercount, caught only
+once C-117 actually landed: those three sessions are the *mechanism* — a
+verified phone, a token that carries it, and somewhere honest for a reward
+to land in the arithmetic — and none of them is "the checkout control that
+calls `planRedemption`, mints a `discountCents`, and hands it to
+`placeOrder`." That caller was a fourth, unphased piece of work, named as
+the next item in C-117's own entry above and shipped as C-118.

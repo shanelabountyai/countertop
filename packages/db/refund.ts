@@ -46,7 +46,8 @@ import {
 } from '@countertop/core';
 import { Prisma, prisma } from './index';
 import { mockPaymentProvider, type PaymentProvider } from './provider';
-import { eventRow, ORDER_RECEIPT, type OrderReceipt } from './placement';
+import { eventRow } from './event-row';
+import { ORDER_RECEIPT, type OrderReceipt } from './placement';
 
 export type SettleRefundReason =
   | 'order_not_found'

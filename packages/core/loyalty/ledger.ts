@@ -17,6 +17,8 @@
 // the ledger. If one is ever added it is a derived cache with an agreement
 // test, and that is a later decision with a written reason.
 
+import type { SalesRole } from '../orders/state-machine';
+
 export const LOYALTY_EVENT_KINDS = ['earn', 'redeem', 'adjust', 'expire'] as const;
 export type LoyaltyEventKind = (typeof LOYALTY_EVENT_KINDS)[number];
 
@@ -92,6 +94,11 @@ export type RedemptionRefusalReason =
   | 'loyalty_disabled'
   | 'not_enough_points'
   | 'reward_exceeds_balance_owed'
+  /** The CHECKOUT bound (C-118): the food itself costs less than the reward
+   *  is worth. A separate word from `reward_exceeds_balance_owed` because it
+   *  is a separate fact — that one is about an order that has been partly
+   *  paid or comped, this one is about a $6 lunch and a $10 reward. */
+  | 'reward_exceeds_subtotal'
   | 'already_redeemed_on_this_order';
 
 export type RedemptionPlan =
@@ -240,4 +247,128 @@ export function loyaltyLiability(
 export function redemptionRate(pointsEarned: number, pointsRedeemed: number): number | null {
   if (pointsEarned <= 0) return null;
   return pointsRedeemed / pointsEarned;
+}
+
+// --- Redeeming at CHECKOUT, before tax (P1-1, C-118) -----------------------
+
+/**
+ * Whether a reward can be spent on a cart that is about to become an order,
+ * and for exactly what.
+ *
+ * A SECOND FUNCTION AND NOT A PARAMETER ON `planRedemption`, because it is a
+ * different question with a different bound. `planRedemption` asks what an
+ * EXISTING order still OWES — a number that shrinks as money arrives and as
+ * comps are written, and which only exists once there are rows to ask. This
+ * asks whether the FOOD costs enough to carry a whole reward before tax is
+ * computed on it at all. Folding the two into one function with an optional
+ * bound would put the after-tax and before-tax rules one boolean apart, and
+ * the boolean would eventually be wrong.
+ *
+ * BOUNDED BY THE SUBTOTAL, not by the total. `Order.discountCents <=
+ * "subtotalCents"` is a database CHECK (C-117) and this is the code path that
+ * must never reach it: a reward worth more than the food is refused here, by
+ * name, rather than arriving at Postgres as a 500 or — far worse — being
+ * clamped into a smaller reward nobody told the customer about. Same
+ * refused-never-clamped rule `planRedemption` states, against the other bound.
+ *
+ * NO `alreadyRedeemed` PARAMETER. There is no order yet to have redeemed
+ * against: the one-per-order rule is C-104's partial unique index, and at
+ * checkout the ledger row is written inside placement's own transaction, so
+ * the constraint is the mechanism there exactly as it is at the counter.
+ */
+export function planCheckoutRedemption(input: {
+  enabled: boolean;
+  balance: number;
+  /** The SERVER's sum of the priced lines — never a number a client sent. */
+  subtotalCents: number;
+  terms: LoyaltyTerms;
+}): RedemptionPlan {
+  const { enabled, balance, subtotalCents, terms } = input;
+  if (!enabled) {
+    return refuse('loyalty_disabled', 'The loyalty program is switched off.');
+  }
+  if (!hasReward(balance, terms)) {
+    return refuse(
+      'not_enough_points',
+      `That is ${pointsToNextReward(balance, terms)} points short of a reward.`,
+    );
+  }
+  if (terms.rewardValueCents > subtotalCents) {
+    return refuse(
+      'reward_exceeds_subtotal',
+      'This order does not cost enough to use a whole reward on it.',
+    );
+  }
+  return { ok: true, pointsSpent: -terms.rewardThresholdPoints, amountCents: terms.rewardValueCents };
+}
+
+/**
+ * Whether a reward spent at CHECKOUT should currently be held or handed back
+ * (C-118).
+ *
+ * THE CUSTOMER SPENDS THE POINTS BEFORE THE FOOD EXISTS, which is the one
+ * thing the counter flow never had to think about: `redeemReward` is a tap on
+ * an order somebody is standing in front of, while a checkout redemption is
+ * committed at placement and then has to survive whatever happens to that
+ * order. If it is cancelled — or ages out as a no-show — the customer paid
+ * a punch card for food they never received, and nothing in the product would
+ * have given it back.
+ *
+ * A FUNCTION OF THE SALES ROLE, not of the status, and exhaustive over it:
+ * "did this order sell food" is exactly the question, and a fifth role makes
+ * the compiler come here rather than leaving a `=== 'cancelled'` quietly
+ * wrong. `in_flight` is `spent` because an order still being cooked has not
+ * failed — the reward is in force and the receipt already says so.
+ *
+ * SYMMETRIC ON PURPOSE. `abandoned` is revertable (the state machine's own
+ * `previous: 'ready'`), so a no-show whose customer finally walks in goes
+ * `abandoned → ready → picked_up`, and a return that could not be re-spent
+ * would hand out a $10 discount AND the points that bought it. This returns
+ * `spent` on the way back, and the caller writes the compensating row.
+ */
+export function redemptionStateFor(role: SalesRole): 'spent' | 'returned' {
+  switch (role) {
+    case 'sold':
+    case 'in_flight':
+      return 'spent';
+    case 'cancelled':
+    case 'no_show':
+      return 'returned';
+  }
+}
+
+/** The `reason` on the compensating `adjust` rows `redemptionStateFor` drives.
+ *  Written to the column and read back by the settlement, so the two cannot
+ *  drift — the same reason `LOYALTY_REWARD_REASON` is a constant and not a
+ *  string typed twice. */
+export const LOYALTY_RETURN_REASON = 'loyalty_reward_returned';
+export const LOYALTY_RESPEND_REASON = 'loyalty_reward_respent';
+
+/**
+ * What a redemption's compensating rows add up to, and therefore what still
+ * has to be written to reach `target`.
+ *
+ * Returns the POINTS of the row to write, or null when the ledger already says
+ * what it should. Idempotent by arithmetic rather than by a constraint,
+ * deliberately: unlike the earn, this has no one-per-order shape to hang a
+ * unique index on — the same order can legitimately carry a return AND a later
+ * re-spend — so the guard is that the function is a pure reconciliation of
+ * what is already there against what should be.
+ */
+export function settleRedemption(input: {
+  /** The order's `redeem` row, or null when no reward was spent on it. */
+  redeemedPoints: number | null;
+  /** The `adjust` rows already written against this redemption, signed. */
+  compensations: readonly number[];
+  target: 'spent' | 'returned';
+}): number | null {
+  const { redeemedPoints, compensations, target } = input;
+  if (redeemedPoints === null) return null;
+  const net = compensations.reduce((sum, points) => sum + points, 0);
+  // `redeemedPoints` is negative; returning it means a row of its magnitude.
+  const wanted = target === 'returned' ? -redeemedPoints : 0;
+  const delta = wanted - net;
+  // A zero row would fail the ledger's own `adjust` CHECK, correctly: an
+  // adjustment of nothing records a decision nobody made.
+  return delta === 0 ? null : delta;
 }

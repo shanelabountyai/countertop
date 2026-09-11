@@ -100,6 +100,11 @@ export function loadReportOrders(window: ReportWindow): Promise<ReportableOrder[
       cancelReason: true,
       cancelNote: true,
       subtotalCents: true,
+      // C-118. The fourth money column, and it has to be selected here or the
+      // report's `subtotal - discount + tax = total` invariant fails on the
+      // first order that carried a reward — read as a zero the row does not
+      // have.
+      discountCents: true,
       taxCents: true,
       totalCents: true,
       lines: {

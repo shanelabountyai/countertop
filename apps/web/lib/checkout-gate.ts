@@ -45,6 +45,12 @@ export async function currentCheckout(): Promise<{
    *  on these screens is worded (CLAUDE.md time rules) — never the visitor's
    *  browser zone, which is a fact about their device and not about pickup. */
   timezone: string;
+  /** The rate the cart was priced at (C-118). The checkout form recomputes a
+   *  total when a reward is held, and the discount is BEFORE tax — so it needs
+   *  the rate, and it needs the SAME one this read used rather than a second
+   *  query that could catch a rate change mid-checkout. Display-only: the
+   *  server re-prices everything at placement. */
+  taxRatePpm: number;
 }> {
   // Read once, here, and passed down — the weight of today's open orders and
   // the wall-clock reading the gate compares hours against are the same
@@ -60,6 +66,7 @@ export async function currentCheckout(): Promise<{
       ? availableSlots(state, state.scheduleConfig, state.weightBySlot, clock)
       : null,
     timezone: state.timezone,
+    taxRatePpm: state.taxRatePpm,
   };
 }
 

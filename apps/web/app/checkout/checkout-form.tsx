@@ -9,8 +9,14 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { isEnrollablePhone, type LoyaltyTerms, type Slot } from '@countertop/core';
-import { placeCartOrder, type CheckoutError, type OrderConfirmation } from './actions';
+import { isEnrollablePhone, taxOn, type LoyaltyTerms, type Slot, type TaxRatePpm } from '@countertop/core';
+import {
+  confirmCheckoutVerification,
+  placeCartOrder,
+  requestCheckoutVerification,
+  type CheckoutError,
+  type OrderConfirmation,
+} from './actions';
 import { formatCents } from '@/lib/money';
 import { PAYMENT_LABEL } from '@/lib/status-labels';
 import { describeSelection } from '@/lib/menu-labels';
@@ -29,6 +35,8 @@ export function CheckoutForm({
   reviewOk,
   asapOpen,
   slots,
+  subtotalCents,
+  taxRatePpm,
   clientTotalCents,
   loyalty,
 }: {
@@ -48,6 +56,11 @@ export function CheckoutForm({
    *  (paused, closed today) — never filtered down to only the OPEN ones, so a
    *  full slot still renders, greyed, rather than quietly vanishing. */
   slots: Slot[];
+  /** The server's sum of the priced lines. What a reward comes off, and what
+   *  the reward is bounded by — both decided again on the server at
+   *  placement; these two are display-only, like every price a client holds. */
+  subtotalCents: number;
+  taxRatePpm: TaxRatePpm;
   clientTotalCents: number;
   loyalty: LoyaltyOfferProps;
 }) {
@@ -66,7 +79,25 @@ export function CheckoutForm({
   // makes a scheduled submission valid — a slot list with nothing selected
   // yet is not a request the button should accept.
   const [requestedForMinute, setRequestedForMinute] = useState<number | null>(null);
+  // The bearer token a confirmed code minted for THIS attempt (C-116), held
+  // only in this component's state — no cookie, no session; PRD 7's resolved
+  // Non-Goal rules out a remembered device and there is nothing to hang one on.
+  const [rewardToken, setRewardToken] = useState<string | null>(null);
   const canPlace = reviewOk && (requestedForMinute === null ? asapOpen : true);
+
+  // What the customer is about to pay, recomputed the moment a reward is held.
+  //
+  // THROUGH `taxOn`, THE one rounding function (CLAUDE.md), imported from
+  // `packages/core` rather than reimplemented here — the discount is BEFORE
+  // tax, so the total is not `total − $10` and a screen that subtracted ten
+  // dollars from the gross would quote a number 82c away from what the server
+  // is about to charge. Display-only regardless: `placeOrder` recomputes all
+  // of it and `clientTotalCents` goes to a mismatch log, never to a column.
+  const discountCents = rewardToken ? Math.min(loyalty?.terms.rewardValueCents ?? 0, subtotalCents) : 0;
+  const dueCents =
+    discountCents === 0
+      ? clientTotalCents
+      : subtotalCents - discountCents + taxOn(subtotalCents - discountCents, taxRatePpm);
 
   // The receipt wins over everything: this render happens immediately after
   // the cart was cleared by the placement that produced it.
@@ -98,8 +129,11 @@ export function CheckoutForm({
         joinLoyalty: formData.get('joinLoyalty') === 'on',
         // The radio is the customer's INTENT; the server decides the state.
         payNow: formData.get('payment') === 'now',
-        clientTotalCents,
+        clientTotalCents: dueCents,
         ...(requestedForMinute === null ? {} : { requestedForMinute }),
+        // C-118. The server re-derives the amount from its own settings row —
+        // this proves a phone and nothing else.
+        verifiedPhoneToken: rewardToken,
       });
       if (result.ok) {
         setConfirmation(result.confirmation);
@@ -130,6 +164,32 @@ export function CheckoutForm({
       }}
       className="mt-6 flex flex-col gap-4"
     >
+      {/* The totals, RENDERED HERE rather than by the page above (moved at
+          C-118). A reward is held in this component's state, so a summary the
+          server rendered cannot follow it — and two "Total" rows on one
+          checkout screen, one of them stale by ten dollars, is worse than the
+          small amount of layout this move costs. */}
+      <dl className="flex flex-col gap-1 border-t border-neutral-300 pt-3 tabular-nums">
+        <div className="flex justify-between text-sm">
+          <dt>Subtotal</dt>
+          <dd>{formatCents(subtotalCents)}</dd>
+        </div>
+        {discountCents > 0 && (
+          <div className="flex justify-between text-sm font-medium text-green-800">
+            <dt>Punch card reward</dt>
+            <dd data-testid="checkout-discount">−{formatCents(discountCents)}</dd>
+          </div>
+        )}
+        <div className="flex justify-between text-sm">
+          <dt>Tax</dt>
+          <dd>{formatCents(dueCents - subtotalCents + discountCents)}</dd>
+        </div>
+        <div className="flex justify-between text-lg font-semibold">
+          <dt>Total</dt>
+          <dd data-testid="checkout-total">{formatCents(dueCents)}</dd>
+        </div>
+      </dl>
+
       <label className="flex flex-col gap-1">
         <span className="font-medium">
           Name for the order <span aria-hidden="true">*</span>
@@ -206,6 +266,20 @@ export function CheckoutForm({
           and nothing below exists to be read by a screen reader either. */}
       {loyalty && <LoyaltyOptIn offer={loyalty} phone={phone} />}
 
+      {/* Spending a reward (PRD 7 P1-1, C-118). Rendered on the same terms as
+          the checkbox above — `loyalty` is null with the program off, and off
+          renders nothing at all. */}
+      {loyalty && (
+        <UseReward
+          offer={loyalty}
+          phone={phone}
+          idempotencyKey={idempotencyKey}
+          token={rewardToken}
+          onToken={setRewardToken}
+          subtotalCents={subtotalCents}
+        />
+      )}
+
       <label className="flex flex-col gap-1">
         <span className="font-medium">Anything we should know? (optional)</span>
         <input
@@ -237,7 +311,7 @@ export function CheckoutForm({
         disabled={!canPlace || pending}
         className="min-h-14 rounded-lg bg-neutral-900 px-6 text-lg font-semibold text-white disabled:opacity-50"
       >
-        {pending ? 'Placing…' : `Place order — ${formatCents(clientTotalCents)}`}
+        {pending ? 'Placing…' : `Place order — ${formatCents(dueCents)}`}
       </button>
 
       {errors.length > 0 && (
@@ -293,6 +367,167 @@ function LoyaltyOptIn({ offer, phone }: { offer: NonNullable<LoyaltyOfferProps>;
           ? `We keep your phone number — as a one-way code, not the number itself — your name, and what you have earned. If you do not order for ${offer.expiryDays} days, the points expire and we delete it.`
           : 'Add your phone number above to join. That is what a punch card is counted against.'}
       </p>
+    </fieldset>
+  );
+}
+
+/**
+ * Spending a reward at checkout (PRD 7 P1-1, C-118) — the control the
+ * mechanism C-115, C-116 and C-117 built was waiting for.
+ *
+ * WHY A CODE AT ALL, restated here because it is the expensive part of this
+ * feature and looks like friction: at the counter a person is standing in
+ * front of staff, and that IS the verification. Here nobody is, so typing a
+ * stranger's phone number would spend their punch card. A one-time code is
+ * the cheapest thing that makes "this is my number" true.
+ *
+ * THE CODE IS SHOWN ON SCREEN because the SMS provider is a stub and there is
+ * no carrier on the other end (C-115's `SmsVerifyProvider` seam). That is a
+ * property of the seam, not a debug flag: the day a real provider is plugged
+ * in it returns null, `echoedCode` is null, and this panel stops printing it
+ * with nothing else changed.
+ *
+ * EVERY REFUSAL IS A SENTENCE, never a silent no-op — "that number is not on
+ * the punch card" and "no reward is available on that number yet" are
+ * different things a customer needs to hear differently, and both are decided
+ * server-side by `planVerificationStart` before a code is ever generated.
+ */
+function UseReward({
+  offer,
+  phone,
+  idempotencyKey,
+  token,
+  onToken,
+  subtotalCents,
+}: {
+  offer: NonNullable<LoyaltyOfferProps>;
+  phone: string;
+  idempotencyKey: string;
+  token: string | null;
+  onToken: (token: string | null) => void;
+  subtotalCents: number;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [sent, setSent] = useState<{ echoedCode: string | null } | null>(null);
+  const [code, setCode] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+
+  const reward = formatCents(offer.terms.rewardValueCents);
+  const enrollable = isEnrollablePhone(phone);
+  // The one refusal worth making BEFORE a round trip: the reward cannot come
+  // off food that costs less than it (`planCheckoutRedemption`'s
+  // `reward_exceeds_subtotal`, which the server decides again regardless). Said
+  // here rather than after a code, because sending somebody a text for an
+  // answer we already have is the rude version.
+  const tooSmall = offer.terms.rewardValueCents > subtotalCents;
+
+  if (token) {
+    return (
+      <fieldset className="flex flex-col gap-2 rounded-lg border-2 border-green-700 bg-green-50 p-4">
+        <legend className="px-1 font-medium text-green-900">Reward applied</legend>
+        <p data-testid="reward-applied" className="font-medium text-green-900">
+          {reward} off this order. The points come off when you place it.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            onToken(null);
+            setSent(null);
+            setCode('');
+            setMessage(null);
+          }}
+          className="min-h-12 w-fit rounded-lg border border-green-800 px-4 font-medium text-green-900"
+        >
+          Don’t use it
+        </button>
+      </fieldset>
+    );
+  }
+
+  return (
+    <fieldset className="flex flex-col gap-2 rounded-lg border border-neutral-300 p-4">
+      <legend className="px-1 font-medium">Use a reward</legend>
+      {tooSmall ? (
+        <p className="text-sm text-neutral-700">
+          A {reward} reward needs an order of at least {reward} of food. Yours is{' '}
+          {formatCents(subtotalCents)} — add something and it can come off.
+        </p>
+      ) : !sent ? (
+        <>
+          <p className="text-sm text-neutral-700">
+            Got {offer.terms.rewardThresholdPoints} points? We’ll text a code to the number above
+            to check it’s yours, then take {reward} off the food.
+          </p>
+          <button
+            type="button"
+            disabled={!enrollable || pending}
+            data-testid="reward-send-code"
+            onClick={() =>
+              startTransition(async () => {
+                setMessage(null);
+                const result = await requestCheckoutVerification({ phone });
+                if (result.ok) setSent({ echoedCode: result.echoedCode });
+                else setMessage(result.message);
+              })
+            }
+            className="min-h-12 w-fit rounded-lg border-2 border-neutral-900 px-4 font-semibold disabled:opacity-50"
+          >
+            {pending ? 'Sending…' : `Text me a code`}
+          </button>
+          {!enrollable && (
+            <p className="text-sm text-neutral-700">
+              Add your phone number above — that is what the punch card is counted against.
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          <label className="flex flex-col gap-1">
+            <span className="font-medium">Enter the 6-digit code</span>
+            <input
+              name="verificationCode"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              data-testid="reward-code"
+              className="min-h-12 w-40 rounded-lg border border-neutral-400 px-3 text-lg tabular-nums"
+            />
+          </label>
+          {/* The stub, showing its work. See this function's own comment. */}
+          {sent.echoedCode && (
+            <p className="text-sm text-neutral-700">
+              No real SMS is sent by this demo. Your code is{' '}
+              <strong data-testid="reward-echoed-code" className="tabular-nums">
+                {sent.echoedCode}
+              </strong>
+              .
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={pending}
+            data-testid="reward-confirm"
+            onClick={() =>
+              startTransition(async () => {
+                setMessage(null);
+                const result = await confirmCheckoutVerification({ phone, code, idempotencyKey });
+                if (result.ok) onToken(result.token);
+                else setMessage(result.message);
+              })
+            }
+            className="min-h-12 w-fit rounded-lg border-2 border-neutral-900 px-4 font-semibold disabled:opacity-50"
+          >
+            {pending ? 'Checking…' : `Take ${reward} off`}
+          </button>
+        </>
+      )}
+      {message && (
+        <p aria-live="polite" data-testid="reward-message" className="font-medium text-red-700">
+          {message}
+        </p>
+      )}
     </fieldset>
   );
 }
@@ -358,6 +593,15 @@ function Confirmation({ confirmation }: { confirmation: OrderConfirmation }) {
           <dt>Subtotal</dt>
           <dd>{formatCents(confirmation.subtotalCents)}</dd>
         </div>
+        {/* C-118. Rendered only when one was spent — a permanent "−$0.00"
+            line on every receipt is noise, and the receipt has to reconcile:
+            subtotal − reward + tax = total, which is the CHECK on the row. */}
+        {confirmation.discountCents > 0 && (
+          <div className="flex justify-between font-medium text-green-800">
+            <dt>Punch card reward</dt>
+            <dd data-testid="confirmed-discount">−{formatCents(confirmation.discountCents)}</dd>
+          </div>
+        )}
         <div className="flex justify-between">
           <dt>Tax</dt>
           <dd>{formatCents(confirmation.taxCents)}</dd>

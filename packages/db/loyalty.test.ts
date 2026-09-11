@@ -4,7 +4,7 @@
 // of them a thing the application code is then allowed to be careless about,
 // which is the discipline this repo applies to order numbers, idempotency keys
 // and money amounts.
-import { loyaltyBalance, orderBalance } from '@countertop/core';
+import { instantMinutesAfter, loyaltyBalance, orderBalance } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import {
@@ -17,6 +17,10 @@ import {
   setLoyaltyEnabled,
 } from './loyalty';
 import { placeOrder } from './placement';
+import {
+  confirmPhoneVerificationForCheckout,
+  startPhoneVerification,
+} from './verification';
 import {
   resetDatabase,
   seedSampleMenu,
@@ -994,6 +998,8 @@ describe('the program report', () => {
       // Signed, alone among them: a program propped up by hand should look
       // like one.
       pointsAdjusted: -25,
+      // Nothing here was a reward coming back off a dead order (C-118).
+      pointsReturned: 0,
       redemptions: 2,
       redeemedCents: 2000,
       rate: 0.5,
@@ -1049,5 +1055,428 @@ describe('the program report', () => {
     const report = await loadLoyaltyProgram(WINDOW_START);
     expect(report.liability.points).toBe(250);
     expect(report.members).toBe(1);
+  });
+});
+
+// --- Redeeming at CHECKOUT, before tax (P1-1, C-118) -----------------------
+
+describe('spending a reward at checkout', () => {
+  // The same burrito the counter block above redeems against, and deliberately
+  // so: $14.95 of food, a $10 reward. AFTER tax (C-104) the customer still
+  // owes $6.18. BEFORE tax — here — the tax base is $4.95, tax is 41c, and the
+  // total is $5.36. The 82c between them is the sales tax this shop was
+  // remitting on food nobody paid for, and it is the entire reason P1-1 exists.
+  const SUBTOTAL = 1495;
+  const DISCOUNT = 1000;
+  const TAX_ON_DISCOUNTED = 41;
+  const TOTAL = 536;
+
+  const PHONE = '5550102233';
+  let keyCounter = 0;
+  const nextKey = () => `d9e3c1f2-0000-4000-8000-3000000000${String((keyCounter += 1)).padStart(2, '0')}`;
+
+  const BURRITO = {
+    id: 'line-1',
+    unitPriceAtAddCents: SUBTOTAL,
+    composition: {
+      itemId: 'burrito',
+      quantity: 1,
+      selections: [
+        { groupId: 'protein', optionId: 'carnitas' },
+        { groupId: 'addons', optionId: 'guacamole' },
+      ],
+    },
+  } as const;
+
+  const memberWith = async (points: number) => {
+    await seedSettings({ loyaltyEnabled: true });
+    const result = await enrolMember({ phone: PHONE, displayName: 'Ivy Castellanos', now: AT });
+    if (!result.ok) throw new Error(result.reason);
+    if (points !== 0) {
+      await prisma.loyaltyEvent.create({
+        data: { memberId: result.memberId, at: AT, kind: 'adjust', points, reason: 'opening balance' },
+      });
+    }
+    return result.memberId;
+  };
+
+  /** A REAL token, through the real two calls — never a hand-built string.
+   *  The stub provider echoes the code back (C-115's seam), which is the one
+   *  thing that makes a one-time code clickable with no carrier behind it. */
+  const verify = async (idempotencyKey: string, phone = PHONE) => {
+    const started = await startPhoneVerification(phone, AT);
+    if (!started.ok) throw new Error(`verification refused: ${started.reason}`);
+    if (started.echoedCode === null) throw new Error('the stub provider echoed no code');
+    const confirmed = await confirmPhoneVerificationForCheckout(
+      phone,
+      started.echoedCode,
+      idempotencyKey,
+      AT,
+    );
+    if (!confirmed.ok) throw new Error(`confirmation refused: ${confirmed.reason}`);
+    return confirmed.token;
+  };
+
+  const placeWith = async (
+    idempotencyKey: string,
+    verifiedPhoneToken: string | null,
+    phone: string | undefined = PHONE,
+  ) =>
+    placeOrder({
+      cart: { lines: [BURRITO as never] },
+      customerName: 'Ivy Castellanos',
+      customerPhone: phone,
+      idempotencyKey,
+      now: AT,
+      ...(verifiedPhoneToken === null ? {} : { verifiedPhoneToken }),
+    });
+
+  it('takes the reward off BEFORE tax, and both rows commit together', async () => {
+    const memberId = await memberWith(100);
+    const key = nextKey();
+    const placed = await placeWith(key, await verify(key));
+    if (!placed.ok) throw new Error(`refused: ${JSON.stringify(placed.errors)}`);
+
+    // The snapshot, and the identity C-117's CHECK enforces at the row.
+    expect(placed.order).toMatchObject({
+      subtotalCents: SUBTOTAL,
+      discountCents: DISCOUNT,
+      taxCents: TAX_ON_DISCOUNTED,
+      totalCents: TOTAL,
+    });
+    expect(
+      placed.order.subtotalCents - placed.order.discountCents + placed.order.taxCents,
+    ).toBe(placed.order.totalCents);
+    expect(placed.verifiedPhone).toBe('verified');
+
+    // The ledger half. ONE transaction with the order above — a snapshot
+    // carrying a discount with no `redeem` beside it is $10 given away with
+    // nothing to explain it.
+    const ledger = await prisma.loyaltyEvent.findMany({ where: { orderId: placed.order.id } });
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({
+      memberId,
+      kind: 'redeem',
+      points: -100,
+      amountCents: DISCOUNT,
+      // Nobody at the counter decided this one.
+      staffId: null,
+    });
+    expect((await memberByPhone(PHONE))?.balance).toBe(0);
+
+    // NO `adjustment` EVENT, which is the difference from the counter flow:
+    // the reward is IN the snapshot here, so an adjustment beside it would
+    // take the ten dollars off twice.
+    expect(await prisma.orderEvent.count({ where: { orderId: placed.order.id, kind: 'adjustment' } }))
+      .toBe(0);
+    // And the customer owes exactly the discounted total, not $6.18.
+    expect(orderBalance({ totalCents: placed.order.totalCents, events: [] }).outstandingCents)
+      .toBe(TOTAL);
+  });
+
+  it('leaves the counter’s own control refusing by the name it already had', async () => {
+    // Decision, this session: whichever redemption happens first wins, and the
+    // other is refused as already-redeemed. Checkout is ALWAYS first — the
+    // counter needs an order that exists — so this is what "checkout wins"
+    // looks like, and it needed no new mechanism: C-104's partial unique index
+    // and `planRedemption`'s own `alreadyRedeemed` were already the answer.
+    await memberWith(250);
+    const key = nextKey();
+    const placed = await placeWith(key, await verify(key));
+    if (!placed.ok) throw new Error('refused');
+
+    expect(await redeemReward(placed.order.id, AT)).toMatchObject({
+      ok: false,
+      reason: 'already_redeemed_on_this_order',
+    });
+    // Still one redeem, and the 150 points that were left are still there.
+    expect(await prisma.loyaltyEvent.count({ where: { orderId: placed.order.id, kind: 'redeem' } }))
+      .toBe(1);
+    expect((await memberByPhone(PHONE))?.balance).toBe(150);
+  });
+
+  it('refuses the whole placement rather than quietly charging full price', async () => {
+    // The customer pressed a button reading "$5.36". Placing at $16.18 because
+    // the balance moved under them is the precise-wrong-number failure this
+    // product has a rule about — so nothing is written at all.
+    await memberWith(40);
+    const key = nextKey();
+    // 40 points cannot even request a code, so the token has to be minted
+    // while the reward exists and then spent after it stops existing.
+    await prisma.loyaltyEvent.deleteMany({});
+    await memberWith(100);
+    const token = await verify(key);
+    await prisma.loyaltyEvent.deleteMany({});
+
+    const refused = await placeWith(key, token);
+    expect(refused.ok).toBe(false);
+    if (refused.ok) throw new Error('expected a refusal');
+    expect(refused.errors).toEqual([
+      expect.objectContaining({ kind: 'reward_unavailable', reason: 'not_enough_points' }),
+    ]);
+    expect(await prisma.order.count()).toBe(0);
+  });
+
+  it('refuses a reward worth more than the food, rather than clamping it', async () => {
+    // A $3.00 side and a $10 reward. C-117's `discountCents <= subtotalCents`
+    // CHECK is what this refusal exists to keep out of reach.
+    await memberWith(100);
+    const key = nextKey();
+    const token = await verify(key);
+    const refused = await placeOrder({
+      cart: {
+        lines: [
+          {
+            id: 'line-1',
+            unitPriceAtAddCents: 300,
+            composition: { itemId: 'beans-side', quantity: 1, selections: [] as never },
+          },
+        ],
+      },
+      customerName: 'Ivy Castellanos',
+      customerPhone: PHONE,
+      idempotencyKey: key,
+      now: AT,
+      verifiedPhoneToken: token,
+    });
+    expect(refused).toMatchObject({ ok: false });
+    if (refused.ok) throw new Error('expected a refusal');
+    expect(refused.errors[0]).toMatchObject({ reason: 'reward_exceeds_subtotal' });
+    expect(await prisma.order.count()).toBe(0);
+  });
+
+  it('refuses a token minted for a different checkout attempt', async () => {
+    await memberWith(100);
+    const token = await verify(nextKey());
+    const refused = await placeWith(nextKey(), token);
+    if (refused.ok) throw new Error('expected a refusal');
+    expect(refused.errors[0]).toMatchObject({ reason: 'wrong_order' });
+    // The points are untouched: nothing was spent on an order nothing wrote.
+    expect((await memberByPhone(PHONE))?.balance).toBe(100);
+  });
+
+  it('refuses a token presented on an order placed under another number', async () => {
+    await memberWith(100);
+    const key = nextKey();
+    const token = await verify(key);
+    const refused = await placeWith(key, token, '5550109999');
+    if (refused.ok) throw new Error('expected a refusal');
+    expect(refused.errors[0]).toMatchObject({ reason: 'phone_mismatch' });
+  });
+
+  it('replays a discounted order without re-reading the token', async () => {
+    // The second tap. A ten-minute token that has since expired must not turn
+    // an impatient reload into a refusal for an order already on the grill —
+    // the reward is snapshotted on the row this returns.
+    await memberWith(100);
+    const key = nextKey();
+    const first = await placeWith(key, await verify(key));
+    if (!first.ok) throw new Error('refused');
+
+    // `instantMinutesAfter`, never `new Date(AT.getTime() + …)`: the lint
+    // bans the second shape and the module that does this arithmetic is the
+    // one place it is tested.
+    const ELEVEN_MINUTES_LATER = instantMinutesAfter(AT, 11);
+    const second = await placeOrder({
+      cart: { lines: [BURRITO as never] },
+      customerName: 'Ivy Castellanos',
+      customerPhone: PHONE,
+      idempotencyKey: key,
+      now: ELEVEN_MINUTES_LATER,
+      verifiedPhoneToken: 'a.b.c.d',
+    });
+    if (!second.ok) throw new Error('the replay was refused');
+    expect(second.replayed).toBe(true);
+    // Idempotency means the SAME answer, not merely no duplicate.
+    expect(second.order).toEqual(first.order);
+    expect(await prisma.order.count()).toBe(1);
+    expect(await prisma.loyaltyEvent.count({ where: { kind: 'redeem' } })).toBe(1);
+  });
+
+  it('places at full price with no token, exactly as it did before C-118', async () => {
+    await memberWith(100);
+    const placed = await placeWith(nextKey(), null);
+    if (!placed.ok) throw new Error('refused');
+    expect(placed.order).toMatchObject({ subtotalCents: SUBTOTAL, discountCents: 0, taxCents: 123 });
+    // Null, not a word: no token was presented, which is the ordinary case.
+    expect(placed.verifiedPhone).toBeNull();
+    expect((await memberByPhone(PHONE))?.balance).toBe(100);
+  });
+
+  it('hands the points back when the order is cancelled, and says so on the ledger', async () => {
+    const memberId = await memberWith(100);
+    const key = nextKey();
+    const placed = await placeWith(key, await verify(key));
+    if (!placed.ok) throw new Error('refused');
+    expect((await memberByPhone(PHONE))?.balance).toBe(0);
+
+    const cancelled = await applyOrderAction(
+      placed.order.id,
+      { kind: 'cancel', actor: 'staff', reason: 'out_of_item' },
+      AT,
+    );
+    expect(cancelled.ok).toBe(true);
+
+    // The points are back — as a ROW, never by deleting the redeem. "Where did
+    // my hundred points go" is answered by reading the ledger.
+    expect((await memberByPhone(PHONE))?.balance).toBe(100);
+    const returned = await prisma.loyaltyEvent.findMany({
+      where: { orderId: placed.order.id, kind: 'adjust' },
+    });
+    expect(returned).toHaveLength(1);
+    expect(returned[0]).toMatchObject({ memberId, points: 100, reason: 'loyalty_reward_returned' });
+    // The SNAPSHOT is untouched. The order was cancelled; what it was priced
+    // at is still what it was priced at.
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: placed.order.id } });
+    expect(order).toMatchObject({ discountCents: DISCOUNT, totalCents: TOTAL });
+  });
+
+  it('re-spends them when a no-show is reverted and picked up after all', async () => {
+    await memberWith(100);
+    const key = nextKey();
+    const placed = await placeWith(key, await verify(key));
+    if (!placed.ok) throw new Error('refused');
+    const orderId = placed.order.id;
+
+    const advance = async () =>
+      applyOrderAction(orderId, { kind: 'advance', actor: 'staff' }, AT);
+    await advance(); // accepted
+    await advance(); // preparing
+    await advance(); // ready
+    await applyOrderAction(orderId, { kind: 'abandon', actor: 'staff' }, AT);
+    expect((await memberByPhone(PHONE))?.balance).toBe(100);
+
+    // She walks in. Without the re-spend she keeps the $10 off AND the 100
+    // points that bought it.
+    await applyOrderAction(orderId, { kind: 'revert', actor: 'staff' }, AT);
+    expect((await memberByPhone(PHONE))?.balance).toBe(0);
+    await advance(); // picked_up — and the earn lands on the same transition
+
+    const rows = await prisma.loyaltyEvent.findMany({
+      where: { orderId },
+      orderBy: { kind: 'asc' },
+      select: { kind: true, points: true, reason: true },
+    });
+    // redeem −100, return +100, re-spend −100, earn +14 on the $14.95 subtotal.
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { kind: 'redeem', points: -100, reason: null },
+        { kind: 'adjust', points: 100, reason: 'loyalty_reward_returned' },
+        { kind: 'adjust', points: -100, reason: 'loyalty_reward_respent' },
+        { kind: 'earn', points: 14, reason: null },
+      ]),
+    );
+    expect((await memberByPhone(PHONE))?.balance).toBe(14);
+  });
+
+  it('settles nothing at all on an order that spent no reward', async () => {
+    await memberWith(100);
+    const placed = await placeWith(nextKey(), null);
+    if (!placed.ok) throw new Error('refused');
+    await applyOrderAction(
+      placed.order.id,
+      { kind: 'cancel', actor: 'staff', reason: 'too_busy' },
+      AT,
+    );
+    expect(await prisma.loyaltyEvent.count({ where: { orderId: placed.order.id } })).toBe(0);
+    expect((await memberByPhone(PHONE))?.balance).toBe(100);
+  });
+
+  it('does not restart the expiry clock on a cancellation', async () => {
+    // An order that died is something that happened TO this member, not
+    // something they did — the same call `expireInactiveBalances` makes.
+    const memberId = await memberWith(100);
+    const key = nextKey();
+    const placed = await placeWith(key, await verify(key));
+    if (!placed.ok) throw new Error('refused');
+    const afterRedeem = await prisma.loyaltyMember.findUniqueOrThrow({ where: { id: memberId } });
+
+    const MUCH_LATER = instantMinutesAfter(AT, 24 * 60);
+    await applyOrderAction(
+      placed.order.id,
+      { kind: 'cancel', actor: 'staff', reason: 'customer_changed_mind' },
+      MUCH_LATER,
+    );
+    const after = await prisma.loyaltyMember.findUniqueOrThrow({ where: { id: memberId } });
+    expect(after.lastActivityAt).toEqual(afterRedeem.lastActivityAt);
+  });
+
+  it('refuses the reward with the program switched off mid-checkout', async () => {
+    await memberWith(100);
+    const key = nextKey();
+    const token = await verify(key);
+    await setLoyaltyEnabled(false);
+    const refused = await placeWith(key, token);
+    if (refused.ok) throw new Error('expected a refusal');
+    expect(refused.errors[0]).toMatchObject({ reason: 'loyalty_disabled' });
+  });
+});
+
+describe('the program screen, with two ways to redeem', () => {
+  it('keeps a returned reward out of the number labelled “Staff corrections”', async () => {
+    // The screen names that number after a person. A checkout redemption
+    // handed back on a cancelled order is an `adjust` too — summing the kind
+    // would file the system's own bookkeeping under somebody's name, which is
+    // a false sentence rather than an imprecise one.
+    await seedSettings({ loyaltyEnabled: true });
+    const enrolled = await enrolMember({
+      phone: '5550102233',
+      displayName: 'Ivy Castellanos',
+      now: AT,
+    });
+    if (!enrolled.ok) throw new Error(enrolled.reason);
+    await prisma.loyaltyEvent.create({
+      data: { memberId: enrolled.memberId, at: AT, kind: 'adjust', points: 100, reason: 'opening balance' },
+    });
+
+    const key = 'e4a7b2c9-0000-4000-8000-400000000001';
+    const started = await startPhoneVerification('5550102233', AT);
+    if (!started.ok || started.echoedCode === null) throw new Error('verification refused');
+    const confirmed = await confirmPhoneVerificationForCheckout(
+      '5550102233',
+      started.echoedCode,
+      key,
+      AT,
+    );
+    if (!confirmed.ok) throw new Error('confirmation refused');
+    const placed = await placeOrder({
+      cart: {
+        lines: [
+          {
+            id: 'line-1',
+            unitPriceAtAddCents: 1495,
+            composition: {
+              itemId: 'burrito',
+              quantity: 1,
+              selections: [
+                { groupId: 'protein', optionId: 'carnitas' },
+                { groupId: 'addons', optionId: 'guacamole' },
+              ] as never,
+            },
+          },
+        ],
+      },
+      customerName: 'Ivy Castellanos',
+      customerPhone: '5550102233',
+      idempotencyKey: key,
+      now: AT,
+      verifiedPhoneToken: confirmed.token,
+    });
+    if (!placed.ok) throw new Error('placement refused');
+
+    await applyOrderAction(
+      placed.order.id,
+      { kind: 'cancel', actor: 'staff', reason: 'out_of_item' },
+      AT,
+    );
+
+    const report = await loadLoyaltyProgram(new Date(Date.UTC(2026, 0, 1)));
+    // The opening balance a person typed, and nothing else.
+    expect(report.window.pointsAdjusted).toBe(100);
+    // The reward that came back, on its own line.
+    expect(report.window.pointsReturned).toBe(100);
+    // And the redemption itself is still counted as one, with its cost — the
+    // order died, but it did happen and the screen says so.
+    expect(report.window).toMatchObject({ redemptions: 1, redeemedCents: 1000, pointsRedeemed: 100 });
   });
 });

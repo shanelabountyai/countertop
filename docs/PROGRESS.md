@@ -7772,3 +7772,149 @@ redemption remain completely unaffected by all three sessions combined.
 **Gate:** 1007 unit (+8 over C-116's 999 — seven `priceOrder` discount cases
 plus one `buildOrderSnapshot` threading test), 221 e2e passed + 14 skipped =
 235 (unchanged — still nothing new to click), lint/typecheck/build clean.
+
+---
+
+## C-118 — The checkout redemption control
+
+The caller C-115, C-116 and C-117 were built for. PRD 7 P1-1 is **live**
+after this session: a customer with a punch card can prove their phone from
+their own screen and pay $10 less, before tax.
+
+**Built:**
+- **`packages/core/loyalty/ledger.ts`** — `planCheckoutRedemption`, a second
+  pure decision beside `planRedemption` rather than a boolean inside it.
+  Two different bounds: the counter asks what an order still *owes*,
+  checkout asks whether the *food* costs enough to carry a whole reward
+  before tax exists. New refusal word `reward_exceeds_subtotal`, which is
+  the code path that keeps C-117's `discountCents <= subtotalCents` CHECK
+  out of reach. Also `redemptionStateFor` (an exhaustive switch over the
+  sales role) and `settleRedemption` (a pure reconciliation of the
+  compensating rows already written against the ones that should be).
+- **`packages/core/orders/state-machine.ts`** — `SalesRole` is now an
+  exported named type so a reader outside the module can switch over it
+  exhaustively instead of testing two of the four values by `===`.
+- **`packages/db/loyalty.ts`** — `planCheckoutReward` (the read: settings,
+  member by digest, the plan), `writeCheckoutRedemption` (the `redeem` row,
+  transaction-only, no default client), `orderHasRedemption`, and
+  `settleRedemptionForOrder` (the return and the re-spend).
+- **`packages/db/placement.ts`** — `placeOrder` takes an optional
+  `verifiedPhoneToken`, checks its signature against the order's *own*
+  snapshotted phone, prices the reward off the settings row, and writes the
+  order and its `redeem` row in ONE transaction. New `PlacementError` kind
+  `reward_unavailable`, carrying the reason.
+- **`packages/db/transitions.ts`** — every transition settles the order's
+  redemption, so a cancel or a no-show hands the points back and a revert
+  takes them again.
+- **`packages/db/event-row.ts`** — `eventRow` extracted out of
+  `placement.ts`. Structural, not tidying: see below.
+- **The checkout screen** — a "Use a reward" fieldset (send code → enter
+  code → reward applied, with a "Don't use it" way back), the order totals
+  moved into the client form so there is exactly one total on the screen,
+  and a `Punch card reward` line on the confirmation receipt, the customer's
+  status page and the staff receipt.
+- **The sales report** — `discountCents` is a fourth summed money column on
+  `SalesTotals`, `DayBucket` and `HourBucket`; the reconciliation is now
+  `net − rewards + tax = gross` on every row and on the window.
+
+**Decided:**
+- **Checkout wins structurally; the counter refuses by the name it already
+  had.** Both paths spend one balance and they had to agree on which runs
+  when both are possible. They needed no new mechanism: checkout is *always*
+  first (the counter needs an order that exists), the checkout `redeem` row
+  is bound to the new `orderId` inside placement's transaction, and C-104's
+  partial unique index plus `planRedemption`'s own `alreadyRedeemed` already
+  refuse the second attempt. The alternative — letting the counter reverse a
+  checkout redemption — cannot be built without unwinding a snapshotted
+  `discountCents` and the tax computed on it, which is the snapshot rule.
+- **A reward the placement cannot grant refuses the whole placement.** The
+  customer pressed a button reading "Place order — $1.03". Placing at $11.85
+  because their verification expired between typing a code and typing a name
+  is exactly the "a precise wrong number is worse than an honest range"
+  failure this product has a rule about. Nothing is written; everything
+  typed is kept; re-submitting without the reward is one tap.
+- **Points come back when the order dies, as an `adjust` row, never a
+  delete.** The case the counter flow never had: a checkout redemption is
+  spent *before* the food exists. C-069 already voids the customer's card
+  hold on a cancel — without this the money went back and the points did
+  not. And it is **symmetric**: `abandoned` is revertable, so the settlement
+  re-spends on the way back rather than letting a no-show who finally walks
+  in keep both the $10 off and the 100 points that bought it. Idempotent by
+  arithmetic rather than by a constraint, because unlike the earn there is
+  no one-per-order shape to index — the same order legitimately carries a
+  return *and* a later re-spend.
+- **`lastActivityAt` does not move on a settlement.** An order that died is
+  something that happened *to* this member, not something they did — the
+  same call `expireInactiveBalances` makes, and for the same reason.
+- **The report keeps `subtotalCents` GROSS and adds a fourth column.**
+  Netting the reward out would have restored the old two-term identity for
+  free and cost the only thing the screen is for: the shop could no longer
+  see what the punch card costs it in food, and the report's subtotal would
+  have silently stopped meaning what `Order.subtotalCents` means. The CSV's
+  `Rewards` column is unconditional where the screen's is not — a file whose
+  columns move depending on whether anybody redeemed this month breaks a
+  saved spreadsheet formula silently, on the first good month.
+- **The checkout form recomputes its own total through `taxOn`.** The
+  discount is *before* tax, so the displayed total is not `total − $10`; a
+  screen that subtracted ten dollars from the gross would quote a number 82c
+  away from what the server is about to charge. Imported from
+  `packages/core` — THE one rounding function — never reimplemented.
+  Display-only regardless: `placeOrder` recomputes everything and
+  `clientTotalCents` still goes to a mismatch log.
+
+**Found and fixed within C-118 — two things this change broke elsewhere:**
+- **The staff panel inferred "already redeemed" from the MONEY side.** It
+  read an `adjustment` event carrying `LOYALTY_REWARD_REASON`, which was
+  correct for exactly as long as `redeemReward` was the only way to spend a
+  reward — it writes both rows in one transaction, so either answered the
+  question. A checkout redemption writes *no* adjustment (the reward is
+  inside the snapshot), so the money side began answering "no reward used"
+  on an order that plainly carries one, and the panel would have offered a
+  second $10 off that the ledger's unique index then refused. That is
+  C-104's own "a button that renders is a button that works" rule, broken.
+  Now read off the ledger, via `orderHasRedemption`. **Caught by the e2e
+  spec, not by a unit test** — the write path was never wrong, only the
+  screen.
+- **The program screen's "Staff corrections" would have counted system
+  returns.** A returned reward is an `adjust` too, so summing the kind filed
+  the system's own bookkeeping under a heading that names a person — a false
+  sentence rather than an imprecise one. `pointsAdjusted` now excludes the
+  two settlement reasons and `pointsReturned` reports them on their own row.
+
+**Structural change, named because it is not tidying:** `eventRow` moved
+from `placement.ts` to `packages/db/event-row.ts`. `placeOrder` grew a
+caller into `loyalty.ts` this session, and `loyalty.ts` already reached
+`placement.ts` through `adjustment.ts` for exactly that function — an import
+cycle. The fix is that a row-builder shared by eight writers of the
+append-only log was never `placeOrder`'s to own. Eight import sites
+repointed; no behaviour change.
+
+**Left behind:**
+- **A concurrent-checkout race can overspend a balance.** Two checkouts for
+  the same member, in flight at once, each read a balance of 100 and each
+  write a `redeem` — the partial unique index is per *order*, and there is
+  no constraint holding a member's balance at or above zero. Pre-existing in
+  shape (two counter redemptions on two different orders have always been
+  able to do this) and widened by this session, because self-serve makes two
+  simultaneous checkouts a thing one person can actually do. The fix is a
+  balance CHECK or a member-level lock, and it is its own session.
+- **No `PhoneVerification` sweep still** (C-115's `ponytail:`), and this
+  session makes the table busier rather than less so.
+- **The rush script does not exercise a checkout redemption.** Its ugly-case
+  list is the PRD's Success Metrics verbatim and a redemption is not on it;
+  adding one is a deliberate decision about that list, not a drive-by.
+- **Nothing re-verifies a phone across checkout attempts.** A customer who
+  abandons a checkout and comes back gets a new `idempotencyKey`, so the
+  token is bound to an attempt that no longer exists and they verify again.
+  That is C-116's binding working as designed, and it is also a second SMS
+  for one order.
+
+**Gate:** 1034 unit (+27 over C-117's 1007), lint / typecheck / build clean.
+**The e2e leg is NOT fully green in this environment and the reason is not
+this change:** ten specs (`contact`, `last-call` ×2, `menu-editing` ×2,
+`menu` ×3, `refund` ×2) fail with `Error: request for './menu/index' is from
+a module not been linked` — an ESM loader failure in the fixtures that use a
+late `await import('@countertop/db')`. **Verified pre-existing by stashing
+this entire change and running those same ten specs on `f239791`, where they
+fail identically.** Everything else passes: 218 passed + 14 skipped, and the
+loyalty spec is 20/20 including all seven new C-118 cases.

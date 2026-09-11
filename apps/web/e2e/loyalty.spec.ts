@@ -4,6 +4,8 @@ import type { Page } from '@playwright/test';
 import {
   addBurritoToCart,
   adjustLoyaltyPoints,
+  card,
+  loyaltyBalance,
   loyaltyMembers,
   pickUp,
   reseed,
@@ -440,4 +442,194 @@ test('the punch card is invisible on the sales report (P0-6)', async ({ page }) 
   await page.goto('/kitchen/report?days=1');
   await expect(page.getByRole('heading', { name: 'Sales' })).toBeVisible();
   await expect(page.getByText(/punch card|loyalty|points|reward/i)).toHaveCount(0);
+});
+
+// --- C-118: spending a reward at CHECKOUT, before tax (P1-1) ---------------
+//
+// The control C-115's codes, C-116's token and C-117's tax base were built
+// for. The claim this block makes that no unit test can: a customer with a
+// punch card can, from a browser, prove their number and pay $10 less — and
+// the number they are charged is the before-tax one, which is 82c off what
+// the counter's own after-tax control would have produced on the same order.
+
+/** Enrol a member with a spendable reward, without going through a pickup —
+ *  the balance is the precondition here, not the thing under test. */
+async function memberWithAReward(page: Page): Promise<void> {
+  await setLoyaltyEnabled(true);
+  await placeAsMember(page, 'Ivy Castellanos');
+  await page.goto('/kitchen');
+  await pickUp(page, 'Ivy Castellanos');
+  // Ten earned at pickup on the $11.85 burrito's $10.95 subtotal; ninety
+  // granted makes exactly one reward.
+  await adjustLoyaltyPoints(90);
+}
+
+/** The whole customer-side redemption, from the phone field to a held token. */
+async function takeTheRewardOff(page: Page): Promise<void> {
+  await page.getByTestId('reward-send-code').click();
+  // The stub has no carrier to send to, so it echoes the code onto the page —
+  // C-115's `SmsVerifyProvider` seam, not a debug flag. This is the only way
+  // a browser test can type a one-time code at all.
+  const code = await page.getByTestId('reward-echoed-code').textContent();
+  await page.getByTestId('reward-code').fill(code ?? '');
+  await page.getByTestId('reward-confirm').click();
+  await expect(page.getByTestId('reward-applied')).toBeVisible();
+}
+
+test('takes a reward off the food before tax, from the customer’s own screen', async ({ page }) => {
+  await memberWithAReward(page);
+
+  await addBurritoToCart(page);
+  await page.getByRole('link', { name: 'Checkout' }).click();
+  await expect(page.getByTestId('checkout-total')).toHaveText('$11.85');
+  await page.getByRole('textbox', { name: /Name for the order/ }).fill('Ivy Castellanos');
+  await page.getByRole('textbox', { name: /Phone/ }).fill(PHONE);
+
+  await takeTheRewardOff(page);
+
+  // $10.95 of food − $10.00 = 95c taxed at 8.25% → 8c. $1.03, and the button
+  // says so before the customer commits to it.
+  await expect(page.getByTestId('checkout-discount')).toHaveText('−$10.00');
+  await expect(page.getByTestId('checkout-total')).toHaveText('$1.03');
+  await expect(page.getByRole('button', { name: /Place order/ })).toContainText('$1.03');
+
+  await page.getByRole('radio', { name: 'Pay at pickup' }).check();
+  await page.getByRole('button', { name: /Place order/ }).click();
+
+  // The receipt reconciles: subtotal − reward + tax = total, which is the
+  // CHECK on the row rather than an assertion this screen is trusted for.
+  await expect(page.getByTestId('confirmed-discount')).toHaveText('−$10.00');
+  await expect(page.getByTestId('confirmed-total')).toHaveText('$1.03');
+  await expect(page.getByTestId('confirmed-payment')).toContainText('$1.03 due');
+
+  // And the status page the customer keeps says the same thing.
+  await page.getByTestId('track-order').click();
+  await expect(page.getByTestId('status-discount')).toHaveText('−$10.00');
+  await expect(page.getByTestId('status-total')).toHaveText('$1.03');
+});
+
+test('leaves the counter’s control refusing, because checkout already spent it', async ({
+  page,
+}) => {
+  // Whichever redemption happens first wins. Checkout is always first — the
+  // counter needs an order that exists — and the refusal it produces is the
+  // one C-104 already wrote, through the partial unique index rather than
+  // through any new agreement between the two paths.
+  await memberWithAReward(page);
+  await adjustLoyaltyPoints(100); // 200 points: enough for a second reward.
+
+  await addBurritoToCart(page);
+  await page.getByRole('link', { name: 'Checkout' }).click();
+  await page.getByRole('textbox', { name: /Name for the order/ }).fill('Ivy Castellanos');
+  await page.getByRole('textbox', { name: /Phone/ }).fill(PHONE);
+  await takeTheRewardOff(page);
+  await page.getByRole('radio', { name: 'Pay at pickup' }).check();
+  await page.getByRole('button', { name: /Place order/ }).click();
+  await expect(page.getByTestId('order-number')).toBeVisible();
+
+  await page.goto(`/kitchen/orders?q=${encodeURIComponent('Ivy Castellanos')}`);
+  await page.getByRole('link', { name: /Ivy Castellanos/ }).first().click();
+  await expect(page.getByTestId('history-discount')).toHaveText('−$10.00');
+  await expect(page.getByTestId('redeem-reward')).toHaveCount(0);
+  await expect(page.getByTestId('redeem-note')).toContainText('already been used');
+});
+
+test('refuses a code for a number with no reward behind it, before sending one', async ({
+  page,
+}) => {
+  // A stranger's number is worth nothing to guess a code for unless something
+  // is actually sitting behind it — `planVerificationStart` refuses BEFORE a
+  // code is generated, which is the fraud guard and not a nicety.
+  await setLoyaltyEnabled(true);
+  await addBurritoToCart(page);
+  await page.getByRole('link', { name: 'Checkout' }).click();
+  await page.getByRole('textbox', { name: /Phone/ }).fill('(555) 010-9999');
+  await page.getByTestId('reward-send-code').click();
+  await expect(page.getByTestId('reward-message')).toContainText('not on the punch card');
+  await expect(page.getByTestId('reward-code')).toHaveCount(0);
+});
+
+test('says a wrong code is wrong, and does not apply anything', async ({ page }) => {
+  await memberWithAReward(page);
+  await addBurritoToCart(page);
+  await page.getByRole('link', { name: 'Checkout' }).click();
+  await page.getByRole('textbox', { name: /Phone/ }).fill(PHONE);
+  await page.getByTestId('reward-send-code').click();
+  await page.getByTestId('reward-code').fill('000000');
+  await page.getByTestId('reward-confirm').click();
+  // One in a million says this is the right code; the echoed one is on screen
+  // and this asserts against whichever answer is true for it.
+  const echoed = await page.getByTestId('reward-echoed-code').textContent();
+  if (echoed === '000000') {
+    await expect(page.getByTestId('reward-applied')).toBeVisible();
+  } else {
+    await expect(page.getByTestId('reward-message')).toContainText('not correct');
+    await expect(page.getByTestId('checkout-total')).toHaveText('$11.85');
+  }
+});
+
+test('lets a customer change their mind and keep the points', async ({ page }) => {
+  await memberWithAReward(page);
+  await addBurritoToCart(page);
+  await page.getByRole('link', { name: /Checkout/ }).click();
+  await page.getByRole('textbox', { name: /Name for the order/ }).fill('Ivy Castellanos');
+  await page.getByRole('textbox', { name: /Phone/ }).fill(PHONE);
+  await takeTheRewardOff(page);
+  await expect(page.getByTestId('checkout-total')).toHaveText('$1.03');
+
+  await page.getByRole('button', { name: 'Don’t use it' }).click();
+  await expect(page.getByTestId('checkout-total')).toHaveText('$11.85');
+  await expect(page.getByTestId('checkout-discount')).toHaveCount(0);
+
+  await page.getByRole('radio', { name: 'Pay at pickup' }).check();
+  await page.getByRole('button', { name: /Place order/ }).click();
+  await expect(page.getByTestId('confirmed-total')).toHaveText('$11.85');
+  await expect(page.getByTestId('confirmed-discount')).toHaveCount(0);
+  // The points were never spent — no order carries a redeem.
+  expect(await loyaltyBalance()).toBe(100);
+});
+
+test('hands the points back when the order is cancelled', async ({ page }) => {
+  // The case the counter flow never had to think about: the customer spends
+  // the punch card BEFORE the food exists. C-069 already voids their card
+  // hold on a cancel; without this the points would just be gone.
+  await memberWithAReward(page);
+  await addBurritoToCart(page);
+  await page.getByRole('link', { name: 'Checkout' }).click();
+  await page.getByRole('textbox', { name: /Name for the order/ }).fill('Ivy Castellanos');
+  await page.getByRole('textbox', { name: /Phone/ }).fill(PHONE);
+  await takeTheRewardOff(page);
+  await page.getByRole('radio', { name: 'Pay at pickup' }).check();
+  await page.getByRole('button', { name: /Place order/ }).click();
+  // BY ORDER NUMBER, not by name: the pickup that earned this member their
+  // reward is the same customer and is still on the board, in the "Just
+  // finished" undo section. A name locator would find that one first.
+  const number = (await page.getByTestId('order-number').textContent()) ?? '';
+  expect(await loyaltyBalance()).toBe(0);
+
+  await page.goto('/kitchen');
+  // A <summary> is a disclosure, not a button: target it the way it reads.
+  await card(page, number).getByText('Cancel…').click();
+  await card(page, number).getByRole('button', { name: 'Out of an item' }).click();
+  await expect(page.getByText(number)).toHaveCount(0);
+
+  await expect.poll(async () => await loyaltyBalance(), { timeout: 5000 }).toBe(100);
+});
+
+test('the reward control is reachable, labelled, and free of axe violations', async ({ page }) => {
+  await memberWithAReward(page);
+  await addBurritoToCart(page);
+  await page.getByRole('link', { name: 'Checkout' }).click();
+  await page.getByRole('textbox', { name: /Phone/ }).fill(PHONE);
+
+  const group = page.getByRole('group', { name: 'Use a reward' });
+  await expect(group).toBeVisible();
+  // The same ≥48px rule the queue's controls are held to — this is a customer
+  // on a phone, and a 30px button is the one they mis-tap.
+  const send = page.getByTestId('reward-send-code');
+  expect((await send.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
+
+  await takeTheRewardOff(page);
+  const results = await new AxeBuilder({ page }).include('main').analyze();
+  expect(results.violations).toEqual([]);
 });

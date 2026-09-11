@@ -11,18 +11,25 @@
 // digest of one", and `apps/web` has no unit suite to hold it to that.
 import { createHmac } from 'node:crypto';
 import {
+  LOYALTY_RESPEND_REASON,
+  LOYALTY_RETURN_REASON,
   LOYALTY_REWARD_REASON,
   cutoffDaysBefore,
   loyaltyBalance,
   loyaltyLiability,
   normalizePhone,
   orderBalance,
+  planCheckoutRedemption,
   planRedemption,
   pointsForOrder,
   redemptionRate,
+  redemptionStateFor,
+  salesRoleOf,
+  settleRedemption,
   type LoyaltyEventKind,
   type LoyaltyLiability,
   type LoyaltyTerms,
+  type OrderStatus,
   type RedemptionRefusalReason,
 } from '@countertop/core';
 import { adjustOrder } from './adjustment';
@@ -486,8 +493,20 @@ export type LoyaltyWindow = {
   pointsRedeemed: number;
   pointsExpired: number;
   /** SIGNED, alone among these — a staff correction genuinely goes both ways
-   *  and a magnitude would hide a program being propped up by hand. */
+   *  and a magnitude would hide a program being propped up by hand.
+   *
+   *  STAFF ONLY, and that qualifier is C-118's. This screen labels the number
+   *  "Staff corrections", and a checkout redemption handed back on a cancelled
+   *  order is written as an `adjust` too — so summing the kind would have put
+   *  the system's own bookkeeping under a heading that names a person, which
+   *  is a false sentence rather than an imprecise one. The two system reasons
+   *  are subtracted out and reported below. */
   pointsAdjusted: number;
+  /** Rewards handed back because the order they were spent on died, net of any
+   *  re-spent when a no-show was reverted and picked up after all (C-118).
+   *  Its own number: an owner asking "is the punch card costing me anything"
+   *  needs cancelled redemptions separated from staff typing in a balance. */
+  pointsReturned: number;
   redemptions: number;
   /** What the rewards spent in this window actually cost, off the ledger's own
    *  copy of each amount. */
@@ -541,7 +560,7 @@ export async function loadLoyaltyProgram(since: Date): Promise<LoyaltyProgramRep
     },
   });
 
-  const [members, balances, byKind] = await Promise.all([
+  const [members, balances, byKind, systemAdjustments] = await Promise.all([
     prisma.loyaltyMember.count(),
     prisma.loyaltyEvent.groupBy({ by: ['memberId'], _sum: { points: true } }),
     prisma.loyaltyEvent.groupBy({
@@ -549,6 +568,17 @@ export async function loadLoyaltyProgram(since: Date): Promise<LoyaltyProgramRep
       where: { at: { gte: since } },
       _sum: { points: true, amountCents: true },
       _count: { _all: true },
+    }),
+    // A FOURTH AGGREGATE (C-118), not a fourth pass over rows in memory. The
+    // settlement's own `adjust` rows are the system's, not a person's, and the
+    // screen names the other number after a person.
+    prisma.loyaltyEvent.aggregate({
+      where: {
+        at: { gte: since },
+        kind: 'adjust',
+        reason: { in: [LOYALTY_RETURN_REASON, LOYALTY_RESPEND_REASON] },
+      },
+      _sum: { points: true },
     }),
   ]);
 
@@ -574,7 +604,10 @@ export async function loadLoyaltyProgram(since: Date): Promise<LoyaltyProgramRep
       pointsEarned,
       pointsRedeemed,
       pointsExpired: -(of('expire')?._sum.points ?? 0),
-      pointsAdjusted: of('adjust')?._sum.points ?? 0,
+      // The kind's total LESS the system's own, so "Staff corrections" counts
+      // only corrections a member of staff actually made.
+      pointsAdjusted: (of('adjust')?._sum.points ?? 0) - (systemAdjustments._sum.points ?? 0),
+      pointsReturned: systemAdjustments._sum.points ?? 0,
       redemptions: of('redeem')?._count._all ?? 0,
       redeemedCents: of('redeem')?._sum.amountCents ?? 0,
       rate: redemptionRate(pointsEarned, pointsRedeemed),
@@ -605,4 +638,234 @@ export async function setLoyaltyEnabled(enabled: boolean): Promise<void> {
     where: { id: 'singleton' },
     data: { loyaltyEnabled: enabled },
   });
+}
+
+// --- Redeeming at CHECKOUT, before tax (P1-1, C-118) -----------------------
+
+/** Why a reward could not be spent at checkout, plus the two only a database
+ *  can answer. `already_redeemed_on_this_order` and
+ *  `reward_exceeds_balance_owed` cannot occur here — there is no order yet to
+ *  have redeemed against, and nothing is owed on a cart — but the reason type
+ *  is shared so a screen renders one set of words. */
+export type CheckoutRedemptionRefusal =
+  | RedemptionRefusalReason
+  | 'loyalty_pepper_unset'
+  | 'not_a_member';
+
+/** A reward the server has decided to grant, with everything the write needs.
+ *  The AMOUNT IS THE PROGRAM'S: `rewardValueCents` is read from the settings
+ *  row inside this function, exactly as `redeemReward` reads it — nothing
+ *  about a discount arrives from a client, at any point in this path. */
+export type PlannedCheckoutRedemption = {
+  memberId: string;
+  pointsSpent: number;
+  amountCents: number;
+};
+
+export type CheckoutRedemptionResult =
+  | { ok: true; plan: PlannedCheckoutRedemption }
+  | { ok: false; reason: CheckoutRedemptionRefusal; message: string };
+
+/**
+ * What reward, if any, the phone behind a verified token may spend on a cart
+ * of this size (P1-1).
+ *
+ * A READ, with no write in it. The `redeem` row is written by `placeOrder`
+ * inside the same transaction as the order itself, because a snapshot
+ * carrying `discountCents` with no ledger row beside it is ten dollars given
+ * away for free — C-104's "either half alone is a defect somebody finds at
+ * close", one layer earlier. So this returns the decision and the member it
+ * belongs to, and the caller commits both halves or neither.
+ *
+ * THE DIGEST, NOT THE NUMBER, is what looks the member up — the same rule
+ * `memberByPhone` keeps and for the same reason: a plaintext phone must never
+ * reach a `where`.
+ */
+export async function planCheckoutReward(input: {
+  /** The order's own phone, as `normalizeIdentity` trimmed it. */
+  phone: string | null;
+  /** The SERVER's sum of the priced lines. */
+  subtotalCents: number;
+}): Promise<CheckoutRedemptionResult> {
+  const settings = await prisma.restaurantSettings.findUniqueOrThrow({
+    where: { id: 'singleton' },
+    select: {
+      loyaltyEnabled: true,
+      pointsPerDollar: true,
+      rewardThresholdPoints: true,
+      rewardValueCents: true,
+    },
+  });
+  if (!settings.loyaltyEnabled) {
+    return refuseCheckout('loyalty_disabled', 'The loyalty program is switched off.');
+  }
+  if (!hasLoyaltyPepper()) {
+    return refuseCheckout('loyalty_pepper_unset', 'The loyalty program is not configured.');
+  }
+
+  const phone = normalizePhone(input.phone);
+  const member = phone
+    ? await prisma.loyaltyMember.findUnique({
+        where: { phoneDigest: phoneDigest(phone.digits) },
+        select: { id: true, events: { select: { kind: true, points: true } } },
+      })
+    : null;
+  if (!member) {
+    return refuseCheckout('not_a_member', 'That number is not on the punch card.');
+  }
+
+  const plan = planCheckoutRedemption({
+    enabled: settings.loyaltyEnabled,
+    balance: loyaltyBalance(member.events),
+    subtotalCents: input.subtotalCents,
+    terms: settings,
+  });
+  if (!plan.ok) return { ok: false, reason: plan.reason, message: plan.message };
+
+  return {
+    ok: true,
+    plan: { memberId: member.id, pointsSpent: plan.pointsSpent, amountCents: plan.amountCents },
+  };
+}
+
+const refuseCheckout = (
+  reason: CheckoutRedemptionRefusal,
+  message: string,
+): CheckoutRedemptionResult => ({ ok: false, reason, message });
+
+/**
+ * Write the `redeem` row a checkout redemption is (P1-1).
+ *
+ * IN THE CALLER'S TRANSACTION, always — there is no default client here,
+ * unlike `adjustOrder`'s. `placeOrder` is the only caller and the whole point
+ * is atomicity with the order row that carries the `discountCents`; a version
+ * of this that could be called on its own would be a way to write half a
+ * redemption, which is the defect the transaction exists to make impossible.
+ *
+ * NO `adjustment` EVENT, and that is the difference from `redeemReward`. The
+ * counter's reward is money taken off an order that was already priced, so it
+ * has to be an append-only adjustment against the snapshot. This one is IN the
+ * snapshot — `discountCents`, and a tax base computed on it — so writing an
+ * adjustment beside it would take the ten dollars off twice.
+ */
+export async function writeCheckoutRedemption(
+  tx: Prisma.TransactionClient,
+  orderId: string,
+  plan: PlannedCheckoutRedemption,
+  now: Date,
+): Promise<void> {
+  await tx.loyaltyEvent.create({
+    data: {
+      memberId: plan.memberId,
+      orderId,
+      at: now,
+      kind: 'redeem',
+      points: plan.pointsSpent,
+      // The ledger's own copy of the reward's cash value, as at the counter —
+      // so the two reconcile to the cent without a join deciding which is
+      // right. Here it is also what `settleRedemptionForOrder` hands back.
+      amountCents: plan.amountCents,
+      // No staff id: nobody at the counter decided this one.
+      staffId: null,
+    },
+  });
+  await tx.loyaltyMember.update({ where: { id: plan.memberId }, data: { lastActivityAt: now } });
+}
+
+/**
+ * Whether this order has already spent a reward (C-118).
+ *
+ * ASKED OF THE LEDGER, which is the only place that knows. The staff panel
+ * used to infer it from the MONEY side — an `adjustment` carrying
+ * `LOYALTY_REWARD_REASON` — and that was correct for exactly as long as
+ * `redeemReward` was the only way to spend one: it writes both rows in one
+ * transaction, so either answered the question. A CHECKOUT redemption writes
+ * NO adjustment (the reward is inside the snapshot), so the money side now
+ * reads "no reward used" on an order that plainly carries one, and the panel
+ * would offer a button whose write the unique index then refuses.
+ *
+ * "A button that renders is a button that works" is C-104's own rule for that
+ * panel; this is what keeps it true with two ways to redeem.
+ */
+export const orderHasRedemption = async (orderId: string): Promise<boolean> =>
+  (await prisma.loyaltyEvent.count({ where: { orderId, kind: 'redeem' } })) > 0;
+
+/** What a settlement did, for the caller's log line. */
+export type RedemptionSettlement = 'no_redemption' | 'unchanged' | 'returned' | 'respent';
+
+/**
+ * Give a checkout redemption back when the order it was spent on dies — and
+ * take it again if that order comes back (C-118).
+ *
+ * THE CASE THE COUNTER FLOW NEVER HAD. `redeemReward` is a tap on an order
+ * somebody is standing in front of; a checkout redemption is committed at
+ * placement and then has to survive whatever happens next. Cancel that order
+ * and the customer has paid a punch card for food they never received, and
+ * C-069 has already voided their card hold — so the money went back and,
+ * without this, the points did not.
+ *
+ * AN `adjust` ROW, NEVER A DELETE. The ledger is append-only in spirit even
+ * where the trigger permits a delete for P0-5's forget path: a balance that
+ * moved has a row saying so, and "where did my hundred points go" is answered
+ * by reading the ledger rather than by inferring an absence.
+ *
+ * IN THE CALLER'S TRANSACTION, for the same reason the earn is: a status
+ * change that committed without its ledger row has no later moment to retry
+ * from.
+ *
+ * IDEMPOTENT BY ARITHMETIC rather than by a constraint — `settleRedemption`
+ * reconciles what is already written against what should be — because unlike
+ * the earn there is no one-per-order shape to hang a unique index on: the same
+ * order legitimately carries a return AND a later re-spend when a no-show is
+ * reverted and picked up after all.
+ */
+export async function settleRedemptionForOrder(
+  tx: Prisma.TransactionClient,
+  orderId: string,
+  status: OrderStatus,
+  now: Date,
+): Promise<RedemptionSettlement> {
+  const rows = await tx.loyaltyEvent.findMany({
+    where: { orderId, kind: { in: ['redeem', 'adjust'] } },
+    select: { memberId: true, kind: true, points: true, reason: true },
+  });
+  const redeemed = rows.find((row) => row.kind === 'redeem');
+  if (!redeemed) return 'no_redemption';
+
+  const target = redemptionStateFor(salesRoleOf(status));
+  const points = settleRedemption({
+    redeemedPoints: redeemed.points,
+    // ONLY this settlement's own rows. A staff `adjust` correcting somebody's
+    // balance by hand is a different fact and must not be read as a reward
+    // coming back — which is what makes the two reasons constants rather than
+    // free text.
+    compensations: rows
+      .filter(
+        (row) =>
+          row.kind === 'adjust' &&
+          (row.reason === LOYALTY_RETURN_REASON || row.reason === LOYALTY_RESPEND_REASON),
+      )
+      .map((row) => row.points),
+    target,
+  });
+  if (points === null) return 'unchanged';
+
+  await tx.loyaltyEvent.create({
+    data: {
+      memberId: redeemed.memberId,
+      orderId,
+      at: now,
+      kind: 'adjust',
+      points,
+      // Null, and the CHECK insists: `amountCents` is non-null exactly on a
+      // `redeem`. The cash value of what came back is on that row already.
+      reason: points > 0 ? LOYALTY_RETURN_REASON : LOYALTY_RESPEND_REASON,
+      staffId: null,
+    },
+  });
+  // NOT `lastActivityAt`. A cancellation is something that happened TO this
+  // member, not something they did — the same call `expireInactiveBalances`
+  // makes, and for the same reason: an order that died must not quietly
+  // restart the twelve-month clock.
+  return points > 0 ? 'returned' : 'respent';
 }

@@ -13,9 +13,10 @@ import {
   type TransitionRefusal,
 } from '@countertop/core';
 import { prisma } from './index';
-import { earnForOrder } from './loyalty';
+import { earnForOrder, settleRedemptionForOrder } from './loyalty';
 import { queueReadyNotification } from './notifications';
-import { eventRow, ORDER_RECEIPT, type OrderReceipt } from './placement';
+import { eventRow } from './event-row';
+import { ORDER_RECEIPT, type OrderReceipt } from './placement';
 import { settleAuthorization } from './authorization';
 import { settleRefund } from './refund';
 import { mockPaymentProvider, type PaymentProvider } from './provider';
@@ -131,6 +132,21 @@ export async function applyOrderAction(
         now,
       );
     }
+
+    // A CHECKOUT REWARD, SETTLED (PRD 7 P1-1, C-118) — handed back on the way
+    // into a state where nobody got the food, taken again on the way back out
+    // of one. Unconditional and asked on EVERY transition rather than only on
+    // a cancel, because `abandoned` is revertable (`previous: 'ready'`) and a
+    // one-way return would let a no-show who finally walks in keep both the
+    // $10 off and the 100 points that bought it. `settleRedemptionForOrder`
+    // answers `no_redemption` for every order that never carried one, which is
+    // every order this product placed before C-118 — so there is nothing for
+    // this line to check first, the same shape `settleAuthorization` has.
+    //
+    // In the transaction for the same reason the earn above is: a status
+    // change that committed without its ledger row has no later moment to
+    // retry from.
+    await settleRedemptionForOrder(tx, orderId, decision.status, now);
 
     // The stub SMS (P1-3), in the same transaction as the status write for
     // the same reason the point-earn above is: a row claiming this went out

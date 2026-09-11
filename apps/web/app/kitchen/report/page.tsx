@@ -202,7 +202,8 @@ export default async function ReportPage({
         </a>
       </p>
 
-      {/* Three money numbers, because they are three different facts (P0-1).
+      {/* Four money numbers now, because they are four different facts (P0-1,
+          and the fourth is C-118's).
           One tile labelled "Revenue" holding the gross is how a month end
           books the state's sales tax as the shop's earnings — the P&L
           overstated and the tax line understated by the same amount. Net sales
@@ -215,13 +216,34 @@ export default async function ReportPage({
         <Stat
           label="Net sales"
           value={formatCents(report.totals.subtotalCents)}
-          note="What the shop earned, before tax"
+          note={
+            report.totals.discountCents > 0
+              ? 'What the food sold for, before rewards and tax'
+              : 'What the shop earned, before tax'
+          }
           testId="report-net-sales"
         />
+        {/* Rendered ONLY when a reward was actually spent in the window. A
+            permanent "$0.00 rewards" tile on a shop that does not run a punch
+            card is a column of noise on the screen this report exists to keep
+            readable — the same invisibility rule the checkout's enrolment
+            checkbox follows. */}
+        {report.totals.discountCents > 0 && (
+          <Stat
+            label="Rewards given"
+            value={formatCents(report.totals.discountCents)}
+            note="Off the food, before tax"
+            testId="report-discounts"
+          />
+        )}
         <Stat
           label="Tax collected"
           value={formatCents(report.totals.taxCents)}
-          note="Owed to the state, never earnings"
+          note={
+            report.totals.discountCents > 0
+              ? 'Owed to the state, on net less rewards'
+              : 'Owed to the state, never earnings'
+          }
           testId="report-tax"
         />
         <Stat
@@ -327,13 +349,23 @@ export default async function ReportPage({
 
           <Section title="By day">
             <Table
-              headers={['Day', 'Orders', 'Items', 'Subtotal', 'Tax', 'Total']}
+              // The Rewards column appears with the tile above and for the
+              // same reason: a shop with no punch card reads the table it read
+              // before C-118.
+              headers={
+                report.totals.discountCents > 0
+                  ? ['Day', 'Orders', 'Items', 'Subtotal', 'Rewards', 'Tax', 'Total']
+                  : ['Day', 'Orders', 'Items', 'Subtotal', 'Tax', 'Total']
+              }
               label="Sales by day"
               rows={report.days.map((day) => [
                 day.day,
                 String(day.orders),
                 String(day.items),
                 formatCents(day.subtotalCents),
+                ...(report.totals.discountCents > 0
+                  ? [day.discountCents === 0 ? '—' : `−${formatCents(day.discountCents)}`]
+                  : []),
                 formatCents(day.taxCents),
                 formatCents(day.totalCents),
               ])}
@@ -363,8 +395,9 @@ export default async function ReportPage({
                       renderings of one fact. */}
                   <span className="text-lg tabular-nums">
                     {hour.orders} {hour.orders === 1 ? 'order' : 'orders'} ·{' '}
-                    {formatCents(hour.subtotalCents)} net + {formatCents(hour.taxCents)} tax ={' '}
-                    {formatCents(hour.totalCents)}
+                    {formatCents(hour.subtotalCents)} net{' '}
+                    {hour.discountCents > 0 && <>− {formatCents(hour.discountCents)} rewards </>}+{' '}
+                    {formatCents(hour.taxCents)} tax = {formatCents(hour.totalCents)}
                   </span>
                 </li>
               ))}

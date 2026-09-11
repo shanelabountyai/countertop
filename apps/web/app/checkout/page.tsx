@@ -23,7 +23,7 @@ export const metadata = { title: 'Checkout — Firebird Kitchen' };
 export const dynamic = 'force-dynamic';
 
 export default async function CheckoutPage() {
-  const [menu, review, { gate, estimate, loyalty, schedule }] = await Promise.all([
+  const [menu, review, { gate, estimate, loyalty, schedule, taxRatePpm }] = await Promise.all([
     loadMenu(),
     getCartReview(),
     currentCheckout(),
@@ -99,20 +99,11 @@ export default async function CheckoutPage() {
                 </li>
               ))}
             </ul>
-            <dl className="mt-3 flex flex-col gap-1 border-t border-neutral-300 pt-3 tabular-nums">
-              <div className="flex justify-between text-sm">
-                <dt>Subtotal</dt>
-                <dd>{formatCents(review.totals.subtotalCents)}</dd>
-              </div>
-              <div className="flex justify-between text-sm">
-                <dt>Tax</dt>
-                <dd>{formatCents(review.totals.taxCents)}</dd>
-              </div>
-              <div className="flex justify-between text-lg font-semibold">
-                <dt>Total</dt>
-                <dd data-testid="checkout-total">{formatCents(review.totals.totalCents)}</dd>
-              </div>
-            </dl>
+            {/* The totals used to be here and are now rendered by
+                `<CheckoutForm>` (C-118). A reward is held in that component's
+                state, so a total rendered by THIS server component could not
+                follow it — and a screen showing two totals, one of them ten
+                dollars stale, is worse than the line of layout this costs. */}
           </section>
         )}
 
@@ -142,6 +133,8 @@ export default async function CheckoutPage() {
           // kitchen at capacity right now can still take a promise for later
           // today, which is exactly the case this list exists to surface.
           slots={schedule && schedule.open ? schedule.slots : []}
+          subtotalCents={review.totals.subtotalCents}
+          taxRatePpm={taxRatePpm}
           clientTotalCents={review.totals.totalCents}
           loyalty={loyalty.offered ? { terms: loyalty.terms, expiryDays: loyalty.expiryDays } : null}
         />

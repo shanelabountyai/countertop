@@ -13,7 +13,7 @@
 // shows what is owed.
 import { adjustmentEvent, type AdjustmentInput, type AdjustmentRefusalReason } from '@countertop/core';
 import { Prisma, prisma } from './index';
-import { eventRow } from './placement';
+import { eventRow } from './event-row';
 
 export type AdjustOrderResult =
   | { ok: true; amountCents: number }

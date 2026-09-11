@@ -9,19 +9,16 @@
 import {
   formatOrderNumber,
   isIdempotencyKey,
-  normalizePhone,
   type CartReview,
   type EnrolmentLogOutcome,
   type Intensity,
   type PaymentState,
-  type VerifiedPhoneLogOutcome,
 } from '@countertop/core';
 import { placeOrder, type OrderReceipt, type PlacementError } from '@countertop/db/placement';
-import { enrolMember, hasLoyaltyPepper, phoneDigest } from '@countertop/db/loyalty';
+import { enrolMember } from '@countertop/db/loyalty';
 import {
   confirmPhoneVerificationForCheckout,
   startPhoneVerification,
-  verifiedPhoneFromToken,
 } from '@countertop/db/verification';
 import { clearCart, readCart } from '@/lib/cart-session';
 import { rememberOrder } from '@/lib/recent-orders';
@@ -40,6 +37,10 @@ export type OrderConfirmation = {
    *  instead. */
   requestedFor: Date | null;
   subtotalCents: number;
+  /** What a reward took off the food, before tax (PRD 7 P1-1, C-118). Zero on
+   *  every order that spent no reward — a real amount, not an omission, so the
+   *  receipt renders the line by asking whether it is nonzero. */
+  discountCents: number;
   taxCents: number;
   totalCents: number;
   /** P1-8. What the receipt has to tell the customer to bring cash for. */
@@ -127,6 +128,7 @@ const confirm = (order: OrderReceipt, enrolment: EnrolmentLogOutcome | null): Or
   placedAt: order.placedAt,
   requestedFor: order.requestedFor,
   subtotalCents: order.subtotalCents,
+  discountCents: order.discountCents,
   taxCents: order.taxCents,
   totalCents: order.totalCents,
   paymentState: order.paymentState,
@@ -171,30 +173,6 @@ async function enrol(order: OrderReceipt, now: Date): Promise<EnrolmentLogOutcom
     // it choked on, and the row it choked on here is a customer's.
     return 'enrolment_threw';
   }
-}
-
-/**
- * Whether a checkout submission's verified-phone token actually checked out
- * (P1-1, C-116). INERT for now — this is a log-line question, not yet a
- * price one; `result.ok` never depends on it, and it never will until C-117
- * gives it something to compute. Never throws, same discipline as `enrol`.
- */
-async function checkVerifiedPhone(
-  order: OrderReceipt,
-  token: string | null,
-  idempotencyKey: string,
-  now: Date,
-): Promise<VerifiedPhoneLogOutcome | null> {
-  if (token === null) return null;
-  if (!hasLoyaltyPepper()) return 'loyalty_pepper_unset';
-  const normalized = normalizePhone(order.customerPhone);
-  if (!normalized) return 'phone_not_enrollable';
-  const result = verifiedPhoneFromToken(token, {
-    idempotencyKey,
-    phoneDigest: phoneDigest(normalized.digits),
-    now,
-  });
-  return result.ok ? 'verified' : result.reason;
 }
 
 /** What requesting a checkout code can tell the customer — never a refusal
@@ -322,6 +300,10 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
       ...(clientTotalCents === undefined ? {} : { clientTotalCents }),
       ...(payNow === undefined ? {} : { paidNow: payNow }),
       ...(requestedForMinute === undefined ? {} : { requestedForMinute }),
+      // C-118. Present only when the customer verified a phone for THIS
+      // attempt; `placeOrder` is what reads it, prices the reward off the
+      // settings row and refuses the placement if it cannot be granted.
+      verifiedPhoneToken,
     });
   } catch (thrown) {
     // `priceLine` throws on an unknown id rather than pricing it as zero
@@ -361,6 +343,11 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
           result.errors.find((error) => error.kind === 'ordering_closed')?.reason ?? null,
       },
       mismatch: result.mismatch,
+      // C-118. The reward's own word, on the line for the placement it
+      // refused — so "her reward did not come off" is answered by reading one
+      // log line rather than by guessing between six causes.
+      verifiedPhone:
+        result.errors.find((error) => error.kind === 'reward_unavailable')?.reason ?? null,
     });
     return result;
   }
@@ -371,19 +358,14 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
   // every outcome, including a throw, is one word on the placement's log line.
   const enrolment = joinLoyalty ? await enrol(result.order, now) : null;
 
-  // Same "after the order, never gating it" placement as `enrol` — and, this
-  // session, the same inertness: nothing yet reads this outcome to change a
-  // price (C-117 is what gives it one). Checked and logged anyway, because a
-  // token that silently stopped checking out would be a defect nobody could
-  // see before C-117 gave it a way to matter.
-  const verifiedPhone = await checkVerifiedPhone(result.order, verifiedPhoneToken, idempotencyKey, now);
-
   logPlacement({
     at: now,
     idempotencyKey,
     outcome: { result: 'placed', orderId: result.order.id, replayed: result.replayed },
     enrolment,
-    verifiedPhone,
+    // Decided inside `placeOrder` since C-118 — it is the only thing that
+    // knows the server's subtotal, which is what bounds the reward.
+    verifiedPhone: result.verifiedPhone ?? null,
   });
 
   // P1-1 (C-082). After the order exists, remembered so `/menu` can offer a

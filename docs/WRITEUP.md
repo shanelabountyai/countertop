@@ -2554,3 +2554,82 @@ that capability needing a rendered control this session. The mechanism
 (server actions, a signed bearer token, placement-time validation) is the
 control, in the sense the sentence meant; the checkbox is a later session's
 job once there is a price for it to change.
+
+### The invariant that was true because of who wrote it (C-118)
+
+The staff receipt decides whether to offer a "$10 off" button by asking
+`planRedemption`, and one of that function's inputs is `alreadyRedeemed`.
+C-104 wired it like this, with a comment defending the choice:
+
+```ts
+// `alreadyRedeemed` is read off the MONEY side, from the activity already
+// loaded, rather than costing a second query for the ledger side. The two
+// rows are written in one transaction and cannot disagree; the ledger's own
+// partial unique index is still what makes that true under two taps.
+const rewardUsed = activity.some(
+  (entry) => entry.kind === 'adjustment' && entry.reason === LOYALTY_REWARD_REASON,
+);
+```
+
+Every sentence in that comment was true when it was written, and it stayed
+true for fourteen sessions. `redeemReward` writes a `redeem` on the loyalty
+ledger and an `adjustment` on the order's event log, in one transaction, so
+either row answers "has this order spent a reward" and the money one was
+already in memory. A free query.
+
+C-118 added a second way to redeem, and the thing that broke was not the
+write path. A checkout redemption writes **no adjustment at all** — the
+reward is *inside* the snapshot, as `Order.discountCents`, with tax computed
+on `subtotal − discount`. Writing an adjustment beside it would take the ten
+dollars off twice. So the invariant the comment rested on — *these two rows
+are always written together* — stopped being a property of the system and
+became a property of one of the two writers.
+
+The failure mode is the one C-104 wrote that panel's own rule against: the
+button renders, staff tap it, and the ledger's unique index refuses. "A
+button that renders is a button that works," broken by a change three files
+away that never touched the panel.
+
+What is worth keeping from this:
+
+**The comment was not wrong, and that is the problem.** It named its
+premise ("the two rows are written in one transaction") explicitly, which is
+better than most code manages. It just had no way to notice when a second
+writer arrived that satisfied the premise vacuously — by writing neither row
+of the pair, and one row of a different pair.
+
+**Nothing in the type system or the unit suite could see it.** The panel is
+a server component; the db tests drive `redeemReward` and `placeOrder`
+directly and both were correct. The only artefact that touched the screen
+and the ledger in the same breath was an e2e spec — `leaves the counter's
+control refusing, because checkout already spent it` — which I wrote
+expecting it to pass trivially, because the write path was obviously right.
+It failed on `redeem-note` reading *"This order does not owe enough to use a
+whole reward on it"* instead of *"already been used"*: the panel had fallen
+through `alreadyRedeemed: false` to the next refusal in the chain, and the
+next refusal happened to be true for an unrelated reason. A refusal that is
+accidentally correct is the worst possible symptom, because on any order
+over $10 owing there would have been no symptom at all.
+
+**The fix is a query, and the query is the point.** `orderHasRedemption`
+asks the ledger — the same place `redeemReward` asks — so the screen and the
+write now read one source rather than two that used to agree. The saved
+query C-104 was protecting was real; it was just being paid for in an
+assumption that a later session could invalidate without touching the file
+that held it.
+
+The generalisable version: **a cached read is safe when it is derived, and
+unsafe when it is merely correlated.** `paymentState` is a derived cache over
+the payment event stream and has a test asserting the two agree across the
+whole seeded rush (decision 5). `rewardUsed` had no such test and could not
+have had one — it was not derived from the ledger, it was a different fact
+that happened to co-occur with it. The distinction is invisible while only
+one writer exists.
+
+A smaller instance of the same shape, in the same session: the loyalty
+program screen's "Staff corrections" number summed every `adjust` row in the
+window. Returning a reward on a cancelled order is also an `adjust`, so the
+system's own bookkeeping would have appeared under a heading that names a
+person. Not an imprecise number — a false sentence. Both are the same
+mistake: a label that was accurate because of who happened to be writing the
+rows underneath it.

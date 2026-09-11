@@ -1,66 +1,112 @@
 # Next
 
-**C-117 shipped this session** (`a1f8faa`): PRD 7
-P1-1, session 3 of 3 — the tax base. `Order.discountCents` (snapshotted,
-`@default(0)`, hand-written migration with three CHECKs — not negative, not
-exceeding `subtotalCents`, and `totalCents = subtotalCents - discountCents +
-taxCents` enforced at the row) and `priceOrder` computing tax on `subtotal −
-discount` rather than the raw subtotal. `buildOrderSnapshot` threads the new
-parameter through; `remakeOrder` now copies `discountCents` so a remade
-order of a (future) discounted one can't silently drop it and fail its own
-new CHECK. Gate green: 1007 unit (+8 over C-116's 999), 221 e2e passed + 14
-skipped = 235 (unchanged — no UI shipped this session), lint/typecheck/build
-clean.
+**C-118 shipped this session**: the checkout redemption control — PRD 7
+P1-1's fourth, unphased piece, and the one that makes **P1-1 live**. A
+customer with a full punch card can now verify their phone from their own
+screen and take $10 off *before tax*: on the sample burrito that is $5.36
+rather than the counter flow's $6.18, and the 82c difference is sales tax
+the shop was remitting on a discount.
 
-**Corrected in the PRD this session, not just shipped:** the phasing section
-said P1-1 goes live once all three of C-115/C-116/C-117 ship. That was an
-undercount. The three sessions are the *mechanism* — a verified phone, a
-token that carries it, somewhere honest for a reward to land in the tax
-math — and none of them is a checkout control. Nothing calls
-`planRedemption`, computes a `discountCents`, and hands it to `placeOrder`
-yet. `docs/prds/prd-loyalty.md`'s C-117 entry and `docs/prds/INDEX.md` both
-say so now.
+What landed: `planCheckoutRedemption` in `packages/core` (a second pure
+decision beside `planRedemption`, bounded by the SUBTOTAL rather than by
+what an order owes — two different questions, so two functions and not a
+flag); `placeOrder` taking an optional `verifiedPhoneToken` and writing the
+order and its `redeem` row in ONE transaction; `settleRedemptionForOrder`,
+which hands the points back when the order dies and re-spends them if a
+reverted no-show is collected after all; the "Use a reward" control on
+checkout plus a `Punch card reward` line on all four receipts; and
+`discountCents` as a fourth money column on the sales report.
 
-**Next unblocked item: the checkout self-serve redemption control —
-unphased, the fourth piece P1-1 actually needs.** Read
-`docs/prds/prd-loyalty.md`'s C-117 entry (the closing paragraph) before
-starting. Shape, roughly: a "use your reward" affordance on the checkout
-form, gated on a verified phone (C-116's `verifiedPhoneToken`) and an
-available balance (`planRedemption`), that computes a `discountCents` and
-passes it through `placeOrder` → `buildOrderSnapshot` → `priceOrder`. Two
-things this needs a decision on, not just code:
-1. **P0-4's after-tax counter redemption and this before-tax checkout
-   redemption are now two different mechanisms that both spend the same
-   balance.** They need to agree on which one runs when both are possible
-   for the same order — likely "whichever happens first wins, and the other
-   is refused as already-redeemed," but that's a guess, not a decision.
-2. **`report.ts`'s `SalesTotals`** currently sums `subtotalCents`/
-   `taxCents`/`totalCents` and its own test asserts `subtotalCents +
-   taxCents === totalCents` per bucket — true only because `discountCents`
-   is always 0 today. The first real discount breaks that identity, and the
-   report needs a `discountCents` bucket and an updated invariant before or
-   in the same session a real discount can be produced.
+**Both decisions NEXT.md flagged as "a guess, not a decision" were put to
+the owner and answered before any code was written:**
+1. *Which redemption path wins.* **Checkout, structurally, with no new
+   mechanism.** Checkout is always first — the counter needs an order that
+   exists — so the checkout `redeem` bound to the new `orderId` makes
+   C-104's partial unique index and `planRedemption`'s own `alreadyRedeemed`
+   refuse the counter path by the name they already had.
+2. *`report.ts`'s `SalesTotals`.* **A fourth column; `subtotalCents` stays
+   gross.** The identity is now `net − rewards + tax = gross` on every day
+   row, every hour row and the window — the same one C-117's CHECK enforces
+   at the row. Netting the reward into the subtotal was cheaper and would
+   have made the punch card's cost in food invisible on the one screen an
+   owner decides with.
 
-**Model: this item is customer-facing money UI on top of the arithmetic
-C-117 just landed — still Opus**, not Sonnet: it decides how two redemption
-paths interact and touches what a receipt shows.
+A third question was asked and answered the same way: **a cancelled or
+abandoned order hands the reward back**, as a logged `adjust` and never a
+delete.
 
-## What C-117 leaves behind
+## Next unblocked item: the concurrent-checkout balance race
 
-- **No checkout control a customer can reach — still.** Same shape C-115
-  and C-116 left, one layer further along: the tax base exists and is
-  tested, but nothing produces a nonzero `discountCents` yet.
-- **`redeemReward`/`planRedemption` (P0-4) are untouched and still
-  after-tax.** Deliberately — C-117's own scope was "nothing else moving in
-  the same diff." They become the interaction problem above the moment a
-  before-tax path exists alongside them.
-- **`report.ts`'s `subtotalCents + taxCents === totalCents` comment and test
-  are accurate today and stale the moment a real discount exists.** See
-  point 2 above — this is the first place a real discount will break
-  something that isn't a schema CHECK.
-- **No receipt anywhere renders `discountCents`.** Checkout page, cart page,
-  status page, staff order-detail page — none of them read the new field.
-  The UI work is entirely in the next item, not this one.
+**This is the one real defect C-118 leaves, and it is named rather than
+hidden.** Two checkouts for the same member, in flight at once, each read a
+balance of 100 and each write a `redeem`. The partial unique index is per
+*order*, so neither collides, and there is no constraint holding a member's
+balance at or above zero — so the member ends at −100 and got two rewards
+for one.
+
+Pre-existing in *shape*: two counter redemptions on two different orders
+have always been able to do this. **Widened by C-118**, because self-serve
+makes two simultaneous checkouts something one person can actually do from
+two tabs, deliberately, in ten seconds.
+
+The shape of the fix, and the decision it needs: this repo's own rule is
+*the constraint is the mechanism*, and a balance is a SUM over rows with no
+column to constrain. So it is one of —
+- a `SELECT … FOR UPDATE` on the member row inside placement's transaction
+  (a lock, which this repo has deliberately avoided everywhere else — see
+  placement's own `ponytail:` about not locking menu rows), or
+- a materialised balance column with a `>= 0` CHECK and an agreement test
+  against the ledger over the seeded rush (the `paymentState` shape,
+  decision 5 — but C-100 refused a balance column *explicitly*, with a
+  written reason, so this reverses a recorded decision and needs to say
+  so), or
+- a partial unique index on `(memberId)` over un-settled redemptions, which
+  caps a member at one live redemption at a time and is the cheapest of the
+  three — but changes the product rule from "one reward per order" to "one
+  reward in flight per member", which is a product decision, not a schema
+  one.
+
+**Ask the owner which, before building.** All three are defensible and they
+are not the same product.
+
+**Model: Opus.** It reverses or reinterprets a recorded decision (C-100's
+"there is no balance column, deliberately") and it touches the money path
+under concurrency.
+
+## What C-118 leaves behind
+
+- **The balance race above.** The item.
+- **No `PhoneVerification` sweep** (C-115's `ponytail:`) — and C-118 makes
+  that table busier rather than less so, because every reward now costs at
+  least one row.
+- **A customer who abandons a checkout and comes back verifies again.** The
+  new attempt gets a new `idempotencyKey` and the old token is bound to an
+  attempt that no longer exists. That is C-116's binding working exactly as
+  designed; it is also a second SMS for one order, and on a real carrier
+  that is a real cost.
+- **The rush script does not exercise a checkout redemption.** Its ugly-case
+  list is the PRD's Success Metrics verbatim, so adding one is a deliberate
+  decision about that list rather than a drive-by — but the rush is the
+  capstone demo and the punch card is now a customer-visible feature that
+  the demo never shows.
+- **`Order.discountCents` has exactly one producer.** If a second ever
+  appears (a promo code, a manager's pre-tax comp), `settleRedemptionForOrder`
+  assumes the discount and the `redeem` row are the same fact.
+
+## Environment note for whoever runs the gate next
+
+**Ten e2e specs fail in a fresh container and it is not the code.**
+`contact`, `last-call` ×2, `menu-editing` ×2, `menu` ×3 and `refund` ×2 die
+with `Error: request for './menu/index' is from a module not been linked` —
+an ESM loader failure in the fixtures that use a late
+`await import('@countertop/db')` (`setDaypart`, `setLastOrderIn`,
+`failRefundFor`, the staged-price helpers, `clearRestaurantContact`).
+**Verified pre-existing by stashing all of C-118 and running those same ten
+specs on `f239791`, where they fail identically.** Everything else is green:
+218 passed + 14 skipped, loyalty 20/20. If you can reproduce this on the
+developer's own machine it is a real bug and its own item; if you cannot, it
+is the container's loader and belongs in this note rather than in the
+backlog.
 
 ## Still open from earlier items
 
@@ -74,7 +120,6 @@ paths interact and touches what a receipt shows.
   staged prices, and superseded staged rows are never collected.
 - **A sixth customer route can forget the footer** — `/menu/[itemId]` is a
   customer screen and is in none of P0-1's five, P0-3's three, or P0-4's two.
-  Still open; touch it if another cross-screen element grows there.
 - **The status page reads the contact columns twice** — once for the panel's
   `tel:` link, once inside the footer.
 - **The status page's estimate line is outside the `role="status"` region**
@@ -89,29 +134,22 @@ paths interact and touches what a receipt shows.
 - **`e2e/refund.spec.ts:211`** ("a no-show is offered a refund rather than
   given one") failed once at 8.0s in a C-108-era sweep and has passed in every
   sweep since. A timeout, not an assertion. Local `retries` is 0, CI's is 1.
-  First place to look if a refund spec times out again.
 - **`e2e/cart.spec.ts:65`** ("the header cart count drops a line that gets
   86'd out from under it") failed once at 6.6s mid-sweep during C-113's gate
-  run and passed 3/3 in isolation immediately after, unrelated to anything
-  C-113 touched. Same shape as the refund flake above — a second data point
-  for "timeout under load," not yet enough to call it a pattern.
+  run and passed 3/3 in isolation immediately after. Same shape as the refund
+  flake above — a second data point for "timeout under load," not yet a
+  pattern.
 - **The queue's 15-minute "N min since ordered — running late" flag does
   not know about `requestedFor`** (C-114) — a scheduled order sitting
   untouched well before its slot can still redden. The "Pickup HH:MM" badge
   is the mitigation, not the fix; the fix touches `queueAging`, its own
   session.
 - **Same-day only** for order-ahead (C-114) — multi-day is the master
-  PRD's own catering/lead-time P2 item, not this one grown up early.
+  PRD's own catering/lead-time P2 item.
 - **A fully-booked day degrades silently to ASAP-only** (C-114) — no
-  "nothing left today" copy, the same way loyalty-off degrades to no punch
-  card.
+  "nothing left today" copy.
 - **No fixture pinned to an actual DST-transition date** (C-114) for
   `zonedTimeToInstant` — a `ponytail:` comment on the function names the gap.
-- **No sweep ever deletes an old `PhoneVerification` row** (C-115).
-  `ponytail:` comment on the model names the upgrade path (a periodic
-  delete past `expiresAt`, same shape as the retention sweep) and the
-  ceiling (fine until a shop sees far more than a few dozen redemption
-  attempts a day).
 
 ## Still open from C-069 / C-071, if you would rather clear debt
 

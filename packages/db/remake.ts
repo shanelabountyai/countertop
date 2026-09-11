@@ -28,9 +28,9 @@ import {
 } from '@countertop/core';
 import { prisma } from './index';
 import { loadSettings } from './menu';
+import { eventRow } from './event-row';
 import {
   derivedIdempotencyKey,
-  eventRow,
   newStatusToken,
   ORDER_RECEIPT,
   takingNextOrderNumber,

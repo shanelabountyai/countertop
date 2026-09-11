@@ -7,7 +7,7 @@
 // is a thing only a database module can promise.
 import { canCollectPayment, orderBalance, paymentEvent } from '@countertop/core';
 import { prisma } from './index';
-import { eventRow } from './placement';
+import { eventRow } from './event-row';
 
 export type CollectPaymentResult = { ok: true } | { ok: false; message: string };
 

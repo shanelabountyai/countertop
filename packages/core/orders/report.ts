@@ -42,6 +42,10 @@ export type ReportableOrder = {
    *  answer. Capped at 140 characters by the column. */
   cancelNote: string | null;
   subtotalCents: number;
+  /** What a reward took off before tax (PRD 7 P1-1, C-118). Zero on every
+   *  order that carried no checkout redemption, including every order placed
+   *  before the column existed. */
+  discountCents: number;
   taxCents: number;
   totalCents: number;
   lines: readonly ReportableLine[];
@@ -70,6 +74,7 @@ export type DayBucket = {
   orders: number;
   items: number;
   subtotalCents: number;
+  discountCents: number;
   taxCents: number;
   totalCents: number;
 };
@@ -83,31 +88,44 @@ export type HourBucket = {
    *  reported only its gross made the one screen a bookkeeper reads say two
    *  different things about tax depending on which table she looked at. */
   subtotalCents: number;
+  discountCents: number;
   taxCents: number;
   totalCents: number;
 };
 
 /**
- * The window's three money numbers, which are three different facts (P0-1).
+ * The window's four money numbers, which are three different facts (P0-1).
  *
  * `Σ totalCents` was the headline and it was labelled `Revenue`, so a month
  * end booked $41,203 of revenue when $3,141 of it was a sales-tax liability
  * owed to the state — the P&L overstated and the tax line understated by
  * exactly the same amount.
  *
- * `subtotalCents + taxCents === totalCents` per order, so it holds here by
- * summation; the test asserts it anyway, on every day row and on this, because
- * the day it stops holding the cause will be a snapshot column somebody
- * widened and not this addition.
+ * `subtotalCents - discountCents + taxCents === totalCents` per order — a
+ * database CHECK since C-117 — so it holds here by summation; the test asserts
+ * it anyway, on every day row, every hour row and on this, because the day it
+ * stops holding the cause will be a snapshot column somebody widened and not
+ * this addition.
+ *
+ * THE DISCOUNT IS ITS OWN COLUMN AND THE SUBTOTAL STAYS GROSS (C-118). Netting
+ * the reward out of `subtotalCents` would restore the old two-term identity
+ * for free and cost the only thing this screen is for: the shop would no
+ * longer be able to see what the punch card cost it in food, and the report's
+ * `subtotalCents` would silently stop meaning what `Order.subtotalCents`
+ * means. Two numbers that are two facts, as with net and tax above.
  *
  * Summed from the SNAPSHOT columns only. Nothing on this path recomputes tax
  * from `RestaurantSettings` — last month's sales are taxed at last month's
  * rate, which is the rate the order carries.
  */
 export type SalesTotals = {
-  /** What the shop actually earned. The headline. */
+  /** What the food was sold for. The headline, and GROSS of rewards. */
   subtotalCents: number;
-  /** Collected on the state's behalf, never the shop's money. */
+  /** What the loyalty program gave back, before tax (PRD 7 P1-1). Never
+   *  netted into the subtotal — see above. */
+  discountCents: number;
+  /** Collected on the state's behalf, never the shop's money. Computed on
+   *  `subtotal − discount`, which is why this is not `subtotal × rate`. */
   taxCents: number;
   /** What was charged. Shown, and never called revenue. */
   totalCents: number;
@@ -343,12 +361,14 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
       orders: 0,
       items: 0,
       subtotalCents: 0,
+      discountCents: 0,
       taxCents: 0,
       totalCents: 0,
     };
     day.orders += 1;
     day.items += units;
     day.subtotalCents += order.subtotalCents;
+    day.discountCents += order.discountCents;
     day.taxCents += order.taxCents;
     day.totalCents += order.totalCents;
     days.set(clock.day, day);
@@ -358,12 +378,14 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
       orders: 0,
       items: 0,
       subtotalCents: 0,
+      discountCents: 0,
       taxCents: 0,
       totalCents: 0,
     };
     bucket.orders += 1;
     bucket.items += units;
     bucket.subtotalCents += order.subtotalCents;
+    bucket.discountCents += order.discountCents;
     bucket.taxCents += order.taxCents;
     bucket.totalCents += order.totalCents;
     hours.set(hour, bucket);
@@ -399,10 +421,11 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
   const totals = [...days.values()].reduce(
     (sum, day) => ({
       subtotalCents: sum.subtotalCents + day.subtotalCents,
+      discountCents: sum.discountCents + day.discountCents,
       taxCents: sum.taxCents + day.taxCents,
       totalCents: sum.totalCents + day.totalCents,
     }),
-    { subtotalCents: 0, taxCents: 0, totalCents: 0 },
+    { subtotalCents: 0, discountCents: 0, taxCents: 0, totalCents: 0 },
   );
 
   return {

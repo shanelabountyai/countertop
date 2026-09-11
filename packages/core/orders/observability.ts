@@ -15,6 +15,7 @@
 // and order id, which are the two identifiers a support question can be
 // answered from and neither of which is a person.
 import type { CartReview } from '../cart/cart';
+import type { RedemptionRefusalReason } from '../loyalty/ledger';
 import type { TokenRefusal } from '../loyalty/verification';
 import { checkClientTotal, type TotalMismatch } from '../pricing/pricing';
 import type { GateReason } from './checkout-gate';
@@ -56,21 +57,29 @@ export type EnrolmentLogOutcome =
 
 /**
  * What happened to a checkout submission's verified-phone token (PRD 7 P1-1,
- * C-116). Same shape as `EnrolmentLogOutcome` and the same reason it exists:
- * a customer who verified a code and had it silently not count is a support
- * call, and every value here except `verified` is otherwise invisible — the
- * order still places, the receipt still prints.
+ * C-116, widened at C-118). Same shape as `EnrolmentLogOutcome` and the same
+ * reason it exists: a customer who verified a code and had their reward
+ * silently not count is a support call, and this word is the answer to it.
  *
  * `'malformed'` and the three `TokenRefusal` reasons all mean "the signature
  * did not check out or the token did not prove this placement"; they are kept
  * apart because a forged or replayed token is a different question than a
  * customer's own code expiring.
+ *
+ * NO LONGER PURELY A LOG WORD (C-118). Every value but `verified` now also
+ * refuses the placement outright, because the customer pressed a button
+ * quoting the discounted total — so the ledger's own refusals joined the
+ * token's, and the same one word is both the reason the screen renders and
+ * the word on the log line. One vocabulary, because a support call that reads
+ * the log and a customer reading the screen are asking the same question.
  */
 export type VerifiedPhoneLogOutcome =
   | 'verified'
   | 'loyalty_pepper_unset'
   | 'phone_not_enrollable'
   | 'malformed'
+  | 'not_a_member'
+  | RedemptionRefusalReason
   | TokenRefusal;
 
 export type PlacementLogInput = {
@@ -85,9 +94,8 @@ export type PlacementLogInput = {
   /** Absent unless the customer asked to join (PRD 7 P0-1). */
   enrolment?: EnrolmentLogOutcome | null;
   /** Absent unless the checkout submission carried a verified-phone token
-   *  (C-116). Inert for now — nothing yet spends it — but "the token checked
-   *  out" and "it did not" is worth seeing before C-117 gives it a price
-   *  effect to be wrong about. */
+   *  (C-116). No longer inert (C-118): anything but `verified` here is also
+   *  why the placement on the same line was refused. */
   verifiedPhone?: VerifiedPhoneLogOutcome | null;
 };
 

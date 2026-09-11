@@ -14,7 +14,8 @@ import type {
   OrderStatus,
 } from '@countertop/core';
 import { Prisma, prisma } from './index';
-import { eventRow, ORDER_RECEIPT, type OrderReceipt } from './placement';
+import { eventRow } from './event-row';
+import { ORDER_RECEIPT, type OrderReceipt } from './placement';
 
 /** A history search is a lookup, not a report — cap it so a bare search box
  *  cannot become an accidental "load every order this restaurant has ever

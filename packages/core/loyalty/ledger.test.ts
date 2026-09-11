@@ -6,8 +6,11 @@ import {
   loyaltyBalance,
   loyaltyLiability,
   redemptionRate,
+  planCheckoutRedemption,
   planRedemption,
   pointsForOrder,
+  redemptionStateFor,
+  settleRedemption,
   pointsToNextReward,
   rewardsAvailable,
   type LedgerEntry,
@@ -226,5 +229,121 @@ describe('the redemption rate', () => {
 
   it('is allowed above 1, because a punch card is saved up across windows', () => {
     expect(redemptionRate(100, 300)).toBe(3);
+  });
+});
+
+// --- The CHECKOUT redemption (P1-1, C-118) ---------------------------------
+
+describe('planning a redemption at checkout', () => {
+  it('spends a whole reward against the food, before tax', () => {
+    // 100 points, $10 off, on $23.00 of food. The tax base becomes $13.00 —
+    // which is `priceOrder`'s job, not this function's; this one only says
+    // how much and how many points.
+    expect(planCheckoutRedemption({ enabled: true, balance: 100, subtotalCents: 2300, terms: TERMS }))
+      .toEqual({ ok: true, pointsSpent: -100, amountCents: 1000 });
+  });
+
+  it('is bounded by the SUBTOTAL, not by anything a client sent', () => {
+    // $9.99 of food and a $10 reward. Refused by name — never clamped to
+    // $9.99, which would silently cost the customer a cent of their reward,
+    // and never allowed through to Postgres, where C-117's
+    // `discountCents <= subtotalCents` CHECK would make it a 500.
+    const plan = planCheckoutRedemption({
+      enabled: true,
+      balance: 100,
+      subtotalCents: 999,
+      terms: TERMS,
+    });
+    expect(plan).toMatchObject({ ok: false, reason: 'reward_exceeds_subtotal' });
+    // Exactly the reward's worth IS enough — the CHECK is `<=`, and so is this.
+    expect(
+      planCheckoutRedemption({ enabled: true, balance: 100, subtotalCents: 1000, terms: TERMS }),
+    ).toMatchObject({ ok: true, amountCents: 1000 });
+  });
+
+  it('refuses a balance short of a whole reward, and says by how much', () => {
+    const plan = planCheckoutRedemption({
+      enabled: true,
+      balance: 87,
+      subtotalCents: 5000,
+      terms: TERMS,
+    });
+    expect(plan).toMatchObject({ ok: false, reason: 'not_enough_points' });
+    expect(plan.ok ? '' : plan.message).toContain('13 points');
+  });
+
+  it('refuses with the program switched off, before it looks at anything else', () => {
+    // Off beats a balance that would otherwise qualify: the switch is the
+    // authority, exactly as it is for enrolment and for the counter flow.
+    expect(
+      planCheckoutRedemption({ enabled: false, balance: 900, subtotalCents: 9000, terms: TERMS }),
+    ).toMatchObject({ ok: false, reason: 'loyalty_disabled' });
+  });
+
+  it('is a DIFFERENT question from the counter’s, on the same numbers', () => {
+    // $10.00 of food, fully prepaid. The counter refuses — nothing is owed, so
+    // there is nothing to take $10 off — and checkout allows, because the food
+    // itself costs enough. Two bounds, two answers, and this is exactly why
+    // they are two functions.
+    expect(
+      planRedemption({
+        enabled: true,
+        balance: 100,
+        outstandingCents: 0,
+        alreadyRedeemed: false,
+        terms: TERMS,
+      }),
+    ).toMatchObject({ ok: false, reason: 'reward_exceeds_balance_owed' });
+    expect(
+      planCheckoutRedemption({ enabled: true, balance: 100, subtotalCents: 1000, terms: TERMS }),
+    ).toMatchObject({ ok: true });
+  });
+});
+
+describe('what a checkout redemption is worth once the order has a fate', () => {
+  it('is held while the food is being made and once it is sold', () => {
+    expect(redemptionStateFor('in_flight')).toBe('spent');
+    expect(redemptionStateFor('sold')).toBe('spent');
+  });
+
+  it('comes back when nobody got the food', () => {
+    expect(redemptionStateFor('cancelled')).toBe('returned');
+    expect(redemptionStateFor('no_show')).toBe('returned');
+  });
+});
+
+describe('settling a checkout redemption', () => {
+  it('writes nothing for an order that never spent a reward', () => {
+    expect(settleRedemption({ redeemedPoints: null, compensations: [], target: 'returned' }))
+      .toBeNull();
+  });
+
+  it('returns the points a cancelled order took', () => {
+    expect(settleRedemption({ redeemedPoints: -100, compensations: [], target: 'returned' }))
+      .toBe(100);
+  });
+
+  it('is idempotent — a second cancel-shaped settlement writes nothing', () => {
+    // A zero row would fail the ledger's own `adjust` CHECK, correctly.
+    expect(settleRedemption({ redeemedPoints: -100, compensations: [100], target: 'returned' }))
+      .toBeNull();
+  });
+
+  it('re-spends on the way back, so a reverted no-show cannot keep both', () => {
+    // `abandoned` is revertable (`previous: 'ready'`). Without this the
+    // customer who finally walks in has the $10 off AND the 100 points that
+    // bought it.
+    expect(settleRedemption({ redeemedPoints: -100, compensations: [100], target: 'spent' }))
+      .toBe(-100);
+    // And then settles flat again.
+    expect(settleRedemption({ redeemedPoints: -100, compensations: [100, -100], target: 'spent' }))
+      .toBeNull();
+    // Round three: abandoned a second time.
+    expect(settleRedemption({ redeemedPoints: -100, compensations: [100, -100], target: 'returned' }))
+      .toBe(100);
+  });
+
+  it('writes nothing for an order that is spent and has never been compensated', () => {
+    expect(settleRedemption({ redeemedPoints: -100, compensations: [], target: 'spent' })).toBeNull();
   });
 });

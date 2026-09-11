@@ -37,7 +37,7 @@ const order = (
   at: Date,
   lines: ReportableLine[],
   status: ReportableOrder['status'] = 'picked_up',
-  money = { subtotalCents: 0, taxCents: 0, totalCents: 0 },
+  money = { subtotalCents: 0, discountCents: 0, taxCents: 0, totalCents: 0 },
   payment: ReportableOrder['paymentState'] = 'paid',
 ): ReportableOrder => ({
   status,
@@ -154,7 +154,7 @@ describe('salesReport — what each status counts toward', () => {
 
   it('is empty, not broken, with no orders at all', () => {
     expect(salesReport([], LA)).toEqual({
-      totals: { subtotalCents: 0, taxCents: 0, totalCents: 0 },
+      totals: { subtotalCents: 0, discountCents: 0, taxCents: 0, totalCents: 0 },
       days: [],
       hours: [],
       topItems: [],
@@ -175,7 +175,7 @@ describe('salesReport — what each status counts toward', () => {
 });
 
 describe('salesReport — cancellations by reason (P0-6)', () => {
-  const money = { subtotalCents: 1000, taxCents: 83, totalCents: 1083 };
+  const money = { subtotalCents: 1000, discountCents: 0, taxCents: 83, totalCents: 1083 };
   const cancelled = (reason: ReportableOrder['cancelReason'], note?: string): ReportableOrder => ({
     ...order(utc(2026, 7, 14, 19), [line('Burrito', 1, 1083)], 'cancelled', money),
     cancelReason: reason,
@@ -209,7 +209,7 @@ describe('salesReport — cancellations by reason (P0-6)', () => {
     // The table exists BECAUSE these orders count toward nothing else. If
     // adding it ever books a cancelled ticket as a sale, this fails first.
     const report = salesReport([cancelled('kitchen_error')], LA);
-    expect(report.totals).toEqual({ subtotalCents: 0, taxCents: 0, totalCents: 0 });
+    expect(report.totals).toEqual({ subtotalCents: 0, discountCents: 0, taxCents: 0, totalCents: 0 });
     expect(report.topItems).toEqual([]);
     expect(report.days).toEqual([]);
     expect(report.cancellations[0]?.totalCents).toBe(1083);
@@ -326,7 +326,7 @@ describe('salesReport — the rankings and the money', () => {
     // 1095 + 90 tax = 1185, twice: the receipt's own numbers, added up. No
     // rate is applied here — a report that recomputed tax would disagree with
     // every receipt the moment the rate changed.
-    const money = { subtotalCents: 1095, taxCents: 90, totalCents: 1185 };
+    const money = { subtotalCents: 1095, discountCents: 0, taxCents: 90, totalCents: 1185 };
     const report = salesReport(
       [
         order(utc(2026, 7, 14, 19), [line('Burrito', 1, 1095)], 'picked_up', money),
@@ -340,6 +340,7 @@ describe('salesReport — the rankings and the money', () => {
         orders: 2,
         items: 2,
         subtotalCents: 2190,
+        discountCents: 0,
         taxCents: 180,
         totalCents: 2370,
       },
@@ -377,7 +378,7 @@ describe('salesReport — the rankings and the money', () => {
 
 describe('salesReport — collected versus charged (defect D2, C-051)', () => {
   const AT = utc(2026, 7, 14, 19);
-  const money = (totalCents: number) => ({ subtotalCents: totalCents, taxCents: 0, totalCents });
+  const money = (totalCents: number) => ({ subtotalCents: totalCents, discountCents: 0, taxCents: 0, totalCents });
 
   it('separates the money that came in from the money that was booked', () => {
     const paid = order(AT, [line('Burrito', 1, 1095)], 'picked_up', money(1195), 'paid');
@@ -477,7 +478,7 @@ describe('salesReport — collected versus charged (defect D2, C-051)', () => {
 // numbers, three facts, and the addition that ties them asserted rather than
 // rendered.
 describe('salesReport — net sales, tax and gross are three different numbers', () => {
-  const money = { subtotalCents: 1095, taxCents: 90, totalCents: 1185 };
+  const money = { subtotalCents: 1095, discountCents: 0, taxCents: 90, totalCents: 1185 };
   // Two hours on one local day, so the reconciliation is asserted on a row
   // that is a SUM and not a single order's columns copied across.
   const twoHours = [
@@ -489,6 +490,7 @@ describe('salesReport — net sales, tax and gross are three different numbers',
   it('reports the window as net, tax and gross', () => {
     expect(salesReport(twoHours, LA).totals).toEqual({
       subtotalCents: 3285,
+      discountCents: 0,
       taxCents: 270,
       totalCents: 3555,
     });
@@ -496,20 +498,58 @@ describe('salesReport — net sales, tax and gross are three different numbers',
 
   it('carries the same three columns on every hour bucket', () => {
     expect(salesReport(twoHours, LA).hours).toEqual([
-      { hour: 12, orders: 1, items: 1, subtotalCents: 1095, taxCents: 90, totalCents: 1185 },
-      { hour: 13, orders: 2, items: 2, subtotalCents: 2190, taxCents: 180, totalCents: 2370 },
+      { hour: 12, orders: 1, items: 1, subtotalCents: 1095, discountCents: 0, taxCents: 90, totalCents: 1185 },
+      { hour: 13, orders: 2, items: 2, subtotalCents: 2190, discountCents: 0, taxCents: 180, totalCents: 2370 },
     ]);
   });
 
-  it('reconciles net + tax = gross on every row and on the window', () => {
+  it('reconciles net − discount + tax = gross on every row and on the window', () => {
     // The assertion the requirement asks for, over a fixture with a tax that
     // does not divide evenly into the subtotal — 90 on 1095 is 8.219%, so a
     // report that recomputed tax from a rate instead of reading the snapshot
     // would land a cent away and this would catch it.
+    //
+    // THE THIRD TERM IS C-118's. `subtotal + tax = total` was true only while
+    // `discountCents` was always zero; this is the same identity C-117's
+    // database CHECK enforces at the row, asserted here over the sums.
     const report = salesReport(twoHours, LA);
     for (const row of [...report.days, ...report.hours, report.totals]) {
-      expect(row.subtotalCents + row.taxCents).toBe(row.totalCents);
+      expect(row.subtotalCents - row.discountCents + row.taxCents).toBe(row.totalCents);
     }
+  });
+
+  it('keeps a reward’s cost visible instead of netting it into the subtotal', () => {
+    // $10.95 of food, a $10.00 reward, tax on the $0.95 that is left: 8.219%
+    // of 95c is 7.8c, which rounds to 8. The customer paid $1.03.
+    //
+    // The subtotal still reads $10.95 — what the food was SOLD for — because
+    // the alternative buries the entire cost of the punch card inside a
+    // smaller net-sales figure, on the one screen an owner uses to decide
+    // whether the program is worth running.
+    const discounted = order(utc(2026, 7, 14, 19), [line('Burrito', 1, 1095)], 'picked_up', {
+      subtotalCents: 1095,
+      discountCents: 1000,
+      taxCents: 8,
+      totalCents: 103,
+    });
+    const report = salesReport([discounted], LA);
+    expect(report.totals).toEqual({
+      subtotalCents: 1095,
+      discountCents: 1000,
+      taxCents: 8,
+      totalCents: 103,
+    });
+    expect(report.days[0]).toMatchObject({ subtotalCents: 1095, discountCents: 1000 });
+    expect(report.hours[0]).toMatchObject({ subtotalCents: 1095, discountCents: 1000 });
+    // And the identity still holds with a real discount in it, which is the
+    // whole reason the third term exists.
+    expect(
+      report.totals.subtotalCents - report.totals.discountCents + report.totals.taxCents,
+    ).toBe(report.totals.totalCents);
+    // The item's revenue is the FOOD, untouched: a reward is not a cheaper
+    // burrito, and an attach-rate table built on discounted line totals would
+    // rank items by who happened to hold a punch card.
+    expect(report.topItems[0]).toMatchObject({ itemName: 'Burrito', revenueCents: 1095 });
   });
 
   it('counts tax on sold orders only, like every other money figure', () => {
@@ -520,12 +560,13 @@ describe('salesReport — net sales, tax and gross are three different numbers',
         ...twoHours,
         order(utc(2026, 7, 14, 20), [line('Burrito', 9, 9855)], 'cancelled', {
           subtotalCents: 9855,
+          discountCents: 0,
           taxCents: 810,
           totalCents: 10665,
         }),
       ],
       LA,
     );
-    expect(report.totals).toEqual({ subtotalCents: 3285, taxCents: 270, totalCents: 3555 });
+    expect(report.totals).toEqual({ subtotalCents: 3285, discountCents: 0, taxCents: 270, totalCents: 3555 });
   });
 });
