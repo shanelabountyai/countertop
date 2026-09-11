@@ -2536,3 +2536,21 @@ question is "does any constraint, or any later comparison, put this column
 next to a value that came from somewhere else" — and a hand-written CHECK
 spanning two timestamp columns is the loudest possible signal that the
 answer is yes.
+
+### A queue-card bullet that read like a UI requirement and wasn't one (C-116)
+
+The backlog's own words for this item were "the self-serve control itself:
+request a code, confirm it" — which reads, on a fast pass, as "render a
+checkout form control." It is not one, and the same document says so two
+sentences later: "no checkout control exists... until all three ship." A
+"verify your phone" widget with no `Order.discountCents` yet to spend
+against would be a control a customer could use that did nothing for them —
+worse than no control, because it looks like it should work.
+
+The fix was reading the surrounding paragraph before writing UI, not after —
+and the general shape is worth naming: a backlog bullet's headline can
+describe the CAPABILITY a session builds ("the self-serve control") without
+that capability needing a rendered control this session. The mechanism
+(server actions, a signed bearer token, placement-time validation) is the
+control, in the sense the sentence meant; the checkbox is a later session's
+job once there is a price for it to change.

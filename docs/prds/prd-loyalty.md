@@ -196,11 +196,22 @@ money-path change:
   phone digest so a resend needs no separate invalidation. **Not yet wired to
   anything a customer can reach** — this session is plumbing, the same shape
   C-100's ledger was before C-101 gave it a checkbox.
-- **C-116 — Checkout wiring.** The self-serve control itself: request a code,
-  confirm it, and a verified token the checkout submission carries. No new
-  session or cookie — the token is a bearer of proof for one placement, the
-  same idempotency-key discipline `newStatusToken` already applies elsewhere,
-  not a "remembered device".
+- ~~**C-116 — Checkout wiring**~~ **— shipped.** `requestCheckoutVerification` /
+  `confirmCheckoutVerification` (checkout's server actions) and
+  `issueVerifiedPhoneToken` / `verifiedPhoneFromToken` (`packages/db/
+  verification.ts`) — a signed bearer string, same shape as `staff.ts`'s
+  `shiftStamp`/`staffIdFromStamp`, bound to the checkout attempt's own
+  `idempotencyKey` so it cannot be replayed onto a different order. No new
+  session or cookie, as planned. **Scope decision made this session, not in
+  the original plan:** no checkout FORM control renders yet — a "verify your
+  phone" widget with nothing behind it to redeem would be a control that does
+  nothing, and this document's own words above ("no checkout control exists…
+  until all three ship") back that reading. `placeCartOrder` accepts an
+  optional `verifiedPhoneToken` and validates it against the placed order's
+  own snapshotted phone, logging one word from a closed set
+  (`VerifiedPhoneLogOutcome`) — inert on the price, same as C-115's mechanism
+  was inert on everything. C-117 is what gives this a UI and a price effect
+  to be wrong about.
 - **C-117 — The tax base.** `Order.discountCents`, snapshotted, and
   `priceOrder` computing tax on `subtotal − discount` rather than `subtotal`.
   This is the one that makes the reward honest before tax instead of after it

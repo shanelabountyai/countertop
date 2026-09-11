@@ -108,3 +108,67 @@ const refuseStart = (reason: StartRefusal, message: string): StartDecision => ({
   reason,
   message,
 });
+
+// --- The checkout bearer token (C-116) --------------------------------------
+//
+// A confirmed code proves a phone at ONE instant. Checkout needs that proof to
+// survive a few more form fields and a submit — but PRD 7's own resolved
+// Non-Goal rules out a "remembered device", and this codebase has no session
+// or cookie to hang one on anyway. So the proof travels as a bearer token the
+// CLIENT holds and resends with its placement, scoped to one checkout attempt
+// the same way `newStatusToken` is scoped to one order: bound to the
+// `idempotencyKey` that attempt already carries, so it cannot be replayed onto
+// a different order, and short-lived, so it is not a login.
+
+/** How long a confirmed verification stays usable for placement. Longer than
+ *  the code's own five minutes — a customer still has a name, a note and a
+ *  payment method to get through — but still a checkout-attempt window, not a
+ *  day. */
+export const VERIFY_TOKEN_TTL_MINUTES = 10;
+
+export type TokenRefusal = 'wrong_order' | 'phone_mismatch' | 'expired';
+
+export type TokenDecision = { ok: true } | { ok: false; reason: TokenRefusal; message: string };
+
+/**
+ * Whether an already-signature-checked token proves THIS phone for THIS
+ * placement attempt right now. The signature itself is `packages/db`'s job
+ * (it needs the pepper and `timingSafeEqual`); this is the arithmetic on top
+ * of it, same split as `canAttemptVerification`.
+ *
+ * CHECKED IN THIS ORDER: a token minted for a different checkout attempt is
+ * refused before a phone mismatch is even considered, and both are checked
+ * before expiry — a token bound to the wrong order did not become usable by
+ * outliving its clock.
+ */
+export function canUseVerifiedToken(input: {
+  tokenIdempotencyKey: string;
+  idempotencyKey: string;
+  tokenPhoneDigest: string;
+  phoneDigest: string;
+  /** Epoch milliseconds, not a `Date` — the token carries a bare number
+   *  (it has to, to be part of a signed string) and turning it into a `Date`
+   *  buys this comparison nothing that `.getTime()` does not already give
+   *  it. */
+  expiresAtMs: number;
+  now: Date;
+}): TokenDecision {
+  const { tokenIdempotencyKey, idempotencyKey, tokenPhoneDigest, phoneDigest, expiresAtMs, now } =
+    input;
+  if (tokenIdempotencyKey !== idempotencyKey) {
+    return refuseToken('wrong_order', 'That verification was for a different order.');
+  }
+  if (tokenPhoneDigest !== phoneDigest) {
+    return refuseToken('phone_mismatch', 'That verification was for a different phone number.');
+  }
+  if (expiresAtMs <= now.getTime()) {
+    return refuseToken('expired', 'That verification has expired. Verify again.');
+  }
+  return { ok: true };
+}
+
+const refuseToken = (reason: TokenRefusal, message: string): TokenDecision => ({
+  ok: false,
+  reason,
+  message,
+});

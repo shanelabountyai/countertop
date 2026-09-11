@@ -7641,3 +7641,67 @@ is not a safety boundary applies directly to a deploy that forgot to flip it.
 - Nothing wires this to checkout yet — C-116's whole job, including the
   bearer-token shape that lets a verified phone survive from confirmation to
   placement with no session or cookie.
+
+## C-116 — Checkout wiring for phone verification (PRD 7 P1-1, session 2 of 3)
+
+The bearer-token design named in NEXT.md's handoff: "the same idempotency-key
+discipline `newStatusToken` already applies elsewhere." That discipline
+turned out to already have a signature-check shape in this codebase —
+`staff.ts`'s `shiftStamp`/`staffIdFromStamp`, a value in the clear plus a
+keyed hash, timing-safe compared — so this session reused it rather than
+inventing a second one.
+
+**Built:**
+- **`packages/core/loyalty/verification.ts`** — `canUseVerifiedToken`, the
+  pure decision on top of an already-signature-checked token: bound to the
+  wrong checkout attempt, bound to the wrong phone, or expired, checked in
+  that order (wrong-order before phone-mismatch before expiry — a token
+  minted for a different attempt did not become usable by outliving its
+  clock). `VERIFY_TOKEN_TTL_MINUTES` (10) is longer than the code's own five
+  — a customer still has a name, a note and a payment method to get through —
+  but still a checkout-attempt window, not a day.
+- **`packages/core/orders/observability.ts`** — `VerifiedPhoneLogOutcome`, a
+  closed set mirroring `EnrolmentLogOutcome`'s reasoning exactly: every value
+  but `verified` is otherwise invisible, and the type still has no field for
+  a phone number or a token.
+- **`packages/db/verification.ts`** — `issueVerifiedPhoneToken` mints
+  `<phoneDigest>.<idempotencyKey>.<expiresAtMs>.<hash>`; `verifiedPhoneFromToken`
+  checks the signature FIRST (an attacker-supplied idempotency key or phone
+  digest with no matching hash never reaches `canUseVerifiedToken`) and only
+  then asks the business question. `confirmPhoneVerificationForCheckout`
+  wraps `confirmPhoneVerification` to mint the token on success — split out
+  because every OTHER caller of the base function has no placement attempt to
+  scope a token to.
+- **`apps/web/app/checkout/actions.ts`** — `requestCheckoutVerification` /
+  `confirmCheckoutVerification`, thin shape-checking wrappers the same shape
+  every other action here is. `placeCartOrder` accepts an optional
+  `verifiedPhoneToken`; `checkVerifiedPhone` validates it against the PLACED
+  order's own snapshotted phone (never the raw request) after the order
+  exists, same "never gates placement, every outcome is one word on the log
+  line" placement `enrol` already uses for enrolment.
+- **`packages/db/package.json`** gained a `./verification` export — C-115
+  never needed one, because nothing outside `packages/db` imported the
+  module yet.
+
+**Scope decision (recorded in the PRD's own phasing section):** no checkout
+FORM control renders this session. The PRD bullet that named this item
+("the self-serve control itself: request a code, confirm it") reads, at
+first pass, like a UI requirement — but the same document says two sentences
+later that "no checkout control exists... until all three ship," and a
+"verify your phone" widget with no discount mechanism behind it yet
+(`Order.discountCents` is C-117) would be a control that does nothing for
+the customer who used it. The mechanism ships — server actions, signed
+token, placement validation, logged outcome — ready for C-117's UI to call.
+
+**Left behind:**
+- Still no checkout control a customer can reach — the mechanism is real and
+  tested (`packages/core`, `packages/db`), but `requestCheckoutVerification` /
+  `confirmCheckoutVerification` have no caller yet. Same "plumbing, not
+  wired" shape C-115 left, one layer further along.
+- The verified-phone outcome is logged, never persisted — there is
+  deliberately no new column this session. C-117 is what decides whether a
+  placed order needs to remember `verified` beyond its own log line.
+- No e2e or apps/web unit coverage, because there is nothing to click yet
+  and `apps/web` has no unit suite (same reasoning `staff.ts`'s own comment
+  gives for keeping its crypto in `packages/db`) — every claim this session
+  makes is proven in `packages/core` and `packages/db`.

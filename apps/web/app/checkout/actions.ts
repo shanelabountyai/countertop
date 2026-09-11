@@ -9,13 +9,20 @@
 import {
   formatOrderNumber,
   isIdempotencyKey,
+  normalizePhone,
   type CartReview,
   type EnrolmentLogOutcome,
   type Intensity,
   type PaymentState,
+  type VerifiedPhoneLogOutcome,
 } from '@countertop/core';
 import { placeOrder, type OrderReceipt, type PlacementError } from '@countertop/db/placement';
-import { enrolMember } from '@countertop/db/loyalty';
+import { enrolMember, hasLoyaltyPepper, phoneDigest } from '@countertop/db/loyalty';
+import {
+  confirmPhoneVerificationForCheckout,
+  startPhoneVerification,
+  verifiedPhoneFromToken,
+} from '@countertop/db/verification';
 import { clearCart, readCart } from '@/lib/cart-session';
 import { rememberOrder } from '@/lib/recent-orders';
 import { logPlacement } from '@/lib/log';
@@ -167,6 +174,80 @@ async function enrol(order: OrderReceipt, now: Date): Promise<EnrolmentLogOutcom
 }
 
 /**
+ * Whether a checkout submission's verified-phone token actually checked out
+ * (P1-1, C-116). INERT for now — this is a log-line question, not yet a
+ * price one; `result.ok` never depends on it, and it never will until C-117
+ * gives it something to compute. Never throws, same discipline as `enrol`.
+ */
+async function checkVerifiedPhone(
+  order: OrderReceipt,
+  token: string | null,
+  idempotencyKey: string,
+  now: Date,
+): Promise<VerifiedPhoneLogOutcome | null> {
+  if (token === null) return null;
+  if (!hasLoyaltyPepper()) return 'loyalty_pepper_unset';
+  const normalized = normalizePhone(order.customerPhone);
+  if (!normalized) return 'phone_not_enrollable';
+  const result = verifiedPhoneFromToken(token, {
+    idempotencyKey,
+    phoneDigest: phoneDigest(normalized.digits),
+    now,
+  });
+  return result.ok ? 'verified' : result.reason;
+}
+
+/** What requesting a checkout code can tell the customer — never a refusal
+ *  word, same "screen gets a sentence, not a reason code" choice checkout's
+ *  other refusals make. */
+export type VerificationStartResult =
+  | { ok: true; expiresAt: Date; echoedCode: string | null }
+  | { ok: false; message: string };
+
+/**
+ * Request a code for the phone typed at checkout (C-116). Thin: every rule —
+ * program on, phone enrolled, a reward actually available — lives in
+ * `startPhoneVerification` and refuses by name; this only shape-checks the
+ * request the same way every other action here does.
+ */
+export async function requestCheckoutVerification(raw: unknown): Promise<VerificationStartResult> {
+  if (!isRecord(raw) || typeof raw.phone !== 'string') {
+    return { ok: false, message: 'That request could not be read. Try again.' };
+  }
+  const result = await startPhoneVerification(raw.phone, new Date());
+  return result.ok
+    ? { ok: true, expiresAt: result.expiresAt, echoedCode: result.echoedCode }
+    : { ok: false, message: result.message };
+}
+
+export type VerificationConfirmResult = { ok: true; token: string } | { ok: false; message: string };
+
+/**
+ * Confirm the code and mint the bearer token this checkout attempt carries
+ * into `placeCartOrder` (C-116). `idempotencyKey` is the SAME value the form
+ * already generated once for this attempt — it is what scopes the token to
+ * one placement, `verifiedPhoneFromToken`'s whole reason for taking it.
+ */
+export async function confirmCheckoutVerification(raw: unknown): Promise<VerificationConfirmResult> {
+  if (
+    !isRecord(raw) ||
+    typeof raw.phone !== 'string' ||
+    typeof raw.code !== 'string' ||
+    typeof raw.idempotencyKey !== 'string' ||
+    !isIdempotencyKey(raw.idempotencyKey)
+  ) {
+    return { ok: false, message: 'That request could not be read. Try again.' };
+  }
+  const result = await confirmPhoneVerificationForCheckout(
+    raw.phone,
+    raw.code,
+    raw.idempotencyKey,
+    new Date(),
+  );
+  return result.ok ? { ok: true, token: result.token } : { ok: false, message: result.message };
+}
+
+/**
  * Place the cart in this session's cookie (P0-3, P0-8, P0-10).
  *
  * The idempotency key is the client's, generated once per checkout attempt and
@@ -217,6 +298,13 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
   if (customerName === undefined || customerPhone === undefined || orderNote === undefined) {
     return MALFORMED;
   }
+
+  // C-116. Absent is the ordinary case — no code was requested for this
+  // checkout attempt. Present is `confirmCheckoutVerification`'s own bearer
+  // string; shape only here, `checkVerifiedPhone` below is what actually
+  // reads it.
+  const verifiedPhoneToken = optionalString(raw.verifiedPhoneToken);
+  if (verifiedPhoneToken === undefined) return MALFORMED;
 
   // The one clock read in the whole placement path, at its outermost edge:
   // the engine, the writer and the log line all take `now` as a parameter.
@@ -283,11 +371,19 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
   // every outcome, including a throw, is one word on the placement's log line.
   const enrolment = joinLoyalty ? await enrol(result.order, now) : null;
 
+  // Same "after the order, never gating it" placement as `enrol` — and, this
+  // session, the same inertness: nothing yet reads this outcome to change a
+  // price (C-117 is what gives it one). Checked and logged anyway, because a
+  // token that silently stopped checking out would be a defect nobody could
+  // see before C-117 gave it a way to matter.
+  const verifiedPhone = await checkVerifiedPhone(result.order, verifiedPhoneToken, idempotencyKey, now);
+
   logPlacement({
     at: now,
     idempotencyKey,
     outcome: { result: 'placed', orderId: result.order.id, replayed: result.replayed },
     enrolment,
+    verifiedPhone,
   });
 
   // P1-1 (C-082). After the order exists, remembered so `/menu` can offer a

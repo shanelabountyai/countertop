@@ -1,17 +1,22 @@
-// What the DATABASE does with a phone-verification code (PRD 7 P1-1, C-115).
+// What the DATABASE does with a phone-verification code (PRD 7 P1-1, C-115,
+// C-116).
 //
-// The core suite proves `canAttemptVerification` and `planVerificationStart`'s
-// arithmetic; these prove the mechanisms built on top of it — hashing,
-// randomness, and reading the newest row for a digest.
-import { instantMinutesAfter, VERIFY_MAX_ATTEMPTS } from '@countertop/core';
+// The core suite proves `canAttemptVerification`, `planVerificationStart` and
+// `canUseVerifiedToken`'s arithmetic; these prove the mechanisms built on top
+// of it — hashing, randomness, reading the newest row for a digest, and the
+// checkout bearer token's own signature.
+import { instantMinutesAfter, VERIFY_MAX_ATTEMPTS, VERIFY_TOKEN_TTL_MINUTES } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { enrolMember } from './loyalty';
+import { enrolMember, phoneDigest } from './loyalty';
 import { prisma } from './index';
 import { resetDatabase, seedSettings } from './testing/index';
 import {
   confirmPhoneVerification,
+  confirmPhoneVerificationForCheckout,
+  issueVerifiedPhoneToken,
   startPhoneVerification,
   stubSmsVerifyProvider,
+  verifiedPhoneFromToken,
   type SmsVerifyProvider,
 } from './verification';
 
@@ -187,5 +192,110 @@ describe('the stub provider', () => {
   it('is the code itself, not a reference to it', async () => {
     const phone = { digits: PHONE, last4: '2233' };
     await expect(stubSmsVerifyProvider(phone, '482911')).resolves.toBe('482911');
+  });
+});
+
+describe('the checkout bearer token (C-116)', () => {
+  const digest = () => phoneDigest(PHONE);
+
+  it('round-trips: proves the phone it was minted for, for the order it was minted for', async () => {
+    await seedSettings({ loyaltyEnabled: true });
+    const token = issueVerifiedPhoneToken(digest(), 'attempt-1', NOW);
+    const result = verifiedPhoneFromToken(token, {
+      idempotencyKey: 'attempt-1',
+      phoneDigest: digest(),
+      now: NOW,
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('refuses a token presented for a different checkout attempt', async () => {
+    await seedSettings({ loyaltyEnabled: true });
+    const token = issueVerifiedPhoneToken(digest(), 'attempt-1', NOW);
+    const result = verifiedPhoneFromToken(token, {
+      idempotencyKey: 'attempt-2',
+      phoneDigest: digest(),
+      now: NOW,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'wrong_order' });
+  });
+
+  it('refuses a token presented for a different phone', async () => {
+    await seedSettings({ loyaltyEnabled: true });
+    const token = issueVerifiedPhoneToken(digest(), 'attempt-1', NOW);
+    const result = verifiedPhoneFromToken(token, {
+      idempotencyKey: 'attempt-1',
+      phoneDigest: phoneDigest('5559998888'),
+      now: NOW,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'phone_mismatch' });
+  });
+
+  it('refuses a token past its own TTL', async () => {
+    await seedSettings({ loyaltyEnabled: true });
+    const token = issueVerifiedPhoneToken(digest(), 'attempt-1', NOW);
+    const later = instantMinutesAfter(NOW, VERIFY_TOKEN_TTL_MINUTES + 1);
+    const result = verifiedPhoneFromToken(token, {
+      idempotencyKey: 'attempt-1',
+      phoneDigest: digest(),
+      now: later,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'expired' });
+  });
+
+  it('refuses a garbled token outright', async () => {
+    await seedSettings({ loyaltyEnabled: true });
+    const result = verifiedPhoneFromToken('not-a-real-token', {
+      idempotencyKey: 'attempt-1',
+      phoneDigest: digest(),
+      now: NOW,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'malformed' });
+  });
+
+  it('refuses a token with a claimed phone digest but a forged signature', async () => {
+    await seedSettings({ loyaltyEnabled: true });
+    const token = issueVerifiedPhoneToken(digest(), 'attempt-1', NOW);
+    const [phoneDigestPart, key, expiresAt] = token.split('.');
+    // Same claim, made-up signature — proves the signature is what is
+    // actually checked, not just that the parts parse.
+    const forged = `${phoneDigestPart}.${key}.${expiresAt}.${'0'.repeat(64)}`;
+    const result = verifiedPhoneFromToken(forged, {
+      idempotencyKey: 'attempt-1',
+      phoneDigest: digest(),
+      now: NOW,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'malformed' });
+  });
+});
+
+describe('confirming for checkout (C-116)', () => {
+  it('mints a token that proves the phone for the attempt it was confirmed under', async () => {
+    await enrolledMemberWithReward();
+    const started = await startPhoneVerification(PHONE, NOW);
+    if (!started.ok || !started.echoedCode) throw new Error('setup: no code issued');
+
+    const confirmed = await confirmPhoneVerificationForCheckout(
+      PHONE,
+      started.echoedCode,
+      'attempt-1',
+      NOW,
+    );
+    expect(confirmed.ok).toBe(true);
+    if (!confirmed.ok) return;
+
+    const result = verifiedPhoneFromToken(confirmed.token, {
+      idempotencyKey: 'attempt-1',
+      phoneDigest: phoneDigest(PHONE),
+      now: NOW,
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('mints nothing on a wrong code — the base refusal passes through untouched', async () => {
+    await enrolledMemberWithReward();
+    await startPhoneVerification(PHONE, NOW);
+    const result = await confirmPhoneVerificationForCheckout(PHONE, '000000', 'attempt-1', NOW);
+    expect(result).toMatchObject({ ok: false, reason: 'code_mismatch' });
   });
 });

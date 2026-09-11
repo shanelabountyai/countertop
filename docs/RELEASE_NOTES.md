@@ -2436,3 +2436,16 @@ processor, both deliberately stubbed — so the stub hands the code back to
 whoever asked for it rather than pretending to text it somewhere. The next
 two sessions wire it into checkout and change how tax gets computed on a
 reward applied before it, rather than after.
+
+## C-116 — A bearer token for a verified phone
+
+Confirming a code proves a phone number at one instant; getting through the
+rest of a checkout form takes a few more seconds than that. This session
+builds the thing that carries the proof across them — a signed token the
+customer's own browser holds and hands back with the order, good for ten
+minutes and usable for exactly one checkout attempt, never a remembered
+device and never a cookie.
+
+No button to click yet. Verifying a phone with nothing to spend behind it
+yet would be a control that does nothing, so this stays server-side plumbing
+until the next session gives a verified reward an actual price to apply.

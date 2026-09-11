@@ -1,4 +1,4 @@
-// PRD 7 P1-1 (C-115). The database suite proves the hashing and the
+// PRD 7 P1-1 (C-115, C-116). The database suite proves the hashing and the
 // generated-code mechanics; this proves the arithmetic every one of those
 // mechanisms is built on top of.
 import { describe, expect, it } from 'vitest';
@@ -6,9 +6,11 @@ import { instantMinutesAfter } from '../orders/business-day';
 import type { LoyaltyTerms } from './ledger';
 import {
   canAttemptVerification,
+  canUseVerifiedToken,
   planVerificationStart,
   VERIFY_CODE_TTL_MINUTES,
   VERIFY_MAX_ATTEMPTS,
+  VERIFY_TOKEN_TTL_MINUTES,
   type VerificationRow,
 } from './verification';
 
@@ -95,5 +97,53 @@ describe('planVerificationStart', () => {
 
   it('issues at exactly the threshold', () => {
     expect(planVerificationStart({ ...eligible, balance: 100 })).toEqual({ ok: true });
+  });
+});
+
+describe('canUseVerifiedToken (C-116)', () => {
+  const bound = {
+    tokenIdempotencyKey: 'attempt-1',
+    idempotencyKey: 'attempt-1',
+    tokenPhoneDigest: 'digest-a',
+    phoneDigest: 'digest-a',
+    expiresAtMs: instantMinutesAfter(NOW, VERIFY_TOKEN_TTL_MINUTES).getTime(),
+    now: NOW,
+  };
+
+  it('allows a token bound to this order, this phone, and not yet expired', () => {
+    expect(canUseVerifiedToken(bound)).toEqual({ ok: true });
+  });
+
+  it('refuses a token minted for a different checkout attempt', () => {
+    const result = canUseVerifiedToken({ ...bound, tokenIdempotencyKey: 'attempt-2' });
+    expect(result).toMatchObject({ ok: false, reason: 'wrong_order' });
+  });
+
+  it('refuses a token that proves a different phone', () => {
+    const result = canUseVerifiedToken({ ...bound, tokenPhoneDigest: 'digest-b' });
+    expect(result).toMatchObject({ ok: false, reason: 'phone_mismatch' });
+  });
+
+  it('refuses an expired token', () => {
+    const result = canUseVerifiedToken({ ...bound, expiresAtMs: NOW.getTime() });
+    expect(result).toMatchObject({ ok: false, reason: 'expired' });
+  });
+
+  it('prefers the wrong-order reason over a phone mismatch when both are true', () => {
+    const result = canUseVerifiedToken({
+      ...bound,
+      tokenIdempotencyKey: 'attempt-2',
+      tokenPhoneDigest: 'digest-b',
+    });
+    expect(result).toMatchObject({ reason: 'wrong_order' });
+  });
+
+  it('prefers a phone mismatch over expiry when both are true', () => {
+    const result = canUseVerifiedToken({
+      ...bound,
+      tokenPhoneDigest: 'digest-b',
+      expiresAtMs: NOW.getTime(),
+    });
+    expect(result).toMatchObject({ reason: 'phone_mismatch' });
   });
 });

@@ -35,6 +35,7 @@
     "./staff": "./staff.ts",
     "./loyalty": "./loyalty.ts",
     "./retention": "./retention.ts",
-    "./notifications": "./notifications.ts"
+    "./notifications": "./notifications.ts",
+    "./verification": "./verification.ts"
   }
 }

@@ -7,16 +7,19 @@
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import {
   canAttemptVerification,
+  canUseVerifiedToken,
   instantMinutesAfter,
   loyaltyBalance,
   normalizePhone,
   planVerificationStart,
   VERIFY_CODE_TTL_MINUTES,
+  VERIFY_TOKEN_TTL_MINUTES,
   type AttemptRefusal,
   type NormalizedPhone,
   type StartRefusal,
+  type TokenRefusal,
 } from '@countertop/core';
-import { hasLoyaltyPepper, phoneDigest } from './loyalty';
+import { hasLoyaltyPepper, loyaltyPepper, phoneDigest } from './loyalty';
 import { prisma } from './index';
 
 /** Random, six digits, zero-padded — `000000` through `999999` equally
@@ -198,3 +201,124 @@ const refuseConfirm = (reason: ConfirmFailure, message: string): ConfirmResult =
   reason,
   message,
 });
+
+// --- The checkout bearer token (C-116) --------------------------------------
+//
+// `confirmPhoneVerification` above answers "was this code right"; a checkout
+// submission needs to carry that answer a few more form fields and a submit
+// later, with no session or cookie to hold it in (`packages/core`'s own
+// comment on this says why). So a confirmed phone mints a signed, opaque
+// bearer string — same shape as `shiftStamp`/`staffIdFromStamp` in `staff.ts`,
+// a value in the clear plus a keyed hash, timing-safe compared — scoped to
+// one `idempotencyKey` the same way `newStatusToken` is scoped to one order.
+
+export type VerifiedPhoneToken = string;
+
+const stampVerifiedToken = (phoneDigest: string, idempotencyKey: string, expiresAtMs: number): string =>
+  createHash('sha256')
+    .update(
+      `countertop-loyalty-verify-token:${loyaltyPepper()}:${phoneDigest}:${idempotencyKey}:${expiresAtMs}`,
+    )
+    .digest('hex');
+
+/**
+ * Mint the token (C-116). Only ever called right after
+ * `confirmPhoneVerification` returns `ok`, so the pepper is guaranteed set —
+ * `confirmPhoneVerification` refuses `loyalty_pepper_unset` before this can be
+ * reached — but the throw is kept anyway, the same "louder than a silent
+ * wrong answer" call `phoneDigest` makes for the same reason: a token stamped
+ * under an empty pepper would be forgeable by anyone.
+ */
+export function issueVerifiedPhoneToken(
+  phoneDigest: string,
+  idempotencyKey: string,
+  now: Date,
+): VerifiedPhoneToken {
+  if (!hasLoyaltyPepper()) throw new Error('LOYALTY_PHONE_PEPPER is not set');
+  const expiresAtMs = instantMinutesAfter(now, VERIFY_TOKEN_TTL_MINUTES).getTime();
+  const stamp = stampVerifiedToken(phoneDigest, idempotencyKey, expiresAtMs);
+  return [phoneDigest, idempotencyKey, String(expiresAtMs), stamp].join('.');
+}
+
+export type TokenReadResult = { ok: true } | { ok: false; reason: TokenRefusal | 'malformed'; message: string };
+
+/**
+ * Check the signature, then ask `canUseVerifiedToken` whether it proves THIS
+ * phone for THIS placement right now.
+ *
+ * THE SIGNATURE IS CHECKED FIRST, before anything the token claims is trusted
+ * enough to compare — an attacker-supplied idempotency key or phone digest
+ * with no matching hash never reaches the business decision, the same
+ * ordering `staffIdFromStamp` uses for a forged shift cookie.
+ */
+export function verifiedPhoneFromToken(
+  token: string,
+  input: { idempotencyKey: string; phoneDigest: string; now: Date },
+): TokenReadResult {
+  const parts = token.split('.');
+  if (parts.length !== 4) return malformed();
+  const [tokenPhoneDigest, tokenIdempotencyKey, expiresAtRaw, presentedHex] = parts as [
+    string,
+    string,
+    string,
+    string,
+  ];
+  const expiresAtMs = Number(expiresAtRaw);
+  if (!Number.isInteger(expiresAtMs)) return malformed();
+
+  const expected = Buffer.from(
+    stampVerifiedToken(tokenPhoneDigest, tokenIdempotencyKey, expiresAtMs),
+    'hex',
+  );
+  let presented: Buffer;
+  try {
+    presented = Buffer.from(presentedHex, 'hex');
+  } catch {
+    return malformed();
+  }
+  // Length first: `timingSafeEqual` throws on a mismatch rather than
+  // returning false, the same guard every other signature check here keeps.
+  if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
+    return malformed();
+  }
+
+  return canUseVerifiedToken({
+    tokenIdempotencyKey,
+    idempotencyKey: input.idempotencyKey,
+    tokenPhoneDigest,
+    phoneDigest: input.phoneDigest,
+    expiresAtMs,
+    now: input.now,
+  });
+}
+
+const malformed = (): TokenReadResult => ({
+  ok: false,
+  reason: 'malformed',
+  message: 'That verification could not be read. Verify again.',
+});
+
+export type ConfirmForCheckoutResult =
+  | { ok: true; token: VerifiedPhoneToken }
+  | { ok: false; reason: ConfirmFailure; message: string };
+
+/**
+ * `confirmPhoneVerification`, plus the bearer token checkout needs (C-116).
+ * Split from the base function because every OTHER caller of
+ * `confirmPhoneVerification` has no placement attempt to scope a token to —
+ * today there are none; this is the first.
+ */
+export async function confirmPhoneVerificationForCheckout(
+  phone: string,
+  code: string,
+  idempotencyKey: string,
+  now: Date,
+): Promise<ConfirmForCheckoutResult> {
+  const result = await confirmPhoneVerification(phone, code, now);
+  if (!result.ok) return result;
+  const normalized = normalizePhone(phone);
+  // Cannot be null: `confirmPhoneVerification` already normalized this same
+  // value and would have refused `phone_not_enrollable` first if it failed to.
+  const digest = phoneDigest(normalized!.digits);
+  return { ok: true, token: issueVerifiedPhoneToken(digest, idempotencyKey, now) };
+}

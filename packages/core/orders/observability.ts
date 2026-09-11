@@ -15,6 +15,7 @@
 // and order id, which are the two identifiers a support question can be
 // answered from and neither of which is a person.
 import type { CartReview } from '../cart/cart';
+import type { TokenRefusal } from '../loyalty/verification';
 import { checkClientTotal, type TotalMismatch } from '../pricing/pricing';
 import type { GateReason } from './checkout-gate';
 
@@ -53,6 +54,25 @@ export type EnrolmentLogOutcome =
   | 'phone_not_enrollable'
   | 'enrolment_threw';
 
+/**
+ * What happened to a checkout submission's verified-phone token (PRD 7 P1-1,
+ * C-116). Same shape as `EnrolmentLogOutcome` and the same reason it exists:
+ * a customer who verified a code and had it silently not count is a support
+ * call, and every value here except `verified` is otherwise invisible — the
+ * order still places, the receipt still prints.
+ *
+ * `'malformed'` and the three `TokenRefusal` reasons all mean "the signature
+ * did not check out or the token did not prove this placement"; they are kept
+ * apart because a forged or replayed token is a different question than a
+ * customer's own code expiring.
+ */
+export type VerifiedPhoneLogOutcome =
+  | 'verified'
+  | 'loyalty_pepper_unset'
+  | 'phone_not_enrollable'
+  | 'malformed'
+  | TokenRefusal;
+
 export type PlacementLogInput = {
   /** The instant, passed in like every other instant in this package. */
   at: Date;
@@ -64,6 +84,11 @@ export type PlacementLogInput = {
   mismatch?: TotalMismatch | null;
   /** Absent unless the customer asked to join (PRD 7 P0-1). */
   enrolment?: EnrolmentLogOutcome | null;
+  /** Absent unless the checkout submission carried a verified-phone token
+   *  (C-116). Inert for now — nothing yet spends it — but "the token checked
+   *  out" and "it did not" is worth seeing before C-117 gives it a price
+   *  effect to be wrong about. */
+  verifiedPhone?: VerifiedPhoneLogOutcome | null;
 };
 
 /**
@@ -130,6 +155,10 @@ export function placementLogLine(input: PlacementLogInput): PlacementLogLine {
   // number that enrolment is about — the type has no field for it, which is
   // the same structural no-PII guarantee the rest of this line has.
   if (input.enrolment) line.enrolment = input.enrolment;
+
+  // Same structural guarantee, same reason (C-116): the type has no field for
+  // a phone number or a token, only the one word this line already decided.
+  if (input.verifiedPhone) line.verifiedPhone = input.verifiedPhone;
 
   return line;
 }
