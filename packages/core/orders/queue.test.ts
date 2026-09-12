@@ -14,6 +14,7 @@ import {
   isLeftOver,
   matchesLookup,
   queueAging,
+  isPastDue,
   lastMovement,
   undoRemainingMs,
   type LastOrderEvent,
@@ -29,11 +30,24 @@ import {
 const NOON = new Date(Date.UTC(2026, 6, 4, 19, 0, 0));
 const minutesBefore = (minutes: number): Date => new Date(Date.UTC(2026, 6, 4, 19, 0 - minutes, 0));
 const secondsBefore = (seconds: number): Date => new Date(Date.UTC(2026, 6, 4, 19, 0, 0 - seconds));
+// Same UTC FIELD arithmetic, the other direction — a promised pickup is the
+// first thing this engine reasons about that lies in the FUTURE.
+const minutesAfter = (minutes: number): Date => new Date(Date.UTC(2026, 6, 4, 19, 0 + minutes, 0));
 
-const order = (over: Partial<{ status: OrderStatus; placedAt: Date; statusChangedAt: Date }> = {}) => ({
+const order = (
+  over: Partial<{
+    status: OrderStatus;
+    placedAt: Date;
+    statusChangedAt: Date;
+    requestedFor: Date | null;
+  }> = {},
+) => ({
   status: 'preparing' as OrderStatus,
   placedAt: minutesBefore(5),
   statusChangedAt: minutesBefore(1),
+  // ASAP unless a test says otherwise — so every assertion below that predates
+  // C-123 still describes the order it was written about.
+  requestedFor: null as Date | null,
   ...over,
 });
 
@@ -84,6 +98,118 @@ describe('queue aging (P0-4)', () => {
     const preparing = queueAging(order({ status: 'preparing', statusChangedAt: minutesBefore(40) }), NOON);
     expect(preparing.readyMinutes).toBeNull();
     expect(preparing.noShowLevel).toBe(0);
+  });
+});
+
+describe('a scheduled order ages against its SLOT, not its placement (P1-2, C-123)', () => {
+  // The founding case. Ordered at breakfast for a one o'clock pickup, sitting
+  // in `accepted` exactly as intended. Every minute since placement is a
+  // minute nobody was waiting.
+  const lunchOrder = (requestedFor: Date = minutesAfter(60)) =>
+    order({ status: 'accepted', placedAt: minutesBefore(300), requestedFor });
+
+  it('does not flag a ticket whose pickup time is still an hour away', () => {
+    const aging = queueAging(lunchOrder(), NOON);
+    expect(aging.overdue).toBe(false);
+    // The old number is still reported and still true — it is simply not
+    // evidence of anything, which is why the card stopped leading with it.
+    expect(aging.waitingMinutes).toBe(300);
+    expect(aging.dueInMinutes).toBe(60);
+  });
+
+  it('flags it AT the promised minute, not a threshold after it', () => {
+    // `>=`, inherited from `isOverdue`: a 12:30 pickup is late at 12:30. This
+    // is the one boundary in this codebase with a literal clock behind it.
+    expect(queueAging(lunchOrder(minutesAfter(1)), NOON).overdue).toBe(false);
+    expect(queueAging(lunchOrder(NOON), NOON).overdue).toBe(true);
+  });
+
+  it('keeps counting once the slot has passed, so late reads as late', () => {
+    // This one is GREEN against the defect it replaces — which was true four
+    // hours early and true here too, so the flag carried no information about
+    // a scheduled ticket at all. It is red against the over-correction
+    // instead: a fix that simply never flags a scheduled order passes the test
+    // above and fails this one. Both directions are checked, because the
+    // sessions either side of this one both shipped a test that agreed with
+    // the bug (C-119, C-122).
+    const aging = queueAging(lunchOrder(minutesBefore(12)), NOON);
+    expect(aging.overdue).toBe(true);
+    expect(aging.dueInMinutes).toBe(-12);
+  });
+
+  it('leaves an ASAP order counting up from the counter, unchanged', () => {
+    // The whole pre-P1-2 behaviour, pinned: that branch is `isOverdue`
+    // verbatim, and a scheduled-order fix that moved it would be a regression.
+    expect(queueAging(order({ placedAt: minutesBefore(14) }), NOON).dueInMinutes).toBeNull();
+    expect(queueAging(order({ placedAt: minutesBefore(14) }), NOON).overdue).toBe(false);
+    expect(queueAging(order({ placedAt: minutesBefore(15) }), NOON).overdue).toBe(true);
+  });
+});
+
+describe('nobody is a no-show before they said they would arrive (P1-2, C-123)', () => {
+  const bagged = (readyMinutesAgo: number, requestedFor: Date | null) =>
+    queueAging(
+      order({
+        status: 'ready',
+        placedAt: minutesBefore(300),
+        statusChangedAt: minutesBefore(readyMinutesAgo),
+        requestedFor,
+      }),
+      NOON,
+    );
+
+  it('does not escalate food bagged twenty minutes EARLY', () => {
+    // On the shelf 20 minutes, due in 15. Against `statusChangedAt` alone that
+    // is two marks into [10, 20, 30] and a red card — and `noShowLevel >= 2`
+    // is the card's OTHER red branch, so the flag was wrong by both paths.
+    const aging = bagged(20, minutesAfter(15));
+    expect(aging.readyMinutes).toBe(0);
+    expect(aging.noShowLevel).toBe(0);
+  });
+
+  it('starts the clock at the promised minute once it passes', () => {
+    // Bagged an hour ago for a pickup 25 minutes ago: 25 minutes of somebody
+    // not turning up, not 60. The old reading crossed all three marks.
+    const aging = bagged(60, minutesBefore(25));
+    expect(aging.readyMinutes).toBe(25);
+    expect(aging.noShowLevel).toBe(2);
+  });
+
+  it('still runs from READY when the food was late out of the kitchen', () => {
+    // Promised 42 minutes ago, bagged 12 minutes ago. The customer has been
+    // stood there 12 minutes, not 42 — the LATER of the two instants is the
+    // right one in both directions, which is why it is a max and not a swap.
+    // Green against the old clock and red against a no-show clock that always
+    // reads `requestedFor`, which is the obvious wrong way to fix this.
+    const aging = bagged(12, minutesBefore(42));
+    expect(aging.readyMinutes).toBe(12);
+    expect(aging.noShowLevel).toBe(1);
+  });
+
+  it('leaves an ASAP order running from ready, unchanged', () => {
+    const aging = bagged(26, null);
+    expect(aging.readyMinutes).toBe(26);
+    expect(aging.noShowLevel).toBe(2);
+  });
+});
+
+describe('isPastDue', () => {
+  it('is not satisfied by a pickup that has not happened yet', () => {
+    // THE trap this function exists to sidestep, asserted rather than trusted.
+    // `elapsedMinutes` clamps at zero, so routing the scheduled branch through
+    // it would make `>= 0` true for every order ever placed — next week's
+    // included. A week out must read false.
+    expect(
+      isPastDue({ placedAt: minutesBefore(9000), requestedFor: minutesAfter(10_080) }, NOON),
+    ).toBe(false);
+  });
+
+  it('answers for the card and the report with the same sentence', () => {
+    // The two readers `isOverdue`'s comment names, differing only in WHEN they
+    // ask: the card at `now`, the report at the instant the food became ready.
+    const ticket = { placedAt: minutesBefore(300), requestedFor: minutesBefore(5) };
+    expect(isPastDue(ticket, NOON)).toBe(true);
+    expect(isPastDue(ticket, minutesBefore(6))).toBe(false);
   });
 });
 

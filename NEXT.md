@@ -1,76 +1,99 @@
 # Next
 
-**C-122 shipped this session** (`e6daa5e`): the bulk 86 under two cooks. `setAvailability`
-read the rows it was about to flip and then flipped them, so two overlapping
-batches in the same second both claimed the same still-available row — and the
-first undo put it back on the customer menu while the second cook's screen
-still said sold out. **An item a customer can order and the kitchen does not
-have is the founding failure of this product, and it was arriving through the
-undo button.**
+**C-123 shipped this session**: the queue's running-late flag, and the pickup
+time it never knew about. C-114 gave an order a `requestedFor`; `queueAging`
+computed every flag as a duration from something the ORDER did, so a scheduled
+ticket reddened fifteen minutes after PLACEMENT.
 
-Fixed with `updateManyAndReturn` per grain: the `available: !available` guard
-moves out of a preceding `SELECT` and into the `WHERE` of the `UPDATE`, which
-Postgres re-evaluates against the row it just locked. The loser of the race
-matches nothing, returns nothing, claims nothing. No migration, no lock, still
-one transaction across both grains.
+**A probe before any change printed worse than the backlog described.**
+`overdue` was not "early sometimes" — it was `true` from 12:15 onward,
+**forever**, so a scheduled order genuinely late at 17:10 and one sitting
+correctly at 12:20 were the same colour. The flag carried no information about
+a scheduled ticket at all. The probe also printed two things nobody had filed:
+food bagged twenty minutes BEFORE its slot scored `noShowLevel: 2` (the card's
+*other* red branch — the flag was wrong by both of its paths), and the report
+counted every scheduled order as having run late at 295 minutes, top of the
+slowest-five, pushing the genuinely slow tickets off a list of five.
 
-**Two things worth carrying forward, both in `docs/WRITEUP.md`'s C-122 entry:**
-- **The `ponytail:` described its own defect backwards** — "an undo list that
-  is short by the overlap", "nobody loses an 86". A probe printed the opposite
-  before anything was changed: the lists come back LONG, and the lost 86 is
-  the whole harm. The comment reasoned about the WRITE (both agree, so nothing
-  is lost) and never about the RETURN VALUE, which is what the undo acts on.
-  A comment that bounds a risk and gets the bound wrong is worse than none —
-  it reads as a reason not to look, and this one went unchallenged for over a
-  hundred items. **When a comment bounds a known risk, run it once before
-  believing it.**
-- **The C-119 lesson repeated.** The first undo test PASSED against the bug:
-  it asserted "the row is back iff this cook claimed it", and under the bug
-  BOTH cooks claimed it. Trying to make a concurrency test order-independent
-  had made it bug-independent. Rewritten to assert the *other* cook's screen
-  is still true. Two sessions running now: **revert the fix, run the new
-  tests, require red before keeping them.**
+Built as `isPastDue(order, at, thresholds)` — one sentence, two readers,
+differing only in WHEN they ask: the card at `now`, the report at the instant
+the food reached `ready`. The ASAP branch is `isOverdue` verbatim and the whole
+pre-P1-2 behaviour. The no-show clock starts at the LATER of ready and the
+promised minute. `serviceTimes` splits its sample. No migration.
+
+**Three things worth carrying forward, all in `docs/WRITEUP.md`'s C-123 entry:**
+
+- **The comment paid for itself, one item after a comment cost more than it was
+  worth.** C-122's `ponytail:` described its own defect backwards.
+  `isOverdue`'s comment — "two readers … the same sentence about the same
+  minutes" — was *correct*, and following it rather than skimming it is the
+  only reason the report was fixed in the same session. The report's version
+  was the worse one: the card's red gets distrusted, a report's number gets
+  used. **The lesson is not "trust comments" or "distrust comments" — it is
+  that a comment naming a blast radius is a lead to follow to the other
+  surface, and then to verify.**
+- **A screen was asserting the invariant in English.** `report/page.tsx` says
+  to the operator: *"Ran late" is the same 15-minute mark the card turns red
+  at.* Fixing the card alone would not have left a latent inconsistency — it
+  would have made a sentence **rendered on the screen** false on the day it
+  shipped. Worth grepping user-facing copy for claims about behaviour before
+  changing that behaviour.
+- **"Revert the fix and require red" is only half the technique.** It catches a
+  test that agrees with the ORIGINAL defect — the C-119 and C-122 failure. It
+  does NOT catch a test that agrees with the OVER-correction, which here was
+  the likelier long-term risk: "a scheduled order is never late" is a sentence
+  a reasonable person would write and nobody would question. Both defects were
+  run. Five tests are red against the original; four **different** ones are red
+  against the over-correction, and two of those had been green against the
+  original and would have read as dead weight. **The other half is: apply the
+  wrong fix too.**
 
 ## Next unblocked item: pick one — nothing is blocking
 
-Same menu as last session, minus the one just taken. In rough order of what a
-reader of this project would notice first:
+Same menu as last session, minus the one just taken.
 
-1. **The rush no longer exercises a refund end to end.** Both its prepaid
-   exits are voids, which is C-069 working correctly — but it means the
-   refund machinery, `refund_failed`, and the exceptions list appear in no
-   demo at all. ~six lines of rush script plus assertions. **Cheapest real
-   gap.** Sonnet.
-2. **The queue's 15-minute "running late" flag does not know about
-   `requestedFor`** (C-114) — a scheduled order sitting untouched well before
-   its slot still reddens. Touches `queueAging`; the "Pickup HH:MM" badge is
-   the mitigation, not the fix.
+1. **The rush no longer exercises a refund end to end.** Both its prepaid exits
+   are voids, which is C-069 working correctly — but it means the refund
+   machinery, `refund_failed`, and the exceptions list appear in no demo at
+   all. ~six lines of rush script plus assertions. **Cheapest real gap.**
+2. **The rush places no SCHEDULED order either** — new, and the same shape as
+   item 1. C-114 shipped order-ahead and C-123 has just fixed two flags that
+   only scheduled orders reach, and none of it appears in the capstone demo;
+   the e2e suite is the only thing that drives any of it. Seeding two — one
+   collected on time, one left past its slot to redden — would demonstrate
+   `requestedFor`, `dueInMinutes`, the no-show clock and the report's new
+   `scheduled`/`scheduledLate` pair in one pass. **Pairs naturally with item 1:
+   both are rush-script work in the same file.**
 3. **No `PhoneVerification` sweep** (C-115's `ponytail:`) — one row per
    verification request, forever, and C-120 made the rush issue two per run.
    The upgrade path is written on the model: a periodic delete past
    `expiresAt`, same shape as the retention sweep.
 4. **`stagePrice` is the other read-modify-write in `menu.ts`** — a
    delete-then-create inside a transaction, scoped to the same
-   `(target, effectiveDay)` the create writes. Not obviously wrong, and
-   nothing asserts it under concurrency. **Worth thirty minutes of probing
-   before deciding it is an item at all** — that is exactly what C-122 turned
-   out to need.
+   `(target, effectiveDay)` the create writes. Not obviously wrong, and nothing
+   asserts it under concurrency. **Worth thirty minutes of probing before
+   deciding it is an item at all** — which is exactly what C-122 and C-123 both
+   turned out to need.
 
 **If you would rather clear the older debt**, the C-069/C-071 list at the
 bottom of this file is still accurate.
 
-## What C-122 leaves behind
+## What C-123 leaves behind
 
-- **Two cooks can still each get half of one selection**, and that is correct
-  rather than a remaining gap: each report names what that cook actually
-  flipped and each undo restores exactly that. Neither screen tells a cook
-  that somebody else took the rest — `done=off` announces "Marked N sold out"
-  with that cook's own N.
-- **`stagePrice` is untouched.** Item 4 above.
-- **No test drives the race through the SCREEN.** `setBulkAvailable` passes
-  the return straight into the redirect, so the action is correct by
-  construction; two browsers submitting in the same second is not something
-  Playwright expresses cheaply.
+- **The rush script places no scheduled order**, so none of this reaches the
+  capstone demo. Item 2 above.
+- **`dueInMinutes` is floored**, so a card reads "Due in 0 min" for the last
+  minute before its slot. Correct, and consistent with every other minute on
+  the screen; it just reads oddly for sixty seconds.
+- **Nothing bounds how far a card counts down.** A slot four hours out reads
+  "Due in 240 min" rather than the hours a person would say out loud.
+- **`scheduledLate` has no slowest-list of its own.** The count says how many
+  missed their slot and nothing says by how much, or which. Deliberate — one
+  table per quantity — but it is the obvious next ask from an operator.
+- **No e2e drives a scheduled order PAST its slot.** `schedule.spec.ts` now
+  asserts the card counts down and does not claim to be running late, which is
+  the defect that was filed; the other direction is unit-tested only, because
+  waiting out a real slot is not something Playwright expresses cheaply.
 
 ## Still open from C-118 → C-121
 
@@ -111,29 +134,50 @@ bottom of this file is still accurate.
 - **The sleeps in the member-lock test are 250ms.** If it flakes, raise them;
   do not delete the test.
 
+## The gate at C-123
+
+`lint` / `typecheck` / `test` / `build:test` / `test:e2e`, all five run.
+
+- **1072 unit** (+16 over C-122's 1056 — exactly the tests added), 45 files.
+- **E2E 218 passed + 15 skipped + 10 failed**, reconciling to `--list`'s 243;
+  the ten are the documented pre-existing set above, unchanged.
+- Lint, typecheck and the production build clean.
+- **No migration**, so no drift check was needed and `ci:local` was not run.
+
 ## Environment notes for whoever runs the gate next
 
-**Ten e2e specs fail in a fresh container and it is not the code.**
-`contact`, `last-call` ×2, `menu-editing` ×2, `menu` ×3 and `refund` ×2 die
-with `Error: request for './menu/index' is from a module not been linked` —
-an ESM loader failure in the fixtures that use a late
-`await import('@countertop/db')`. Verified pre-existing at C-118 by stashing
-that whole change and running the same ten on `f239791`, where they fail
-identically; unchanged since. Everything else is green: **218 passed + 15
-skipped + 10 failed = 243, which is what `--list` reports.**
+**Ten e2e specs fail in a fresh container and it is not the code.** `contact`,
+`last-call` ×2, `menu-editing` ×2, `menu` ×3 and `refund` ×2 die with
+`Error: request for './menu/index' is from a module not been linked` — an ESM
+loader failure in the fixtures that use a late `await import('@countertop/db')`.
+Verified pre-existing at C-118 by stashing that change and running the same ten
+on `f239791`, where they fail identically. **Confirmed unchanged at C-123**:
+the same ten specs, all ten carrying that identical error, and
+**218 passed + 15 skipped + 10 failed = 243**, which is what `--list` reports.
 
-**`npm run ci:local` needs password-less local TCP auth**, which a dev machine
-has and a fresh container does not — it builds its URL as
-`postgresql://$(whoami)@localhost/...` with no password. In a container, set
-`host … 127.0.0.1/32 trust` in `pg_hba.conf` and reload. Not a repo change;
-the script is right for the machine it was written for. **It is worth running
-for a migration session** — it is the only thing that applies the whole
-migration history from nothing, asserts the five named invariants, and runs
-the drift check.
+**Postgres in a fresh container** is installed but down, and the cluster has no
+`root` role. What worked at C-123, start to finish:
 
-**Also container-only:** Playwright wants browser build 1234 and the image
-ships 1194. Symlinking `/opt/pw-browsers/chromium_headless_shell-1234/…` at
-the expected path is what lets the e2e leg run.
+```sh
+pg_ctlcluster 16 main start
+psql -h 127.0.0.1 -U postgres -c "CREATE ROLE root LOGIN SUPERUSER PASSWORD 'ct'"
+psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE countertop_test OWNER root"
+npm run db:migrate:test
+```
+
+That matches `.env.test`'s `postgresql://root:ct@localhost:5432/countertop_test`
+and needs no `pg_hba.conf` edit, because it authenticates with the password the
+URL carries. The `pg_hba` trust line in the older note here is only needed for
+`npm run ci:local`, which builds its own URL as
+`postgresql://$(whoami)@localhost/...` with no password. **`ci:local` is still
+worth running for a migration session** — it is the only thing that applies the
+whole migration history from nothing, asserts the five named invariants, and
+runs the drift check. C-123 added no migration, so it was not run.
+
+**Playwright browsers:** the older note here says the image ships build 1194
+while Playwright wants 1234 and a symlink is needed. **No longer true in this
+image** — `/opt/pw-browsers` carries both `chromium-1234` and
+`chromium_headless_shell-1234`, and the e2e leg ran with no intervention.
 
 ## Still open from earlier items
 

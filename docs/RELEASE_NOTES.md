@@ -2642,3 +2642,43 @@ code**. It asserted "the item is back if this cook claimed it" — and under the
 bug both cooks claimed it, so the bug satisfied the test. The habit that
 catches this is cheap: break the fix on purpose and check the test goes red.
 It took two minutes and turned one useless test into a real one.
+
+## C-123 — A pickup time the queue actually respects
+
+You can order at noon for a five o'clock pickup. The kitchen screen has shown
+that pickup time on the ticket since the feature shipped — and then, fifteen
+minutes after the order was placed, turned the same ticket red and labelled it
+"running late".
+
+It was wrong in a way that is worse than it first sounds. The flag did not go
+red early and then settle down; it went red at 12:15 and stayed red, so a
+scheduled order that was genuinely late at 17:10 looked exactly like one
+sitting correctly at 12:20. On a screen whose entire job is to be read at a
+glance across a hot kitchen, the red had stopped meaning anything at all. The
+same was true of the no-show alarm from the other direction: food bagged twenty
+minutes before the customer was due was flagged as somebody who had not turned
+up.
+
+Both now run off the time the customer actually asked for. A scheduled ticket
+counts *down* to its slot — "Due in 12 min" — and only claims to be late once
+that minute arrives.
+
+**The same bug had a second home nobody had noticed.** The end-of-service
+report measures every ticket from order to Ready and flags anything over
+fifteen minutes. For a scheduled order that span includes the hours it sat
+waiting on purpose, so *every* scheduled order was counted as having run late,
+and each one went straight to the top of the "slowest tickets" list — pushing
+the genuinely slow tickets the list exists to surface off the bottom of it.
+
+That was found by following a comment rather than a bug report. The code
+already said the card and the report "are the same sentence about the same
+minutes", and the report page says so to the operator in plain English. Fixing
+one without the other would have made a sentence on the screen false. Scheduled
+orders now get their own two numbers, measured against the time they promised,
+and the Order-to-Ready column goes back to measuring kitchen work.
+
+**On testing the fix rather than the code.** Two earlier sessions shipped tests
+that passed against the bug they were written for, so this time both defects
+were run: the original, and the obvious over-correction of simply never
+flagging a scheduled order. Five tests catch the first. Four different ones
+catch the second. A test that no defect makes fail was not worth keeping.

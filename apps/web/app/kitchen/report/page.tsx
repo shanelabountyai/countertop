@@ -528,39 +528,77 @@ export default async function ReportPage({
           grain a customer waited at and a staffing decision is made on. */}
       <Section title="How long tickets took">
         <p className="text-lg text-neutral-700">
-          Order to Ready, for every ticket that got there — measured off the order log, floored to
-          whole minutes, the same way the kitchen card counts a ticket up. An order that was
+          Order to Ready, for every ASAP ticket that got there — measured off the order log, floored
+          to whole minutes, the same way the kitchen card counts a ticket up. An order that was
           cancelled or is still cooking is not counted: it is not evidence that service was slow.
           &ldquo;Ran late&rdquo; is the same {service.lateAfterMinutes}-minute mark the card turns
           red at.
         </p>
-        {service.tickets === 0 ? (
+        {/* P1-2, C-123. Said here rather than only in the code, because the
+            number a reader would otherwise expect in "Tickets" is the one that
+            is deliberately missing from it — but only once there is a
+            scheduled order to explain away. Same invisibility rule the tiles
+            below follow: a shop that does not take pickup times should not
+            have to read a paragraph about them. */}
+        {service.scheduled > 0 && (
+          <p className="mt-2 text-lg text-neutral-700">
+            An order placed for a later pickup is counted below instead, against the time it asked
+            for. Ordering at noon for five o&rsquo;clock is not five hours of kitchen work, and
+            measuring it as though it were made every scheduled order the slowest of the day.
+          </p>
+        )}
+        {service.tickets === 0 && service.scheduled === 0 ? (
           <p className="mt-3 text-lg">No ticket has reached Ready in this window yet.</p>
         ) : (
           <>
-            {/* Two tiles and not three: the slowest ticket is the first row of
-                the table below, and a headline restating a row is one more
-                place for the two to disagree. */}
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <Stat label="Tickets" value={String(service.tickets)} note="Reached Ready" />
-              <Stat
-                label="Ran late"
-                value={String(service.ranLate)}
-                note={`Over ${service.lateAfterMinutes} min to Ready`}
-                testId="ran-late"
-              />
-            </div>
-            <div className="mt-3">
-              <Table
-                headers={['Order', 'Day', 'Order to Ready']}
-                label="Slowest tickets"
-                rows={service.slowest.map((ticket) => [
-                  formatOrderNumber(ticket.seq),
-                  ticket.businessDay,
-                  `${ticket.minutes} min`,
-                ])}
-              />
-            </div>
+            {service.tickets > 0 && (
+              <>
+                {/* Two tiles and not three: the slowest ticket is the first row
+                    of the table below, and a headline restating a row is one
+                    more place for the two to disagree. The scheduled pair
+                    below is a different QUESTION, not a third headline for
+                    this one. */}
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <Stat label="Tickets" value={String(service.tickets)} note="Reached Ready" />
+                  <Stat
+                    label="Ran late"
+                    value={String(service.ranLate)}
+                    note={`Over ${service.lateAfterMinutes} min to Ready`}
+                    testId="ran-late"
+                  />
+                </div>
+                <div className="mt-3">
+                  <Table
+                    headers={['Order', 'Day', 'Order to Ready']}
+                    label="Slowest tickets"
+                    rows={service.slowest.map((ticket) => [
+                      formatOrderNumber(ticket.seq),
+                      ticket.businessDay,
+                      `${ticket.minutes} min`,
+                    ])}
+                  />
+                </div>
+              </>
+            )}
+            {/* Hidden outright when nobody scheduled, the same invisibility
+                rule `scheduledOrdersEnabled` set at C-114: a shop that does
+                not take pickup times should not have to read two zeroes to
+                learn that. */}
+            {service.scheduled > 0 && (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <Stat
+                  label="Scheduled"
+                  value={String(service.scheduled)}
+                  note="Reached Ready"
+                />
+                <Stat
+                  label="Late for pickup"
+                  value={String(service.scheduledLate)}
+                  note="Ready after the promised time"
+                  testId="scheduled-late"
+                />
+              </div>
+            )}
           </>
         )}
       </Section>

@@ -8314,3 +8314,84 @@ failures C-118's entry documents; 243 on `--list`, and 218 + 15 + 10
 reconciles.
 
 C-122 committed and pushed at e6daa5e
+
+## C-123 — The running-late flag and the pickup time
+
+*(NEXT.md's item 2, and a second surface it did not name.)*
+
+C-114 gave an order a `requestedFor` — the minute a customer asked to collect
+at. `queueAging` never learned it existed. Every flag it computes is a duration
+measured from something the ORDER did, and a customer who asked for five
+o'clock is not waiting from the moment they pressed the button.
+
+**Probed before anything was changed**, and the probe printed worse than the
+backlog described:
+
+| | old reading |
+|---|---|
+| 17:00 pickup, seen at 12:20 | `overdue: true` — red 4h40m early |
+| the same order, genuinely late at 17:10 | `overdue: true` — **identical** |
+| food bagged 20 min BEFORE the slot | `noShowLevel: 2` |
+| report, one scheduled order ready 5 min EARLY | `ranLate: 1`, top of `slowest` at 295 min |
+
+The second row is the one that mattered: `overdue` was not "early sometimes",
+it was `true` from fifteen minutes after placement onward, **forever**. The
+flag carried no information about a scheduled ticket at all — a genuinely late
+one and a correctly-waiting one were the same colour.
+
+**Built:**
+- **`isPastDue(order, at, thresholds)` in `packages/core`** — one sentence, two
+  readers, differing only in WHEN they ask. The card asks at `now`; the report
+  asks at the instant the food reached `ready`. An ASAP order's branch is
+  `isOverdue` verbatim and the entire pre-P1-2 behaviour; a scheduled order's
+  compares instants against `requestedFor`.
+- **The no-show clock starts at the LATER of ready and the promised minute.**
+  Nobody can fail to turn up early. `noShowLevel >= 2` is the card's *other*
+  red branch, so the flag had been wrong by both of its paths.
+- **`serviceTimes` splits its sample.** A scheduled order leaves `tickets` and
+  `slowest` entirely and gains its own `scheduled` / `scheduledLate` pair.
+- **`AgeableOrder.requestedFor` is REQUIRED, not optional** — the compiler found
+  all four call sites, which is the point.
+
+**Decided:**
+- **The report was not optional scope.** `isOverdue`'s comment says the card and
+  the ran-late count "are the same sentence about the same minutes", and
+  `report/page.tsx` states it *to the operator*: "'Ran late' is the same
+  15-minute mark the card turns red at." Fixing only the card would have made
+  that sentence false on screen — the exact drift the comment exists to
+  prevent.
+- **Split, not merged.** "Order to Ready" is a column of one quantity. A
+  scheduled ticket's honest number for it is minutes past a promise — a
+  different measurement wearing the same header. Same answer this codebase
+  already gave by naming `isPastQuote` beside `isOverdue` rather than adding a
+  flag.
+- **The scheduled branch cannot route through `elapsedMinutes`.** That helper
+  clamps at zero, which is right for a duration spent and fatal for a deadline
+  not yet reached: every `elapsedMinutes(requestedFor, at)` is `>= 0`, so a
+  threshold of zero would be satisfied by an order placed for next Tuesday.
+  There is a test named for that trap.
+
+**Red in both directions, on purpose.** Five new tests fail against the old
+behaviour. Four *others* fail against the plausible OVER-correction — a fix
+that simply never flags a scheduled order, or a no-show clock that always reads
+`requestedFor`. The C-119/C-122 lesson was that a test can be satisfied by the
+bug it was written for; the answer used here was to run both defects and keep
+only tests that some defect makes red.
+
+**Left behind:**
+- **The rush script places no scheduled order**, so none of this appears in the
+  capstone demo — the e2e suite is the only thing that drives it.
+- **`dueInMinutes` is floored, so it reads "Due in 0 min" for the last minute
+  before a slot.** Correct and consistent with every other minute on the
+  screen; it just reads oddly for sixty seconds.
+- **Nothing bounds how far a card may count down.** A slot four hours out shows
+  "Due in 240 min" rather than the hours a person would say.
+
+**Gate:** all five legs. 1072 unit (+16 over C-122's 1056 — exactly the tests
+added), 45 files; lint / typecheck / production build clean. E2E 218 passed +
+15 skipped + the same ten pre-existing container failures C-118's entry
+documents, every one of them carrying the identical `module not been linked`
+error; 243 on `--list`, and 218 + 15 + 10 reconciles. No migration, so no drift
+check and `ci:local` not run.
+
+C-123 committed and pushed at PENDING

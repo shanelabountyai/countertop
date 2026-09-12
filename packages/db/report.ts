@@ -151,6 +151,9 @@ export async function loadStatusTimelines(window: ReportWindow): Promise<TicketT
       seq: true,
       businessDay: true,
       placedAt: true,
+      // P1-2. Without it every scheduled order is graded against a duration
+      // nobody promised it — see `serviceTimes`, which splits on this column.
+      requestedFor: true,
       events: { orderBy: { at: 'asc' }, select: { at: true, toStatus: true } },
     },
   });

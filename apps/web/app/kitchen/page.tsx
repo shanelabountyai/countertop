@@ -404,11 +404,12 @@ export default async function KitchenPage({
                     )}
                     {/* P1-2. A customer who picked a slot is not "running
                         late" for sitting untouched — they asked for THIS time,
-                        not now. ponytail: the "N min since ordered" line below
-                        does not know that yet and can still redden on a
-                        scheduled ticket well before its slot; this badge is
-                        the mitigation until `queueAging` reads
-                        `requestedFor` itself (docs/WRITEUP.md). */}
+                        not now. C-123 moved that from this badge into the
+                        engine: `queueAging` reads `requestedFor` and both of
+                        the card's red branches now run off the slot, so this
+                        is the PROMISE stated plainly rather than the
+                        mitigation for a flag that contradicted it. The two
+                        lines below say the same thing in minutes. */}
                     {order.requestedFor && (
                       <p className="mb-2 w-fit rounded bg-indigo-700 px-2 py-1 text-lg font-bold uppercase text-white">
                         Pickup {formatMinuteOfDay(restaurantClock(order.requestedFor, gateState.timezone).minuteOfDay)}
@@ -462,12 +463,35 @@ export default async function KitchenPage({
                         aging.overdue ? 'font-bold text-red-700' : 'text-neutral-700'
                       }`}
                     >
-                      {aging.waitingMinutes} min since ordered
-                      {aging.overdue && ' — running late'}
+                      {/* Which minutes matter depends on what was promised.
+                          An ASAP ticket counts UP from the counter — that is
+                          the number the customer is living through. A
+                          scheduled one counts to ITS SLOT, because "310 min
+                          since ordered" is true, unhelpful, and reads as an
+                          emergency on a screen scanned at arm's length.
+
+                          The branch is on `aging.overdue` and never on the
+                          sign of `dueInMinutes`: the flag compares instants
+                          and this number is floored to the minute, so in the
+                          last seconds before a slot they disagree — "Due in 0
+                          min" is a ticket that is due within the minute and
+                          not yet late. `overdue` is the authority. */}
+                      {aging.dueInMinutes === null
+                        ? `${aging.waitingMinutes} min since ordered${aging.overdue ? ' — running late' : ''}`
+                        : aging.overdue
+                          ? `${-aging.dueInMinutes} min past pickup — running late`
+                          : `Due in ${aging.dueInMinutes} min`}
                     </p>
                     {aging.noShowLevel > 0 && (
                       <p className="text-lg font-bold text-red-700">
-                        On the shelf {aging.readyMinutes} min — no-show?
+                        {/* `readyMinutes` is measured from the LATER of ready
+                            and the promised minute, so for a scheduled order
+                            "on the shelf" would be the wrong noun for the
+                            right number — the food may have been bagged long
+                            before the customer was due. */}
+                        {aging.dueInMinutes === null
+                          ? `On the shelf ${aging.readyMinutes} min — no-show?`
+                          : `${aging.readyMinutes} min past pickup — no-show?`}
                       </p>
                     )}
 

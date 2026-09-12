@@ -22,6 +22,13 @@ import {
  *   - `readyFlagMinutes` runs from the moment the food became READY. Cooked
  *     food going cold on a shelf is a different problem from a slow ticket,
  *     and it escalates: 10, 20, 30 minutes is a no-show taking shape.
+ *
+ * NEITHER applies as written to a SCHEDULED order (P1-2). Both are durations
+ * measured from something the order did, and a customer who asked for 17:00
+ * is not waiting from the moment they ordered, nor a no-show for food that
+ * reached the shelf before they were due. `isPastDue` below is where the flag
+ * is settled and `queueAging` where the no-show clock is; both numbers keep
+ * their meaning and change their starting line.
  */
 export type AgingThresholds = {
   queueFlagMinutes: number;
@@ -68,17 +75,86 @@ export type AgeableOrder = {
   placedAt: Date;
   /** When it entered its current status — what the `ready` clock runs from. */
   statusChangedAt: Date;
+  /**
+   * The instant the customer asked to collect at (P1-2), or null for ASAP.
+   *
+   * REQUIRED rather than optional, and null rather than absent: every caller
+   * has to say which kind of order this is. An optional field would let a new
+   * reader of this engine silently re-acquire the defect this parameter exists
+   * to fix, and the compiler would not say a word (CLAUDE.md, "the compiler
+   * finds the readers, not grep").
+   */
+  requestedFor: Date | null;
 };
 
+/**
+ * Is this order past the instant the kitchen OWES the food by?
+ *
+ * The one sentence behind "running late", asked by both readers the `isOverdue`
+ * comment names — the card that turns red mid-service (`at` = now) and the
+ * report's ran-late count after it (`at` = the moment it actually reached
+ * `ready`). Same question, two instants, so the screen an operator formed their
+ * expectation on and the report that grades the service cannot drift.
+ *
+ * Two orders, two due times, because they were promised two different things:
+ *
+ *   * An ASAP order was promised a RANGE, so what it owes against is a
+ *     DURATION — `queueFlagMinutes` from placement, which is `isOverdue`
+ *     verbatim and unchanged. This branch is the entire pre-P1-2 behaviour.
+ *   * A scheduled order was promised a MINUTE, so what it owes against is a
+ *     CLOCK TIME — `requestedFor` itself. It is not late for sitting untouched
+ *     at noon; it asked for five. Nothing about how long ago it was ordered is
+ *     evidence of anything, which is precisely the number the old code used.
+ *
+ * The scheduled branch cannot route through `elapsedMinutes` the way the ASAP
+ * one does, and the reason is a trap worth naming: that helper CLAMPS AT ZERO
+ * so a skewed clock reads "0 min" and never "-1". Clamping is right for a
+ * duration already spent and fatal for a deadline not yet reached — every
+ * `elapsedMinutes(requestedFor, at)` is `>= 0`, so a threshold of zero would
+ * be satisfied by an order placed for next Tuesday. Instants are compared
+ * directly here for that reason and no other.
+ */
+export function isPastDue(
+  order: Pick<AgeableOrder, 'placedAt' | 'requestedFor'>,
+  at: Date,
+  thresholds: Pick<AgingThresholds, 'queueFlagMinutes'> = DEFAULT_AGING,
+): boolean {
+  // `>=` on both branches, for `isOverdue`'s reason: a 12:30 pickup is late AT
+  // 12:30. A threshold nobody can check against a clock on the wall is not a
+  // threshold, and this is the one case where there is a literal clock.
+  if (order.requestedFor !== null) return at.getTime() >= order.requestedFor.getTime();
+  return isOverdue(elapsedMinutes(order.placedAt, at), thresholds);
+}
+
 export type QueueAging = {
-  /** Since placement. What the card shows, in every status. */
+  /**
+   * Since placement, always — a scheduled order included, where it is true and
+   * uninteresting. "310 min since ordered" is not what is wrong with a 17:00
+   * pickup at noon, so the card reads `dueInMinutes` for those and this for
+   * the rest.
+   */
   waitingMinutes: number;
-  /** Past `queueFlagMinutes`: this ticket has taken too long. */
+  /** Past its due time: this ticket is late. `isPastDue` decides which clock. */
   overdue: boolean;
-  /** Minutes since the food became ready. Null in every other status. */
+  /**
+   * How long the food has been waiting FOR ITS CUSTOMER. From the moment it
+   * became ready — or from the promised pickup minute, when that is later.
+   * Null in every status but `ready`.
+   */
   readyMinutes: number | null;
   /** 0 = fresh; 1, 2, 3 as it passes the three no-show marks. */
   noShowLevel: 0 | 1 | 2 | 3;
+  /**
+   * Whole minutes until the promised pickup: positive before, 0 during that
+   * minute, negative after. Null for an ASAP order.
+   *
+   * Null rather than "minutes until the 15-minute flag" deliberately. That
+   * flag is an internal kitchen threshold nobody was told about, and counting
+   * down to it on the card would put a target on the screen that no customer
+   * is holding anyone to. `requestedFor` is a promise made to a named person,
+   * which is the only kind of deadline worth a countdown.
+   */
+  dueInMinutes: number | null;
 };
 
 export function queueAging(
@@ -87,7 +163,19 @@ export function queueAging(
   thresholds: AgingThresholds = DEFAULT_AGING,
 ): QueueAging {
   const waitingMinutes = elapsedMinutes(order.placedAt, now);
-  const readyMinutes = order.status === 'ready' ? elapsedMinutes(order.statusChangedAt, now) : null;
+
+  // The no-show clock starts at the LATER of "the food was ready" and "the
+  // customer said they would come", because a no-show is somebody failing to
+  // turn up and nobody can fail to turn up early. A 17:00 pickup bagged at
+  // 16:40 spent twenty minutes on the shelf and zero minutes being a no-show;
+  // running this from `statusChangedAt` alone put it two marks into the
+  // escalation — and `noShowLevel >= 2` is one of the two branches that paints
+  // the card red, so the flag was wrong by BOTH of its paths, not just one.
+  const noShowFrom =
+    order.requestedFor !== null && order.requestedFor.getTime() > order.statusChangedAt.getTime()
+      ? order.requestedFor
+      : order.statusChangedAt;
+  const readyMinutes = order.status === 'ready' ? elapsedMinutes(noShowFrom, now) : null;
 
   // `>=` here too, for `isOverdue`'s reason: a mark of 10 fires at ten.
   const noShowLevel =
@@ -97,9 +185,17 @@ export function queueAging(
 
   return {
     waitingMinutes,
-    overdue: isOverdue(waitingMinutes, thresholds),
+    overdue: isPastDue(order, now, thresholds),
     readyMinutes,
     noShowLevel,
+    // Floored, so it reads down through the minute the way a clock on the wall
+    // does: 11 for the whole of 16:48 when the slot is 17:00, then 10. Signed
+    // rather than clamped — this is the one number here that has to be able to
+    // say "past", and `elapsedMinutes` is the helper that cannot.
+    dueInMinutes:
+      order.requestedFor === null
+        ? null
+        : Math.floor((order.requestedFor.getTime() - now.getTime()) / 60_000),
   };
 }
 

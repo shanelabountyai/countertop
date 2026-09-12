@@ -9,7 +9,7 @@
 // twice, and only the log still knows that.
 //
 // Pure. `now` is a parameter, and the events arrive as data.
-import { DEFAULT_AGING, elapsedMinutes, isOverdue, type AgingThresholds } from './queue';
+import { DEFAULT_AGING, elapsedMinutes, isPastDue, type AgingThresholds } from './queue';
 import { isTerminal, ORDER_STATUSES, type OrderStatus } from './state-machine';
 
 /** Enough of an `OrderEvent` row to place it on a timeline. A database row
@@ -156,6 +156,10 @@ export type TicketTimeline = {
   seq: number;
   businessDay: string;
   placedAt: Date;
+  /** The promised pickup instant (P1-2), or null for ASAP. `isPastDue`'s other
+   *  half — without it this report grades every scheduled order against a
+   *  duration nobody promised. */
+  requestedFor: Date | null;
   events: readonly StatusEvent[];
 };
 
@@ -167,7 +171,7 @@ export type SlowTicket = {
 };
 
 export type ServiceTimes = {
-  /** Tickets that reached `ready` in the window — the denominator. */
+  /** ASAP tickets that reached `ready` in the window — the denominator. */
   tickets: number;
   /** Of those, the ones past the threshold the queue card turns red at. */
   ranLate: number;
@@ -175,6 +179,11 @@ export type ServiceTimes = {
   lateAfterMinutes: number;
   /** Longest first, `seq` breaking ties so the list is stable across reloads. */
   slowest: SlowTicket[];
+  /** SCHEDULED tickets (P1-2) that reached `ready` in the window. A separate
+   *  denominator because they are not in `tickets`. */
+  scheduled: number;
+  /** Of those, the ones that reached `ready` after the minute they promised. */
+  scheduledLate: number;
 };
 
 /**
@@ -206,6 +215,26 @@ function readyAt(events: readonly StatusEvent[]): Date | null {
  * A ticket that never reached `ready` is not in the sample at all. A cancelled
  * order and one still on the grill are not evidence that service was slow, in
  * exactly the way C-042 already refuses to grade them.
+ *
+ * A SCHEDULED order (P1-2) is not in that sample either, and for the same
+ * reason rather than a new one. `minutes` is placed -> ready, and for an order
+ * put in at noon for a five o'clock pickup that span is 295 minutes of a
+ * ticket sitting exactly as intended. Counted, it was a "ran late" that never
+ * ran late, and it took the top of the slowest-five away from the tickets the
+ * list exists to surface — every scheduled order outranking every real one,
+ * forever. The kitchen spent no more time on it than on anything else.
+ *
+ * They are counted SEPARATELY rather than dropped, because a scheduled order
+ * genuinely can be late — against the minute it promised, which is the only
+ * deadline it ever had. That is `isPastDue` asked at the instant the food
+ * became ready, the same function the card asks at `now`, so the two-readers
+ * rule in `isOverdue`'s comment holds across the split.
+ *
+ * Two counts and not one merged list: "Order to Ready" is a column of one
+ * quantity, and a scheduled ticket's honest number for it is minutes past a
+ * promise — a different measurement wearing the same header. This codebase
+ * already answers that shape by naming the second question instead of
+ * overloading the first (`isPastQuote` beside `isOverdue`, C-042).
  */
 export function serviceTimes(
   timelines: readonly TicketTimeline[],
@@ -215,20 +244,26 @@ export function serviceTimes(
   const finished = timelines.flatMap((ticket) => {
     const ready = readyAt(ticket.events);
     if (ready === null) return [];
-    return [
-      {
-        seq: ticket.seq,
-        businessDay: ticket.businessDay,
-        minutes: elapsedMinutes(ticket.placedAt, ready),
-      },
-    ];
+    return [{ ticket, ready }];
   });
 
+  const asap = finished.filter(({ ticket }) => ticket.requestedFor === null);
+  const scheduled = finished.filter(({ ticket }) => ticket.requestedFor !== null);
+
+  const spans: SlowTicket[] = asap.map(({ ticket, ready }) => ({
+    seq: ticket.seq,
+    businessDay: ticket.businessDay,
+    minutes: elapsedMinutes(ticket.placedAt, ready),
+  }));
+
   return {
-    tickets: finished.length,
-    ranLate: finished.filter((ticket) => isOverdue(ticket.minutes, thresholds)).length,
+    tickets: spans.length,
+    // `isPastDue` and not a second `>=` on `minutes`: identical arithmetic on
+    // this branch, and one function means the report cannot drift from the
+    // card the day either threshold moves.
+    ranLate: asap.filter(({ ticket, ready }) => isPastDue(ticket, ready, thresholds)).length,
     lateAfterMinutes: thresholds.queueFlagMinutes,
-    slowest: finished
+    slowest: spans
       .slice()
       .sort(
         (a, b) =>
@@ -237,5 +272,8 @@ export function serviceTimes(
           a.seq - b.seq,
       )
       .slice(0, limit),
+    scheduled: scheduled.length,
+    scheduledLate: scheduled.filter(({ ticket, ready }) => isPastDue(ticket, ready, thresholds))
+      .length,
   };
 }

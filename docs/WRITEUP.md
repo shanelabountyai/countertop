@@ -3024,3 +3024,91 @@ the harm in one line.
 Two sessions, two tests that passed against the bug they were written for. The
 habit that caught both is the same and costs two minutes: revert the fix, run
 the new tests, and require red before keeping them.
+
+### The comment that paid for itself (C-123)
+
+C-122's entry, directly above, is about a comment that described its own defect
+backwards and cost more than it was worth. This one is the other half of that
+story, in the same week, and it is the reason the habit is "read the comment
+and run it" rather than "stop writing comments".
+
+The item as filed was small and local — the queue's fifteen-minute flag does
+not know about `requestedFor`, so a scheduled order reddens before its slot,
+*touches `queueAging`*. One pure function, one screen.
+
+What was already written above `isOverdue`:
+
+> Two readers, deliberately: the card that turns red mid-service, and the
+> report's ran-late count after it. They are the same sentence about the same
+> minutes, and a report that restated the comparison would drift from the
+> screen the operator formed the expectation on.
+
+That is a claim about blast radius, made by the person who built the second
+reader, sitting three lines above the function being changed. Followed rather
+than skimmed, it says: whatever `overdue` comes to mean, `ranLate` means it
+too. And `serviceTimes` computes its minutes as `placedAt → readyAt`, which for
+an order put in at noon for a five o'clock pickup is 295 minutes of a ticket
+sitting exactly as intended.
+
+So the report had the same defect, in a worse form. The card's version was
+visible — a cook sees the red and learns to distrust it. The report's version
+was silent and cumulative: *every* scheduled order counted as having run late,
+forever, and each one sorted straight to the top of the slowest-five list,
+pushing off the bottom the real slow tickets the list exists to surface. A
+number that is wrong on a screen gets argued with. A number that is wrong in a
+report gets used.
+
+And the report page says it to the operator, in English, at the bottom of the
+section:
+
+> "Ran late" is the same 15-minute mark the card turns red at.
+
+Fixing the card alone would not have left a latent inconsistency for somebody
+to find later. It would have made a sentence *rendered on the screen* false
+the moment it shipped.
+
+**The trap inside the fix.** The obvious implementation reuses the helper that
+is already there:
+
+```ts
+// Wrong, and it typechecks.
+isOverdue(elapsedMinutes(order.requestedFor, at), { queueFlagMinutes: 0 })
+```
+
+`elapsedMinutes` clamps at zero — deliberately, so a clock skewed a second into
+the future reads "0 min" and never "-1". Clamping is right for a duration
+already spent and fatal for a deadline not yet reached: every
+`elapsedMinutes(requestedFor, at)` is `>= 0`, so a threshold of zero is
+satisfied by an order placed for next Tuesday. The helper that makes the ASAP
+branch correct makes the scheduled branch a no-op that always says "late". The
+scheduled branch compares instants directly, and there is a test named for the
+trap rather than a comment hoping somebody reads it.
+
+**Two defects, not one, on the test suite.** The previous two sessions each
+shipped a test that passed against the bug it was written for, and the standing
+answer has been "revert the fix, require red". That catches a test which agrees
+with the *original* defect. It does not catch a test which agrees with the
+*over-correction* — and here the over-correction is the likelier long-term
+risk, because "a scheduled order is never late" is a sentence a reasonable
+person would write and nobody would question.
+
+So both were run. Against the original defect, five tests go red. Against
+`isPastDue` returning `false` for every scheduled order, and a no-show clock
+that always reads `requestedFor`, four *different* tests go red — including two
+that had passed against the original bug and would otherwise have looked like
+dead weight:
+
+```
+× flags it AT the promised minute, not a threshold after it
+× keeps counting once the slot has passed, so late reads as late
+× still runs from READY when the food was late out of the kitchen
+× isPastDue > answers for the card and the report with the same sentence
+```
+
+Both of those now carry a comment saying which defect they catch, because a
+test that is green against the bug the file is named for reads as redundant to
+the next person, and deleting it is the natural next move.
+
+The generalisation: *revert the fix* is half a technique. The other half is
+*apply the wrong fix*. A test suite earns its keep by making some defect fail,
+and there is usually more than one candidate.

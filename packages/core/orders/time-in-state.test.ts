@@ -136,6 +136,9 @@ const ticket = (seq: number, m: number): TicketTimeline => ({
   seq,
   businessDay: '2026-07-14',
   placedAt: min(0),
+  // ASAP. The whole P0-5 fixture is, which is what keeps every number below
+  // pinned to the hand arithmetic the PRD names after C-123 split the sample.
+  requestedFor: null,
   events: [at(0, 'placed'), at(m, 'ready')],
 });
 
@@ -169,6 +172,70 @@ describe('the distribution beside the average (P0-5)', () => {
     const rest = Array.from({ length: 29 }, () => [at(0, 'placed')]);
     const ready = timeInStateReport([one, ...rest], min(6)).find((r) => r.status === 'ready')!;
     expect(ready).toMatchObject({ orders: 1, p90Ms: 5 * MIN, worstMs: 5 * MIN });
+  });
+});
+
+describe('serviceTimes and a scheduled order (P1-2, C-123)', () => {
+  /** Placed at 0, promised at `slot`, ready at `m`. The span from 0 to `m` is
+   *  not kitchen work and the report must not read it as any. */
+  const booked = (seq: number, slot: number, m: number): TicketTimeline => ({
+    seq,
+    businessDay: '2026-07-14',
+    placedAt: min(0),
+    requestedFor: min(slot),
+    events: [at(0, 'placed'), at(m, 'ready')],
+  });
+
+  it('keeps a five-hour lead time out of the Order-to-Ready sample entirely', () => {
+    // Ordered at noon for five o'clock, bagged five minutes early — a kitchen
+    // doing its job perfectly. Counted as a 295-minute ticket it was the worst
+    // of the day, every day, and it pushed a real slow ticket off a list of
+    // five.
+    const service = serviceTimes([booked(2, 300, 295), ticket(1, 6)]);
+    expect(service.tickets).toBe(1);
+    expect(service.ranLate).toBe(0);
+    expect(service.slowest.map((t) => t.seq)).toEqual([1]);
+  });
+
+  it('counts it against the minute it promised instead', () => {
+    // Same order, in its own pair of numbers. Early is not late.
+    const service = serviceTimes([booked(2, 300, 295)]);
+    expect(service.scheduled).toBe(1);
+    expect(service.scheduledLate).toBe(0);
+  });
+
+  it('calls it late when the food was ready AFTER the promised minute', () => {
+    // Ten minutes past the slot. The old code called this late too — but for
+    // the wrong reason and with the wrong number, and it called the on-time
+    // one late as well, so the count meant nothing either way.
+    const service = serviceTimes([booked(2, 300, 310)]);
+    expect(service.scheduled).toBe(1);
+    expect(service.scheduledLate).toBe(1);
+  });
+
+  it('flags it AT the promised minute, the same `>=` the card turns red on', () => {
+    expect(serviceTimes([booked(2, 300, 299)]).scheduledLate).toBe(0);
+    expect(serviceTimes([booked(2, 300, 300)]).scheduledLate).toBe(1);
+  });
+
+  it('does not grade a scheduled order that never reached ready', () => {
+    // The same refusal `tickets` makes, and for the same reason: no outcome,
+    // nothing to grade.
+    const open: TicketTimeline = {
+      seq: 3,
+      businessDay: '2026-07-14',
+      placedAt: min(0),
+      requestedFor: min(300),
+      events: [at(0, 'placed'), at(1, 'preparing')],
+    };
+    expect(serviceTimes([open])).toMatchObject({ scheduled: 0, scheduledLate: 0, tickets: 0 });
+  });
+
+  it('leaves every P0-5 number untouched, because that fixture is all ASAP', () => {
+    // The guard on the split: 30 tickets, 6 late, and no scheduled orders to
+    // report. A change that moved these moved the report off the hand tally
+    // the Success Metric names.
+    expect(serviceTimes(TICKETS)).toMatchObject({ tickets: 30, ranLate: 6, scheduled: 0 });
   });
 });
 
@@ -213,6 +280,7 @@ describe('serviceTimes (P0-5)', () => {
       seq: 99,
       businessDay: '2026-07-14',
       placedAt: min(0),
+      requestedFor: null,
       events: [at(0, 'placed'), at(1, 'preparing')],
     };
     const service = serviceTimes([openTicket, ticket(1, 31)]);
@@ -227,6 +295,7 @@ describe('serviceTimes (P0-5)', () => {
       seq: 7,
       businessDay: '2026-07-14',
       placedAt: min(0),
+      requestedFor: null,
       events: [at(0, 'placed'), at(3, 'ready'), at(4, 'preparing'), at(28, 'ready')],
     };
     expect(serviceTimes([reverted]).slowest).toEqual([
