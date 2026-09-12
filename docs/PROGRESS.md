@@ -8224,3 +8224,93 @@ tests added, one deleted, one rewritten), lint / typecheck / build clean. E2E
 entry documents; 243 on `--list`, and 218 + 15 + 10 reconciles.
 
 C-121 committed and pushed at 8b5d821
+
+---
+
+## C-122 — The bulk 86, under two cooks
+
+`setAvailability` read the rows it was about to flip and then flipped them.
+Two cooks batching overlapping selections in the same second both matched the
+same still-available row, both wrote it, and **both reports claimed it** — so
+the first to tap undo put it back on the customer menu while the second was
+still looking at a screen saying it was sold out.
+
+No migration. One statement per grain replaces a read and a write.
+
+**The `ponytail:` on the function described its own defect wrongly, in the
+reassuring direction.** It said two overlapping batches "can hand one of them
+an undo list that is **short** by the overlap" and that "**nobody loses an
+86**". Both halves are false, and a probe printed it before anything was
+changed:
+
+```
+>>> A claims it killed: ["guacamole","queso"]
+>>> B claims it killed: ["guacamole","cilantro"]
+>>> BOTH claim: ["guacamole"]
+>>> after A's undo, still sold out: ["cilantro"]
+>>> B still believes guacamole is 86'd: true
+```
+
+The lists come back **long**, not short — over-claiming is what a
+check-then-write produces — and the lost 86 is the whole harm. An item a
+customer can order and the kitchen does not have is the founding failure of
+this product, arriving through the undo.
+
+**Built:**
+- **`updateManyAndReturn` per grain**, with the `available: !available` guard
+  moved out of a preceding `SELECT` and into the `WHERE` of the `UPDATE`
+  itself. Postgres re-evaluates that clause against the row it just locked
+  under READ COMMITTED, so the loser of a race matches nothing, returns
+  nothing, and claims nothing.
+- **Still one transaction across the two grains**, for the reason it always
+  was: a batch that killed the items and not the options would leave the
+  fryer half off the menu.
+- **Three tests** under `setAvailability under two cooks at once`.
+
+**Decided:**
+- **The fix is not a lock; it is the read and the write becoming one
+  statement.** C-119's member lock was the precedent offered in `NEXT.md`,
+  and it is the right analogy but not the right mechanism: there, the balance
+  genuinely had to be summed across rows before a decision, so the UPDATE had
+  to come first to serialise it. Here the decision *is* a predicate on the row
+  being written, so it belongs in that write's `WHERE` and no lock is needed
+  at all. Same family, cheaper member.
+- **The old comment is quoted and corrected rather than deleted.** A
+  `ponytail:` that mis-describes its own defect is worse than no comment — it
+  is a reason not to look — and that is worth saying where the next person
+  reads it.
+
+**Found while testing, and the C-119 lesson repeating:** the first version of
+`does not let one cook's undo resurrect the other cook's 86` **passed against
+the buggy implementation**. It asserted "the guacamole is back iff A claimed
+it" — and under the bug BOTH claimed it, so the assertion was satisfied by the
+defect. Rewritten to assert that what is still sold out after A's undo equals
+exactly **what B claimed** — i.e. that B's screen is still true — which fails
+against the old code with `expected ['cilantro'] to deeply equal ['cilantro',
+'guacamole']`. All three tests were then confirmed red against the old
+implementation before being kept. Two of the three were red the first time;
+this one was the one that mattered.
+
+**Left behind:**
+- **Two cooks can still each get half of one selection**, and that is correct
+  rather than a remaining gap: each report names what that cook actually
+  flipped, and each undo restores exactly that. The screens do not tell either
+  cook that somebody else took the rest — `done=off` still announces "Marked N
+  sold out" with that cook's own N.
+- **`stagePrice` above it is still a delete-then-create in a transaction.**
+  Different shape and not obviously wrong — the delete is scoped to the same
+  `(target, effectiveDay)` the create writes — but it is the other
+  read-modify-write on this file and nothing asserts it under concurrency.
+- **No test drives the race through the SCREEN.** `setBulkAvailable` already
+  passes the return through to the redirect, so the server action is correct
+  by construction; two browsers submitting simultaneously is not something
+  Playwright expresses cheaply.
+
+**Gate:** `ci-local: OK` — migrate-from-nothing, the five named invariant
+assertions, the drift check, and the unit suite under `TZ=UTC` and
+`TZ=Pacific/Kiritimati`. 1056 unit (+3 over C-121's 1053), lint / typecheck /
+build clean. E2E 218 passed + 15 skipped + the same ten pre-existing container
+failures C-118's entry documents; 243 on `--list`, and 218 + 15 + 10
+reconciles.
+
+C-122 committed and pushed at PENDING

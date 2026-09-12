@@ -387,3 +387,95 @@ describe('staged prices', () => {
     expect(reviewCart(monday, confirmed, 82_500, mondayClock).placeable).toBe(true);
   });
 });
+
+// C-122 — two cooks, one selection, at the same instant.
+//
+// The defect the `ponytail:` on `setAvailability` recorded and mis-described.
+// It read the rows, then updated them, so two overlapping batches in the same
+// second both matched the same still-available row and both claimed it. These
+// fail against that version: the first with `['guacamole']` where `[]` was
+// expected, the second with the guacamole back on the menu.
+
+describe('setAvailability under two cooks at once', () => {
+  beforeEach(async () => {
+    await resetDatabase();
+    await seedSampleMenu();
+  });
+
+  it('lets exactly one of two overlapping batches claim the row', async () => {
+    // Both cooks sweep the guacamole; each also takes something the other did
+    // not, so the result is distinguishable from "one batch won outright".
+    const [a, b] = await Promise.all([
+      setAvailability([], ['guacamole', 'queso'], false),
+      setAvailability([], ['guacamole', 'cilantro'], false),
+    ]);
+
+    // Nobody claims a row somebody else claimed. THIS is the assertion —
+    // the return value is what the undo acts on, so a claim is a promise.
+    expect(a.optionIds.filter((id) => b.optionIds.includes(id))).toEqual([]);
+    // Between them they claim all three, exactly once each: the guard makes
+    // the loser claim less, never makes the work not happen.
+    expect([...a.optionIds, ...b.optionIds].sort()).toEqual([
+      'cilantro',
+      'guacamole',
+      'queso',
+    ]);
+
+    // And all three are actually off the menu, which was never the broken
+    // part — both writes agreed, and that is what made the bug quiet.
+    const dead = await prisma.modifierOption.findMany({
+      where: { available: false },
+      select: { id: true },
+    });
+    expect(dead.map((r) => r.id).sort()).toEqual(['cilantro', 'guacamole', 'queso']);
+  });
+
+  it('does not let one cook’s undo resurrect the other cook’s 86', async () => {
+    // The harm, stated as the customer experiences it. Before C-122 both
+    // reports listed the guacamole; the first undo put it back while the
+    // second cook was still looking at a screen that said it was sold out —
+    // an item a customer can order and the kitchen does not have, which is
+    // the failure this whole product exists to prevent.
+    const [a, b] = await Promise.all([
+      setAvailability([], ['guacamole', 'queso'], false),
+      setAvailability([], ['guacamole', 'cilantro'], false),
+    ]);
+
+    // The fryer is fixed for whichever cook claimed the guacamole; they undo
+    // their own batch, off their own report.
+    await setAvailability(a.itemIds, a.optionIds, true);
+
+    const stillDead = (
+      await prisma.modifierOption.findMany({
+        where: { available: false },
+        select: { id: true },
+      })
+    ).map((row) => row.id);
+
+    // WHAT IS STILL SOLD OUT IS EXACTLY WHAT THE OTHER COOK CLAIMED — which
+    // is the same thing as saying B's screen is still true. Written this way
+    // rather than as "guacamole is back iff A claimed it": under the old
+    // read-then-write BOTH claimed it, so that phrasing was satisfied by the
+    // bug and the test proved nothing. This one fails against it, because
+    // A's undo takes the guacamole out of B's list without asking B.
+    expect(stillDead.sort()).toEqual([...b.optionIds].sort());
+
+    // And then the second cook's own undo clears the rest.
+    await setAvailability(b.itemIds, b.optionIds, true);
+    expect(await prisma.modifierOption.findMany({ where: { available: false } })).toEqual([]);
+  });
+
+  it('claims nothing at all when it loses every row', async () => {
+    // The degenerate case of the same rule: a whole batch someone else got to
+    // first reports an empty undo list rather than a list of other people's
+    // work. `changes nothing, and says so` above asserts this sequentially;
+    // this asserts it under the race the guard exists for.
+    const [first, second] = await Promise.all([
+      setAvailability(['chips', 'taquitos'], [], false),
+      setAvailability(['chips', 'taquitos'], [], false),
+    ]);
+
+    const claims = [first, second].map((result) => result.itemIds.length).sort();
+    expect(claims).toEqual([0, 2]);
+  });
+});

@@ -2921,3 +2921,106 @@ pattern-matched on "hand-written index" and missed that the exemption comes
 from the `WHERE`, not from the hand. The fix is `@@unique([...], map: …)`,
 keeping the name CI asserts — and the schema comment now states the
 distinction instead of getting it wrong.
+
+### A comment that made it worse (C-122)
+
+`setAvailability` carried this, written when the bulk 86 shipped:
+
+```
+ * ponytail: read-then-write, last-write-wins, the same concurrency posture
+ * C-015 recorded for two managers on stale panels. Two cooks batching
+ * overlapping selections in the same second can hand one of them an undo list
+ * that is short by the overlap; nobody loses an 86, and the fix if it ever
+ * matters is a single `UPDATE ... RETURNING id` in raw SQL.
+```
+
+Everything structural about it is good. It names the defect class, names the
+precedent, and names the fix. It is the kind of comment this repo is full of
+and better for.
+
+It is also wrong about what happens, in the direction that stops you looking.
+
+Running it first, before changing anything:
+
+```
+>>> A claims it killed: ["guacamole","queso"]
+>>> B claims it killed: ["guacamole","cilantro"]
+>>> BOTH claim: ["guacamole"]
+>>> after A's undo, still sold out: ["cilantro"]
+>>> B still believes guacamole is 86'd: true
+```
+
+**"Short by the overlap"** is backwards. A check-then-write over-claims: both
+readers see the row as still available, both write it, both report it. The
+lists come back *long*. Short is what the *sequential* case produces — B reads
+after A committed, correctly sees nothing to do, and reports less — and that
+is the correct behaviour, not the bug.
+
+**"Nobody loses an 86"** is the load-bearing error. It is true at the moment of
+the write: both updates set `available = false` and agree. The loss happens
+later, through the undo — A restores a row B also killed and still believes is
+dead, and the guacamole is back on the customer menu with the kitchen out of
+it. That is the founding failure of this product, and the comment's last
+clause says it cannot happen.
+
+I think the mechanism of the error is worth naming: the comment reasons about
+the **write** and stops there. Both writes agree, so nothing is lost — true,
+and the wrong frame, because the value this function returns is a *claim about
+what I did*, and the undo acts on that claim. The concurrency question is not
+"do the writes conflict" but "can two callers be told they did the same
+thing". Nothing in the comment is about the return value, which is the part
+the rest of the file calls "the load-bearing part" two paragraphs higher.
+
+So: **a `ponytail:` that mis-describes its own defect is worse than no
+comment.** No comment leaves an unexamined function. This one leaves a
+function that looks examined — a reader who wonders about concurrency here
+finds a note that says it was considered and bounded, and moves on. The
+severity assessment is doing damage the acknowledgement was meant to prevent.
+
+The practical form: when a comment bounds a known risk, the bound is a claim
+like any other, and it is worth the ten minutes to run it once before
+believing it. This one had gone unchallenged for over a hundred items.
+
+The fix is smaller than the comment predicted — no raw SQL, because
+`updateManyAndReturn` puts the predicate in the `WHERE` of the update:
+
+```ts
+prisma.menuItem.updateManyAndReturn({
+  where: { id: { in: itemIds }, available: !available },
+  data: { available },
+  select: { id: true },
+})
+```
+
+Under READ COMMITTED, the second transaction blocks on the row lock and then
+**re-evaluates its `WHERE` against the committed row** — `available` is now
+`false`, the clause no longer matches, the row is neither updated again nor
+returned. The loser claims nothing. That is the same family as C-119's member
+lock and a cheaper member of it: there, a balance had to be summed across many
+rows before a decision, so an UPDATE had to go first purely to serialise; here
+the decision *is* a predicate on the row being written, so it belongs in that
+write and no lock is needed at all.
+
+**And the C-119 lesson repeated itself, which is why it is worth writing down
+twice.** The first version of the undo test was:
+
+```ts
+const claimedByA = a.optionIds.includes('guacamole');
+expect(afterFirstUndo[0]!.available).toBe(claimedByA);
+```
+
+phrased that way deliberately, so the test would not depend on which cook won
+the race. It passed against the broken implementation — under the bug *both*
+cooks claim the guacamole, so `claimedByA` is true, A's undo restores it, and
+the assertion is satisfied by the defect. Trying to make a concurrency test
+order-independent had made it bug-independent.
+
+The version that works asserts the invariant from the other cook's side: after
+A undoes its own batch, **what is still sold out equals exactly what B
+claimed** — B's screen is still true. That fails against the old code with
+`expected ['cilantro'] to deeply equal ['cilantro', 'guacamole']`, which is
+the harm in one line.
+
+Two sessions, two tests that passed against the bug they were written for. The
+habit that caught both is the same and costs two minutes: revert the fix, run
+the new tests, and require red before keeping them.

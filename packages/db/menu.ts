@@ -288,37 +288,50 @@ export async function writePrice(
  * were already sold out for a different reason means four came back, and the
  * two that ran out stay out.
  *
- * ponytail: read-then-write, last-write-wins, the same concurrency posture
- * C-015 recorded for two managers on stale panels. Two cooks batching
- * overlapping selections in the same second can hand one of them an undo list
- * that is short by the overlap; nobody loses an 86, and the fix if it ever
- * matters is a single `UPDATE ... RETURNING id` in raw SQL.
+ * ONE STATEMENT PER GRAIN, and that is what makes the return trustworthy
+ * (C-122). This read the rows first and then updated them, which meant two
+ * cooks batching overlapping selections in the same second BOTH matched the
+ * same still-available row and BOTH claimed to have killed it — and then the
+ * first one to tap undo put it back on the menu while the second was still
+ * looking at a report saying it was sold out. An item a customer can order and
+ * the kitchen does not have is the founding failure of this product, arriving
+ * through the undo of all places.
+ *
+ * The old comment here called that "an undo list that is short by the overlap"
+ * and said "nobody loses an 86". Both halves were wrong, in the reassuring
+ * direction: the lists come back LONG, because over-claiming is what a
+ * check-then-write produces, and the lost 86 is the whole harm. It is written
+ * down because a `ponytail:` that mis-describes its own defect is worse than
+ * no comment — it is a reason not to look.
+ *
+ * `updateManyAndReturn` puts the guard in the WHERE of the write itself, so
+ * Postgres re-evaluates `available = !available` against the row it just
+ * locked: the loser of a race matches nothing, returns nothing, and claims
+ * nothing. Same shape as C-119's member lock — the fix is not a lock added
+ * around a read, it is the read and the write becoming one statement.
  */
 export async function setAvailability(
   itemIds: string[],
   optionIds: string[],
   available: boolean,
 ): Promise<{ itemIds: string[]; optionIds: string[] }> {
-  const [items, options] = await Promise.all([
-    prisma.menuItem.findMany({
+  // STILL ONE TRANSACTION, for the reason it always was: a batch that killed
+  // the items and not the options would leave the fryer half off the menu.
+  // What changed is that each statement is now its own guard — the
+  // `available: !available` clause is in the WHERE of the UPDATE, not in a
+  // SELECT that ran before it.
+  const [items, options] = await prisma.$transaction([
+    prisma.menuItem.updateManyAndReturn({
       where: { id: { in: itemIds }, available: !available },
-      select: { id: true },
-    }),
-    prisma.modifierOption.findMany({
-      where: { id: { in: optionIds }, available: !available },
-      select: { id: true },
-    }),
-  ]);
-
-  const changed = { itemIds: items.map((r) => r.id), optionIds: options.map((r) => r.id) };
-
-  await prisma.$transaction([
-    prisma.menuItem.updateMany({ where: { id: { in: changed.itemIds } }, data: { available } }),
-    prisma.modifierOption.updateMany({
-      where: { id: { in: changed.optionIds } },
       data: { available },
+      select: { id: true },
+    }),
+    prisma.modifierOption.updateManyAndReturn({
+      where: { id: { in: optionIds }, available: !available },
+      data: { available },
+      select: { id: true },
     }),
   ]);
 
-  return changed;
+  return { itemIds: items.map((r) => r.id), optionIds: options.map((r) => r.id) };
 }

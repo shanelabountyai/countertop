@@ -2608,3 +2608,37 @@ The schema drift check also earned its keep: the first attempt hid the index
 in the migration the way the more exotic ones are hidden, and the check
 immediately pointed out that this kind of index is one Prisma can see, so
 hiding it is real drift.
+
+## C-122 — Two cooks, one fryer
+
+The fryer goes down. A cook selects everything that comes out of it and marks
+it sold out in one action; the screen comes back saying "Marked 5 sold out"
+with an undo beside it. That has worked since it shipped — for one cook.
+
+With two cooks doing it at the same second on overlapping selections, both
+screens claimed the same item. Whoever tapped undo first put it back on the
+customer menu while the other cook was still looking at a report saying it was
+sold out. An item a customer can order and the kitchen does not have is the
+exact failure this whole product was built to prevent, and it was arriving
+through the undo button.
+
+The fix is one line of shape rather than any new machinery: the check "is this
+row still available?" moved out of a query that ran first and into the update
+itself. The database now decides, and the cook who loses the race is told they
+changed nothing rather than being handed somebody else's work to undo.
+
+**The comment on the function had the bug backwards.** It was there — a
+`ponytail:` note admitting the read-then-write, written when the feature
+shipped — but it said the effect was an undo list that came back *short*, and
+that "nobody loses an 86". Running it proved the opposite: the lists come back
+*long*, because both cooks claim the same row, and losing an 86 is the entire
+harm. A comment that names a risk and mis-describes it is worse than no
+comment, because it reads as a reason not to look. It is quoted and corrected
+where the next person will read it.
+
+One more thing worth recording, because it is the second session running that
+it has come up: the first test written for this **passed against the broken
+code**. It asserted "the item is back if this cook claimed it" — and under the
+bug both cooks claimed it, so the bug satisfied the test. The habit that
+catches this is cheap: break the fix on purpose and check the test goes red.
+It took two minutes and turned one useless test into a real one.
