@@ -1,6 +1,6 @@
 # Next
 
-**C-123 shipped this session**: the queue's running-late flag, and the pickup
+**C-123 shipped this session** (`224a082`): the queue's running-late flag, and the pickup
 time it never knew about. C-114 gave an order a `requestedFor`; `queueAging`
 computed every flag as a duration from something the ORDER did, so a scheduled
 ticket reddened fifteen minutes after PLACEMENT.
