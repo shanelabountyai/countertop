@@ -2826,3 +2826,98 @@ caught the notification bug not because anything asserted notifications, but
 because running the real thing with realistic data produces output a person
 reads. Both of this session's finds came from *looking at what the system
 actually did*, not from anything the suite was asked to check.
+
+### A test with no comment (C-121)
+
+C-120's rush found that a reverted ticket texts the customer twice. Going to
+fix it, I found this already in the suite, green, from the session that built
+the SMS stub:
+
+```ts
+it('writes a second row if the order re-enters ready after a revert', async () => {
+  const order = await place('5550102233');
+  await advanceTo(order.id, 'ready');
+  await applyOrderAction(order.id, { kind: 'revert', actor: 'staff' }, AT);
+  await advanceTo(order.id, 'ready');
+  expect(await listOrderNotifications(order.id)).toHaveLength(2);
+});
+```
+
+So the behaviour was not undefined and not an oversight in any obvious sense.
+Someone had run that exact scenario, seen two rows, and written it down as the
+expectation. "Fixing" it meant deleting an assertion that said the current
+behaviour was correct.
+
+**What settled it was the absence of a comment.** Every other test in this
+repo that encodes a decision says why in prose beside it — `light` costs the
+same as `regular` because restaurants do not discount light sauce; `none` does
+not count toward `min` because a customer could otherwise get a burrito with
+no protein; the earn uses `skipDuplicates` because the state machine permits a
+revert. This one has a title that describes a mechanism and nothing else.
+
+That is weak evidence in general and strong evidence *here*, because the
+repo's own convention makes silence meaningful. In a codebase with no such
+convention the same test tells you nothing either way. The convention is what
+turns an absence into a signal — which is a reason to keep it that has nothing
+to do with readability.
+
+I took it to the owner rather than deciding unilaterally, because "this test
+is wrong" is a claim about intent, and the person who can settle intent was
+available. Answer: defect. The revert means the first message was wrong — the
+food was not ready — and the customer has already been told once about that
+bag.
+
+**The fix had a trap that the obvious version walks into.** Add a unique index
+and leave the write alone, and the second `ready` transition raises a unique
+violation. That write happens *inside* `applyOrderAction`'s transaction:
+
+```ts
+if (decision.status === 'ready' && current.customerPhone) {
+  await queueReadyNotification(tx, orderId, current.seq);
+}
+```
+
+so the exception rolls back the **status change**. The cook's second advance —
+the correct one, the one putting the board right — would fail, with an error
+about a text message. A duplicate here is not an error; it is a supported
+operation that should produce nothing. `createMany({ skipDuplicates: true })`
+— `ON CONFLICT DO NOTHING` — is the same shape C-102's earn already uses
+against the same class of problem, and there is now a test asserting the
+status still moves when the notification does not.
+
+Worth naming as a pattern: **"the constraint is the mechanism" does not mean
+"let it throw".** It means the database decides. Whether the loser of that
+decision gets an exception, a silent no-op, or a named refusal is a second
+choice, and it depends on whether the duplicate is a *mistake* (placement's
+idempotency key: replay the original) or *expected* (this, and the earn: do
+nothing). Getting the constraint right and the conflict behaviour wrong
+produces a bug the constraint's own test will not catch, because the index
+works perfectly.
+
+Two smaller things the session turned up:
+
+**The migration needs a dedupe.** Any database that has already served a
+reverted ticket — the deployed demo, and every local one seeded from the rush
+— has rows that violate the new index. Without a `DELETE` first the migration
+fails on exactly the databases that matter. It keeps the *earlier* row, because
+that is the one the customer actually received; keeping the later duplicate
+would move the recorded instant forward and make the outbox disagree with what
+was sent.
+
+**And the drift check caught me being clever.** My first pass put the unique
+index in the migration only and wrote a schema comment explaining that it was
+hand-written like the partial ones on `LoyaltyEvent` and `OrderEvent`.
+`prisma migrate diff` said:
+
+```
+[*] Changed the `NotificationOutbox` table
+  [-] Removed unique index on columns (orderId, kind)
+```
+
+The partial indexes are invisible to that check because Prisma cannot express
+a `WHERE` clause; a plain two-column unique index it *can* express, so omitting
+it from the schema is genuine drift rather than a deliberate exemption. I had
+pattern-matched on "hand-written index" and missed that the exemption comes
+from the `WHERE`, not from the hand. The fix is `@@unique([...], map: …)`,
+keeping the name CI asserts — and the schema comment now states the
+distinction instead of getting it wrong.

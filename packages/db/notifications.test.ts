@@ -77,12 +77,62 @@ describe('the SMS stub outbox', () => {
     expect(await listOrderNotifications(order.id)).toEqual([]);
   });
 
-  it('writes a second row if the order re-enters ready after a revert', async () => {
+  it('writes NOTHING on a second ready — one text per order, per kind', async () => {
+    // THIS TEST ASSERTED THE OPPOSITE UNTIL C-121, and the rewrite is the
+    // item rather than a detail of it. C-113 shipped `toHaveLength(2)` with
+    // no comment defending it — in a repo where every decision carries its
+    // reason, that absence was the tell: the test described what the code did
+    // rather than what it should do.
+    //
+    // What it should do: a cook advances the wrong card and undoes it, which
+    // the state machine PERMITS, so the ticket passes through `ready` twice.
+    // The revert means the first message was wrong — the food was not ready —
+    // and the customer has already been told once about this bag. A second
+    // identical text minutes later is noise about the same food.
+    //
+    // The seeded rush is what found it: C-120 gave rush orders a phone for
+    // the first time, and the wrong-advance customer came out of a real
+    // service holding two copies of "#010 is ready for pickup".
     const order = await place('5550102233');
     await advanceTo(order.id, 'ready');
     await applyOrderAction(order.id, { kind: 'revert', actor: 'staff' }, AT);
     await advanceTo(order.id, 'ready');
-    expect(await listOrderNotifications(order.id)).toHaveLength(2);
+
+    const rows = await listOrderNotifications(order.id);
+    expect(rows).toHaveLength(1);
+    // The FIRST row, kept — not the second written over it. The instant on it
+    // is when the customer was actually told.
+    expect(rows[0]!.message).toBe(readyMessage(order.seq));
+  });
+
+  it('does not let the duplicate roll the status change back', async () => {
+    // The reason the write is `skipDuplicates` and not a plain `create`
+    // against the same index. `queueReadyNotification` runs INSIDE
+    // `applyOrderAction`'s transaction, so a P2002 there would take the
+    // status with it — and the cook's second advance is the CORRECT one.
+    const order = await place('5550102233');
+    await advanceTo(order.id, 'ready');
+    await applyOrderAction(order.id, { kind: 'revert', actor: 'staff' }, AT);
+
+    const result = await applyOrderAction(order.id, { kind: 'advance', actor: 'staff' }, AT);
+    expect(result.ok).toBe(true);
+    // The status moved even though the notification did not.
+    expect(result.ok && result.order.status).toBe('ready');
+    expect(await listOrderNotifications(order.id)).toHaveLength(1);
+  });
+
+  it('refuses a second row of the same kind at the DATABASE, not in code', async () => {
+    // The constraint is the mechanism, asserted directly: a writer that never
+    // went through `queueReadyNotification` is refused just the same. Without
+    // this the index could be dropped and every test above would still pass
+    // on the code path's own care.
+    const order = await place('5550102233');
+    await advanceTo(order.id, 'ready');
+    await expect(
+      prisma.notificationOutbox.create({
+        data: { orderId: order.id, kind: 'ready', message: 'a second one, by hand' },
+      }),
+    ).rejects.toThrow(/NotificationOutbox_one_per_order_kind|Unique constraint/);
   });
 
   it('stores no phone column of its own — the retention guarantee', async () => {

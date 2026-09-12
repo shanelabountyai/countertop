@@ -683,38 +683,34 @@ describe('the punch card across the rush', () => {
     expect(withoutPhone).toBeGreaterThan(20);
   });
 
-  it('TEXTS THE REVERTED TICKET TWICE — a defect this rush found, not a rule', async () => {
-    // THIS ASSERTION DOCUMENTS A BUG. It is written down rather than left
-    // silent because the number is wrong and should change.
+  it('texts the reverted ticket ONCE, across a whole service', async () => {
+    // THIS TEST ASSERTED THE DEFECT UNTIL C-121, on purpose, and is rewritten
+    // by the fix rather than deleted by it — which is the whole reason it was
+    // written that way. C-120 found the bug by giving rush orders a phone for
+    // the first time and reading what came out; the assertion was
+    // `toHaveLength(2)` with the wrong number named in its own title, so the
+    // fix could not land quietly beside it.
     //
-    // `queueReadyNotification` (P1-3, C-113) writes an outbox row on every
-    // transition INTO `ready`, with nothing stopping a second one. Rae's
-    // ticket is the rush's wrong-advance case: marked ready at minute 12,
-    // reverted at 13, marked ready again at 16 — so she is queued the same
-    // "#010 is ready for pickup" twice, four minutes apart, for one bag of
-    // food.
-    //
-    // Latent, not live: nothing sends these yet, the outbox is a stub log
-    // (master PRD P2 still parks real SMS). And invisible until THIS session,
-    // because no rush order carried a phone before C-120 and
-    // `queueReadyNotification` is gated on one — the rush grew phones and
-    // immediately found something, which is the rush being a test.
-    //
-    // NOT FIXED HERE, deliberately: the fix is a constraint and therefore a
-    // hand-written migration, and its grain is a real decision — one
-    // notification per order forever closes the door on a second KIND of
-    // notification later. That is its own item; `NEXT.md` carries it.
+    // `queueReadyNotification` now lands on a unique index over
+    // `(orderId, kind)` with `skipDuplicates`, so Rae's ticket — ready at
+    // minute 12, reverted at 13, ready again at 16 — queues one message.
     const queued = await prisma.notificationOutbox.findMany({
-      select: { message: true, order: { select: { customerName: true } } },
+      select: { message: true, kind: true, order: { select: { customerName: true } } },
     });
-    const forRae = queued.filter((row) => row.order?.customerName === 'Rae Sutton');
-    expect(forRae).toHaveLength(2);
-    expect(forRae[0]?.message).toBe(forRae[1]?.message);
 
-    // Four customers reached `ready` with a phone on the order; five rows
-    // exist. When the defect is fixed this becomes 4 and this test fails,
-    // which is the point of writing it down.
-    expect(queued).toHaveLength(5);
+    const forRae = queued.filter((row) => row.order?.customerName === 'Rae Sutton');
+    expect(forRae).toHaveLength(1);
+
+    // Four customers reached `ready` with a phone on the order — Ada, Cass,
+    // Rae and Ivy. Owen's was cancelled at minute 9, before it was ever
+    // cooked, so he is told nothing. Four rows, which is what five was.
+    expect(queued).toHaveLength(4);
+    expect(new Set(queued.map((row) => row.order?.customerName))).toEqual(
+      new Set(['Ada Nkemelu', 'Cass Iverson', 'Rae Sutton', 'Ivy Castellanos']),
+    );
+    // One kind today, and the column exists because it is half the index's
+    // grain — not because anything writes a second value yet.
+    expect(new Set(queued.map((row) => row.kind))).toEqual(new Set(['ready']));
   });
 
   it('never lets a placed order join a loyalty table to render itself', async () => {

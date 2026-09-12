@@ -820,11 +820,37 @@ model OrderEvent {
   @@index([refundRequestId])
 }
 
+/// What a notification is ABOUT (C-121).
+///
+/// ONE VALUE TODAY, and the enum exists anyway because it is half of the
+/// unique index below — `(orderId, kind)` is the grain at which "tell this
+/// customer once" is true, and a bare `(orderId)` would have said "tell this
+/// customer once, ever, about anything". Two comments in this codebase
+/// already anticipated a second value before there was a column to hold it:
+/// this model's own "one row is written when an order reaches `ready`", and
+/// `readyMessage`'s "so the wording has exactly one source once a second
+/// trigger (placed, picked up) ever wants its own".
+enum NotificationKind {
+  /// The food is on the shelf. Written on the transition INTO `ready`.
+  ready
+}
+
 /// The SMS-style status stub (master PRD P1-3, loyalty PRD's P1-1 gate).
 ///
 /// STUBBED, like `mockPaymentProvider`: nothing here calls a carrier. One row
 /// is written when an order reaches `ready`, so the visible seam for a real
 /// send is this table rather than a rewrite of the transition that creates it.
+///
+/// AT MOST ONE ROW PER `(orderId, kind)`, enforced by a hand-written unique
+/// index (C-121). Until then this wrote a row on EVERY transition into
+/// `ready`, so an order a cook advanced by mistake and reverted was texted
+/// twice, four minutes apart, about one bag of food — found by the seeded
+/// rush the session it first carried a phone number. `queueReadyNotification`
+/// lands on the index with `skipDuplicates` rather than checking first: the
+/// state machine PERMITS a revert, so re-entering `ready` is a supported
+/// operation and not an edge case, and a check-then-write would be two cooks'
+/// taps away from writing the second row anyway. Same discipline, and the
+/// same `ON CONFLICT DO NOTHING`, as C-102's one-earn-per-order.
 ///
 /// NO PHONE COLUMN. The number to text is the order's own `customerPhone`,
 /// read live wherever this renders — the same column `forgetOrderCustomer`
@@ -836,13 +862,26 @@ model OrderEvent {
 /// with nothing yet reading it for a dispute. Add the trigger the day a real
 /// provider's delivery receipt needs to update a row here.
 model NotificationOutbox {
-  id        String   @id @default(cuid())
+  id        String           @id @default(cuid())
   orderId   String
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order     Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  /// What this tells the customer. See `NotificationKind`.
+  kind      NotificationKind
   message   String
-  createdAt DateTime @default(now())
+  createdAt DateTime         @default(now())
 
-  @@index([orderId])
+  /// DECLARED HERE as well as written by hand in the migration, unlike the
+  /// PARTIAL unique indexes on `LoyaltyEvent` and `OrderEvent`. Those carry a
+  /// `WHERE`, which Prisma cannot express, so `prisma migrate diff` ignores
+  /// them; this one is a plain two-column unique index, Prisma CAN express
+  /// it, and leaving it out of the schema makes the drift check fail — which
+  /// is the check doing its job. `map:` keeps the hand-written name, so CI
+  /// can still assert it by name in `pg_class`.
+  ///
+  /// There is no separate `@@index([orderId])` any more: this index leads
+  /// with `orderId`, so a lookup by order alone uses it and a second index on
+  /// the same prefix was pure write cost.
+  @@unique([orderId, kind], map: "NotificationOutbox_one_per_order_kind")
 }
 
 /// A one-time code proving control of a phone number, for self-serve

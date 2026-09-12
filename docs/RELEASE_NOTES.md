@@ -2570,3 +2570,41 @@ spend a reward, and labelled the money "taken off orders as adjustments" —
 which is the wrong mechanism now that customers redeem before tax. Fixed. The
 lesson both times is that a demo is a test of the descriptions as well as the
 code.
+
+## C-121 — Telling the customer once
+
+Last session's demo caught this: a cook reaches across the pass, marks the
+wrong ticket ready, notices a minute later and puts it back. The ticket
+becomes ready again four minutes on, properly this time — and the customer's
+phone gets the same "your order is ready" twice for one bag of food.
+
+Now the database refuses the second one. An order gets one notification of a
+given kind, ever, enforced by a unique index rather than by the code
+remembering to check.
+
+**The interesting part was deciding it was a bug at all.** The behaviour had a
+passing test asserting it — written when the SMS stub shipped, saying two rows
+were expected. What it did not have was a comment explaining why, and in this
+codebase every real decision carries its reason in prose next to it. The
+absence was the evidence: that test was describing what the code happened to
+do, not what anyone had decided it should do.
+
+**The fix had a trap in it.** The obvious version — add the unique index, keep
+the existing write — would have been worse than the bug. The notification is
+written inside the same database transaction as the status change, so a
+rejected duplicate would have thrown and taken the status change with it: the
+cook's *correct* second advance would have failed because of a text message.
+The write now says "insert this unless it's already there" instead, which is
+the same technique the loyalty points use for the same reason. There's a test
+asserting the order still moves to ready even when the notification doesn't.
+
+Two smaller things worth recording. The migration deletes existing duplicates
+before adding the index — without that it would fail on any database that has
+already served a reverted ticket, which includes the deployed demo. And it
+keeps the *earlier* of the two, because that's the one the customer actually
+received; keeping the later one would quietly move the recorded time forward.
+
+The schema drift check also earned its keep: the first attempt hid the index
+in the migration the way the more exotic ones are hidden, and the check
+immediately pointed out that this kind of index is one Prisma can see, so
+hiding it is real drift.

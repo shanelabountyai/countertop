@@ -67,6 +67,16 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'the authorization-link CHECK is missing';
   END IF;
+  -- C-121. One notification per order per kind: what stops a cook's
+  -- wrong-advance-and-undo texting the customer twice about one bag of food.
+  -- Declared in the schema too (it is a plain unique index, so `migrate diff`
+  -- CAN see it, unlike the partial ones above) — asserted here as well
+  -- because the name is what `skipDuplicates` lands on.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_class WHERE relname='NotificationOutbox_one_per_order_kind'
+  ) THEN
+    RAISE EXCEPTION 'the one-notification-per-order-kind unique index is missing';
+  END IF;
 END $$;
 EOSQL
 

@@ -141,6 +141,15 @@ jobs:
             ) THEN
               RAISE EXCEPTION 'the authorization-link CHECK is missing';
             END IF;
+            -- C-121. Another plain unique index, in schema.prisma for the same
+            -- reason and asserted here for the same one: it is what stops a
+            -- cook's wrong-advance-and-undo texting the customer twice about
+            -- one bag of food, and the NAME is what `skipDuplicates` lands on.
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_class WHERE relname='NotificationOutbox_one_per_order_kind'
+            ) THEN
+              RAISE EXCEPTION 'the one-notification-per-order-kind unique index is missing';
+            END IF;
           END $$;
           EOSQL
 

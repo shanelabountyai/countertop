@@ -8128,3 +8128,99 @@ container failures C-118's entry documents; 243 on `--list`, and 218 + 15 + 10
 reconciles.
 
 C-120 committed and pushed at 875cce3
+
+---
+
+## C-121 — One notification per order, per kind
+
+The defect C-120 found, fixed. A cook who advances the wrong card and undoes
+it put the ticket through `ready` twice, and the customer was queued the
+identical "#010 is ready for pickup" twice, minutes apart, about one bag of
+food.
+
+**What made this a decision rather than a bug fix:** C-113 shipped a *passing
+test asserting two rows* — `writes a second row if the order re-enters ready
+after a revert`. It carried no comment defending the behaviour, which in a
+repo where every decision carries its reason is the tell: the test described
+what the code did rather than what it should do. Put to the owner as "is this
+a defect or was it intended", and answered *defect*: the revert means the
+first message was wrong — the food was not ready — and the customer has
+already been told once about that bag.
+
+**Built:**
+- **A hand-written migration** — `NotificationKind` enum (one value, `ready`),
+  a `kind` column added nullable, backfilled, then set NOT NULL, a **dedupe
+  pass**, and `NotificationOutbox_one_per_order_kind` UNIQUE on
+  `(orderId, kind)`.
+- **`queueReadyNotification` writes through `createMany` with
+  `skipDuplicates`** and returns whether a row was actually written.
+- **The old `@@index([orderId])` dropped**, since the unique index leads with
+  `orderId` and a second index on the same prefix was write cost with no
+  reader.
+- **CI and `ci-local.sh` assert the index by name** in `pg_class`, beside the
+  other four.
+- **C-113's test rewritten** to assert one row, with the reason stated; two
+  new tests beside it.
+- **C-120's deliberately-wrong test rewritten** to assert four outbox rows
+  instead of five, which is the mechanism that test was written for.
+
+**Decided:**
+- **`(orderId, kind)`, not `(orderId)`.** A bare `(orderId)` would have meant
+  "tell this customer once, ever, about anything", closing a door two comments
+  in this codebase were already holding open: the model's own "one row is
+  written when an order reaches `ready`", and `readyMessage`'s "a function…
+  so the wording has exactly one source once a second trigger (placed, picked
+  up) ever wants its own". The column costs one line in a migration already
+  being hand-written; changing a unique index's grain later means altering a
+  table that by then has real rows.
+- **`skipDuplicates`, never a bare `create`, and never a read-then-write.**
+  This is the part that would have been a fresh defect. `queueReadyNotification`
+  runs INSIDE `applyOrderAction`'s transaction, so a P2002 against the new
+  index would roll the **status change** back — the cook's correct second
+  advance would fail because of a text message. The duplicate is not an error;
+  it is a supported operation producing nothing. Same `ON CONFLICT DO NOTHING`
+  as C-102's earn, for the same two reasons. There is a test asserting the
+  status still moves.
+- **The dedupe keeps the EARLIEST row.** The first text is the one the
+  customer actually received; keeping the later duplicate would move the
+  recorded instant forward and make the outbox disagree with what was sent.
+  `(createdAt, id)` breaks ties so the result is deterministic rather than
+  whatever order the planner returns.
+- **The dedupe is in the migration at all** because this would otherwise fail
+  on any database that has already served a reverted ticket — the deployed
+  demo, and every local database seeded from the rush.
+
+**Found while building — the drift check earning its keep:** my first pass put
+the unique index in the migration only and said so in a schema comment,
+copying how the PARTIAL unique indexes on `LoyaltyEvent` and `OrderEvent` are
+handled. `prisma migrate diff` immediately reported `Removed unique index on
+columns (orderId, kind)`. The partial ones are invisible to it because Prisma
+cannot express a `WHERE`; a plain two-column unique index it *can* express, so
+leaving it out of the schema is real drift. Fixed by declaring
+`@@unique([orderId, kind], map: …)` — `map:` keeps the hand-written name that
+CI asserts. The schema comment now states the distinction rather than getting
+it wrong.
+
+**Left behind:**
+- **`NotificationKind` has one value.** It exists because it is half the
+  index's grain, not because anything writes a second value. A second kind is
+  a product decision nobody has made.
+- **Nothing reads `queueReadyNotification`'s return value.** "We told them"
+  and "we had already told them" are different facts and no caller wants the
+  distinction yet; it is returned rather than discarded so the day one does,
+  the seam is there.
+- **Still no append-only trigger on this table** (the model's own
+  `ponytail:`), and the dedupe in this migration is exactly the kind of delete
+  such a trigger would have blocked — worth remembering when one is added.
+- **A remake still gets its own notification**, correctly: PRD 3's decision 7
+  made a remake a real second order with its own id, so it is a different
+  `(orderId, kind)` and this index never sees it.
+
+**Gate:** `ci-local: OK` — migrate-from-nothing, the five named invariant
+assertions including this one, the drift check, and the unit suite under
+`TZ=UTC` and `TZ=Pacific/Kiritimati`. 1053 unit (+2 over C-120's 1051; three
+tests added, one deleted, one rewritten), lint / typecheck / build clean. E2E
+218 passed + 15 skipped + the same ten pre-existing container failures C-118's
+entry documents; 243 on `--list`, and 218 + 15 + 10 reconciles.
+
+C-121 committed and pushed at PENDING
