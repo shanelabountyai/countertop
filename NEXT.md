@@ -174,6 +174,30 @@ worth running for a migration session** — it is the only thing that applies th
 whole migration history from nothing, asserts the five named invariants, and
 runs the drift check. C-123 added no migration, so it was not run.
 
+**The pre-push hook's premise is STALE, and checking it is now an item.**
+`.githooks/pre-push` opens with "CI is blocked on GitHub Actions billing (every
+run since C-029 dies in ~3s)" and closes with "Delete this hook once CI
+actually runs — the gate belongs in CI, not here." **CI actually runs.**
+`ci-self-hosted.yml`'s own header records why: the repo went public on
+2026-08-31 and `ci.yml` is GitHub-hosted, which "runs free on a public repo,
+which is the direct fix for the billing block". The last five runs on `main`
+— numbers 111 to 115, the SHA commits for C-113 through C-117 — all completed
+`success` in about ten minutes each.
+
+The reason nothing has run since is NOT billing: `ci.yml` triggers on
+`push: branches: [main]` and on `pull_request`, `main` is still at `f239791`
+(C-117), and **C-118 through C-123 all live on unmerged `claude/…` branches**.
+No branch push triggers it and no PR exists, so "watch CI green before saying
+done" has had nothing to watch for six items. Verified this session against the
+Actions API, not inferred.
+
+**So the hook is now doing a job CI would do for free, badly** — it is the only
+thing gating these branches, it takes ~12 minutes per push, and it cannot pass
+in a container. Deciding that is a small item of its own: merge to `main` and
+let `ci.yml` gate, or open PRs, or delete the hook per its own instruction.
+**Do not just delete it** — while these branches stay unmerged it is the only
+gate there is.
+
 **The pre-push hook cannot pass in this container, and C-123 was pushed with
 `--no-verify`.** `.githooks/pre-push` runs `ci:local` and then the whole gate,
 and `set -e` aborts the push on any e2e failure — so the ten environmental
