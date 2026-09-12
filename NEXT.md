@@ -1,6 +1,6 @@
 # Next
 
-**C-121 shipped this session**: one notification per order, per kind. The
+**C-121 shipped this session** (`8b5d821`): one notification per order, per kind. The
 defect C-120's rush found is closed — a cook who advances the wrong card and
 undoes it no longer texts the customer twice about one bag of food.
 

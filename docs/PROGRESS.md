@@ -8223,4 +8223,4 @@ tests added, one deleted, one rewritten), lint / typecheck / build clean. E2E
 218 passed + 15 skipped + the same ten pre-existing container failures C-118's
 entry documents; 243 on `--list`, and 218 + 15 + 10 reconciles.
 
-C-121 committed and pushed at PENDING
+C-121 committed and pushed at 8b5d821
