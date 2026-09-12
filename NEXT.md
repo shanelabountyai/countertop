@@ -1,6 +1,6 @@
 # Next
 
-**C-122 shipped this session**: the bulk 86 under two cooks. `setAvailability`
+**C-122 shipped this session** (`e6daa5e`): the bulk 86 under two cooks. `setAvailability`
 read the rows it was about to flip and then flipped them, so two overlapping
 batches in the same second both claimed the same still-available row — and the
 first undo put it back on the customer menu while the second cook's screen
