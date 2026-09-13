@@ -1,6 +1,6 @@
 # Next
 
-**C-124 shipped this session**: order ahead, in the seeded rush. C-114 shipped
+**C-124 shipped this session** (`dc68e52`): order ahead, in the seeded rush. C-114 shipped
 scheduled pickup and C-123 fixed two flags only scheduled orders reach, and
 none of it appeared in the capstone demo — the e2e suite was the only thing in
 the project driving any of it.
