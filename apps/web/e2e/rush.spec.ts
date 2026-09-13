@@ -184,6 +184,28 @@ test('the ready shelf shows the no-show aging, and the fresh tickets do not', as
   await expect(page.getByText('Running late')).toHaveCount(0);
 });
 
+test('an order-ahead ticket counts down to its slot instead of up from the counter', async ({
+  page,
+}) => {
+  await page.goto('/kitchen');
+
+  // Two of the thirty booked a pickup time (P1-2, C-124). Both are still on
+  // the grill at the stop, whatever slot the anchor resolved to, because the
+  // earliest one the rush can book is minute 26 and the kitchen does not touch
+  // either of them before that.
+  for (const name of ['Hal Brennan', 'Jonah Reddick']) {
+    // A COUNTDOWN, not an age. "310 min since ordered" is true of a scheduled
+    // ticket, useless, and reads as an emergency on a screen scanned at arm's
+    // length — which is what this card said before C-123.
+    await expect(card(page, name)).toContainText(/Due in \d+ min/);
+    await expect(card(page, name)).not.toContainText('since ordered');
+    await expect(card(page, name)).not.toContainText('past pickup');
+  }
+
+  // The other twenty count up, and the two above have not stolen their line.
+  await expect(card(page, 'Ada Nkemelu')).toContainText(/\d+ min since ordered/);
+});
+
 test('every control on a rush card is still thumb-sized', async ({ page }) => {
   await page.goto('/kitchen');
 

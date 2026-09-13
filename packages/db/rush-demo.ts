@@ -8,11 +8,16 @@
 // Afterwards: `npm run dev` and open /kitchen/report. The queue is deliberately
 // EMPTY when it finishes — every one of the thirty orders reached a terminal
 // state, which is the headline result, not a missing screen.
-import { instantMinutesAfter, salesReport, timeInStateReport } from '@countertop/core';
+import {
+  instantMinutesAfter,
+  salesReport,
+  serviceTimes,
+  timeInStateReport,
+} from '@countertop/core';
 import { prisma } from './index';
 import { loadLoyaltyProgram } from './loyalty';
 import { loadSettings } from './menu';
-import { loadReportOrders } from './report';
+import { loadReportOrders, loadStatusTimelines } from './report';
 import {
   EIGHTY_SIX_MINUTE,
   PAUSE_MINUTE,
@@ -104,6 +109,23 @@ async function main(): Promise<void> {
         (until >= RESUME_MINUTE
           ? ` between minute ${PAUSE_MINUTE} and ${RESUME_MINUTE}; ${bounced > 2 ? 1 : 0} came back`
           : '; the door is still shut'),
+    );
+  }
+
+  // Order ahead (P1-2, C-124). Deliberately NOT filed under "the ugly cases"
+  // above: these two are ordinary customers who asked for a time, and a demo
+  // that listed them among the failures would be teaching the wrong thing.
+  // Read from the same `serviceTimes` the report screen reads, so the
+  // narration and the screen cannot come out different.
+  const booked = await prisma.order.count({ where: { requestedFor: { not: null } } });
+  if (booked > 0) {
+    const service = serviceTimes(await loadStatusTimelines(anchor));
+    console.log('\nOrdered ahead');
+    console.log(
+      `  ${plural(booked, 'order')} booked a pickup time instead of a range` +
+        (service.scheduled === 0
+          ? ', and none is out of the kitchen yet'
+          : `; ${service.scheduledLate} of ${service.scheduled} missed its slot`),
     );
   }
 

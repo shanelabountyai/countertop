@@ -2136,6 +2136,100 @@ fabricating a `readyFlagMinutes` beside it that nothing will look at. Asking a
 function to accept less is a smaller change than asking a caller to invent
 more.
 
+### The demo that could only run at noon (C-124)
+
+The seeded rush is anchored two different ways on purpose. The test pins it to
+a fixed instant — noon in Los Angeles on a fixed date — because an assertion
+wants to be the same day forever. The demo script anchors it so the run *ends
+now*, because a queue whose cards are all forty-eight minutes old looks like a
+disaster rather than a lunch rush.
+
+Every feature the rush has ever demonstrated was indifferent to that
+difference. Order-ahead is the first one that is not, and the reason is worth
+writing down: **it is the first feature whose valid inputs are defined by a
+grid the restaurant owns rather than by a duration the order owns.** Pickup
+slots are offered every fifteen minutes from local midnight. Everything else
+in the script — a cadence of "ready eleven minutes after it lands", an 86 at
+minute 8, a pause from 15 to 18 — is a duration, and a duration is the same
+duration whenever you start it.
+
+So the first version wrote what reads like the obvious thing:
+
+```ts
+export const SCHEDULED_PICKUP_MINUTE = 30;
+```
+
+Thirty minutes into a rush that opens at 12:00 is 12:30, which is a slot. The
+test passed. Forty-two tests passed. Then the demo ran, at 09:18, and threw:
+
+```
+Error: Hal Brennan was refused at minute 5 and should not have been: slot_unavailable
+```
+
+Thirty minutes past 09:18 is 09:48. The restaurant offers 09:45 and 10:00. The
+server had never offered 09:48 to anybody, and it refused an order claiming to
+have been given it — which is precisely what the re-check at placement is for.
+**The rush was wrong and the server was right**, and the only reason that was
+ever in doubt for a moment is that the failing thing was the demo.
+
+The fix is the rule the rest of the codebase already follows and this script
+had just broken in its own house: don't compute an answer the server can be
+asked for. `resolveScheduledSlot` calls `availableSlots` — the same function
+that renders the customer's picker and the same one placement re-checks
+against — and takes the first slot on the list. Which rush minute that lands on
+now varies from 26 to 40 depending on where the anchor falls against the grid,
+so the two kitchen cadences are written against the slot rather than against a
+number, and the script's tail grew from 45 minutes to 50 to clear the worst
+case.
+
+Two things generalise. The first is that **a fixed fixture can hide a whole
+class of input**, and the tell is not subtle once you look for it: the test
+anchored to a multiple of fifteen and the feature quantised to multiples of
+fifteen, and nothing in the test file said so. It now does, as an assertion —
+the rush reports the slot it resolved, and the test asserts that at noon it is
+minute 30, so the number every hand-tallied figure in that file depends on is
+written down rather than assumed.
+
+The second is that **the demo is a test, and running it is not optional**.
+CLAUDE.md calls the rush "both the capstone demo and a test" and the gate runs
+the test. It does not run the demo, because the demo prints prose at whatever
+time you happen to be standing there. Forty-two green tests and a clean build
+said this item was finished. One `npm run demo:rush` said it was not.
+
+### Tuning a fixture so that the bug fails it (C-124)
+
+C-123 established that reverting a fix and requiring red is half a technique,
+because it cannot catch a test that agrees with the over-correction. This item
+found the third case: **a test that agrees with the original defect by
+arithmetic coincidence.**
+
+The late order's cadence was easy — its food is ready after its slot, and no
+duration-based rule reproduces that. The on-time order was not. The report
+counts a scheduled ticket as late if it reached `ready` after its promised
+minute; the pre-C-123 rule counted it as late if it reached `ready` more than
+fifteen minutes after it was *placed*. Pick the wrong minute for the food to
+come up and both rules return the same answer:
+
+| Hal's food is up at | correct rule | old rule | `scheduledLate` |
+|---|---|---|---|
+| minute 18 (13 min after ordering) | on time | on time | 1 either way ❌ |
+| minute 20 (15 min after ordering) | on time | **late** | 1 vs 2 ✓ |
+
+The first row is a demo that proves nothing: the headline number comes out
+identical whether the fix is present or not. The second is two minutes later
+and the defect fails it.
+
+Minute 20 is doing a second job at the same time, which is what makes it worth
+a comment in the source rather than a number. It is also ten minutes before the
+slot, and ten minutes is the first no-show mark — so the pre-C-123 no-show
+clock, which ran from the moment the food was bagged rather than from the
+minute the customer promised, reaches the first flag exactly. One number,
+tuned against two defects, with no slack in either direction.
+
+The generalisation: when a fixture is built to demonstrate a fix, **run the
+defect against the fixture and check the demonstration changes**. A rush that
+prints the same sentence either way is a recording, not a proof.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required

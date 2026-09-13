@@ -2682,3 +2682,36 @@ that passed against the bug they were written for, so this time both defects
 were run: the original, and the obvious over-correction of simply never
 flagging a scheduled order. Five tests catch the first. Four different ones
 catch the second. A test that no defect makes fail was not worth keeping.
+
+## C-124 — The demo finally shows order-ahead
+
+Customers have been able to order for a pickup time for two sessions, and the
+last session fixed two flags that only those orders ever reach. None of it
+appeared in the demo. The seeded rush — thirty orders in twenty minutes, the
+thing the whole project is built to be shown through — placed thirty walk-up
+orders and nothing else, so the only place order-ahead ran at all was the
+automated test suite.
+
+Two of the thirty now order for a time. Not two *extra* customers: a real lunch
+rush has some order-ahead in it, it does not have two more people standing
+outside, and the thirty-in-twenty number is one the project holds itself to.
+
+They are deliberately the two halves of the same question. One customer's food
+comes up ten minutes before the time they asked for and sits on the shelf
+waiting for them — the ticket that must *not* light up as a no-show, which is
+exactly what it used to do. The other's is not ready until six minutes after
+the time they were promised, so their card goes red on the promise and the
+end-of-day report counts one ticket as having missed its slot. Anyone watching
+the demo now sees both, which is the only way to tell that the red means
+something.
+
+**Building the demo found a bug in the demo.** The first version booked "thirty
+minutes into the rush" — correct on paper, and correct in the test, which pins
+the rush to noon. But pickup times are offered on the restaurant's own
+quarter-hour grid, and the demo script deliberately runs so that it *ends now*,
+whatever the time happens to be. Started at 09:18, "thirty minutes in" is
+09:48, which is not a time the restaurant ever offers, and the server turned
+the order down. The server was right. The script now picks its pickup time off
+the list of slots the restaurant is actually offering, the same list a customer
+would be choosing from — which is the rule this codebase applies everywhere
+else and had just broken in its own demo.

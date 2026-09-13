@@ -23,6 +23,7 @@
 // with itself and prove nothing.
 import {
   addLine,
+  availableSlots,
   EMPTY_CART,
   instantMinutesAfter,
   type CancelReason,
@@ -30,6 +31,7 @@ import {
   type Composition,
   type OrderStatus,
 } from '@countertop/core';
+import { loadGateState } from './gate';
 import { prisma } from './index';
 import { enrolMember, hasLoyaltyPepper } from './loyalty';
 import { loadClock, loadMenu } from './menu';
@@ -65,9 +67,14 @@ const cookFor = (label: string): string =>
  *  timezone the process runs under. */
 export const RUSH_ANCHOR = new Date(Date.UTC(2026, 6, 14, 19, 0, 0));
 
-/** How long the script keeps running after the last arrival: the kitchen tail,
- *  long enough for the no-show to age past the third flag (30 min). */
-export const RUSH_END_MINUTE = 45;
+/** How long the script keeps running after the last arrival: the kitchen tail.
+ *
+ *  Long enough for the no-show to age past the third flag (30 min), and — since
+ *  C-124 — long enough for the LATEST pickup slot the rush can resolve to be
+ *  collected nine minutes after it. That slot depends on where the anchor falls
+ *  against the restaurant's 15-minute grid, so the worst case is minute 40 and
+ *  the tail has to clear 49. See `resolveScheduledSlot`. */
+export const RUSH_END_MINUTE = 50;
 
 /** The option that runs out mid-rush, and the minute it does. */
 export const EIGHTY_SIXED_OPTION = 'guacamole';
@@ -133,6 +140,69 @@ const RUSH_REGULARS: RushRegular[] = [
 /** How long before the rush the regulars enrolled. Inside the 365-day expiry
  *  window by a wide margin, so nothing the demo shows is about to vanish. */
 const ENROLLED_DAYS_AGO = 30;
+
+// ── Order ahead (P1-2, C-124) ───────────────────────────────────────────────
+//
+// TWO OF THE THIRTY, NOT TWO MORE. The master PRD's Success Metric is "30
+// orders in 20 minutes via script" and this file's tests assert that number;
+// adding customers to demonstrate a feature would have restated a metric the
+// rush exists to hold. A real lunch rush has some order-ahead in it. It does
+// not have two extra people standing outside.
+//
+// BOTH BOOK THE SAME SLOT, which is not laziness. `weightBySlot` is summed
+// from the open scheduled orders, so the second booking is re-checked against
+// a slot the first one has already eaten into — one order per slot would
+// leave that arithmetic untouched by the demo.
+//
+// They differ in the ONE comparison `isPastDue` makes for a scheduled ticket
+// (C-123): when the food was ready against when it was promised. Both are
+// written as OFFSETS from the slot, since which rush minute that is depends on
+// the anchor — the minutes in brackets are the ones at `RUSH_ANCHOR`, where
+// the slot resolves to 30 and `rush.test.ts` hand-tallies them.
+//
+//   * Hal Brennan's is bagged at `slot - 10` (minute 20), ten minutes EARLY,
+//     and collected at `slot + 1` (31). The KITCHEN makes his slot, so he is
+//     never `scheduledLate`; the no-show clock is the part worth showing. It
+//     starts at the LATER of ready and the promised minute, so the food sits
+//     across the slot having spent zero minutes being a no-show. Before C-123
+//     this exact ticket read `noShowLevel: 1` and put "On the shelf 10 min —
+//     no-show?" in red on a card that was doing everything right.
+//
+//     `slot - 10` IS CHOSEN AGAINST BOTH DEFECTS AT ONCE, and neither margin
+//     is spare. Ten minutes before the slot is the first no-show mark
+//     exactly, so the pre-C-123 clock reaches it. It is ALSO fifteen minutes
+//     after he ordered — `queueFlagMinutes` exactly, at the anchor the test
+//     pins — so the pre-C-123 `isPastDue` calls this ticket LATE at the
+//     instant it reached `ready`, and the report's `scheduledLate` counts two
+//     where it should count one. Bagged two minutes earlier, the report would
+//     have said "1" under the defect as well, by arithmetic coincidence, and
+//     this whole demo would have agreed with the bug it exists to rule out.
+//
+//     He IS `overdue` for the one minute between his slot and his arrival,
+//     and that is the flag working: `isPastDue` is `>=`, so a 12:30 pickup is
+//     due AT 12:30 and a customer a minute late is a minute late. The red
+//     C-123 removed was the KITCHEN being blamed for it.
+//   * Jonah Reddick's is not ready until `slot + 6` (36), six minutes LATE,
+//     and collected at `slot + 9` (39). His card reads "6 min past pickup —
+//     running late" and he is the whole of the report's `scheduledLate`.
+//
+// The first two taps of each are left exactly where the default cadence put
+// them, so the mid-service screen `e2e/rush.spec.ts` reads at minute 12 is the
+// queue it was before this item with a countdown added to two cards — a demo
+// whose unrelated assertions all moved would not be showing this feature, it
+// would be hiding it.
+//
+// NEITHER IS QUOTED A RANGE. `placeOrder` writes a null quote for a scheduled
+// order because its promise IS the slot, so these two leave the P1-4 accuracy
+// sample. That exclusion is keyed on a DIFFERENT column from the one
+// `serviceTimes` splits on — `quotedLowMinutes IS NULL` against
+// `requestedFor IS NOT NULL` — and the two agree only because placement sets
+// them together. `rush.test.ts` asserts they still pick out the same orders.
+
+/** The later of the two order-ahead arrivals. The slot is resolved as of this
+ *  minute so that BOTH customers can book it: a slot inside Jonah's lead time
+ *  is inside Hal's too, the minute before. */
+export const SCHEDULED_BOOKED_AT_MINUTE = 6;
 
 // ── The compositions ────────────────────────────────────────────────────────
 // Hand-written against the 25-item menu. Indices are referenced by the order
@@ -337,8 +407,23 @@ type RushOrder = {
    *  86 lands in between for exactly one customer. */
   composedMinute?: number;
   slow?: number;
-  /** Replaces the default cadence outright. */
-  kitchen?: KitchenStep[];
+  /**
+   * This customer ordered AHEAD (P1-2) and collects at the slot
+   * `resolveScheduledSlot` books, rather than as soon as the kitchen gets to
+   * it.
+   *
+   * A flag and not a minute, deliberately. WHICH slot is not this table's to
+   * decide — it is whatever `availableSlots` offers on the day, and the table
+   * cannot know that without doing the server's arithmetic a second time.
+   * `submit` hands placement the minute it was offered and `placeOrder`
+   * re-checks it exactly as it does for a browser, so a refusal makes `submit`
+   * throw naming the customer.
+   */
+  ordersAhead?: true;
+  /** Replaces the default cadence outright. A FUNCTION for an order-ahead
+   *  ticket, whose last taps are written against the slot it booked rather
+   *  than against a minute this table guessed. */
+  kitchen?: KitchenStep[] | ((slot: number) => KitchenStep[]);
   /** Two concurrent submissions carrying the SAME idempotency key. */
   doubleSubmit?: true;
   /** This attempt is SUPPOSED to fail, with this error kind. Anything else
@@ -452,13 +537,47 @@ export const RUSH_ORDERS: RushOrder[] = [
     ],
   },
 
-  { label: 'Hal Brennan', minute: 5, composition: 9 },
+  // ORDER AHEAD, and the kitchen makes it (P1-2). Ordered at 12:05 for the
+  // first slot he is offered, cooked ten minutes early and left on the shelf
+  // across it: the ticket whose no-show clock must read zero at its slot.
+  // `slot - 10` is load-bearing in two directions — see the `Order ahead`
+  // block above.
+  {
+    label: 'Hal Brennan',
+    minute: 5,
+    composition: 9,
+    ordersAhead: true,
+    kitchen: (slot) => [
+      { at: 6, step: 'advance' },
+      { at: 8, step: 'advance' },
+      // Ten minutes before his slot, and both taps AFTER it are written
+      // against the slot for the same reason the first two are not: a kitchen
+      // works a scheduled ticket to the clock, and only the first two taps
+      // belong to the minute it was ordered.
+      { at: slot - 10, step: 'advance' },
+      { at: slot + 1, step: 'advance' },
+    ],
+  },
   // A regular with a full punch card, spending it at checkout (PRD 7 P1-1).
   // $13.75 of food, $10.00 off, tax on the $3.75 that is left: 31c, so $4.06.
   // Collected at the counter, so the reward appears on a sold order and the
   // sales report's Rewards column has something in it.
   { label: 'Ivy Castellanos', minute: 5, composition: 10, slow: 2, phone: '5550102233', redeemsReward: true },
-  { label: 'Jonah Reddick', minute: 6, composition: 11 },
+  // ORDER AHEAD, missed (P1-2). Hal's slot, six minutes late to it. The only
+  // ticket in the rush that `serviceTimes` counts as `scheduledLate`, and the
+  // only card in it that ever reads "past pickup".
+  {
+    label: 'Jonah Reddick',
+    minute: 6,
+    composition: 11,
+    ordersAhead: true,
+    kitchen: (slot) => [
+      { at: 7, step: 'advance' },
+      { at: 9, step: 'advance' },
+      { at: slot + 6, step: 'advance' },
+      { at: slot + 9, step: 'advance' },
+    ],
+  },
   { label: 'Kira Lindqvist', minute: 7, composition: 12 },
   { label: 'Luca Ferrante', minute: 7, composition: 13 },
   { label: 'Mira Halvorsen', minute: 8, composition: 1 },
@@ -522,6 +641,10 @@ export type RushResult = {
   anchor: Date;
   /** The instant the run stopped — minute `untilMinute` of the rush. */
   end: Date;
+  /** The rush minute the two order-ahead customers booked (P1-2). Resolved
+   *  from the offered slots, so it moves with the anchor — 30 at
+   *  `RUSH_ANCHOR`, and see `resolveScheduledSlot` for the range. */
+  scheduledSlotMinute: number;
   /** Where it stopped. Below `RUSH_END_MINUTE` the kitchen is mid-service. */
   untilMinute: number;
   attempts: RushAttempt[];
@@ -629,6 +752,55 @@ async function verifiedTokenFor(order: RushOrder, now: Date): Promise<string> {
   return confirmed.token;
 }
 
+/**
+ * Which slot the two order-ahead customers actually get — ASKED, not assumed.
+ *
+ * The first version of this hard-coded "minute 30 of the rush", which is the
+ * right answer for `RUSH_ANCHOR` and wrong for the demo. Slots are offered on
+ * the RESTAURANT's grid — every 15 minutes from local midnight — and the demo
+ * anchors the rush so it ends NOW, at whatever minute past the hour that is.
+ * Anchored at 09:18, minute 30 is 09:48, which is not a slot any customer was
+ * ever shown, and `placeOrder` refused it with `slot_unavailable` exactly as it
+ * should have. The rush was wrong, not the server.
+ *
+ * So it books the way a browser books: take the list `availableSlots` offers
+ * and pick the first one on it. That is the same list the picker renders and
+ * the same one placement re-checks against, which is this file's rule for
+ * everything — the real path, or no proof.
+ *
+ * The rush-minute OFFSET is what the kitchen script needs, and it varies with
+ * the anchor, because the lead time lands somewhere different in each
+ * fifteen-minute interval: 26 at its lowest, 40 at its highest, and
+ * `RUSH_END_MINUTE` is sized to collect the latest of those. At `RUSH_ANCHOR`
+ * — noon exactly — it is 30, which is why the numbers in `rush.test.ts` can be
+ * hand-tallied at all.
+ */
+async function resolveScheduledSlot(anchor: Date): Promise<{ minuteOfDay: number; rushMinute: number }> {
+  const bookedAt = at(anchor, SCHEDULED_BOOKED_AT_MINUTE);
+  const clock = await loadClock(bookedAt);
+  const state = await loadGateState(bookedAt);
+  const schedule = availableSlots(state, state.scheduleConfig, state.weightBySlot, clock);
+
+  if (!schedule.open) {
+    throw new Error(
+      `the rush could not book a pickup slot at minute ${SCHEDULED_BOOKED_AT_MINUTE}: ${schedule.message}`,
+    );
+  }
+  const slot = schedule.slots[0];
+  if (slot === undefined) {
+    throw new Error(
+      `the rush was offered no pickup slot at minute ${SCHEDULED_BOOKED_AT_MINUTE}. The anchor is too ` +
+        'close to the end of the restaurant\'s day for order-ahead to have anywhere to go.',
+    );
+  }
+
+  // Against the ANCHOR's minute, not this one, because every other number in
+  // the script is. One business day is assumed here and everywhere else in
+  // this file — see `RUSH_ANCHOR`.
+  const openedAt = await loadClock(anchor);
+  return { minuteOfDay: slot.minuteOfDay, rushMinute: slot.minuteOfDay - openedAt.minuteOfDay };
+}
+
 async function buildCart(order: RushOrder, anchor: Date): Promise<Cart> {
   const composedAt = at(anchor, order.composedMinute ?? order.minute);
   // The menu as it was when the customer composed, which for exactly one
@@ -652,7 +824,12 @@ async function buildCart(order: RushOrder, anchor: Date): Promise<Cart> {
   return cart;
 }
 
-async function submit(order: RushOrder, anchor: Date, cart: Cart): Promise<RushAttempt> {
+async function submit(
+  order: RushOrder,
+  anchor: Date,
+  cart: Cart,
+  slotMinuteOfDay: number,
+): Promise<RushAttempt> {
   const now = at(anchor, order.minute);
   const input = {
     cart,
@@ -670,6 +847,9 @@ async function submit(order: RushOrder, anchor: Date, cart: Cart): Promise<RushA
     // order placed at minute 5 would be fine, and one for minute 20 would
     // not, so it is simply made when it is used.
     ...(order.redeemsReward ? { verifiedPhoneToken: await verifiedTokenFor(order, now) } : {}),
+    // Order ahead (P1-2, C-124). The slot the server itself offered, handed
+    // straight back — never a minute this script worked out on its own.
+    ...(order.ordersAhead ? { requestedForMinute: slotMinuteOfDay } : {}),
     // P1-8. Roughly a third of the rush pays at the counter, so the queue on
     // screen holds both kinds — a badge that is on every card is not a signal,
     // and one that is on none is not a demo. Derived from the arrival minute
@@ -764,16 +944,33 @@ export async function runRush(
   // naming the customer who bounced, rather than the script quietly delivering
   // twenty-eight orders and calling it thirty.
   //
-  // Except for ONE switch: the punch card is on (C-120).
+  // Except for TWO switches, both shipping false and both on here for the
+  // same reason: a demo cannot show a feature the seed leaves disabled.
+  //
   // `loyaltyEnabled` ships false and every other seed leaves it false — the
   // invisibility requirement PRD 7 P0-1 asks for — but a demo of a restaurant
-  // that runs a loyalty program has to have one running.
-  await seedSettings({ loyaltyEnabled: true });
+  // that runs a loyalty program has to have one running (C-120).
+  //
+  // `scheduledOrdersEnabled` is the same shape (C-124). Placement refuses a
+  // `requestedForMinute` outright when it is off, so the two order-ahead
+  // customers below would come back `slot_unavailable` and `submit` would
+  // throw naming them — loudly, rather than a rush that quietly placed two
+  // ASAP orders and called them scheduled. Nothing ELSE about the schedule is
+  // overridden: 15-minute slots, a 20-minute lead and 20 points of prep per
+  // slot are the shipping defaults, and the rush is supposed to fit under the
+  // configuration it ships with — the same sentence this comment's first
+  // paragraph makes about the throttle.
+  await seedSettings({ loyaltyEnabled: true, scheduledOrdersEnabled: true });
   await seedStoreHours();
   await seedStaff(anchor);
   // The regulars, before the doors open. Throws rather than silently seeding
   // no members if the pepper is unset.
   await seedRushLoyalty(anchor);
+
+  // Booked before the doors open, because the kitchen script for the two
+  // order-ahead tickets is written against it and the loop below taps those
+  // cards from minute 6 onwards.
+  const slot = await resolveScheduledSlot(anchor);
 
   const attempts: RushAttempt[] = [];
   const orderIds = new Map<string, string>();
@@ -812,14 +1009,18 @@ export async function runRush(
     //    thing under test, not the awaits.
     const arriving = RUSH_ORDERS.filter((order) => order.minute === minute);
     const placed = await Promise.all(
-      arriving.map((order) => submit(order, anchor, carts.get(order)!)),
+      arriving.map((order) => submit(order, anchor, carts.get(order)!, slot.minuteOfDay)),
     );
     for (const [index, attempt] of placed.entries()) {
       attempts.push(attempt);
       const order = arriving[index]!;
       if (attempt.outcome === 'placed') {
         orderIds.set(attempt.label, attempt.orderId!);
-        for (const step of order.kitchen ?? cadence(order.minute, order.slow)) {
+        const steps =
+          typeof order.kitchen === 'function'
+            ? order.kitchen(slot.rushMinute)
+            : (order.kitchen ?? cadence(order.minute, order.slow));
+        for (const step of steps) {
           kitchen.push({ orderId: attempt.orderId!, label: order.label, step });
         }
       }
@@ -836,5 +1037,13 @@ export async function runRush(
     grouped.map((row) => [row.status, row._count]),
   ) as Record<OrderStatus, number>;
 
-  return { anchor, end: at(anchor, untilMinute), untilMinute, attempts, orderIds, finalStatuses };
+  return {
+    anchor,
+    end: at(anchor, untilMinute),
+    scheduledSlotMinute: slot.rushMinute,
+    untilMinute,
+    attempts,
+    orderIds,
+    finalStatuses,
+  };
 }

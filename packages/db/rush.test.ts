@@ -1,9 +1,12 @@
 import {
   derivePaymentState,
   paymentTotals,
+  elapsedMinutes,
   estimateAccuracy,
   instantMinutesAfter,
   isOpen,
+  queueAging,
+  serviceTimes,
   timeInState,
   timeInStateReport,
   type OrderStatus,
@@ -12,8 +15,14 @@ import {
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { ORDER_RECEIPT } from './placement';
-import { loadQuoteSamples } from './report';
-import { runRush, RUSH_ANCHOR, RUSH_END_MINUTE, RUSH_ORDERS, type RushResult } from './rush';
+import { loadQuoteSamples, loadStatusTimelines } from './report';
+import {
+  runRush,
+  RUSH_ANCHOR,
+  RUSH_END_MINUTE,
+  RUSH_ORDERS,
+  type RushResult,
+} from './rush';
 
 // C-017 — the seeded rush, asserted. The PRD's lagging Success Metrics are the
 // test list, near enough verbatim:
@@ -235,14 +244,24 @@ describe('the time-in-state report', () => {
   // accepted one minute after it lands and starts cooking two minutes after
   // that, so `placed` and `accepted` are flat across all thirty:
   //
-  //   placed     30 × 1                                          =  30 min
-  //   accepted   30 × 2                                          =  60 min
-  //   preparing  27 × 8  + 12 slow  + Cass 3 + Owen 4 + Rae 8    = 243 min
-  //   ready      27 × 3            + Cass 33 + Rae 4 + Owen 0    = 118 min
+  //   placed     30 × 1                                             =  30 min
+  //   accepted   30 × 2                                             =  60 min
+  //   preparing  25 × 8 + 12 slow + Cass 3 + Owen 4 + Rae 8
+  //                              + Hal 12 + Jonah 27                = 266 min
+  //   ready      25 × 3           + Cass 33 + Rae 4 + Owen 0
+  //                              + Hal 11 + Jonah 3                 = 126 min
   //
   // The twelve slow minutes are Ivy 2, Ola 4, Rosa 3, Tam 2, Yara 1. Rae's
   // eight in `preparing` are two visits (5 + 3) because her ticket was
   // advanced by mistake and sent back — only the event log knows that.
+  //
+  // TWENTY-FIVE on the default cadence, not twenty-seven (C-124): Hal Brennan
+  // and Jonah Reddick ordered ahead, and a kitchen works a scheduled ticket to
+  // a SLOT rather than to the counter. Hal's eleven minutes in `ready` are
+  // food bagged early and waiting for its customer; Jonah's twenty-seven in
+  // `preparing` are the kitchen missing his 12:30 by six minutes. Neither
+  // order's first two taps moved, which is why `placed` and `accepted` are
+  // still flat across all thirty.
   it('matches the hand tally, minute for minute', async () => {
     const orders = await prisma.order.findMany({ select: { id: true } });
     const logs = await Promise.all(
@@ -259,9 +278,9 @@ describe('the time-in-state report', () => {
 
     expect(row('placed')).toMatchObject({ orders: 30, totalMs: 30 * MIN, averageMs: 1 * MIN });
     expect(row('accepted')).toMatchObject({ orders: 30, totalMs: 60 * MIN, averageMs: 2 * MIN });
-    expect(row('preparing')).toMatchObject({ orders: 30, totalMs: 243 * MIN });
+    expect(row('preparing')).toMatchObject({ orders: 30, totalMs: 266 * MIN });
     // Twenty-nine reached `ready`: the cancelled order never did.
-    expect(row('ready')).toMatchObject({ orders: 29, totalMs: 118 * MIN });
+    expect(row('ready')).toMatchObject({ orders: 29, totalMs: 126 * MIN });
 
     // Terminal states do not accrue: an order picked up half an hour ago has
     // not been "in picked_up" for half an hour, it is done.
@@ -299,9 +318,16 @@ describe('the quote accuracy report (P1-4)', () => {
       where: { events: { some: { toStatus: 'ready' } } },
     });
 
-    // Placed by the real path, so every one of them carries a quote — the
-    // count is the outcomes, not the promises.
-    expect(samples).toHaveLength(reachedReady);
+    // Placed by the real path, so every ASAP one of them carries a quote —
+    // the count is the outcomes, not the promises.
+    //
+    // MINUS THE TWO WHO ORDERED AHEAD (C-124). A scheduled order is promised
+    // a minute and not a range, so `placeOrder` writes it no quote and there
+    // is nothing here to grade it against. That is the honest exclusion, in
+    // the same sentence as the two above it: no quote, no outcome, no grade.
+    // `order ahead` below asserts which two, and that they are the same two
+    // the engine drops.
+    expect(samples).toHaveLength(reachedReady - 2);
     expect(samples.length).toBeGreaterThan(20);
     for (const sample of samples) {
       expect(sample.quotedHighMinutes).toBeGreaterThan(sample.quotedLowMinutes);
@@ -337,6 +363,165 @@ describe('the quote accuracy report (P1-4)', () => {
       expect(['prepBaseMinutes', 'prepPerWeightMinutes']).toContain(accuracy.suggestion.setting);
       expect(['up', 'down']).toContain(accuracy.suggestion.direction);
     }
+  });
+});
+
+// ── Order ahead, through a whole service (P1-2, C-124) ──────────────────────
+//
+// NOT a sixth ugly case. The five above are the master PRD's Success Metrics
+// verbatim and this item did not touch that list — two of the thirty simply
+// asked for a time instead of for now, which is why every count in this file
+// is still thirty.
+//
+// That both got the slot they asked for is asserted by the rush having RUN.
+// `weightBySlot` is summed from the open scheduled orders, so Jonah's booking
+// was re-checked through `availableSlots` against a 12:30 that Hal had already
+// eaten into; a refusal there makes `submit` throw naming him, rather than
+// handing back a rush two orders short. There is no assertion for it here
+// because there is nothing left to assert.
+
+describe('order ahead, through a whole service', () => {
+  const minute = (n: number): Date => instantMinutesAfter(RUSH_ANCHOR, n);
+
+  // Thirty, because `RUSH_ANCHOR` is noon exactly and the restaurant offers a
+  // slot every fifteen minutes with a twenty-minute lead: a customer ordering
+  // at 12:06 is first offered 12:30. THE RUSH RESOLVES THIS, it is not told
+  // it — asserted here rather than assumed, because every hand-tallied number
+  // in this file is written against it and an anchor off the grid would move
+  // it without moving them.
+  it('resolves the noon anchor to the 12:30 slot', () => {
+    expect(rush.scheduledSlotMinute).toBe(30);
+  });
+
+  const SLOT = minute(30);
+
+  /** The order, as `queueAging` wants it: a row, not an ORM object. */
+  const ageable = async (name: string, status: OrderStatus, statusChangedAt: Date) => {
+    const order = await prisma.order.findFirstOrThrow({
+      where: { customerName: name },
+      select: { placedAt: true, requestedFor: true },
+    });
+    return { status, placedAt: order.placedAt, statusChangedAt, requestedFor: order.requestedFor };
+  };
+
+  /** The LAST `ready` for this customer — last, not first, for the reason
+   *  `readyAt` gives in the engine: a ticket sent back reached `ready` twice
+   *  and the correction is the truth. */
+  const readyAt = async (name: string): Promise<Date> =>
+    (await eventsFor(name)).filter((event) => event.toStatus === 'ready').at(-1)!.at;
+
+  it('books two of the thirty for a minute, and leaves twenty-eight on ASAP', async () => {
+    const scheduled = await prisma.order.findMany({
+      where: { requestedFor: { not: null } },
+      select: { customerName: true, requestedFor: true },
+    });
+
+    expect(scheduled.map((order) => order.customerName).sort()).toEqual([
+      'Hal Brennan',
+      'Jonah Reddick',
+    ]);
+    // The SAME slot, to the instant — resolved by placement from a local
+    // minute, not by this test doing its own timezone arithmetic.
+    for (const order of scheduled) expect(order.requestedFor).toEqual(SLOT);
+    expect(await prisma.order.count({ where: { requestedFor: null } })).toBe(28);
+  });
+
+  // The two exclusions are keyed on DIFFERENT COLUMNS and agree only because
+  // `placeOrder` writes them together: the P1-4 sample drops an order for
+  // having no quote, `serviceTimes` drops it for having a `requestedFor`. The
+  // rush is the only fixture in the codebase with scheduled orders in it, so
+  // this is the only place that could notice them drifting apart.
+  it('drops exactly the scheduled orders from the quote accuracy sample', async () => {
+    const samples = await loadQuoteSamples(RUSH_ANCHOR);
+    const service = serviceTimes(await loadStatusTimelines(RUSH_ANCHOR));
+    const reachedReady = await prisma.order.count({
+      where: { events: { some: { toStatus: 'ready' } } },
+    });
+
+    expect(service.scheduled).toBe(2);
+    expect(samples).toHaveLength(reachedReady - service.scheduled);
+    // Same set, reached from the other end: what the SQL kept is what the
+    // engine counted as an ordinary ticket.
+    expect(samples).toHaveLength(service.tickets);
+  });
+
+  // ONE, and the rush is cadenced so that one is hard to get right by
+  // accident: Hal reached `ready` fifteen minutes after he ordered, which is
+  // `queueFlagMinutes` exactly, so the pre-C-123 rule grades HIM late too and
+  // this count reads 2. A demo whose numbers came out the same either way
+  // would be showing the feature and proving nothing.
+  it('grades the ticket the kitchen missed, and only that one', async () => {
+    const service = serviceTimes(await loadStatusTimelines(RUSH_ANCHOR));
+
+    expect(service.scheduledLate).toBe(1);
+    // Which one, said in the only terms `serviceTimes` grades on: the instant
+    // the food reached `ready` against the instant it was promised.
+    expect((await readyAt('Jonah Reddick')).getTime()).toBeGreaterThan(SLOT.getTime());
+    expect((await readyAt('Hal Brennan')).getTime()).toBeLessThan(SLOT.getTime());
+    // And a scheduled ticket is in NEITHER ordinary column — not the sample,
+    // not the slowest-five, whose header is a measurement it was never taking.
+    expect(service.slowest.length).toBeGreaterThan(0);
+    expect(service.tickets).toBe(27);
+  });
+
+  it('does not start the no-show clock before the customer was due', async () => {
+    const ready = await readyAt('Hal Brennan');
+    expect(ready).toEqual(minute(20));
+
+    const aging = queueAging(await ageable('Hal Brennan', 'ready', ready), SLOT);
+
+    // Ten minutes on the shelf and ZERO of them a no-show, because nobody can
+    // fail to turn up early. The pre-C-123 rule ran this from
+    // `statusChangedAt` alone, which is the second number here — and 10 is the
+    // first no-show mark exactly, so this card carried "On the shelf 10 min —
+    // no-show?" in red while the kitchen was doing everything right.
+    expect(aging.readyMinutes).toBe(0);
+    expect(aging.noShowLevel).toBe(0);
+    expect(elapsedMinutes(ready, SLOT)).toBe(10);
+  });
+
+  it('is not late for having been ordered a long time ago', async () => {
+    // Five minutes before the slot, which is twenty minutes after Hal ordered
+    // and nineteen after Jonah — both PAST `queueFlagMinutes`. Under the rule
+    // C-123 replaced, every scheduled card in the rush was red from minute 21
+    // onwards and stayed red, so this is the assertion the original defect
+    // fails.
+    const fiveToGo = minute(rush.scheduledSlotMinute - 5);
+
+    for (const name of ['Hal Brennan', 'Jonah Reddick']) {
+      const aging = queueAging(await ageable(name, 'preparing', minute(9)), fiveToGo);
+
+      expect(aging.dueInMinutes).toBe(5);
+      expect(aging.overdue).toBe(false);
+      expect(aging.waitingMinutes).toBeGreaterThanOrEqual(15);
+    }
+  });
+
+  it('turns the missed ticket red on its promise, three minutes before the food', async () => {
+    const aging = queueAging(await ageable('Jonah Reddick', 'preparing', minute(9)), minute(33));
+
+    expect(aging.overdue).toBe(true);
+    expect(aging.dueInMinutes).toBe(-3);
+    // Still on the grill. The card is red because a PROMISE passed, not
+    // because anything is sitting on a shelf — `readyMinutes` has nothing to
+    // say yet, and the food is three minutes away.
+    expect(aging.readyMinutes).toBeNull();
+    expect(aging.noShowLevel).toBe(0);
+  });
+
+  // The other half of "the LATER of ready and the promised minute". Hal proves
+  // the clock does not start at `statusChangedAt`; Jonah proves it does not
+  // simply read `requestedFor` either, which is the plausible over-correction
+  // and would bill him for six minutes of shelf time that never happened — his
+  // food did not exist until 36.
+  it('runs the shelf clock from the food when the food is the later one', async () => {
+    const ready = await readyAt('Jonah Reddick');
+    expect(ready).toEqual(minute(36));
+
+    const aging = queueAging(await ageable('Jonah Reddick', 'ready', ready), minute(38));
+
+    expect(aging.readyMinutes).toBe(2);
+    expect(elapsedMinutes(SLOT, minute(38))).toBe(8);
   });
 });
 

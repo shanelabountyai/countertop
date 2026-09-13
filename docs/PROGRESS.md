@@ -8395,3 +8395,98 @@ error; 243 on `--list`, and 218 + 15 + 10 reconciles. No migration, so no drift
 check and `ci:local` not run.
 
 C-123 committed and pushed at 224a082
+
+## C-124 — Order ahead, in the seeded rush
+
+*(NEXT.md's item 2 — and a defect in the item itself, found by running the demo.)*
+
+C-114 shipped scheduled pickup. C-123 fixed two flags that only scheduled
+orders ever reach. Neither appeared in the capstone demo: the rush placed
+thirty ASAP orders, so the e2e suite was the only thing in the project driving
+order-ahead at all, and the recording the work is graded on walked a viewer
+through a product whose last two sessions built a feature it never showed.
+
+**Built:**
+
+- **Two OF the thirty, not two more.** The master PRD's Success Metric is "30
+  orders in 20 minutes via script" and `rush.test.ts` asserts that number, so
+  Hal Brennan and Jonah Reddick now order for a time instead of for now rather
+  than being added as extra customers. Their first two kitchen taps stay where
+  the default cadence put them, so the mid-service screen `e2e/rush.spec.ts`
+  reads at minute 12 is the queue it was, plus a countdown on two cards.
+- **One slot, booked twice.** `weightBySlot` is summed from the open scheduled
+  orders, so Jonah's booking is re-checked through `availableSlots` against a
+  12:30 that Hal has already eaten into. Two orders in two slots would leave
+  that arithmetic untouched by the demo.
+- **The two differ in the one comparison `isPastDue` makes.** Hal's food is up
+  ten minutes EARLY and sits across its own slot — the no-show clock reads
+  zero at 12:30, which is C-123's fix made visible rather than unit-tested.
+  Jonah's is not up until six minutes LATE and is the whole of the report's
+  `scheduledLate` count.
+- **`scheduledOrdersEnabled` joins `loyaltyEnabled` as a seeded switch**, for
+  the same reason and with the same shape: both ship false, and a demo cannot
+  show a feature the seed leaves disabled.
+- **An `Ordered ahead` line in `rush-demo.ts`**, read off the same
+  `serviceTimes` the report screen reads, and deliberately NOT filed under
+  "the ugly cases" — these two are ordinary customers who asked for a time.
+
+**The demo found a defect in the item.** The first version hard-coded "minute
+30 of the rush", which is the right answer for `RUSH_ANCHOR` and wrong
+everywhere else. Slots sit on the RESTAURANT's fifteen-minute grid;
+`rush-demo.ts` anchors the run so it ends NOW, at whatever minute past the hour
+that happens to be. Anchored at 09:18, minute 30 is 09:48 — a minute no
+customer was ever shown — and `placeOrder` refused it with `slot_unavailable`,
+correctly. **The rush was wrong, not the server.** It now books the way a
+browser books: `resolveScheduledSlot` takes the list `availableSlots` offers
+and picks the first one on it, and the two kitchen cadences are written against
+the slot rather than against a minute the table guessed. `RUSH_END_MINUTE` went
+45 → 50 to clear the worst grid alignment, where the earliest bookable slot
+lands at minute 40.
+
+**Decided:**
+
+- **`ordersAhead` is a flag, not a minute.** Which slot is not the order
+  table's to decide — it is whatever the server offers on the day, and a table
+  that named a minute would be doing the server's arithmetic a second time.
+- **`kitchen` may be a function of the slot.** The first two taps belong to the
+  minute the order was placed; the last two belong to the clock. Writing all
+  four against the slot breaks as soon as the slot lands early.
+- **The quote sample loses them, and that is honest.** A scheduled order is
+  promised a minute rather than a range, so `placeOrder` writes it no quote and
+  there is nothing for P1-4 to grade it against. The exclusion is keyed on
+  `quotedLowMinutes IS NULL` while `serviceTimes` splits on
+  `requestedFor IS NOT NULL` — two columns that agree only because placement
+  writes them together, and the rush is now the only fixture in the codebase
+  that could ever notice them drifting apart. There is a test for it.
+
+**Red in three directions.** C-123's lesson was that reverting the fix catches
+a test agreeing with the original defect but not one agreeing with the
+over-correction. Three defects were run here: three tests fail against the
+pre-C-123 behaviour, two against "a scheduled order is never late", one against
+a no-show clock that always reads `requestedFor`. **The cadence is tuned for
+it** — Hal reaches `ready` fifteen minutes after ordering, `queueFlagMinutes`
+exactly. Bagged two minutes earlier, `scheduledLate` reads 1 under the old rule
+as well, by arithmetic coincidence, and the whole demo would have agreed with
+the bug it exists to rule out. That was the first version, and the probe caught
+it.
+
+**Left behind:**
+
+- **The rush still exercises no refund end to end.** Both its prepaid exits are
+  voids — NEXT.md's item 1, untouched and still the cheapest real gap.
+- **The resolved slot moves with the anchor**, so the demo's time-in-state
+  totals are anchor-dependent in a way they were not before. The test pins
+  `RUSH_ANCHOR` at noon, where the slot is minute 30, which is why the hand
+  tally can be written down at all.
+- **Nothing asserts the slot contention beyond the rush running.** If Jonah's
+  booking were refused, `submit` would throw naming him — so the assertion is
+  the run, not a line in a test.
+
+**Gate:** all five legs. 1080 unit (+8 over C-123's 1072 — exactly the tests
+added), 45 files, identical under `TZ=UTC` and `TZ=Pacific/Kiritimati`; lint,
+typecheck and the production build clean. E2E 219 passed + 15 skipped + the
+same ten pre-existing container failures C-118's entry documents, each carrying
+the identical `module not been linked` error; 244 on `--list`, and
+219 + 15 + 10 reconciles. Those ten were re-verified at the parent commit
+`8af907f` in this same container before the push. No migration, so no drift
+check and `ci:local` not run.
