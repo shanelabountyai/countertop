@@ -8565,3 +8565,5 @@ it trains the bypass.
   real question and not one this item answered.
 - **No branch protection on `main`.** Nothing enforces that CI passed before a
   push lands; the discipline is still a human one.
+
+C-125 committed and pushed at f2b79d5

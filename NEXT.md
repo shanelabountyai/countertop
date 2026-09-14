@@ -1,6 +1,6 @@
 # Next
 
-**C-125 shipped this session**: the gate moved into CI, and the hole the
+**C-125 shipped this session** (`f2b79d5`): the gate moved into CI, and the hole the
 pre-push hook was badly filling is closed.
 
 **The finding, and it is a process defect rather than a code one.** C-118
