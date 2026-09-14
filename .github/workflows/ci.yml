@@ -2,9 +2,29 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `claude/**` is here because of what C-125 found: C-118 through C-124
+    # shipped on unmerged `claude/…` branches, `main` sat at C-117, and this
+    # workflow only ever triggered on `main` — so CLAUDE.md's "watch CI green
+    # before saying done" had NOTHING TO WATCH for seven consecutive items.
+    # The pre-push hook was the only gate, and it was one that could not pass
+    # in a container, so it got bypassed instead of satisfied.
+    #
+    # A branch that is gated while it is still a branch is the point. Runs are
+    # free on a public repo and `concurrency` below is keyed on `github.ref`,
+    # so a branch run never cancels or delays `main`'s.
+    branches:
+      - main
+      - 'claude/**'
     # A docs-only push cannot break the gate, and the "record the SHA" commit
     # that follows every backlog item touches nothing else.
+    #
+    # CAVEAT, and it bites `claude/**` harder than it bites `main`: on the
+    # FIRST push of a NEW branch GitHub evaluates these paths against the head
+    # commit ALONE, and the head commit of every backlog item is the docs-only
+    # "record the SHA" one — so a brand-new branch's first push can skip the
+    # gate entirely. Later pushes evaluate the whole before..after range and
+    # trigger normally. If a new branch's first push shows no run, that is
+    # this, not a broken trigger: use `workflow_dispatch` below.
     paths-ignore:
       - '**/*.md'
       - 'docs/**'

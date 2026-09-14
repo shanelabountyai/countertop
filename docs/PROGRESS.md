@@ -8492,3 +8492,76 @@ the identical `module not been linked` error; 244 on `--list`, and
 check and `ci:local` not run.
 
 C-124 committed and pushed at dc68e52
+
+---
+
+## C-125 — The gate moves into CI
+
+Not a feature. A process defect, found by checking a claim nobody had checked.
+
+**C-118 through C-124 shipped unverified by CI.** All seven lived on unmerged
+`claude/…` branches; `main` sat at `f239791` (C-117); `ci.yml` triggered only
+on `push: branches: [main]` and `pull_request`, and no PR has ever existed in
+this repo. So CLAUDE.md's "watch CI green before saying done" had **nothing to
+watch for seven consecutive items**. Each was verified by a hand-run in a
+container and nothing else.
+
+**The pre-push hook was the only gate, and it was the wrong one.** Header:
+"CI is blocked on GitHub Actions billing (every run since C-029 dies in ~3s)"
+— false since the repo went public on 2026-08-31. Closing line: "Delete this
+hook once CI actually runs." It ran `ci:local` plus the whole gate, ~12
+minutes, and **cannot pass in this container**, so C-123 and C-124 were both
+pushed with `--no-verify`. A gate that is routinely bypassed does not gate —
+it trains the bypass.
+
+**Built:**
+- **`workflow_dispatch` run on the branch FIRST** (run 116, `8ca3447`), green
+  across all 18 steps, before anything moved. Verify, then merge — not merge,
+  then discover.
+- **`claude/**` added to `ci.yml`'s push triggers**, so branch work is gated
+  while it is still branch work. Free on a public repo; `concurrency` is keyed
+  on `github.ref`, so a branch run never delays `main`'s.
+- **`main` fast-forwarded** to the CI-verified SHA — 16 commits, zero
+  divergence, no merge commit.
+- **`.githooks/pre-push` deleted**, and the `git config core.hooksPath
+  .githooks` removed from `package.json`'s `postinstall`. Deleting the file
+  alone would have left `postinstall` pointing git at an empty hooks directory.
+- **Two stale comments in `ci-self-hosted.yml`** corrected — both described
+  steps by reference to a hook that no longer exists.
+- **86 duplicated lines removed from `NEXT.md`** — C-124's session appended its
+  "gate"/"environment notes" sections without removing C-123's copies.
+
+**Decided:**
+- **Close the hole rather than just remove the bad filler.** Deleting the hook
+  on its own would have left branch work with no automation at all, which is
+  the same hole one level quieter. The `claude/**` trigger is what makes the
+  deletion safe rather than merely tidy.
+- **Verify before landing, not after.** The dispatch run cost ten minutes and
+  meant `main` only ever moved to a SHA CI had already passed.
+- **The `paths-ignore` first-push caveat is documented, not fixed.** On a NEW
+  branch GitHub evaluates it against the head commit alone, and every backlog
+  item's head commit is the docs-only "record the SHA" one — so a new branch's
+  first push can skip the gate. `ci.yml` now says so and names
+  `workflow_dispatch` as the answer.
+
+**What run 116 settled, all previously asserted rather than checked:**
+- **The ten "pre-existing container" e2e failures are environmental.**
+  Playwright exited 0 on a clean runner. The note carried from C-118 to C-124
+  was right — and is now verified rather than inherited.
+- **C-121's migration applies from nothing**, all six hand-written invariants
+  exist, **no schema drift** — so `@@unique([orderId, kind], map:)` in
+  `schema.prisma` was the right call over migration-only.
+- **Both hostile timezones agree.**
+- The `Order_businessDay_seq_key` duplicate-key ERRORs in the teardown log are
+  **not failures**: that is the seeded rush contending on the constraint
+  exactly as CLAUDE.md specifies, violation mapped to a retry.
+
+**Left behind:**
+- **`npm run gate` is now purely manual locally.** Nothing runs it for you. CI
+  is the backstop, but a red CI after the fact is worse than a red gate before
+  it.
+- **`ci-self-hosted.yml` is still `workflow_dispatch`-only** and now overlaps
+  `ci.yml` almost entirely. Whether the macOS runner still earns its keep is a
+  real question and not one this item answered.
+- **No branch protection on `main`.** Nothing enforces that CI passed before a
+  push lands; the discipline is still a human one.

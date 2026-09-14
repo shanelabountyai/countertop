@@ -3206,3 +3206,113 @@ the next person, and deleting it is the natural next move.
 The generalisation: *revert the fix* is half a technique. The other half is
 *apply the wrong fix*. A test suite earns its keep by making some defect fail,
 and there is usually more than one candidate.
+
+### The gate that had nothing to watch (C-125)
+
+`CLAUDE.md` ends its working loop with a step: *"**watch CI green before saying
+'done'**" (`gh run watch`)*. Every item since C-029 has claimed to follow it.
+Seven consecutive items could not have.
+
+The mechanism is dull and that is the point:
+
+- `ci.yml` triggers on `push: branches: [main]` and on `pull_request`.
+- C-118 through C-124 were all developed on unmerged `claude/…` branches.
+- No pull request has ever been opened in this repository — 115 workflow runs,
+  every one of them a push to `main`.
+- `main` had not moved since `f239791`, which is C-117.
+
+Nothing was disabled and nobody skipped anything. The trigger simply did not
+match where the work was. Run 115 was the last, on 2026-09-11, and items 118
+through 124 shipped into that silence.
+
+**What stood in for CI made it worse rather than better.** `.githooks/pre-push`
+opened with:
+
+```
+# CI is blocked on GitHub Actions billing (every run since C-029 dies in ~3s),
+```
+
+and closed with:
+
+```
+# Delete this hook once CI actually runs — the gate belongs in CI, not here.
+```
+
+The premise expired on 2026-08-31 when the repo went public — `ci-self-hosted.yml`'s
+own header records that going public "runs free on a public repo, which is the
+direct fix for the billing block". So the hook's first line was false, and its
+last line was an instruction that had come due and that nobody had noticed was
+due, because the first line explained why not to.
+
+Meanwhile the hook ran `ci:local` and then all five gate legs — about twelve
+minutes — and **cannot pass in a container**, because ten e2e specs fail there
+for environmental reasons. `set -e` turns that into an aborted push. C-123 and
+C-124 were both pushed with `--no-verify`.
+
+That is the failure worth naming. **A safeguard that cannot pass does not get
+fixed; it gets bypassed, and the bypass becomes the routine.** Two sessions in
+a row reached for `--no-verify`, each documenting honestly why it was
+justified — and each of them was justified. The hook had stopped being a gate
+and become a toll.
+
+It is C-122's lesson one layer up. There, a `ponytail:` comment described its
+own defect wrongly and so read as a reason not to look. Here, a hook's header
+gave an expired reason for its own existence and so read as a reason not to
+delete it. **In both cases the artifact that was supposed to protect against a
+problem was the reason the problem persisted.** Stale prose about a risk
+outranks the risk, because the reader stops at the prose.
+
+**The order of the fix mattered more than the fix.** The naive sequence is:
+delete the hook, merge, done. That leaves a window — and worse, it removes the
+only automation while leaving the structural hole (branch work still ungated)
+completely intact. What was done instead:
+
+1. **Dispatch `ci.yml` on the branch manually.** Green across all 18 steps
+   before anything moved. This is the step that converts "I believe this is
+   fine" into "CI says this is fine."
+2. **Add `claude/**` to the push triggers.** Now branch work is gated while it
+   is still branch work — which is what the hook was badly approximating.
+3. **Fast-forward `main`** onto the exact SHA CI verified.
+4. **Then** delete the hook, and unwire `postinstall`'s
+   `git config core.hooksPath .githooks` — leaving that line would have
+   pointed git at an empty hooks directory, which is the kind of residue that
+   confuses somebody in six months.
+
+At no point was there a moment with no gate, and the end state has strictly
+more coverage than the start.
+
+**What the ten minutes bought, concretely.** Every one of these was written
+down as true across seven items and none had been independently checked:
+
+- **The ten failing e2e specs really are environmental.** Playwright exited 0
+  on `ubuntu-latest`. The note inherited from C-118 was right. It is now
+  verified rather than inherited, which is a different epistemic status even
+  though the sentence is identical.
+- **C-121's migration applies from nothing**, all six hand-written invariants
+  exist, and `prisma migrate diff` reports no drift — so C-121's decision to
+  declare `@@unique([orderId, kind], map:)` in `schema.prisma` rather than
+  hiding it in the migration was correct.
+- **Both hostile timezones agree.**
+
+And one piece of log that looks alarming and is not: the teardown dump is full
+of `duplicate key value violates unique constraint "Order_businessDay_seq_key"`.
+That is the seeded rush doing exactly what `CLAUDE.md` specifies — "concurrent
+placements contend on the constraint, not on a check-then-write" — with the
+violation mapped to a retry. Postgres logs every one at ERROR level. **A red
+line in a log is not a failure; the exit code is the failure.** Worth stating
+because a future session scanning that log will see them.
+
+**The honest cost.** `npm run gate` is now a purely manual discipline locally —
+nothing runs it for you. That is the right trade when CI genuinely gates every
+push, and the `claude/**` trigger is what makes it genuine. But it is a trade,
+not a free win, and the next person should know they are holding the other end
+of it.
+
+One caveat was documented rather than solved: on the **first** push of a **new**
+branch, GitHub evaluates `paths-ignore` against the head commit alone, and
+every backlog item's head commit is the docs-only "record the SHA" one. So a
+brand-new branch's first push can still skip the gate. `ci.yml` now says so in
+a comment and names `workflow_dispatch` as the answer. Fixing it properly would
+mean dropping `paths-ignore`, which would run the full twelve-minute gate on
+every typo fix in a markdown file — a worse trade for a case that announces
+itself.

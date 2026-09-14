@@ -38,9 +38,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The step the pre-push hook structurally cannot run: install from the
-      # lockfile into a tree with no node_modules. A dependency that is missing
-      # from package.json but happens to be installed locally fails here.
+      # Install from the lockfile into a tree with no node_modules. A
+      # dependency missing from package.json but happening to be installed
+      # locally fails here and nowhere else — which is the whole reason a
+      # clean checkout runs. (This once read "the step the pre-push hook
+      # structurally cannot run"; C-125 deleted that hook and moved the gate
+      # into `ci.yml`, which does the same clean install on every push.)
       - run: npm ci
 
       # .env.test and .env.local are gitignored, so a clean checkout has
@@ -71,8 +74,9 @@ jobs:
       # the other way is green on a laptop, where that database already exists,
       # and fails only here — which is the whole reason a clean checkout runs.
       # Migrations from nothing, the hand-written invariants, the drift check,
-      # and the unit suite under two hostile timezones — one script, shared
-      # with the pre-push hook.
+      # and the unit suite under two hostile timezones — one script, and since
+      # C-125 deleted the pre-push hook, the way a human runs that half of the
+      # gate by hand (`npm run ci:local`) before pushing.
       - run: npm run ci:local
 
       - run: npm run lint

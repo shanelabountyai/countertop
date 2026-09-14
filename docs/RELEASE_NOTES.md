@@ -2715,3 +2715,42 @@ the order down. The server was right. The script now picks its pickup time off
 the list of slots the restaurant is actually offering, the same list a customer
 would be choosing from — which is the rule this codebase applies everywhere
 else and had just broken in its own demo.
+
+## C-125 — Seven items nobody had checked
+
+This one fixed no feature. It found that the project's own rule had quietly
+stopped applying.
+
+The rule is in `CLAUDE.md` and it is the last step of every item: *watch CI
+green before saying "done."* Seven items in a row had said done without it —
+not by skipping a step, but because there was nothing to watch. The work lived
+on branches; CI only ran on `main`; `main` had not moved since item 117. Every
+one of those seven was checked by a hand-run on one machine and by nothing
+else.
+
+Standing in for CI was a pre-push hook, and it was the wrong kind of
+safeguard. Its opening line said CI was blocked on billing — untrue for a
+fortnight, since the repository went public. Its closing line said to delete it
+once CI worked. In between it ran a twelve-minute gate that could not pass in
+the container the work was happening in, so the last two items were pushed
+with `--no-verify`. A gate that everybody bypasses is not a gate. It is a
+habit of bypassing.
+
+The fix was ordered so nothing was ever unguarded: run CI on the branch by
+hand first and confirm green; add branch builds so future work is gated while
+it is still work-in-progress; only then move `main` onto the verified commit;
+only then delete the hook. Deleting the hook first would have removed the bad
+safeguard and left the hole.
+
+**What ten minutes of CI settled, after seven items of assuming.** Ten tests
+had been failing locally for weeks, documented each time as "environmental,
+not the code." That was correct — CI ran all of them clean. The database
+migrations rebuild from nothing, every hand-written constraint is present, and
+there is no drift between the schema and its migration history. All true, all
+previously believed rather than known.
+
+The lesson is the one from the previous item wearing different clothes. Then it
+was a code comment that described a bug wrongly and so stopped anyone looking
+at it. Here it was a safeguard whose stated reason for existing had expired.
+Both read as evidence the question was already handled. **Neither was checked
+until someone ran it.**

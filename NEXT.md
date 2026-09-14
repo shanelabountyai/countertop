@@ -1,56 +1,73 @@
 # Next
 
-**C-124 shipped this session** (`dc68e52`): order ahead, in the seeded rush. C-114 shipped
-scheduled pickup and C-123 fixed two flags only scheduled orders reach, and
-none of it appeared in the capstone demo — the e2e suite was the only thing in
-the project driving any of it.
+**C-125 shipped this session**: the gate moved into CI, and the hole the
+pre-push hook was badly filling is closed.
 
-**Two OF the thirty, not two more.** The master PRD's Success Metric is "30
-orders in 20 minutes" and `rush.test.ts` asserts that number, so Hal Brennan
-and Jonah Reddick order for a time instead of for now rather than arriving as
-extra customers. Their first two kitchen taps stay where the default cadence
-put them, so the mid-service screen `e2e/rush.spec.ts` reads at minute 12 is
-the queue it was, plus a countdown on two cards. Both book the SAME slot, which
-is what puts `weightBySlot` in the demo: the second booking is re-checked
-against a slot the first has eaten into. Hal's food is up ten minutes EARLY and
-sits across its own slot (the no-show clock reads zero — C-123's fix, visible);
-Jonah's is not up until six minutes LATE and is the whole of the report's
-`scheduledLate`.
+**The finding, and it is a process defect rather than a code one.** C-118
+through C-124 all shipped on unmerged `claude/…` branches. `main` sat at
+`f239791` (C-117). `ci.yml` triggered only on `push: branches: [main]` and on
+`pull_request`, and no PR has ever existed in this repo. So for SEVEN
+CONSECUTIVE ITEMS, CLAUDE.md's "watch CI green before saying done" had nothing
+to watch — every one of them was verified by a hand-run in a container and
+nothing else.
 
-**Running the demo found a defect in the item, after forty-two green tests.**
-The first version hard-coded "minute 30 of the rush" — right for `RUSH_ANCHOR`
-at noon, wrong everywhere else. Slots sit on the RESTAURANT's 15-minute grid
-and `rush-demo.ts` anchors so the run ends NOW, so at 09:18 minute 30 is 09:48,
-a minute no customer was ever offered, and `placeOrder` refused it with
-`slot_unavailable`. **The rush was wrong, not the server.** It now books the
-way a browser books — `resolveScheduledSlot` takes the first slot
-`availableSlots` offers — the two cadences are written against the slot, and
-`RUSH_END_MINUTE` went 45 → 50. The resolved slot ranges 26–40 with the anchor;
-that range was measured, not reasoned, and the worst case (slot 40) was run end
-to end: 28 picked up, 1 cancelled, 1 abandoned, zero stuck.
+**The pre-push hook was the only gate, and it was the wrong one.** Its header
+read "CI is blocked on GitHub Actions billing (every run since C-029 dies in
+~3s)" — false since the repo went public on 2026-08-31, and its own closing
+line said "Delete this hook once CI actually runs". It ran `ci:local` plus the
+whole gate, took ~12 minutes, and CANNOT PASS IN A CONTAINER, so C-123 and
+C-124 were both pushed with `--no-verify`. A gate that is routinely bypassed
+does not gate; it trains the bypass. **Same lesson as C-122's misleading
+`ponytail:`, one layer up: a safeguard whose stated premise is false is worse
+than no safeguard, because it reads as a reason not to look.**
 
-**Three things worth carrying forward, all in `docs/WRITEUP.md`'s C-124
-entries:**
+**What was done, in this order, so there was never a window with no gate:**
 
-- **The gate runs the test and does not run the demo.** Forty-two green tests
-  and a clean build said this item was finished; one `npm run demo:rush` said
-  it was not. The rush is "both the capstone demo and a test" (CLAUDE.md) and
-  only one half of that is automated. **Run the demo before calling a
-  rush-touching item done.**
-- **A fixed fixture can hide a whole class of input.** The test anchors at noon
-  — a multiple of fifteen — and the feature quantises to multiples of fifteen,
-  and nothing said so. It does now, as an assertion: `runRush` reports the slot
-  it resolved and the test pins it to 30, so the number every hand-tallied
-  figure in that file depends on is written down rather than assumed.
-- **C-123's lesson has a third case: a test that agrees with the original
-  defect by ARITHMETIC COINCIDENCE.** Hal's food was first scripted to come up
-  at minute 18, and `scheduledLate` reads 1 under both the fix and the old
-  duration rule — the headline number of the whole demo, identical either way.
-  Moved to minute 20 (fifteen minutes after he ordered, `queueFlagMinutes`
-  exactly) the old rule counts two. That minute is also ten before the slot,
-  the first no-show mark, so it is tuned against both defects with no slack in
-  either direction. **When a fixture exists to demonstrate a fix, run the
-  defect against the fixture and check the demonstration changes.**
+1. **Ran `ci.yml` on the branch via `workflow_dispatch` first** — run 116 on
+   `8ca3447`, green across all 18 steps. That was the first independent
+   verification of anything since C-117.
+2. **Added `claude/**` to `ci.yml`'s push triggers**, so branch work is gated
+   while it is still branch work. Runs are free on a public repo, and
+   `concurrency` is keyed on `github.ref`, so a branch run never delays
+   `main`'s.
+3. **Fast-forwarded `main`** from `f239791` to the CI-verified SHA — clean,
+   16 commits, zero divergence, no merge commit.
+4. **Deleted `.githooks/pre-push`** per its own instruction, and removed the
+   `git config core.hooksPath .githooks` from `package.json`'s `postinstall`
+   that wired it. Leaving that line would have pointed git at a hooks
+   directory with nothing in it.
+
+**What run 116 settled, all of it previously asserted rather than checked:**
+
+- **The ten "pre-existing container" e2e failures are genuinely
+  environmental.** Playwright exited 0 on a clean runner, so `contact`,
+  `last-call` ×2, `menu-editing` ×2, `menu` ×3 and `refund` ×2 all pass. The
+  note carried from C-118 to C-124 was correct — and is now verified rather
+  than inherited.
+- **C-121's migration applies from nothing**, all six hand-written invariants
+  exist, and there is **no schema drift** — so declaring
+  `@@unique([orderId, kind], map:)` in `schema.prisma` rather than in the
+  migration alone was right.
+- **Both hostile timezones agree**, ~50s each.
+- The `Order_businessDay_seq_key` duplicate-key ERRORs in the teardown log are
+  **not failures** — that is the seeded rush contending on the constraint
+  exactly as CLAUDE.md specifies, with the violation mapped to a retry.
+
+## Read this before the next push
+
+- **`npm run gate` is now a manual discipline.** Nothing runs it for you
+  locally any more. CI runs it on every push to `main` and to `claude/**`, and
+  that is the backstop — but a red CI after the fact is worse than a red gate
+  before it, so run it.
+- **`npm run ci:local` is still the only thing that applies the whole
+  migration history from nothing** with the drift check. Run it for any
+  session that adds a migration. `ci.yml` does the same work, after the push.
+- **A brand-new branch's FIRST push can skip CI**, and this is documented in
+  `ci.yml` rather than fixed: GitHub evaluates `paths-ignore` against the head
+  commit alone on a new branch, and every backlog item's head commit is the
+  docs-only "record the SHA" one. Later pushes evaluate the whole range and
+  trigger normally. If a new branch shows no run, that is this — dispatch it
+  manually rather than assuming the trigger is broken.
 
 ## Next unblocked item: pick one — nothing is blocking
 
@@ -122,19 +139,16 @@ bottom of this file is still accurate.
 
 ## Environment notes for whoever runs the gate next
 
-**Ten e2e specs fail in a fresh container and it is not the code.** `contact`,
-`last-call` ×2, `menu-editing` ×2, `menu` ×3 and `refund` ×2 die with
-`Error: request for './menu/index' is from a module not been linked` — an ESM
+**The ten e2e specs that fail here PASS IN CI** — settled at C-125 by run 116,
+which went green on a clean `ubuntu-latest` runner. `contact`, `last-call` ×2,
+`menu-editing` ×2, `menu` ×3 and `refund` ×2 die in this container with
+`Error: request for './menu/index' is from a module not been linked`, an ESM
 loader failure in the fixtures that use a late `await import('@countertop/db')`.
-Verified pre-existing at C-118 by stashing that change and running the same ten
-on `f239791`. **Re-verified at C-124 the same way**: the working tree was
-stashed, `8af907f` rebuilt in this container, and the five affected spec files
-re-run — the identical ten fail with the identical error (10 failed / 50
-passed). Then **219 passed + 15 skipped + 10 failed = 244**, which is what
-`--list` reports.
+It is environmental, not code. Locally expect **219 passed + 15 skipped + 10
+failed = 244**, which is what `--list` reports; in CI expect zero failures.
 
 **Postgres in a fresh container** is installed but down, and the cluster has no
-`root` role. What worked at C-124, start to finish:
+`root` role:
 
 ```sh
 pg_ctlcluster 16 main start
@@ -145,55 +159,26 @@ npm run db:migrate:test
 
 That matches `.env.test`'s `postgresql://root:ct@localhost:5432/countertop_test`
 and needs no `pg_hba.conf` edit, because it authenticates with the password the
-URL carries. The `pg_hba` trust line in the older note here is only needed for
-`npm run ci:local`, which builds its own URL as
-`postgresql://$(whoami)@localhost/...` with no password. **`ci:local` is still
-worth running for a migration session** — it is the only thing that applies the
-whole migration history from nothing, asserts the five named invariants, and
-runs the drift check. C-124 added no migration, so it was not run.
+URL carries. **`npm run ci:local` is different** — it builds its own URL as
+`postgresql://$(whoami)@localhost/...` with no password, so it additionally
+needs `host … 127.0.0.1/32 trust` in `pg_hba.conf` and a reload. Worth it for
+any session that adds a migration: it is the only local thing that applies the
+whole history from nothing with the drift check.
 
 **Note for anything run outside `npm test`:** vitest and `tsx` invoked directly
 get no `DATABASE_URL` and the local guard refuses with `points at
 "<unparseable>"`. Prefix with `npx dotenv -e .env.test -e .env.local --`, which
 is what the package scripts do.
 
-**The pre-push hook's premise is STALE, and checking it is still an item.**
-`.githooks/pre-push` opens with "CI is blocked on GitHub Actions billing (every
-run since C-029 dies in ~3s)" and closes with "Delete this hook once CI
-actually runs — the gate belongs in CI, not here." **CI actually runs.**
-`ci-self-hosted.yml`'s own header records why: the repo went public on
-2026-08-31 and `ci.yml` is GitHub-hosted, which "runs free on a public repo,
-which is the direct fix for the billing block". The last five runs on `main`
-— numbers 111 to 115, the SHA commits for C-113 through C-117 — all completed
-`success` in about ten minutes each.
+**Playwright** may want a browser build the image does not ship. If
+`chromium-<N>` is missing, symlink the shipped build at the expected path; at
+C-124 and C-125 `/opt/pw-browsers` already carried what was needed.
 
-The reason nothing has run since is NOT billing: `ci.yml` triggers on
-`push: branches: [main]` and on `pull_request`, `main` is still at `f239791`
-(C-117), and **C-118 through C-124 all live on unmerged `claude/…` branches**.
-No branch push triggers it and no PR exists, so "watch CI green before saying
-done" has had nothing to watch for seven items. Verified against the Actions
-API at C-123, not inferred.
+**There is no pre-push hook any more** (C-125), and `postinstall` no longer
+sets `core.hooksPath`. If you have an old clone, `git config --unset
+core.hooksPath` once. Pushing no longer runs a 12-minute gate and no longer
+needs `--no-verify`.
 
-**So the hook is now doing a job CI would do for free, badly** — it is the only
-thing gating these branches, it takes ~12 minutes per push, and it cannot pass
-in a container. Deciding that is a small item of its own: merge to `main` and
-let `ci.yml` gate, or open PRs, or delete the hook per its own instruction.
-**Do not just delete it** — while these branches stay unmerged it is the only
-gate there is.
-
-**The pre-push hook cannot pass in this container, and C-124 was pushed with
-`--no-verify`.** `.githooks/pre-push` runs `ci:local` and then the whole gate,
-and `set -e` aborts the push on any e2e failure — so the ten environmental
-failures above make it unpassable here no matter what is committed. The hook's
-own comment scopes `--no-verify` to docs-only commits; this was a code commit,
-so the bypass was **verified rather than assumed** before it was used: all five
-gate legs were run by hand and reconcile (see "The gate at C-124"), and the ten
-failures were reproduced on the parent commit in this same container as
-described above. **If a future session can make those ten pass, delete this
-note and stop bypassing the hook.**
-
-**Playwright browsers:** `/opt/pw-browsers` carries both `chromium-1234` and
-`chromium_headless_shell-1234`, and the e2e leg ran with no intervention.
 
 ## Still open from C-118 → C-121
 
@@ -233,92 +218,6 @@ note and stop bypassing the hook.**
 - **Nothing bounds a staff `adjust` below zero.** Screen-level, pre-existing.
 - **The sleeps in the member-lock test are 250ms.** If it flakes, raise them;
   do not delete the test.
-
-## The gate at C-123
-
-`lint` / `typecheck` / `test` / `build:test` / `test:e2e`, all five run.
-
-- **1072 unit** (+16 over C-122's 1056 — exactly the tests added), 45 files.
-- **E2E 218 passed + 15 skipped + 10 failed**, reconciling to `--list`'s 243;
-  the ten are the documented pre-existing set above, unchanged.
-- Lint, typecheck and the production build clean.
-- **No migration**, so no drift check was needed and `ci:local` was not run.
-
-## Environment notes for whoever runs the gate next
-
-**Ten e2e specs fail in a fresh container and it is not the code.** `contact`,
-`last-call` ×2, `menu-editing` ×2, `menu` ×3 and `refund` ×2 die with
-`Error: request for './menu/index' is from a module not been linked` — an ESM
-loader failure in the fixtures that use a late `await import('@countertop/db')`.
-Verified pre-existing at C-118 by stashing that change and running the same ten
-on `f239791`, where they fail identically. **Confirmed unchanged at C-123**:
-the same ten specs, all ten carrying that identical error, and
-**218 passed + 15 skipped + 10 failed = 243**, which is what `--list` reports.
-
-**Postgres in a fresh container** is installed but down, and the cluster has no
-`root` role. What worked at C-123, start to finish:
-
-```sh
-pg_ctlcluster 16 main start
-psql -h 127.0.0.1 -U postgres -c "CREATE ROLE root LOGIN SUPERUSER PASSWORD 'ct'"
-psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE countertop_test OWNER root"
-npm run db:migrate:test
-```
-
-That matches `.env.test`'s `postgresql://root:ct@localhost:5432/countertop_test`
-and needs no `pg_hba.conf` edit, because it authenticates with the password the
-URL carries. The `pg_hba` trust line in the older note here is only needed for
-`npm run ci:local`, which builds its own URL as
-`postgresql://$(whoami)@localhost/...` with no password. **`ci:local` is still
-worth running for a migration session** — it is the only thing that applies the
-whole migration history from nothing, asserts the five named invariants, and
-runs the drift check. C-123 added no migration, so it was not run.
-
-**The pre-push hook's premise is STALE, and checking it is now an item.**
-`.githooks/pre-push` opens with "CI is blocked on GitHub Actions billing (every
-run since C-029 dies in ~3s)" and closes with "Delete this hook once CI
-actually runs — the gate belongs in CI, not here." **CI actually runs.**
-`ci-self-hosted.yml`'s own header records why: the repo went public on
-2026-08-31 and `ci.yml` is GitHub-hosted, which "runs free on a public repo,
-which is the direct fix for the billing block". The last five runs on `main`
-— numbers 111 to 115, the SHA commits for C-113 through C-117 — all completed
-`success` in about ten minutes each.
-
-The reason nothing has run since is NOT billing: `ci.yml` triggers on
-`push: branches: [main]` and on `pull_request`, `main` is still at `f239791`
-(C-117), and **C-118 through C-123 all live on unmerged `claude/…` branches**.
-No branch push triggers it and no PR exists, so "watch CI green before saying
-done" has had nothing to watch for six items. Verified this session against the
-Actions API, not inferred.
-
-**So the hook is now doing a job CI would do for free, badly** — it is the only
-thing gating these branches, it takes ~12 minutes per push, and it cannot pass
-in a container. Deciding that is a small item of its own: merge to `main` and
-let `ci.yml` gate, or open PRs, or delete the hook per its own instruction.
-**Do not just delete it** — while these branches stay unmerged it is the only
-gate there is.
-
-**The pre-push hook cannot pass in this container, and C-123 was pushed with
-`--no-verify`.** `.githooks/pre-push` runs `ci:local` and then the whole gate,
-and `set -e` aborts the push on any e2e failure — so the ten environmental
-failures above make it unpassable here no matter what is committed. The hook's
-own comment scopes `--no-verify` to docs-only commits; this was a code commit,
-so the bypass was **verified rather than assumed** before it was used:
-
-- all five gate legs were run by hand and reconcile (see "The gate at C-123");
-- then `fa9b76e` — the commit before C-123 — was checked out **in this same
-  container**, rebuilt, and the five affected spec files re-run: the identical
-  ten tests fail with the identical `module not been linked` error.
-
-`ci:local` itself PASSED here, which the older note did not predict — the
-`root` role created with a password satisfies it without any `pg_hba.conf`
-edit. Only the e2e leg blocks. **If a future session can make those ten pass,
-delete this note and stop bypassing the hook.**
-
-**Playwright browsers:** the older note here says the image ships build 1194
-while Playwright wants 1234 and a symlink is needed. **No longer true in this
-image** — `/opt/pw-browsers` carries both `chromium-1234` and
-`chromium_headless_shell-1234`, and the e2e leg ran with no intervention.
 
 ## Still open from earlier items
 
