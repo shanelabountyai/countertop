@@ -13,7 +13,7 @@ import {
   type MenuItem,
   type RestaurantClock,
 } from '@countertop/core';
-import { prisma } from './index';
+import { Prisma, prisma } from './index';
 
 export async function loadMenu(now: Date = new Date()): Promise<Menu> {
   // P1-2, and it happens BEFORE the menu is read rather than beside it: the
@@ -217,6 +217,14 @@ export async function earliestStagedDay(now: Date = new Date()): Promise<string>
   return nextDay((await loadClock(now)).day);
 }
 
+/** Attempts at a staged write before a unique violation is treated as a bug
+ *  rather than as contention. Three, not the order number's 25: that loop
+ *  re-reads a maximum somebody else may have taken again, so it expects to go
+ *  round; this one deletes the row it collided with, so a second collision
+ *  means a third manager typed in the same millisecond and a third is a
+ *  courtesy. */
+const MAX_STAGE_ATTEMPTS = 3;
+
 /**
  * Write a price — now, or on a day still to come (P1-2).
  *
@@ -235,7 +243,10 @@ export async function earliestStagedDay(now: Date = new Date()): Promise<string>
  * A STAGED write replaces whatever was queued for that row on that day.
  * Delete-then-create rather than an upsert, because the uniques are over
  * nullable columns and re-staging the same day is the ordinary case: a manager
- * correcting the number they queued yesterday, not an error.
+ * correcting the number they queued yesterday, not an error. Two managers
+ * doing it at once is the same ordinary case, and the retry below is what
+ * makes "latest wins" true for them too rather than only for the one who was
+ * not racing.
  *
  * `today` is passed in rather than read, so the caller that already validated
  * `effectiveDay` against a clock reading and the write that acts on it are
@@ -249,11 +260,35 @@ export async function writePrice(
   today: string,
 ): Promise<void> {
   if (effectiveDay !== null) {
-    await prisma.$transaction([
-      prisma.stagedPrice.deleteMany({ where: { ...target, effectiveDay } }),
-      prisma.stagedPrice.create({ data: { ...target, effectiveDay, priceCents } }),
-    ]);
-    return;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await prisma.$transaction([
+          prisma.stagedPrice.deleteMany({ where: { ...target, effectiveDay } }),
+          prisma.stagedPrice.create({ data: { ...target, effectiveDay, priceCents } }),
+        ]);
+        return;
+      } catch (error) {
+        // The other half of the discipline the order number already keeps
+        // (CLAUDE.md's database rule): the unique index is the mechanism, and
+        // a violation is MAPPED TO A RETRY rather than handed to a manager as
+        // a Prisma error code.
+        //
+        // Two managers re-staging the same row for the same day contend
+        // correctly and neither is wrong — but the loser's `deleteMany` runs
+        // before the winner commits, so it sees nothing to delete and its
+        // `create` lands on the index. Retried, the delete DOES see the
+        // committed row, and the second save wins. That is what the action
+        // already told the manager happened: it showed old → new, said "goes
+        // to $13.50 on Monday", and the write has to mean it.
+        //
+        // Bounded rather than `while (true)`: a retry is only correct while
+        // the collision is somebody else's committed row, and a P2002 that
+        // keeps coming back is a different bug that must surface as one.
+        const raced =
+          error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+        if (!raced || attempt >= MAX_STAGE_ATTEMPTS - 1) throw error;
+      }
+    }
   }
 
   const live =

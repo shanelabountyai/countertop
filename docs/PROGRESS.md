@@ -8875,3 +8875,83 @@ memory incident above.
   was not consulted for the same reason.
 
 C-128 committed and pushed at f0e9d0c
+
+## C-129 — The constraint that was only half a discipline
+
+The `ponytail:`-shaped gap NEXT.md put at the top of the shortlist, closed.
+**`writePrice`'s staged branch contended correctly and then handed the loser a
+Prisma error code.**
+
+CLAUDE.md's database rule is two clauses, not one: *concurrent placements
+contend on the constraint, not on a check-then-write* — **and** *map the
+violation to a retry*. `StagedPrice` had the first half and had it properly
+(`@@unique([itemId, effectiveDay])`, `@@unique([optionId, effectiveDay])`, and
+the `staged_price_one_target` CHECK making exactly one target non-null, so each
+grain is covered and no duplicate row is constructible). Nothing had the second
+half. Two managers re-staging the same row for the same day is the ordinary
+case the delete-then-create exists for, and doing it *at the same time* raised
+`P2002` out of a server action that had already shown the manager old → new and
+told them "goes to $13.50 on Monday".
+
+**Built:**
+- **A bounded retry around the staged transaction.** The loser's `deleteMany`
+  runs before the winner commits, so it sees nothing to delete and its `create`
+  lands on the index; retried, the delete *does* see the committed row, and the
+  later save wins. "Latest wins" becomes true for two managers, not only for
+  the one who was not racing.
+- **`MAX_STAGE_ATTEMPTS = 3`, not the order number's 25**, and the constant
+  carries the reason: `takingNextOrderNumber` re-reads a maximum somebody else
+  may take again, so it expects to go round; this loop deletes the row it
+  collided with, so a second collision means a third manager typed in the same
+  millisecond.
+- **The inline `P2002` check**, the same four tokens `refund.ts`,
+  `authorization.ts` and `loyalty.ts` already use, rather than a sixth copy of
+  `placement.ts`'s private `uniqueViolationTarget` — this branch does not care
+  *which* constraint, because only one is reachable from it.
+- **One test that drives the race** instead of hoping for it, in
+  `menu.test.ts`.
+
+**Decided:**
+- **A retry, not an upsert.** The uniques are over nullable columns and the
+  target is a union of two grains, so an upsert means branching per grain and
+  two `where` shapes — more code to express the same precedence, and Prisma's
+  upsert races the same way in the general case anyway.
+- **Bounded rather than `while (true)`.** A retry is correct only while the
+  collision is somebody else's committed row; a `P2002` that keeps coming back
+  is a different bug and has to surface as one.
+- **The live branch is left alone.** Its transaction is an `update` plus a
+  `deleteMany` — no insert, so no unique violation to map.
+
+**The test, and why it is shaped like the member lock's:**
+- Two `writePrice` calls under `Promise.all` each do enough sequential work
+  that the first commits before the second opens, so the retry never runs and
+  the test proves nothing. That is C-119's lesson, and it applies verbatim
+  here.
+- So one transaction creates the row and is **held open**; `writePrice` then
+  does exactly what the losing manager's save does — its `deleteMany` finds
+  nothing, its `create` blocks on the index — and releasing the holder turns
+  that block into the `P2002`. Two 250ms pauses make the ordering deterministic
+  rather than likely.
+- **Run against the unfixed code before being believed**, per C-119/C-122/C-123:
+  neutering the catch fails it with `Unique constraint failed on the fields:
+  (itemId, effectiveDay)`, which is the raw error a manager used to get.
+
+No migration — the constraints were already right; only the handling was
+missing. No product change: nothing a manager sees is different except that the
+save they were told had happened now actually happens.
+
+**The gate at C-129.** All five legs, on the laptop, first attempt.
+
+- **1087 unit** in 45 files — the +1 is this item's race test, and it is the
+  only new test the item needs.
+- **E2E 229 passed + 15 skipped = 244**, reconciling against `--list`'s 244,
+  zero failures, 8.5m.
+- Lint, typecheck and the production build clean.
+- **No migration**, so no drift check and `ci:local` was not run.
+- `demo:rush` not run: the rush places orders, it does not stage prices, and
+  nothing in this item is reachable from it.
+- **The pre-sweep kill needed both lines** — `pkill -9 -f "$PWD.*playwright"`
+  *and* `pkill -9 -f 'node \(vitest'` — exactly as C-128's incident concluded.
+  Two vitest workers were resident from this session's own file-scoped run and
+  were reaped by name before the sweep; memory sat at 74% available, pressure
+  0, throughout.

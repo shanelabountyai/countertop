@@ -3545,3 +3545,59 @@ items are mostly the project auditing itself. An item whose entire subject is
 unverified numbers sitting in a document is the last place an unverified number
 belongs, and the only reason it got caught is that the diff was read before the
 commit.
+
+### Half a discipline, written down as if it were the whole one (C-129)
+
+CLAUDE.md's database rule reads: *the daily order number is `(businessDay,
+seq)` with a unique constraint; concurrent placements contend on the
+constraint, not on a check-then-write. **Map the violation to a retry**, and
+test it under the seeded rush.*
+
+Two clauses. `StagedPrice` had the first and not the second, and the first is
+the one that looks like the work. The schema is right and defensible —
+`@@unique([itemId, effectiveDay])`, `@@unique([optionId, effectiveDay])`, a
+`staged_price_one_target` CHECK making exactly one target column non-null, and
+a comment explaining why NULLs being distinct in a Postgres unique index means
+the two grains cannot collide on each other's constraint. Reviewing that
+schema, the rule reads as satisfied.
+
+It wasn't. A constraint with no mapping is a correct database and a broken
+screen: two managers re-staging the same row for the same day — the exact case
+the delete-then-create exists for, since re-staging is a manager correcting
+yesterday's number rather than an error — contended correctly, and the loser
+got `P2002` out of a server action that had just shown them old → new and told
+them the price *goes to $13.50 on Monday*.
+
+**What makes this worth writing down is where the gap lived.** Not in the
+mechanism, which was right, and not in the comment, which was accurate. It
+lived in the half of the rule that has no artifact: a constraint you can point
+at, a CHECK you can query out of `pg_constraint`, a comment you can read — and
+then a `try`/`catch` whose absence looks like nothing at all. The repo already
+had four other unique violations mapped (`placement.ts`'s retry loop,
+`refund.ts`'s "someone else settled this", `authorization.ts`'s settled hold,
+`loyalty.ts`'s earn). This one was missed because the *first* clause was
+executed so visibly.
+
+**The fix is a bounded retry**, three attempts rather than the order number's
+twenty-five, and the constant says why: `takingNextOrderNumber` re-reads a
+maximum somebody else may take again, so it expects to go round; this loop
+deletes the row it collided with, so a second collision means a third manager
+typed in the same millisecond and a third attempt is a courtesy. Bounded rather
+than `while (true)`, because a retry is only correct while the collision is
+somebody else's committed row — a `P2002` that keeps coming back is a different
+bug and must surface as one.
+
+**And the test could not be written the obvious way**, which is now the third
+item in a row where that is true (C-119's member lock, C-122's bulk 86, this).
+Two `writePrice` calls under `Promise.all` do enough sequential work apiece
+that the first commits before the second opens, so the retry never executes and
+a green test says nothing about it. The shape that works is C-119's, reused
+deliberately: one transaction creates the row and is **held open**, `writePrice`
+runs the losing manager's path against it — `deleteMany` finds nothing because
+the winner has not committed, `create` blocks on the index — and releasing the
+holder converts that block into the violation. Two 250ms pauses make the
+ordering deterministic instead of likely.
+
+Then it was run against the unfixed code, which is the only part that proves
+anything: `Unique constraint failed on the fields: (itemId, effectiveDay)`,
+raw, exactly as a manager would have met it.

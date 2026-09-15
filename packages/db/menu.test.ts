@@ -324,6 +324,49 @@ describe('staged prices', () => {
       expect((await loadMenu(MONDAY_NOON)).items.burrito?.basePriceCents).toBe(1275);
     });
 
+    it('lets the LATER of two simultaneous re-stages win rather than erroring', async () => {
+      // THE RACE, DRIVEN rather than hoped for — the same shape as the
+      // member-lock test in `loyalty.test.ts`, and for the same reason. Two
+      // `writePrice` calls under `Promise.all` each do enough sequential work
+      // that the first commits before the second opens, so the retry never
+      // runs and a green test proves nothing about it.
+      //
+      // So one transaction takes the row and is HELD open, and `writePrice`
+      // then does exactly what the losing manager's save does: its
+      // `deleteMany` finds nothing, because the winner has not committed, and
+      // its `create` blocks on the unique index. Releasing the holder turns
+      // that block into the P2002 a manager used to get handed. 1275 here is
+      // the retry deleting the row it collided with — the second save meaning
+      // what the editor already told the person typing it.
+      const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      const holder = prisma.$transaction(
+        async (tx) => {
+          await tx.stagedPrice.create({
+            data: { itemId: 'burrito', effectiveDay: '2026-09-14', priceCents: 1250 },
+          });
+          await held;
+        },
+        { timeout: 20_000 },
+      );
+      // Long enough for the holder to have taken the index entry.
+      await pause(250);
+
+      const later = writePrice({ itemId: 'burrito' }, 1275, '2026-09-14', '2026-09-13');
+      // Long enough for the second write to have reached — and blocked on — it.
+      await pause(250);
+      release();
+      await holder;
+      await expect(later).resolves.toBeUndefined();
+
+      expect(await prisma.stagedPrice.count()).toBe(1);
+      expect((await loadMenu(MONDAY_NOON)).items.burrito?.basePriceCents).toBe(1275);
+    });
+
     it('stages an option delta through the same one function', async () => {
       await writePrice({ optionId: 'guacamole' }, 250, '2026-09-14', '2026-09-13');
       expect(

@@ -2868,3 +2868,27 @@ are numbers something in the project actively defends — the rush has twice had
 a new scenario added *inside* its thirty orders rather than alongside them,
 precisely so the figure stays comparable. The rows that drifted were the rows
 nothing was holding.
+
+## C-129 — Two managers, one price, same second
+
+**What changed.** When two people queue tomorrow's price for the same menu item
+at the same moment, the second one's save now wins. Before this, it failed —
+with a database error, on a screen that had already confirmed the change.
+
+**How often that happens.** Rarely, and that is the point. The rare case is the
+one nobody is watching when it arrives, and the person it arrives for is a
+manager who was told the price was set and comes back on Monday to find it
+wasn't.
+
+**Why it was only half broken.** The database was already refusing to hold two
+prices for the same item on the same day — that guard was in place and working,
+and it is what makes "what does this cost on Monday" have exactly one answer.
+What was missing was the polite half: when the guard fires because two people
+typed at once, the app should quietly do the obvious thing (the later change
+replaces the earlier one) rather than surface the collision.
+
+**The test is the interesting part.** Two saves fired at the same instant do not
+actually collide on a laptop — each is fast enough to finish before the other
+starts — so a test written that way passes whether or not the fix exists. This
+one holds the first save open on purpose, lets the second walk into it, and then
+releases. It was run against the old code first, to watch it fail.
