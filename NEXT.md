@@ -1,130 +1,95 @@
 # Next
 
-**C-128 shipped this session** (`f0e9d0c`): the recount. `docs/WRITEUP.md`'s *By the
-Numbers* had been a C-029 table wearing no date for seventy-eight items — 45
-requirements, 418 unit tests, 119 e2e specs, a build window ending 2026-08-29.
-It now reads 107 / 1,086 / 244 / through 2026-09-15 and **opens with the date
-it was counted**, which is the actual fix: a dated number can be old, an
-undated one is a claim. Gate green, five legs. No code, no migration.
+**C-129 shipped this session** (`b9b80f4`): `writePrice`'s staged branch had
+half of CLAUDE.md's database rule — it contends on the unique constraint and
+then handed the loser a raw `P2002`. Now a bounded retry (3 attempts), so two
+managers re-staging the same row for the same day both get "latest wins", which
+is what the action already told them happened. One test, driven rather than
+hoped for. No migration. Gate green on the first attempt, five legs, 1087 unit
+/ 244 e2e.
 
 ## Pick this up first
 
-Nothing is blocking. The shortlist is C-127's minus the numbers item:
+Nothing is blocking. The shortlist, minus the item C-129 took:
 
-1. **`writePrice`'s staged branch surfaces a raw `P2002`.** The delete-then-
-   create is NOT unguarded — `StagedPrice` carries `@@unique([itemId,
-   effectiveDay])` and `@@unique([optionId, effectiveDay])`, and the
-   `staged_price_one_target` CHECK makes exactly one target column non-null per
-   row, so each grain is covered and no duplicate row is constructible. What is
-   missing is the other half of the discipline CLAUDE.md states for order
-   numbers — *map the violation to a retry*: two managers re-staging the same
-   row for the same day contend correctly and the loser gets an unmapped Prisma
-   error instead of "latest wins". Smallest real item on the list.
-
-2. **No `PhoneVerification` sweep** (C-115's `ponytail:`) — one row per
+1. **No `PhoneVerification` sweep** (C-115's `ponytail:`) — one row per
    verification request, forever, and C-120 made the rush issue two per run.
    The upgrade path is written on the model: a periodic delete past
-   `expiresAt`, same shape as the retention sweep.
+   `expiresAt`, same shape as the retention sweep. Now the smallest real item
+   on the list.
 
-3. **`report.payment.refundedCents` still has no test over the rush** —
-   C-126's item, twice deferred now. The reconciliation is narrated by the demo
-   and asserted at the unit grain, not over the seeded service.
+2. **`report.payment.refundedCents` still has no test over the rush** —
+   C-126's item, three times deferred now. The reconciliation is narrated by
+   the demo and asserted at the unit grain, not over the seeded service.
 
-## What C-128 built
+3. **Five portfolio captures are content-stale** (see the standing list below).
+   Needs the machine that produced their siblings, not a container.
 
-- **The table, recounted from the repo**, every figure derived by a command
-  recorded in `docs/PROGRESS.md` so the next recount is a re-run: backlog ticks
-  by grep, lines by `git ls-files | xargs wc -l`, unit tests from `npm test`,
-  e2e from `playwright test --list`, constraints from `pg_constraint`.
-- **The stamp, which is the actual deliverable.** *Counted at C-128,
-  2026-09-15*, with one sentence on why the date is load-bearing. It converts
-  the failure mode from *wrong* to *old* — the same category as every other gap
-  in the document, and the one a reader can reason about.
-- **Two rows that did not drift, and why**, which turned out to be the
-  finding: the menu fixture and the rush's 30/20/5 are *specified* numbers that
-  something actively defends, so C-124 and C-126 each fitted a new scenario
-  *inside* the thirty. The rows that drifted were the rows nothing was holding.
-- **Two neighbouring paragraphs scoped to their moment rather than rewritten**
-  — "What the *first* twelve extra items were (written at C-029)", and "the
-  eleven defects recorded *at that point*". The prose was good; it needed a
-  date, the same fix as the table's.
-- **A defect narrative in `docs/WRITEUP.md`** — the only thing in the repo that
-  was wrong rather than absent.
+## What C-129 built
 
-## What C-128 leaves behind
+- **A bounded retry around the staged transaction** in `packages/db/menu.ts`.
+  The loser's `deleteMany` runs before the winner commits, so it sees nothing
+  to delete and its `create` lands on the index; the retry's delete *does* see
+  the committed row.
+- **`MAX_STAGE_ATTEMPTS = 3`, not the order number's 25**, with the reason on
+  the constant: `takingNextOrderNumber` re-reads a maximum somebody else may
+  take again and expects to go round; this loop deletes the row it collided
+  with.
+- **The inline `P2002` check** that `refund.ts`, `authorization.ts` and
+  `loyalty.ts` already use — not a second copy of `placement.ts`'s private
+  `uniqueViolationTarget`, because this branch does not care which constraint.
+- **One test, C-119's shape for C-119's reason.** Two `writePrice` calls under
+  `Promise.all` each commit before the other opens, so the retry never runs and
+  a green test proves nothing. The test holds a transaction open, walks the
+  losing path into it, and releases. **Run against the unfixed code first** —
+  `Unique constraint failed on the fields: (itemId, effectiveDay)`.
 
-- **Nothing recounts the table.** The stamp makes it honest, not current. A
-  `docs:numbers` script emitting the table body is the upgrade path and was
-  deliberately not built: a script that must itself be maintained, against a
-  table touched once every seventy-eight items, is the more expensive of the
-  two.
-- **`By the Numbers` sits at line ~2337 of a 3,547-line file**, with eleven
-  defect narratives appended *after* it. A summary table two-thirds of the way
-  through a document is a structural oddity a portfolio reader meets before the
-  material it summarises. Not moved — the ordering is the document's history.
-- **No gate leg reads any of these numbers**, so nothing fails when they drift
-  again. The honest reason the item existed at all.
-- **One claim was caught in its own diff**: the rewritten ratio sentence first
-  said the defect rate "has not moved much" across "eighty-nine items", from
-  the wrong subtraction and a trend nobody had checked. It went *up* — 11
-  defects across the first 29 items, 72 across 107, because the later items are
-  mostly the project auditing itself. Corrected before commit, and recorded.
+## What C-129 leaves behind
 
-## The gate at C-128
+- **The live branch has no retry and needs none** — `update` + `deleteMany`,
+  no insert, no unique violation to map. If a future edit adds an insert there,
+  this reasoning stops holding.
+- **Nothing tests the option grain of the race.** The retry is grain-agnostic
+  (one code path, `{...target}`), so the item test covers the branch; a second
+  test would cover the spread operator.
+- **The retry is not observable.** Nothing logs that a stage collided, so the
+  frequency of two managers racing is unknowable in production. A counter or a
+  log line is the upgrade path if it ever matters.
+- **`MAX_STAGE_ATTEMPTS` exhausted still throws a raw `P2002`** to the server
+  action, which is deliberate — three collisions is a different bug — but the
+  manager's screen would show the same unhandled error the item just removed.
 
-All five legs, on the laptop, **on the second attempt** — see the incident
-below.
+## The gate at C-129
 
-- **1086 unit** in 45 files, unchanged (this item adds no code; running it
-  anyway is what makes the table's figures the gate's own output rather than a
-  previous session's log).
+All five legs, on the laptop, **first attempt**.
+
+- **1087 unit** in 45 files (+1, this item's race test).
 - **E2E 229 passed + 15 skipped = 244**, reconciling against `--list`'s 244,
-  zero failures, 7.8m.
+  zero failures, 8.5m.
 - Lint, typecheck and the production build clean.
 - **No migration**, so no drift check and `ci:local` was not run.
-- `demo:rush` not run — nothing in this item can reach it.
+- `demo:rush` not run — the rush places orders, it does not stage prices.
+- **CI run 35013197524 on `82c5e57`: green**, the `gate` job succeeding — the
+  full sweep on a clean runner, including the migration history applied from
+  nothing with the drift check and both hostile timezones. This item changes
+  `.ts`, so `paths-ignore` did not skip it.
 
-**No CI run exists for C-128, correctly.** All five changed files are `.md`, so
-`ci.yml`'s `paths-ignore` (`**/*.md`, `docs/**`) skipped the push — the rule
-working, not a broken trigger and not the new-branch caveat below. The laptop
-gate is the whole verification for this item, and it was run on all five legs.
-Do not go looking for run N+1.
+## Before the next sweep
 
-## The environment incident, and a hole it found in the pre-sweep recipe
+**Both kill lines, every time** — C-128's incident, confirmed again this
+session:
 
-**Read this before the next sweep.** The first gate attempt failed in clusters
-across unrelated files — `retention` 6/17, `menu` 7/27, `remake` 15/15,
-`payment` 13/13, `authorization` 8/15 — at 53s, 89s, 123s, 85s and 102s, with
-the *same suite having passed 1086/1086 in 41s* twenty minutes earlier in the
-same session.
+```sh
+pkill -9 -f "$PWD.*playwright"
+pkill -9 -f 'node \(vitest'      # parens MUST be escaped; vitest titles carry no path
+lsof -ti :3400 | xargs -r kill -9
+```
 
-- **Cause:** `kern.memorystatus_level` at **13%**, `swapcheck` refusing, three
-  `JetsamEvent` reports from the minutes of the run. Five Playwright
-  `test-server` processes were resident — one per live VS Code / Claude Code
-  session, and `swapcheck` listed **four sessions across four projects**.
-- **Not the pool:** `pg_stat_activity` showed 6 connections on
-  `countertop_test`. Checked before reading a stack trace, and it cleared that
-  hypothesis in one query.
-- **THE HOLE, and the reason this section exists:** CLAUDE.md's pre-sweep kill
-  is `pkill -9 -f "$PWD.*playwright"`, scoped to the project so two projects
-  obeying the rule cannot kill each other. **Vitest workers set their process
-  title to `node (vitest 8)` — no path at all** — so the `$PWD`-scoped pattern
-  misses every one of them. Five orphans survived holding 265/222/191/21/21 MB,
-  and memory only went 14% → 80% once they were reaped **by name**:
-
-  ```sh
-  pkill -9 -f 'node \(vitest'      # parens MUST be escaped
-  ```
-
-  The unescaped form fails with `Cannot compile regular expression …
-  (parentheses not balanced)`, exits non-zero, and reaps nothing. It was
-  written into PROGRESS unescaped first and corrected after being run.
-- **`Killed: 9` in the log was mine**, from the pkill, and so was the gate's
-  exit 137. The jetsam report timestamps settled it, not the message.
+Two vitest workers were resident from this session's own file-scoped run and
+were reaped by name before the sweep. Memory held at 74% available, pressure 0.
 
 **If four Claude Code sessions are alive, close the ones you have walked away
-from before starting a sweep.** That is the standing cause here, not anything
-in this repo.
+from before starting a sweep.**
 
 ## Read this before the next push
 
@@ -135,14 +100,17 @@ in this repo.
   migration history from nothing with the drift check. Run it for any session
   that adds a migration.
 - **`npm run db:status` before `demo:rush`** if the last session added a
-  migration — `demo:rush` reads `.env.local` and that database drifts (C-127
-  hit `P2022` on C-121's column).
+  migration — `demo:rush` reads `.env.local` and that database drifts.
 - **A brand-new branch's FIRST push can skip CI**, documented in `ci.yml`
   rather than fixed: GitHub evaluates `paths-ignore` against the head commit
   alone, and every item's head commit is the docs-only "record the SHA" one. If
   a new branch shows no run, dispatch it manually.
 - **There is no pre-push hook** (C-125). Old clones: `git config --unset
   core.hooksPath` once.
+- **Anything run outside `npm test`** gets no `DATABASE_URL` and the local
+  guard refuses with `points at "<unparseable>"`. Prefix with `npx dotenv -e
+  .env.test -e .env.local --`.
+- **Run `npm run db:generate`** if `typecheck` reports unknown Prisma columns.
 
 ## Environment notes for whoever runs the gate next
 
@@ -150,8 +118,7 @@ in this repo.
 by run 116 on a clean `ubuntu-latest` runner. `contact`, `last-call` ×2,
 `menu-editing` ×2, `menu` ×3 and `refund` ×2 die with `Error: request for
 './menu/index' is from a module not been linked`, an ESM loader failure in the
-fixtures using a late `await import('@countertop/db')`. Environmental — this
-session's laptop run is a fifth independent confirmation.
+fixtures using a late `await import('@countertop/db')`. Environmental.
 
 **Postgres in a fresh container** is installed but down, and the cluster has no
 `root` role:
@@ -169,14 +136,11 @@ with no password, so it additionally needs `host … 127.0.0.1/32 trust` in
 
 **On the laptop**, `.env.test` points at `postgresql://shanelabounty@localhost`
 and the cluster is already up; `npm run db:migrate:test` is the only setup.
-**Run `npm run db:generate` if `typecheck` reports unknown Prisma columns.**
 
-**Anything run outside `npm test`** gets no `DATABASE_URL` and the local guard
-refuses with `points at "<unparseable>"`. Prefix with `npx dotenv -e .env.test
--e .env.local --`.
+## Still open from C-118 → C-128
 
-## Still open from C-118 → C-127
-
+- **Nothing recounts `docs/WRITEUP.md`'s By the Numbers table** (C-128). The
+  stamp makes it honest, not current; no gate leg reads any of those figures.
 - **`NotificationKind` has one value** (C-121) — it exists because it is half
   the unique index's grain.
 - **Nothing reads `queueReadyNotification`'s return value** (C-121). "We told
@@ -207,8 +171,8 @@ refuses with `points at "<unparseable>"`. Prefix with `npx dotenv -e .env.test
 - **`reward_terms_changed` has no test.** Reaching it needs the reward's cash
   value edited mid-placement and C-106 ships no control for that value.
 - **Nothing bounds a staff `adjust` below zero.** Screen-level, pre-existing.
-- **The sleeps in the member-lock test are 250ms.** If it flakes, raise them;
-  do not delete the test.
+- **The sleeps in the member-lock test are 250ms**, and now so are C-129's. If
+  either flakes, raise them; do not delete the test.
 - **A refund cannot be reversed at all** (C-127). A comp on the wrong ticket is
   taken back by `adjustment_reversed`; a refund sent to the wrong customer has
   no contradicting row and, since C-127, no longer surfaces as money to chase.

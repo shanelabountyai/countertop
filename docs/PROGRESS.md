@@ -8956,4 +8956,10 @@ save they were told had happened now actually happens.
   were reaped by name before the sweep; memory sat at 74% available, pressure
   0, throughout.
 
+**CI run 35013197524 on `82c5e57`: green** — the `gate` job on a clean
+`ubuntu-latest` runner, which is the leg the laptop cannot run: the whole
+migration history applied from nothing with the drift check, and the unit suite
+under both `TZ=Pacific/Kiritimati` and `TZ=UTC`. Nothing in this item touches
+either, and that is the point of the backstop running anyway.
+
 C-129 committed and pushed at b9b80f4
