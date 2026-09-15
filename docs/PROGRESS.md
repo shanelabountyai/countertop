@@ -8955,3 +8955,5 @@ save they were told had happened now actually happens.
   Two vitest workers were resident from this session's own file-scoped run and
   were reaped by name before the sweep; memory sat at 74% available, pressure
   0, throughout.
+
+C-129 committed and pushed at b9b80f4
