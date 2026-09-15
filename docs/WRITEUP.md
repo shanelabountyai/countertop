@@ -3316,3 +3316,82 @@ a comment and names `workflow_dispatch` as the answer. Fixing it properly would
 mean dropping `paths-ignore`, which would run the full twelve-minute gate on
 every typo fix in a markdown file — a worse trade for a case that announces
 itself.
+
+### The bucket that was "structurally empty" until it wasn't (C-126)
+
+`report.ts` carried this comment from the day the payment split was written
+until this item replaced it:
+
+> The three buckets sum to the window's revenue. `refunded` is its own bucket
+> and never nets into the other two — **today it is structurally empty**, because
+> the only refund the engine writes accompanies a `cancel` and a cancelled
+> order is not a sale, but a refund that survives a pickup must not land in
+> "collected" the day someone adds one.
+
+Everything in that paragraph was true when it was written, and the author was
+explicitly designing for the day it stopped being true. C-071 shipped the
+deliberate refund three items later and *made* it reachable. The comment was
+never revisited, because nothing in the product — not a test, not the demo, not
+a screen anybody looked at — had produced a refund on an order that was picked
+up. So the bucket stayed empty in practice while ceasing to be empty in
+principle, and the comment kept reading as a reason not to look.
+
+**This item made a refund reachable in the demo, and the first run printed the
+consequence in a line nobody had written:**
+
+```
+  $312.30 collected, $155.43 still owed on 9 orders
+  $4.95 sent back to customers
+```
+
+Nine, where the rush has eight pay-at-counter tickets. The ninth is Gia
+Moretti, who paid online, collected her food, and was refunded $4.95 four
+minutes later. She is on the *chase these customers for money* list, for the
+exact amount that was deliberately handed back to her.
+
+The arithmetic is honest and the conclusion is not:
+
+```ts
+outstandingCents: Math.max(
+  0,
+  order.totalCents - collectedCents - adjustedCents - authorizedCents,
+)
+```
+
+`collectedCents` is *captured minus refunded*, so a refund raises the
+outstanding balance by construction. That is correct for one reading —
+the restaurant collected nothing, in the end, for $4.95 of the food it handed
+over — and wrong for the one the screens act on. Because `canCollectPayment`
+reads the same figure, the staff receipt now offers to **collect $4.95 from the
+customer who was just refunded it**.
+
+Two things are worth extracting.
+
+**A comment that anticipates its own expiry does not get a second look.** "Today
+it is structurally empty" is better engineering writing than most comments in
+this repo — it names the invariant, says why it holds, and warns about the day
+it breaks. It still functioned exactly like C-122's backwards `ponytail:` and
+C-125's stale hook header: a future reader sees the question has been thought
+about and moves on. The failure mode is not ignorance, it is **the appearance of
+diligence**. What would have caught it is not a better comment but a *test that
+fails when the premise changes* — an assertion that the refunded bucket is zero
+would have gone red the moment C-071 landed, and the person who made it red
+would have had to decide what the bucket now means.
+
+**A demo is an integration test with a different audience.** Nothing was wrong
+with the unit tests: `refundableCents`, `orderBalance` and the refund path all
+have dense coverage and all of it passes. The defect lives in the space between
+two features that had never been in the same database row at the same time —
+a refund, and an order the report counts as sold. The capstone rush found it in
+one run, not because it asserts anything about refunds, but because it puts
+every feature in one service and then *prints the result where a person reads
+it*. That is the argument for keeping a demo that is also a test, and this is
+the third time it has paid: C-120's double text on a reverted ticket, C-124's
+pickup slot that only existed at noon, and now this.
+
+It is not fixed here. `orderBalance` is read by the report, the chase list and
+the counter's collect-payment control, and the question underneath it — *is
+refunded money a debt the customer owes, or a closed fact* — is a decision about
+the restaurant rather than a patch to a formula. Recording it and handing it on
+is the honest move; quietly changing a money formula at the end of an item about
+a demo script is not.

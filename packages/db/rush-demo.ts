@@ -18,6 +18,7 @@ import { prisma } from './index';
 import { loadLoyaltyProgram } from './loyalty';
 import { loadSettings } from './menu';
 import { loadReportOrders, loadStatusTimelines } from './report';
+import { loadRefundExceptions } from './refund';
 import {
   EIGHTY_SIX_MINUTE,
   PAUSE_MINUTE,
@@ -173,6 +174,26 @@ async function main(): Promise<void> {
         `${plural(report.payment.outstanding.length, 'order')}`,
     );
   }
+  // Money that went back out (PRD 3 P0-4/P0-6, C-126). Its own bucket on the
+  // report and never netted into the two above, because a refunded order is
+  // food the customer has and money the restaurant does not. Gated like the
+  // rewards line below: a run stopped before minute 22 has not refunded
+  // anything yet, and a zero here would be narrating a feature rather than a
+  // service.
+  if (report.payment.refundedCents > 0) {
+    console.log(`  ${money(report.payment.refundedCents)} sent back to customers`);
+  }
+  // THE HALF A HAPPY PATH CANNOT SHOW. A refund the processor refused leaves
+  // the ask standing with nothing chasing it, and this is the list somebody
+  // works at close — with the retry button on each receipt.
+  const exceptions = await loadRefundExceptions();
+  if (exceptions.length > 0) {
+    console.log(
+      `  ${plural(exceptions.length, 'refund')} owed and not sent — on the exceptions list: ` +
+        exceptions.map((order) => `#${order.seq} ${order.customerName}`).join(', '),
+    );
+  }
+
   // Counted, never booked. A midday report that did not say this would look
   // like a restaurant that sold nothing (C-016).
   if (report.inFlight > 0) {

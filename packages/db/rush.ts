@@ -26,6 +26,7 @@ import {
   availableSlots,
   EMPTY_CART,
   instantMinutesAfter,
+  type AdjustmentReason,
   type CancelReason,
   type Cart,
   type Composition,
@@ -36,6 +37,7 @@ import { prisma } from './index';
 import { enrolMember, hasLoyaltyPepper } from './loyalty';
 import { loadClock, loadMenu } from './menu';
 import { derivedIdempotencyKey, placeOrder } from './placement';
+import { requestRefund } from './refund';
 import {
   confirmPhoneVerificationForCheckout,
   startPhoneVerification,
@@ -382,7 +384,34 @@ type KitchenStep =
   | { at: number; step: 'advance' }
   | { at: number; step: 'revert'; reason: string }
   | { at: number; step: 'cancel'; reason: CancelReason; note?: string }
-  | { at: number; step: 'abandon' };
+  | { at: number; step: 'abandon' }
+  /**
+   * Somebody at the counter sends money back (PRD 3 P0-6, C-071).
+   *
+   * NOT A KITCHEN TAP, and it is in this union anyway for the reason `cancel`
+   * already is: what the union actually schedules is a STAFF ACTION at a
+   * minute of the rush, and a second timetable beside this one would be a
+   * second thing to keep in step with the loop that drains it.
+   *
+   * Only reachable on an order that was PREPAID and PICKED UP, which is the
+   * whole point of the two orders that carry it — every other prepaid exit in
+   * the rush is a void (C-069), so until now the refund machinery, its
+   * failure row and its exceptions list appeared in no demo at all.
+   */
+  | {
+      at: number;
+      step: 'refund';
+      /** What a person typed into the box, in cents. Bounded by what is held
+       *  at the ATTEMPT, never by this number — `settleRefund` refuses it
+       *  against the balance rather than trimming it, so a menu reprice that
+       *  puts this above the total makes `refund` throw naming the customer. */
+      amountCents: number;
+      reason: AdjustmentReason;
+      /** The provider REFUSES this one, in these words — a `refund_failed` row
+       *  and an entry on the exceptions list, which is the half of P0-4 that a
+       *  demo of the happy path can never show. */
+      declined?: string;
+    };
 
 /**
  * The default cadence: accepted a minute after it lands, on the grill two
@@ -515,7 +544,27 @@ export const RUSH_ORDERS: RushOrder[] = [
 
   { label: 'Elin Haugen', minute: 3, composition: 4 },
   { label: 'Fitz Okonkwo', minute: 3, composition: 5 },
-  { label: 'Gia Moretti', minute: 4, composition: 6 },
+  // A REFUND THAT GOES THROUGH (PRD 3 P0-6). Prepaid at checkout, collected at
+  // minute 18, and at 22 she is back at the counter with burnt churros. The
+  // counter sends $4.95 back — the churros' own price, the food and not its
+  // share of the tax, because a refund is a number a person types rather than
+  // a line the product re-derives.
+  //
+  // NOT a sixth ugly case, the same distinction `redeemsReward` carries: the
+  // five in the header are the master PRD's Success Metrics verbatim. No order
+  // is added, removed or re-timed for this — only her default cadence is spelt
+  // out so a fifth step can follow it.
+  //
+  // $8.95 quesadilla + $0.00 chicken + $4.95 churros = $13.90, tax $1.15,
+  // $15.05 held and captured at pickup. $4.95 of it goes back, which leaves
+  // `paymentState` at `paid` and not `refunded` — the lossy-enum case
+  // `derivePaymentState` exists to get right.
+  {
+    label: 'Gia Moretti',
+    minute: 4,
+    composition: 6,
+    kitchen: [...cadence(4), { at: 22, step: 'refund', amountCents: 495, reason: 'quality' }],
+  },
 
   // UGLY CASE 2 — the wrong card advanced, and undone. Rae's ticket is marked
   // ready at minute 12 by a cook reaching across the pass for someone else's;
@@ -603,7 +652,36 @@ export const RUSH_ORDERS: RushOrder[] = [
   { label: 'Rosa Delgado', minute: 11, composition: 6, slow: 3 },
   { label: 'Sol Nakamura', minute: 12, composition: 7 },
   { label: 'Tam Okoro', minute: 13, composition: 9, slow: 2 },
-  { label: 'Vik Ramsay', minute: 14, composition: 10 },
+  // A REFUND THE PROCESSOR REFUSES, and the reason this pair is two orders
+  // rather than one. Everything on this side of the seam is real — the ask is
+  // written and durable BEFORE the provider is called, so when the call fails
+  // the request stands, a `refund_failed` row carries the processor's own
+  // words onto the receipt, and the order is on the exceptions list at close
+  // with the retry button beside it. That list is empty in every other run of
+  // this demo, which is exactly the problem: the machinery P0-4 exists for is
+  // the machinery a happy path cannot show.
+  //
+  // LEFT FAILING, deliberately. A retry that succeeded would empty the list
+  // again by minute 50 and the demo would end looking like the one before it.
+  //
+  // $11.50 torta + $1.50 carnitas + $0.75 extra tortilla = $13.75, tax $1.13,
+  // $14.88 held and captured at pickup — and all of it is asked for, because
+  // "the whole ticket" is what somebody types when the food was wrong.
+  {
+    label: 'Vik Ramsay',
+    minute: 14,
+    composition: 10,
+    kitchen: [
+      ...cadence(14),
+      {
+        at: 31,
+        step: 'refund',
+        amountCents: 1488,
+        reason: 'wrong_item',
+        declined: 'Card issuer declined the refund (do_not_honor).',
+      },
+    ],
+  },
 
   // UGLY CASE 4 — the double-tap. Two submissions, same idempotency key,
   // fired concurrently. The unique constraint is the mechanism; the disabled
@@ -896,6 +974,7 @@ async function move(
   label: string,
 ): Promise<void> {
   const now = at(anchor, step.at);
+  if (step.step === 'refund') return refund(orderId, step, now, label);
   const action =
     step.step === 'advance'
       ? ({ kind: 'advance', actor: 'staff' } as const)
@@ -915,6 +994,57 @@ async function move(
   const result = await applyOrderAction(orderId, action, now, cookFor(label));
   if (!result.ok) {
     throw new Error(`${label} could not ${step.step} at minute ${step.at}: ${result.failure.message}`);
+  }
+}
+
+/**
+ * Send some of somebody's money back, through the real control (C-126).
+ *
+ * `requestRefund` and not two writes of its parts: the ask and the send are
+ * one call for a person at the counter, and a rush that appended its own
+ * `refund_requested` would prove the log's shape and nothing about the path
+ * the receipt's button actually takes.
+ *
+ * THE DECLINE IS A PROVIDER, not a flag. `settleRefund` takes the processor as
+ * a parameter precisely so the failure can be produced without a mode inside
+ * it, so the refused one hands in a function that throws and everything after
+ * that — the `refund_failed` row, the provider's own words on the receipt, the
+ * entry on the exceptions list — is the product's real code path.
+ */
+async function refund(
+  orderId: string,
+  step: Extract<KitchenStep, { step: 'refund' }>,
+  now: Date,
+  label: string,
+): Promise<void> {
+  const result = await requestRefund(
+    orderId,
+    { amountCents: step.amountCents, reason: step.reason },
+    now,
+    cookFor(label),
+    step.declined === undefined
+      ? undefined
+      : async () => {
+          throw new Error(step.declined);
+        },
+  );
+
+  // Both outcomes are scripted, so both are asserted here rather than only the
+  // happy one: a decline that quietly succeeded would leave the exceptions
+  // list empty and the demo would still look fine.
+  if (step.declined === undefined) {
+    if (!result.ok) {
+      throw new Error(
+        `${label}'s refund at minute ${step.at} did not go through: ${result.message}`,
+      );
+    }
+    return;
+  }
+  if (result.ok || result.reason !== 'provider_failed') {
+    throw new Error(
+      `${label}'s refund at minute ${step.at} was supposed to be refused by the provider, and was ` +
+        (result.ok ? 'sent' : `refused as ${result.reason}`),
+    );
   }
 }
 

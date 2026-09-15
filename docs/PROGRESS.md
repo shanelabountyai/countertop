@@ -8567,3 +8567,89 @@ it trains the bypass.
   push lands; the discipline is still a human one.
 
 C-125 committed and pushed at f2b79d5
+
+## C-126 — A refund, in the seeded rush
+
+C-067 built the refund path, C-071 built the deliberate refund, its failure row
+and its exceptions list — and **none of it appeared in the capstone demo**.
+C-069 is why: it turned a prepaid checkout into a hold rather than a charge, so
+the rush's two prepaid exits (Owen's cancellation, Cass's no-show) settle as
+VOIDS. That is the right answer — nothing left the card, so nothing has to go
+back — and it means the only way to reach a refund is a ticket that was paid
+for at checkout and actually handed over. The rush had none.
+
+**Built:**
+- **A `refund` variant on `KitchenStep`**, drained by the loop that already
+  schedules staff actions minute by minute. Not a kitchen tap; in that union
+  anyway for the reason `cancel` already is — what the union schedules is a
+  staff action at a minute, and a second timetable beside it would be a second
+  thing to keep in step.
+- **Gia Moretti refunds, and it goes through.** Prepaid, collected at minute
+  18, back at 22 with burnt churros. $8.95 quesadilla + $4.95 churros + $1.15
+  tax = **$15.05** held and captured; **$4.95** back — the churros' own price,
+  the food and not its share of the tax, because a refund is a number a person
+  types rather than a line the product re-derives.
+- **Vik Ramsay refunds, and the processor refuses.** $11.50 torta + $1.50
+  carnitas + $0.75 extra tortilla + $1.13 tax = **$14.88**, all of it asked
+  for at minute 31, declined with `do_not_honor`. The ask is written and
+  durable BEFORE the provider is called, so the failure leaves it standing: a
+  `refund_failed` carrying the provider's own words onto the receipt, and one
+  entry on the exceptions list at close.
+- **A Sales line for each**, gated the way the rewards line is, so a run
+  stopped before minute 22 narrates neither.
+- **Four assertions** inside `a card held at checkout, taken or let go`, which
+  already re-runs the full rush — no second 20-minute run for two new facts.
+
+**Decided:**
+- **Two orders, not one.** A refund that works and a refund that fails are
+  different machinery, and the failed one is the half a happy path can never
+  show. One order could only be one of them.
+- **The declined one is LEFT failing.** A retry that succeeded would empty the
+  exceptions list again by minute 50 and the demo would end looking exactly
+  like the one before it. The point is a non-empty list on the screen.
+- **The decline is a PROVIDER, not a flag.** `settleRefund` takes the
+  processor as a parameter precisely so a failure can be produced without a
+  mode inside it; the rush hands in a function that throws and every row after
+  that is the product's real code path.
+- **Partial for one, total for the other**, so `derivePaymentState`'s lossy
+  case is in the demo: $4.95 of $15.05 back leaves the order `paid`, not
+  `refunded`, and the column-agrees-with-the-log test now has a row that only
+  passes if that distinction is right.
+- **Not a sixth ugly case.** The five in the rush's header are the master PRD's
+  Success Metrics verbatim. This rides the `redeemsReward` precedent — another
+  axis along which orders already vary. No order added, removed or re-timed.
+- **Scoped two assertions rather than weakening them.** "No refund anywhere in
+  the service" was true and is now false; it became "neither RELEASED hold
+  refunded anything", which is the sentence P1-1 actually asked for. And
+  `refund_requested` is excluded from both sides of the money-amount test
+  rather than added to `bearing`, because the database CHECK leaves that one
+  kind's amount nullable on purpose — a cancellation's request cannot know
+  what will be held later, a deliberate one is a frozen figure.
+
+**The defect the demo printed the first time it ran:**
+- **A deliberately refunded order is put on the "still owed" chase list, for
+  exactly the amount that was refunded.** `orderBalance.outstandingCents` is
+  `total − collected − adjusted − authorized`, and a refund reduces
+  `collected` — so Gia appears as owing $4.95. Because `canCollectPayment`
+  reads that same figure, **the staff receipt offers to collect $4.95 from the
+  customer who was just refunded it.**
+- Pre-existing since C-071 and structurally invisible until something refunded
+  a picked-up ticket — `report.ts`'s own comment said the refunded bucket was
+  "structurally empty", which was true when it was written and is the reason
+  nobody saw this.
+- **Not fixed here, deliberately.** It is a change to `orderBalance`, which the
+  report, the chase list and the counter control all read, and the question it
+  raises — is a refund a debt the customer owes, or a closed fact — is a
+  decision rather than a patch. It is the next item.
+
+**Left behind:**
+- **Nothing retries the failed refund.** The retry button exists on the receipt
+  and is exercised by `refund.test.ts`; the rush deliberately does not press it.
+- **Neither refunding customer has a phone**, so neither refund puts anything
+  in the P1-3 outbox. "Your refund is on its way" is not a message this product
+  sends at all.
+- **`report.payment.refundedCents` has no test over the rush** — the two orders
+  are asserted at the event grain, and the report bucket is only narrated.
+- **No refund in the e2e suite's rush spec.** The screens' refund flow is
+  covered by `refund.spec.ts` against its own fixture, not by the mid-service
+  capture.

@@ -175,10 +175,12 @@ export type OutstandingOrder = {
  * question, and the till is out of scope by decision (2026-09-01 #2).
  *
  * The three buckets sum to the window's revenue. `refunded` is its own bucket
- * and never nets into the other two — today it is structurally empty, because
- * the only refund the engine writes accompanies a `cancel` and a cancelled
- * order is not a sale, but a refund that survives a pickup must not land in
- * "collected" the day someone adds one.
+ * and never nets into the other two — a refund that survives a pickup is food
+ * the customer has and money the restaurant does not, so landing it in
+ * "collected" would book revenue that went back out. It was structurally empty
+ * when this was written, because the only refund the engine wrote accompanied
+ * a `cancel` and a cancelled order is not a sale; P0-6's deliberate refund
+ * (C-071) made it reachable and the seeded rush has exercised it since C-126.
  */
 export type PaymentSplit = {
   collectedCents: number;

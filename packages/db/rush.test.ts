@@ -16,6 +16,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { ORDER_RECEIPT } from './placement';
 import { loadQuoteSamples, loadStatusTimelines } from './report';
+import { loadRefundExceptions } from './refund';
 import {
   runRush,
   RUSH_ANCHOR,
@@ -633,6 +634,13 @@ describe('the payment column is a cache of the payment events', () => {
     // lets `paymentTotals` answer "is anything owed at the counter" without
     // following a link.
     const bearing = ['payment', 'refund', 'authorization', 'capture', 'authorization_voided'];
+    // THE ONE KIND THE CHECK EXCUSES, and the rush now holds both readings of
+    // it (C-126). A cancellation's request carries null — it cannot know what
+    // will be held when the attempt runs — and a deliberate refund's carries
+    // the figure a person typed, frozen. Excluded from BOTH sides here rather
+    // than added to `bearing`, so this test says what the constraint says
+    // instead of over-claiming about a column the database leaves nullable.
+    const excused = 'refund_requested';
     const events = await prisma.orderEvent.findMany({ select: { kind: true, amountCents: true } });
     const money = events.filter((event) => bearing.includes(event.kind));
 
@@ -640,7 +648,7 @@ describe('the payment column is a cache of the payment events', () => {
     expect(money.every((event) => typeof event.amountCents === 'number')).toBe(true);
     expect(
       events
-        .filter((event) => !bearing.includes(event.kind))
+        .filter((event) => !bearing.includes(event.kind) && event.kind !== excused)
         .every((event) => event.amountCents === null),
     ).toBe(true);
   });
@@ -694,11 +702,14 @@ describe('a card held at checkout, taken or let go', () => {
       expect(order.paymentState).toBe('unpaid');
     }
 
-    // And no refund anywhere in the service. The rush's only prepaid exits are
-    // these two, so the refund machinery has nothing to do — which is exactly
-    // what P1-1 asked for. A deliberate refund is proved in refund.test.ts and
-    // through the screens in the e2e suite.
-    expect(await prisma.orderEvent.count({ where: { kind: 'refund' } })).toBe(0);
+    // AND NEITHER OF THESE TWO REFUNDED ANYTHING, which is the sentence P1-1
+    // asked for and is now narrower than "no refund in the service" (C-126).
+    // The rush does refund, twice, on orders that were picked UP — so the
+    // claim has to be scoped to the released holds rather than to the log,
+    // and the two facts are asserted a describe apart on purpose.
+    expect(
+      released.every((order) => paymentTotals(order.events).refundedCents === 0),
+    ).toBe(true);
   });
 
   it('captures at the counter, once, for exactly what was held', async () => {
@@ -712,8 +723,76 @@ describe('a card held at checkout, taken or let go', () => {
       const totals = paymentTotals(order.events);
       expect(totals.capturedCents).toBe(order.totalCents);
       expect(totals.authorizedCents).toBe(0);
+      // STILL `paid` with two refunds in the service (C-126), and that is the
+      // assertion rather than an accident: one of them was partial and the
+      // other never reached the provider, so nothing captured has fully gone
+      // back. A future full refund here would correctly turn this red.
       expect(order.paymentState).toBe('paid');
     }
+  });
+
+  // PRD 3 P0-4 and P0-6 (C-126). Every prepaid exit in this rush used to be a
+  // void, which is C-069 working exactly as designed — and it meant the refund
+  // path, its failure row and the exceptions list were in no demo at all. Two
+  // orders now reach it from the only place it is reachable from: a ticket
+  // that was paid for at checkout and actually handed over.
+  it('sends money back on a picked-up ticket without making it unpaid', async () => {
+    const gia = await orderFor('Gia Moretti');
+    const events = await prisma.orderEvent.findMany({
+      where: { orderId: gia.id },
+      select: { kind: true, amountCents: true },
+    });
+    const totals = paymentTotals(events);
+
+    // $8.95 + $4.95 of food, $1.15 of tax — held at checkout, captured at
+    // pickup, and $4.95 of it back at minute 22.
+    expect(gia.totalCents).toBe(1505);
+    expect(totals.capturedCents).toBe(1505);
+    expect(totals.refundedCents).toBe(495);
+
+    // THE PARTIAL CASE, which is the only reason this order is refunded rather
+    // than the whole ticket: `refunded` is true once everything captured has
+    // gone back, and $4.95 of $15.05 has not.
+    expect(gia.paymentState).toBe('paid');
+    expect(derivePaymentState(events)).toBe('paid');
+
+    // One attempt, one request, and nothing on the exceptions list for it.
+    expect(events.filter((event) => event.kind === 'refund')).toHaveLength(1);
+    expect(events.filter((event) => event.kind === 'refund_failed')).toHaveLength(0);
+  });
+
+  it('leaves the refund the processor refused on the exceptions list, with its words', async () => {
+    const vik = await orderFor('Vik Ramsay');
+    const events = await prisma.orderEvent.findMany({
+      where: { orderId: vik.id },
+      select: { kind: true, amountCents: true, detail: true },
+    });
+
+    // The ask is written and DURABLE before the provider is called, so a
+    // failure leaves it standing rather than rolling it back into nothing.
+    // That is the whole reason there is anything to chase.
+    expect(events.filter((event) => event.kind === 'refund_requested')).toEqual([
+      { kind: 'refund_requested', amountCents: 1488, detail: null },
+    ]);
+    expect(events.filter((event) => event.kind === 'refund')).toHaveLength(0);
+    expect(paymentTotals(events).refundedCents).toBe(0);
+
+    // The provider's own words, on the row the receipt renders them from — no
+    // second channel and no second column.
+    const failed = events.filter((event) => event.kind === 'refund_failed');
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.detail).toEqual({ note: 'Card issuer declined the refund (do_not_honor).' });
+
+    // Money never left, so the order is still paid. The customer is owed
+    // $14.88 and the restaurant still has it — which is precisely the state
+    // the exceptions list exists to make visible.
+    expect(vik.paymentState).toBe('paid');
+
+    // EXACTLY ONE, asked of the list the screen reads rather than of the log:
+    // Gia's settled request must not be on it, and neither must the twenty-odd
+    // orders that were never refunded at all.
+    const exceptions = await loadRefundExceptions();
+    expect(exceptions.map((order) => order.customerName)).toEqual(['Vik Ramsay']);
   });
 });
 

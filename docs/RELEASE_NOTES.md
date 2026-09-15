@@ -2754,3 +2754,56 @@ was a code comment that described a bug wrongly and so stopped anyone looking
 at it. Here it was a safeguard whose stated reason for existing had expired.
 Both read as evidence the question was already handled. **Neither was checked
 until someone ran it.**
+
+## C-126 — The refund the demo had never shown
+
+There is a script in this project that replays a lunch rush: thirty orders in
+twenty minutes, with five things going wrong on purpose. It is the demo, and it
+is also a test — if it can be run, the product works.
+
+Three items of this project's history went into refunds. Sending money back
+through a processor that can say no. Writing down that it was tried and failed.
+An exceptions list, so that at close somebody can see what the restaurant still
+owes and has not managed to pay. None of it appeared in the demo.
+
+The reason is a good decision made earlier. When a customer pays online, the
+card is not charged — it is put on hold, and the money is only taken when the
+food is handed over. So the two customers in the rush who pay and never collect
+— one cancelled, one who never turns up — cost a *released hold*, not a refund.
+Nothing ever left their card, so nothing has to go back. That is the right
+behaviour and it is why the refund machinery sat unused: a refund is only
+reachable on an order that was paid for *and* collected, and the rush had
+nobody like that.
+
+Now it has two.
+
+**One refund works.** Gia Moretti picks up at minute eighteen and is back at the
+counter four minutes later: the churros are burnt. Four dollars ninety-five goes
+back — the churros' price, typed by a person, not a figure the software worked
+out. Her order stays marked *paid*, because most of what she paid is still
+paid. That distinction is small and it is the sort of thing that is wrong in a
+lot of software.
+
+**One refund fails.** Vik Ramsay asks for his whole ticket back at minute
+thirty-one, and the card issuer declines it. The request survives — it was
+written down before the processor was ever called — so his order finishes the
+rush on the exceptions list, with the processor's own words on the receipt and
+a retry button beside it.
+
+It is deliberately left failing. A retry that worked would clear the list again
+before the demo ended, and the demo would finish looking exactly like it did
+before. An empty exceptions list is what a happy path always shows. The point
+was to show the other thing.
+
+**And the demo found a bug the first time it printed.** With a refund finally in
+the run, Gia turned up on the report's *money still owed* list — for the exact
+$4.95 that had just been handed back to her. The same figure drives a button on
+the staff screen, so the counter was being offered the chance to collect $4.95
+from a customer who had been refunded it four minutes earlier.
+
+Nobody had written that wrongly. It had simply never been possible to see: the
+one line of code that could produce it needed a refund on an order that was
+actually collected, and no refund in this project's history had ever been one.
+It is the next item, and it needs a decision rather than a patch — is money
+refunded a debt the customer owes, or a closed fact? That is a question about
+the restaurant, not about the code.
