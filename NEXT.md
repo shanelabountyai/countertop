@@ -84,6 +84,12 @@ below.
 - **No migration**, so no drift check and `ci:local` was not run.
 - `demo:rush` not run — nothing in this item can reach it.
 
+**No CI run exists for C-128, correctly.** All five changed files are `.md`, so
+`ci.yml`'s `paths-ignore` (`**/*.md`, `docs/**`) skipped the push — the rule
+working, not a broken trigger and not the new-branch caveat below. The laptop
+gate is the whole verification for this item, and it was run on all five legs.
+Do not go looking for run N+1.
+
 ## The environment incident, and a hole it found in the pre-sweep recipe
 
 **Read this before the next sweep.** The first gate attempt failed in clusters
