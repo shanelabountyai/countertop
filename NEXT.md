@@ -1,6 +1,6 @@
 # Next
 
-**C-128 shipped this session**: the recount. `docs/WRITEUP.md`'s *By the
+**C-128 shipped this session** (`f0e9d0c`): the recount. `docs/WRITEUP.md`'s *By the
 Numbers* had been a C-029 table wearing no date for seventy-eight items — 45
 requirements, 418 unit tests, 119 e2e specs, a build window ending 2026-08-29.
 It now reads 107 / 1,086 / 244 / through 2026-09-15 and **opens with the date
