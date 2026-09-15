@@ -2807,3 +2807,35 @@ actually collected, and no refund in this project's history had ever been one.
 It is the next item, and it needs a decision rather than a patch — is money
 refunded a debt the customer owes, or a closed fact? That is a question about
 the restaurant, not about the code.
+
+## C-127 — Money sent back is not money owed
+
+The question C-126 left on the table: when a restaurant refunds a customer, is
+that money the customer now owes?
+
+No. The customer paid. The restaurant chose to hand some of it back. That
+transaction is finished, and the ticket is settled.
+
+**What it fixes.** Gia Moretti no longer appears on the report's *money still
+owed* list for the $4.95 she was refunded — and because the same figure drives
+the staff screen, the counter is no longer offered a button to take it back off
+her. One number feeds both, so both closed together.
+
+**What it does not do.** It does not forgive tickets. Somebody who walks out
+without paying is still chased for every cent, and somebody who paid half and
+was refunded part of that half still owes the half they never paid. The only
+thing that changed is that money already returned stopped counting as money
+still due.
+
+**The report now adds up.** *Collected*, *still owed* and *sent back* have
+always been described as three buckets that sum to the day's revenue. For the
+last five updates they did not — a refunded ticket was quietly counted twice,
+once as owed and once as returned. The seeded rush prints the proof: $312.30
+collected, $150.48 still owed, $4.95 sent back, against $467.73 of revenue.
+
+**And a test that had been green the whole time was the reason nobody noticed.**
+It checked that *collected* and *still owed* summed to revenue — two of the
+three buckets — and the double count was exactly what made that sum come out
+right. A test that leaves a bucket out is not checking that nothing is lost; it
+is checking that whatever is missing has been hidden somewhere else. It now
+sums all three.

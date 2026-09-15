@@ -418,32 +418,64 @@ describe('salesReport — collected versus charged (defect D2, C-051)', () => {
     expect(report.payment.unpaidRate).toBeNull();
   });
 
-  it('keeps a refund in its own bucket, and shows the money as owed', () => {
+  it('keeps a refund in its own bucket, and OFF the chase list (C-127)', () => {
     const report = salesReport(
       [order(AT, [line('Burrito', 1, 1095)], 'picked_up', money(1195), 'refunded')],
       LA,
     );
 
-    // C-064 CHANGED THIS, and the new answer is the more honest one. Under the
-    // enum a refunded order counted toward neither collected nor outstanding
-    // and simply vanished from the split. Under the balance the customer has
-    // the food and we hold nothing — which is money owed, and it belongs on
-    // the chase list. Unreachable today (a refund only accompanies a cancel,
-    // and a cancelled order is not a sale), and written down because the day
-    // C-067 lets a picked-up order be refunded, this is what the report says.
+    // C-064 PUT THIS ON THE CHASE LIST and C-127 took it off, and the middle
+    // assertion is the whole item. The C-064 sentence was "the customer has
+    // the food and we hold nothing — which is money owed"; it was written
+    // while a refund could only accompany a cancel, so nothing ever ran it.
+    // C-071 made a picked-up ticket refundable, C-126's rush refunded one,
+    // and the report printed a customer who had just been sent $4.95 as
+    // owing $4.95 — with a Collect button beside it, because
+    // `canCollectPayment` reads the same figure. A refund is settled money.
     expect(report.payment.collectedCents).toBe(0);
-    expect(report.payment.outstandingCents).toBe(1195);
-    // Its own bucket still, netted into neither.
+    expect(report.payment.outstandingCents).toBe(0);
+    expect(report.payment.outstanding).toEqual([]);
+    // Its own bucket still, netted into neither — and now the ONLY bucket
+    // that mentions this money, rather than the second of two.
     expect(report.payment.refundedCents).toBe(1195);
     // Still booked as revenue: the split explains the headline, it never
     // restates it (decision 2026-09-01 #1).
     expect(report.days[0]?.totalCents).toBe(1195);
   });
 
-  it('splits every window exactly into collected and outstanding', () => {
-    // The invariant the balance buys, and one the enum could not hold: a
-    // refunded order used to fall out of both halves. Now every cent of
-    // revenue is in exactly one of them.
+  it('leaves a PARTIAL refund settled without forgiving what was never paid', () => {
+    // The rush's own case, at the report grain (C-126's Gia, C-127's fix):
+    // captured in full, part of it sent back, nothing owed. And beside it the
+    // order that proves the fix is not "refunds forgive tickets" — an unpaid
+    // pickup is still chased for every cent.
+    const report = salesReport(
+      [
+        {
+          ...order(AT, [line('Churros', 1, 1400)], 'picked_up', money(1505), 'paid'),
+          events: [
+            { kind: 'payment' as const, amountCents: 1505 },
+            { kind: 'refund' as const, amountCents: 495 },
+          ],
+        },
+        order(AT, [line('Bowl', 1, 1300)], 'picked_up', money(1430), 'unpaid'),
+      ],
+      LA,
+    );
+
+    expect(report.payment.collectedCents).toBe(1010);
+    expect(report.payment.refundedCents).toBe(495);
+    expect(report.payment.outstandingCents).toBe(1430);
+    expect(report.payment.outstanding.map((o) => o.owedCents)).toEqual([1430]);
+  });
+
+  it('splits every window exactly into collected, outstanding and refunded', () => {
+    // THE INVARIANT THAT WAS ASSERTED WRONG FOR FIVE ITEMS, and the reason
+    // this test did not catch C-127's defect: it summed TWO of the three
+    // buckets and passed, because the refunded order's total was sitting in
+    // `outstanding` as well as in `refunded`. Double-counted revenue looks
+    // exactly like a balanced two-bucket split. Summing all three is the
+    // claim `PaymentSplit`'s own doc comment has always made, and the version
+    // of it that fails if a cent is ever counted twice again.
     const report = salesReport(
       [
         order(AT, [line('Burrito', 1, 1)], 'picked_up', money(1195), 'paid'),
@@ -454,7 +486,16 @@ describe('salesReport — collected versus charged (defect D2, C-051)', () => {
     );
 
     const revenue = report.days.reduce((sum, day) => sum + day.totalCents, 0);
-    expect(report.payment.collectedCents + report.payment.outstandingCents).toBe(revenue);
+    expect(
+      report.payment.collectedCents +
+        report.payment.outstandingCents +
+        report.payment.refundedCents,
+    ).toBe(revenue);
+    // Named individually too, so a failure says WHICH bucket moved rather
+    // than only that the sum stopped matching.
+    expect(report.payment.collectedCents).toBe(1195);
+    expect(report.payment.outstandingCents).toBe(1430);
+    expect(report.payment.refundedCents).toBe(900);
   });
 
   it('lists the chase list chronologically, oldest first', () => {

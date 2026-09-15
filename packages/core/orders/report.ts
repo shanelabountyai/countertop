@@ -181,6 +181,14 @@ export type OutstandingOrder = {
  * when this was written, because the only refund the engine wrote accompanied
  * a `cancel` and a cancelled order is not a sale; P0-6's deliberate refund
  * (C-071) made it reachable and the seeded rush has exercised it since C-126.
+ *
+ * THAT FIRST SENTENCE WAS FALSE for the five items between C-071 and C-127,
+ * and nothing noticed because nothing refunded a picked-up ticket until the
+ * rush did. `outstandingCents` was computed from money COLLECTED rather than
+ * money CAPTURED, so a refunded cent was counted twice — once here as sent
+ * back, once on the chase list as still owed — and the split summed to more
+ * than the revenue above it. C-127 fixed it in `orderBalance`, which is where
+ * the arithmetic lives; this comment is the claim that fix restores.
  */
 export type PaymentSplit = {
   collectedCents: number;
@@ -354,8 +362,10 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     }
     // Its own bucket, and now a SUM OF REFUNDS rather than the totals of
     // orders wearing a `refunded` label. It still nets into neither of the
-    // other two: a refunded order shows the money as outstanding, because
-    // that is what it is — the customer has the food and we hold nothing.
+    // other two, and since C-127 that is all it does: a refunded order is
+    // SETTLED, so it leaves the chase list entirely and the money it sent
+    // back is reported here and only here. The restaurant has less in the
+    // drawer than it booked; the customer owes nothing for it.
     refundedCents += paymentTotals(order.events).refundedCents;
 
     const day = days.get(clock.day) ?? {

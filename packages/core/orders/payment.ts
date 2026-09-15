@@ -189,9 +189,33 @@ export function orderBalance(order: OrderMoney): OrderBalance {
     // `outstandingCents` that `canCollectPayment` reads, so subtracting here
     // is what structurally closes that door rather than a new check on a new
     // enum value that three screens would have to remember.
+    //
+    // CAPTURED, NOT COLLECTED (C-127), and that ONE WORD is the difference
+    // between a refund settling a ticket and a refund re-opening it. The two
+    // figures differ by exactly the refunds, so reading `collectedCents` here
+    // made every refunded cent land back on what the customer owes — and
+    // because this is the number `canCollectPayment` reads, the counter was
+    // offered a control to take the money back off the person it was just
+    // sent to. A refund is a closed fact, not a debt: the ticket was paid,
+    // and where the money went afterwards is the `refunded` bucket's sentence
+    // to say, not this one's.
+    //
+    // It also makes the report's split add up again. `collected +
+    // outstanding + refunded` is the revenue booked, which is what the
+    // three-bucket comment in `report.ts` has always claimed and what
+    // stopped being true the moment C-071 made a refund reachable on a
+    // picked-up order: a fully refunded ticket counted its own total twice,
+    // once as owed and once as sent back.
+    //
+    // ONE CASE MOVES that is not a refund working normally. A refund
+    // exceeding its capture is a data error, and it used to read as the whole
+    // ticket owed because `collectedCents` clamped at zero; it now reads as
+    // the unclaimed part of the ticket. Neither answer is right — the data is
+    // wrong — and this one is at least arrived at by the same arithmetic as
+    // every other.
     outstandingCents: Math.max(
       0,
-      order.totalCents - collectedCents - adjustedCents - authorizedCents,
+      order.totalCents - capturedCents - adjustedCents - authorizedCents,
     ),
   };
 }

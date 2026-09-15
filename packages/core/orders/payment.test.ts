@@ -5,6 +5,7 @@ import {
   paymentTotals,
   type MoneyEvent,
 } from './payment';
+import { canCollectPayment } from './state-machine';
 
 // PRD 3 P0-1 (C-063). The event stream is the truth; `Order.paymentState` is a
 // derived cache over it. These prove the derivation. That the CACHE actually
@@ -101,7 +102,10 @@ describe('orderBalance', () => {
     // "A $34.20 order, captured in full then refunded $3.00, has a balance of
     // 3120 and an unchanged totalCents of 3420."
     const order = { totalCents: 3420, events: [payment(3420), refund(300)] };
-    expect(orderBalance(order)).toEqual({ collectedCents: 3120, outstandingCents: 300 });
+    // The PRD pins the BALANCE — 3120 — and says nothing about what is owed.
+    // C-127 answers that second half: nothing. The ticket was captured in
+    // full, and the $3.00 that went back afterwards is not a debt.
+    expect(orderBalance(order)).toEqual({ collectedCents: 3120, outstandingCents: 0 });
     // The snapshot is untouched. A balance is computed BESIDE the money, never
     // by editing it — the rule this whole project is built on.
     expect(order.totalCents).toBe(3420);
@@ -121,21 +125,41 @@ describe('orderBalance', () => {
     });
   });
 
-  it('owes the whole ticket again after a full refund', () => {
-    // The customer has the food and we hold nothing. That is money owed, and
-    // saying anything else would drop the order off the chase list.
+  it('owes nothing after a full refund, because a refund SETTLES (C-127)', () => {
+    // This assertion used to read the other way, and the sentence defending it
+    // was "the customer has the food and we hold nothing, that is money owed".
+    // It is not. The customer paid; the restaurant chose to send it back.
+    // Calling that a debt put the refunded ticket on the chase list for the
+    // exact amount refunded and — because `canCollectPayment` reads this very
+    // number — put a Collect control on the receipt of the person who had just
+    // been refunded. The demo printed it at C-126; this is the fix.
     expect(orderBalance({ totalCents: 1456, events: [payment(1456), refund(1456)] })).toEqual({
       collectedCents: 0,
-      outstandingCents: 1456,
+      outstandingCents: 0,
     });
+  });
+
+  it('still owes the unpaid REMAINDER of a partly paid, partly refunded ticket', () => {
+    // A refund settling is not a refund forgiving. $10 arrived on a $14.56
+    // ticket and $3 went back: the $4.56 nobody ever paid is still owed, and
+    // the $3 is not added to it.
+    expect(
+      orderBalance({ totalCents: 1456, events: [payment(1000), refund(300)] }),
+    ).toEqual({ collectedCents: 700, outstandingCents: 456 });
   });
 
   it('never reports holding a negative amount', () => {
     // A refund exceeding capture is a data error, and "we hold minus three
     // dollars" is not something a screen should ever show.
+    //
+    // WHAT IS OWED MOVED IN C-127 and is stated here rather than left to be
+    // discovered: 900, the part of the ticket nothing was ever captured for,
+    // where it used to be the whole 1000 because the clamped `collectedCents`
+    // was the subtrahend. Neither figure is correct — the data is wrong — and
+    // this one is at least the same arithmetic every other case gets.
     expect(orderBalance({ totalCents: 1000, events: [payment(100), refund(500)] })).toEqual({
       collectedCents: 0,
-      outstandingCents: 1000,
+      outstandingCents: 900,
     });
   });
 
@@ -153,6 +177,26 @@ describe('orderBalance', () => {
       collectedCents: 3000,
       outstandingCents: 420,
     });
+  });
+});
+
+// THE SECOND READER (C-127). `canCollectPayment` is unit-tested in
+// `state-machine.test.ts` against bare integers, which is right — the status
+// module does not know the payment stream exists. What that cannot catch is
+// the WIRING: the defect C-126's rush printed was not a wrong predicate, it
+// was a correct predicate handed a wrong number. These assert the two together
+// at the seam the screens actually use, so a future change to `orderBalance`
+// that re-opens a refunded ticket fails here naming the button.
+describe('the counter control over a refunded ticket', () => {
+  it('does not offer to collect money that was just sent back', () => {
+    const balance = orderBalance({ totalCents: 1505, events: [payment(1505), refund(495)] });
+    expect(balance.outstandingCents).toBe(0);
+    expect(canCollectPayment('picked_up', balance.outstandingCents)).toBe(false);
+  });
+
+  it('still offers to collect from a ticket nobody paid for', () => {
+    const balance = orderBalance({ totalCents: 1430, events: [] });
+    expect(canCollectPayment('picked_up', balance.outstandingCents)).toBe(true);
   });
 });
 
@@ -290,7 +334,7 @@ describe('a hold, held and settled', () => {
     const events = [held(3507), captured(3507), refund(300)];
     expect(orderBalance({ totalCents: 3507, events })).toEqual({
       collectedCents: 3207,
-      outstandingCents: 300,
+      outstandingCents: 0,
     });
     expect(derivePaymentState(events)).toBe('paid');
   });

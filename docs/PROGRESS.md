@@ -8655,3 +8655,74 @@ for at checkout and actually handed over. The rush had none.
   capture.
 
 C-126 committed and pushed at 4329922
+
+## C-127 — A refund is a closed fact, not a debt
+
+The decision C-126 handed on, made and applied. **A refund settles a ticket.**
+The customer paid, the restaurant chose to send some of it back, and the money
+that went back is not money the customer now owes.
+
+**Built:**
+- **One word in `orderBalance`.** `outstandingCents` subtracts `capturedCents`
+  where it subtracted `collectedCents`. The two differ by exactly the refunds,
+  which is why reading the wrong one put every refunded cent back on the chase
+  list.
+- **Both readers close from that one line**, which is the C-069 precedent
+  applied a second time: the hold was subtracted in `orderBalance` rather than
+  checked on three screens, precisely so `canCollectPayment` would go dark
+  structurally. Same here — the report's chase list and the counter's Collect
+  control are one number apart, and the number is now right.
+- **Two seam tests in `payment.test.ts`** asserting `orderBalance` and
+  `canCollectPayment` together. The predicate's own unit tests take bare
+  integers and are right to; what they cannot catch is a correct predicate
+  handed a wrong number, which is exactly what this defect was.
+- **A partial-refund report test** at the grain the rush exercises — captured
+  in full, part sent back, nothing owed — sitting beside an unpaid pickup that
+  is still chased for every cent, so the fix cannot be read as "refunds forgive
+  tickets".
+
+**Decided:**
+- **Closed fact, not debt**, over the two alternatives. Patching only
+  `canCollectPayment` was the smaller diff and leaves a staff member working a
+  chase list that names a refunded customer; leaving it alone means the product
+  ships a control that takes money back off the person it was just sent to.
+- **`collectedCents` does not move.** "Received and kept" is captured minus
+  refunded and always was. Only what is OWED was wrong.
+- **The report's three buckets are the invariant**, and it is now true:
+  `collected + outstanding + refunded` is the revenue booked. The seeded rush
+  prints it — $312.30 + $150.48 + $4.95 = $467.73, the revenue line above it.
+
+**The test that was green through all of it:**
+- `splits every window exactly into collected and outstanding` (C-064) has a
+  fully refunded order in its fixture and **passed for five items because of
+  the double count**: the refunded ticket contributed 0 to `collected` and its
+  whole total to `outstanding`, so two buckets summed to revenue exactly.
+- **A conservation test that omits a bucket tests that the omitted bucket's
+  contents are hiding in the other two.** Its own comment claimed "every cent
+  of revenue is in exactly one of them" — *exactly one* is the half it was not
+  asserting, and the half that fails under a double count.
+- It now sums all three and names each individually, so a failure says which
+  bucket moved rather than only that the sum stopped matching.
+
+**One case moved that nobody chose:**
+- A refund exceeding its capture is a data error. It used to read as the whole
+  ticket owed, because the clamped `collectedCents` was the subtrahend; it now
+  reads as the part of the ticket nothing was captured for. Neither figure is
+  right — the data is wrong — and the new one is at least reached by the same
+  arithmetic as every other case. Asserted with that reasoning rather than left
+  to be found.
+
+**Left behind:**
+- **Nothing can reverse a refund.** A comp on the wrong ticket is taken back by
+  `adjustment_reversed`; a refund sent to the wrong customer has no
+  contradicting row, and under C-127 it no longer even surfaces as money to
+  chase. A smaller hole than the Collect button was, and a real one.
+- **`report.payment.refundedCents` still has no test over the rush** — C-126's
+  item, untouched here. The reconciliation is now narrated by the demo and
+  asserted at the unit grain, not over the seeded service.
+- **The local dev database was one migration behind** (C-121's
+  `NotificationOutbox.kind`), so `demo:rush` failed with `P2022` before it ran.
+  `npm run db:migrate:dev` fixed it. Not a defect — it is `db:status` doing the
+  job it exists for — and worth knowing because the demo is the only thing in
+  the gate that touches `.env.local`.
+- **No migration.**

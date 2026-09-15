@@ -310,9 +310,12 @@ describe('the balance, against the database', () => {
       },
     });
 
+    // C-127: the $3.00 is off the books, not back on the chase list. The
+    // restaurant kept the rest, and the ticket is settled — which is what
+    // keeps a Collect control off the receipt of a refunded customer.
     expect(orderBalance(reloaded)).toEqual({
       collectedCents: order.totalCents - 300,
-      outstandingCents: 300,
+      outstandingCents: 0,
     });
     // The snapshot rule, in money form: the order still costs what it cost.
     expect({

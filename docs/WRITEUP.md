@@ -3395,3 +3395,75 @@ refunded money a debt the customer owes, or a closed fact* — is a decision abo
 the restaurant rather than a patch to a formula. Recording it and handing it on
 is the honest move; quietly changing a money formula at the end of an item about
 a demo script is not.
+
+### The test that summed two of three buckets (C-127)
+
+C-126 handed on a decision rather than a patch: *is refunded money a debt the
+customer owes, or a closed fact?* The answer is closed fact, and the fix is one
+word.
+
+```diff
+  outstandingCents: Math.max(
+    0,
+-   order.totalCents - collectedCents - adjustedCents - authorizedCents,
++   order.totalCents - capturedCents - adjustedCents - authorizedCents,
+  ),
+```
+
+`collectedCents` is *captured minus refunded*. Subtracting it meant every
+refunded cent came back as a cent the customer owed — which put Gia Moretti on
+the chase list for the $4.95 she had just been handed, and put a **Collect**
+button beside it, because `canCollectPayment` reads this same number. Reading
+`capturedCents` instead says the thing the restaurant actually did: the ticket
+was paid in full, and where the money went afterwards is the `refunded`
+bucket's sentence to say.
+
+**The interesting part is not the fix, it is which test was green through all
+of it.** `report.test.ts` has carried this since C-064:
+
+```ts
+it('splits every window exactly into collected and outstanding', () => {
+  // The invariant the balance buys, and one the enum could not hold: a
+  // refunded order used to fall out of both halves. Now every cent of
+  // revenue is in exactly one of them.
+  const revenue = report.days.reduce((sum, day) => sum + day.totalCents, 0);
+  expect(report.payment.collectedCents + report.payment.outstandingCents).toBe(revenue);
+});
+```
+
+Its fixture includes a fully refunded order. It passed for five items while the
+report was double-counting that order's total — once in `outstanding`, once in
+`refunded` — and it passed *because* of the double count. A refunded ticket
+contributed 0 to `collected` and its whole total to `outstanding`, so the two
+buckets summed to revenue exactly. Take the double count away and this
+assertion is the one that goes red.
+
+**A conservation test that omits a bucket does not test conservation, it tests
+that the omitted bucket's contents are hiding somewhere in the other two.** The
+`PaymentSplit` doc comment three files over states the real invariant — "the
+three buckets sum to the window's revenue" — and the test named itself after
+two of them. The test's own comment even says "every cent of revenue is in
+exactly one of them", which is the claim it was not making: *exactly one* is
+the part that fails under a double count, and summing only two buckets cannot
+see it. The version that ships sums all three and names each one individually,
+so a failure says which bucket moved.
+
+That is the same shape as C-126's lesson one level down. There, a comment that
+anticipated its own expiry stopped anybody looking. Here, a test that asserted
+an invariant *adjacent to* the real one stopped anybody looking — and it is the
+more dangerous of the two, because a passing test is stronger evidence than a
+well-written comment and it was wrong in the same direction for the same
+reason.
+
+**One case moved that nobody decided about**, and it is stated rather than
+discovered: a refund exceeding its capture (a data error) used to read as the
+whole ticket owed, because the clamped `collectedCents` was the subtrahend; it
+now reads as the part of the ticket nothing was captured for. Neither answer is
+right — the data is wrong — and the new one is at least reached by the same
+arithmetic every other case gets.
+
+**Still open:** nothing can reverse a refund. A comp written on the wrong ticket
+is taken back by `adjustment_reversed`; a refund sent to the wrong customer has
+no contradicting row, and under C-127 it no longer even shows up as money to
+chase. That is the honest cost of the decision, and it is a smaller hole than
+the button was.
