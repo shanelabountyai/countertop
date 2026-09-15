@@ -2839,3 +2839,32 @@ three buckets — and the double count was exactly what made that sum come out
 right. A test that leaves a bucket out is not checking that nothing is lost; it
 is checking that whatever is missing has been hidden somewhere else. It now
 sums all three.
+
+## C-128 — The scoreboard that stopped counting
+
+**What changed.** The project's *By the Numbers* summary now reflects the
+project. It was written when the build was a few days old and never updated, so
+it had spent seventy-eight pieces of work claiming 45 requirements, 418 tests
+and a build that finished on 29 August. The real figures are 107 requirements,
+1,086 unit tests, 244 end-to-end tests, and a build still going on 15
+September.
+
+**Why it mattered more than it sounds.** Everything else missing from this
+project's documentation is *absent* — a feature not yet described, a decision
+not yet written down. This table was the only thing that was **wrong**. A
+reader who checks nothing else reads the summary, and the summary was the one
+place that could mislead them.
+
+**The part that keeps it from happening again.** The table now carries the date
+it was counted. That is a smaller promise than "always current", and it is the
+one that can actually be kept: a number with a date on it can be old, while a
+number without one is a claim about today. The note above the table says so, in
+those words, so whoever recounts next knows to re-date it.
+
+**Two numbers did not change**, and that turned out to be the more interesting
+result. The sample menu is still 25 items, and the practice rush is still 30
+orders with five deliberately ugly things happening in the middle of it. Both
+are numbers something in the project actively defends — the rush has twice had
+a new scenario added *inside* its thirty orders rather than alongside them,
+precisely so the figure stays comparable. The rows that drifted were the rows
+nothing was holding.

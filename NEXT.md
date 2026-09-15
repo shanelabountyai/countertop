@@ -1,25 +1,17 @@
 # Next
 
-**C-127 shipped this session** (`a1e1f74`): a refund is a closed fact, not a
-debt. `orderBalance.outstandingCents` subtracts `capturedCents` where it
-subtracted `collectedCents`, and the report's three buckets reconcile for the
-first time since C-071. Gate green, five legs, nothing outstanding.
+**C-128 shipped this session**: the recount. `docs/WRITEUP.md`'s *By the
+Numbers* had been a C-029 table wearing no date for seventy-eight items — 45
+requirements, 418 unit tests, 119 e2e specs, a build window ending 2026-08-29.
+It now reads 107 / 1,086 / 244 / through 2026-09-15 and **opens with the date
+it was counted**, which is the actual fix: a dated number can be old, an
+undated one is a claim. Gate green, five legs. No code, no migration.
 
 ## Pick this up first
 
-Nothing is blocking, and the shortlist is the same one C-126 left minus the
-refund item. In recommended order:
+Nothing is blocking. The shortlist is C-127's minus the numbers item:
 
-1. **`docs/WRITEUP.md`'s "By the Numbers" table is stale**, and it is the only
-   thing in the repo that is *wrong* rather than merely absent. It says 45
-   requirements, 418 unit tests, 119 e2e specs and a build window ending
-   2026-08-29. Current: **106 ticked backlog entries** (latest C-127), **1086
-   unit tests in 45 files**, **244 e2e specs in 25 files**, window through
-   2026-09-15. Its "30 orders / 5 ugly cases" row is still accurate. One pass
-   with the current numbers, or a decision to delete the table rather than keep
-   lying in it. Smallest item on the list and the one a portfolio reader hits.
-
-2. **`writePrice`'s staged branch surfaces a raw `P2002`.** The delete-then-
+1. **`writePrice`'s staged branch surfaces a raw `P2002`.** The delete-then-
    create is NOT unguarded — `StagedPrice` carries `@@unique([itemId,
    effectiveDay])` and `@@unique([optionId, effectiveDay])`, and the
    `staged_price_one_target` CHECK makes exactly one target column non-null per
@@ -27,87 +19,124 @@ refund item. In recommended order:
    missing is the other half of the discipline CLAUDE.md states for order
    numbers — *map the violation to a retry*: two managers re-staging the same
    row for the same day contend correctly and the loser gets an unmapped Prisma
-   error instead of "latest wins". Smaller than the backlog implied, and real.
+   error instead of "latest wins". Smallest real item on the list.
 
-3. **No `PhoneVerification` sweep** (C-115's `ponytail:`) — one row per
+2. **No `PhoneVerification` sweep** (C-115's `ponytail:`) — one row per
    verification request, forever, and C-120 made the rush issue two per run.
    The upgrade path is written on the model: a periodic delete past
    `expiresAt`, same shape as the retention sweep.
 
-## What C-127 built
+3. **`report.payment.refundedCents` still has no test over the rush** —
+   C-126's item, twice deferred now. The reconciliation is narrated by the demo
+   and asserted at the unit grain, not over the seeded service.
 
-- **One word in `orderBalance`** — `order.totalCents - capturedCents -
-  adjustedCents - authorizedCents`. `collectedCents` is *captured minus
-  refunded*, so reading it there meant a refund raised the debt by
-  construction.
-- **Both readers close from that one line.** The C-069 precedent applied a
-  second time: the hold was subtracted in `orderBalance` rather than checked on
-  three screens, precisely so `canCollectPayment` would go dark structurally.
-- **The report's conservation test now sums all three buckets.** C-064's
-  version summed `collected + outstanding` and passed for five items *because
-  of* the double count — a refunded ticket put 0 in `collected` and its whole
-  total in `outstanding`, so two buckets hit revenue exactly.
-- **Two seam tests in `payment.test.ts`** asserting `orderBalance` and
-  `canCollectPayment` together, plus a partial-refund report test beside an
-  unpaid pickup, so the fix cannot be read as "refunds forgive tickets".
-- **Comments updated in both engines** — `payment.ts` names the one-word
-  difference, `report.ts` records that its own three-bucket claim was false
-  between C-071 and C-127.
+## What C-128 built
 
-## What C-127 leaves behind
+- **The table, recounted from the repo**, every figure derived by a command
+  recorded in `docs/PROGRESS.md` so the next recount is a re-run: backlog ticks
+  by grep, lines by `git ls-files | xargs wc -l`, unit tests from `npm test`,
+  e2e from `playwright test --list`, constraints from `pg_constraint`.
+- **The stamp, which is the actual deliverable.** *Counted at C-128,
+  2026-09-15*, with one sentence on why the date is load-bearing. It converts
+  the failure mode from *wrong* to *old* — the same category as every other gap
+  in the document, and the one a reader can reason about.
+- **Two rows that did not drift, and why**, which turned out to be the
+  finding: the menu fixture and the rush's 30/20/5 are *specified* numbers that
+  something actively defends, so C-124 and C-126 each fitted a new scenario
+  *inside* the thirty. The rows that drifted were the rows nothing was holding.
+- **Two neighbouring paragraphs scoped to their moment rather than rewritten**
+  — "What the *first* twelve extra items were (written at C-029)", and "the
+  eleven defects recorded *at that point*". The prose was good; it needed a
+  date, the same fix as the table's.
+- **A defect narrative in `docs/WRITEUP.md`** — the only thing in the repo that
+  was wrong rather than absent.
 
-- **Nothing can reverse a refund.** A comp on the wrong ticket is taken back by
-  `adjustment_reversed`; a refund sent to the wrong customer has no
-  contradicting row, and under C-127 it no longer even surfaces as money to
-  chase. The honest cost of the decision, and a smaller hole than the Collect
-  button was.
-- **One case moved that nobody chose**, asserted with its reasoning rather than
-  left to be found: a refund exceeding its capture (a data error) used to read
-  as the whole ticket owed and now reads as the part nothing was captured for.
-- **`report.payment.refundedCents` still has no test over the rush** — C-126's
-  item, untouched. The reconciliation is narrated by the demo and asserted at
-  the unit grain, not over the seeded service.
+## What C-128 leaves behind
 
-## The gate at C-127
+- **Nothing recounts the table.** The stamp makes it honest, not current. A
+  `docs:numbers` script emitting the table body is the upgrade path and was
+  deliberately not built: a script that must itself be maintained, against a
+  table touched once every seventy-eight items, is the more expensive of the
+  two.
+- **`By the Numbers` sits at line ~2337 of a 3,547-line file**, with eleven
+  defect narratives appended *after* it. A summary table two-thirds of the way
+  through a document is a structural oddity a portfolio reader meets before the
+  material it summarises. Not moved — the ordering is the document's history.
+- **No gate leg reads any of these numbers**, so nothing fails when they drift
+  again. The honest reason the item existed at all.
+- **One claim was caught in its own diff**: the rewritten ratio sentence first
+  said the defect rate "has not moved much" across "eighty-nine items", from
+  the wrong subtraction and a trend nobody had checked. It went *up* — 11
+  defects across the first 29 items, 72 across 107, because the later items are
+  mostly the project auditing itself. Corrected before commit, and recorded.
 
-All five legs run, on the laptop.
+## The gate at C-128
 
-- **1086 unit** (+4 over C-126's 1082 — the two seam tests and two report
-  tests), 45 files.
-- **E2E 229 passed + 15 skipped = 244**, reconciling against `--list`'s total,
-  **zero failures**, 4.6m. Laptop rather than container, so the ten documented
-  container failures did not appear — a fourth independent confirmation that
-  those ten are environmental.
+All five legs, on the laptop, **on the second attempt** — see the incident
+below.
+
+- **1086 unit** in 45 files, unchanged (this item adds no code; running it
+  anyway is what makes the table's figures the gate's own output rather than a
+  previous session's log).
+- **E2E 229 passed + 15 skipped = 244**, reconciling against `--list`'s 244,
+  zero failures, 7.8m.
 - Lint, typecheck and the production build clean.
 - **No migration**, so no drift check and `ci:local` was not run.
-- **`npm run demo:rush` run full and `--until 12`.** The full run prints the
-  fix; the truncated one proves the two refund Sales lines stay silent before
-  minute 22.
+- `demo:rush` not run — nothing in this item can reach it.
 
-## One environment note this session added
+## The environment incident, and a hole it found in the pre-sweep recipe
 
-**`demo:rush` reads `.env.local`, and the local dev database drifts.** It failed
-with `P2022: the column kind does not exist` before it ran — C-121's
-`NotificationOutbox.kind` migration had never been applied to `countertop_dev`.
-`npm run db:migrate:dev` fixed it in one command. This is `db:status` doing the
-job it exists for, not a defect, and worth knowing because the demo is the only
-thing in the gate that touches that database: **run `npm run db:status` before
-`demo:rush` if the last session added a migration.**
+**Read this before the next sweep.** The first gate attempt failed in clusters
+across unrelated files — `retention` 6/17, `menu` 7/27, `remake` 15/15,
+`payment` 13/13, `authorization` 8/15 — at 53s, 89s, 123s, 85s and 102s, with
+the *same suite having passed 1086/1086 in 41s* twenty minutes earlier in the
+same session.
+
+- **Cause:** `kern.memorystatus_level` at **13%**, `swapcheck` refusing, three
+  `JetsamEvent` reports from the minutes of the run. Five Playwright
+  `test-server` processes were resident — one per live VS Code / Claude Code
+  session, and `swapcheck` listed **four sessions across four projects**.
+- **Not the pool:** `pg_stat_activity` showed 6 connections on
+  `countertop_test`. Checked before reading a stack trace, and it cleared that
+  hypothesis in one query.
+- **THE HOLE, and the reason this section exists:** CLAUDE.md's pre-sweep kill
+  is `pkill -9 -f "$PWD.*playwright"`, scoped to the project so two projects
+  obeying the rule cannot kill each other. **Vitest workers set their process
+  title to `node (vitest 8)` — no path at all** — so the `$PWD`-scoped pattern
+  misses every one of them. Five orphans survived holding 265/222/191/21/21 MB,
+  and memory only went 14% → 80% once they were reaped **by name**:
+
+  ```sh
+  pkill -9 -f 'node \(vitest'      # parens MUST be escaped
+  ```
+
+  The unescaped form fails with `Cannot compile regular expression …
+  (parentheses not balanced)`, exits non-zero, and reaps nothing. It was
+  written into PROGRESS unescaped first and corrected after being run.
+- **`Killed: 9` in the log was mine**, from the pkill, and so was the gate's
+  exit 137. The jetsam report timestamps settled it, not the message.
+
+**If four Claude Code sessions are alive, close the ones you have walked away
+from before starting a sweep.** That is the standing cause here, not anything
+in this repo.
 
 ## Read this before the next push
 
-- **`npm run gate` is a manual discipline** (C-125). Nothing runs it for you
-  locally. CI runs it on every push to `main` and to `claude/**`, and that is
-  the backstop — but a red CI after the fact is worse than a red gate before
-  it, so run it.
-- **`npm run ci:local` is still the only thing that applies the whole migration
-  history from nothing** with the drift check. Run it for any session that adds
-  a migration.
+- **`npm run gate` is a manual discipline** (C-125). CI runs it on every push
+  to `main` and to `claude/**` and that is the backstop, but a red CI after the
+  fact is worse than a red gate before it.
+- **`npm run ci:local`** is still the only thing that applies the whole
+  migration history from nothing with the drift check. Run it for any session
+  that adds a migration.
+- **`npm run db:status` before `demo:rush`** if the last session added a
+  migration — `demo:rush` reads `.env.local` and that database drifts (C-127
+  hit `P2022` on C-121's column).
 - **A brand-new branch's FIRST push can skip CI**, documented in `ci.yml`
   rather than fixed: GitHub evaluates `paths-ignore` against the head commit
-  alone on a new branch, and every backlog item's head commit is the docs-only
-  "record the SHA" one. If a new branch shows no run, dispatch it manually
-  rather than assuming the trigger is broken.
+  alone, and every item's head commit is the docs-only "record the SHA" one. If
+  a new branch shows no run, dispatch it manually.
+- **There is no pre-push hook** (C-125). Old clones: `git config --unset
+  core.hooksPath` once.
 
 ## Environment notes for whoever runs the gate next
 
@@ -115,7 +144,8 @@ thing in the gate that touches that database: **run `npm run db:status` before
 by run 116 on a clean `ubuntu-latest` runner. `contact`, `last-call` ×2,
 `menu-editing` ×2, `menu` ×3 and `refund` ×2 die with `Error: request for
 './menu/index' is from a module not been linked`, an ESM loader failure in the
-fixtures that use a late `await import('@countertop/db')`. Environmental.
+fixtures using a late `await import('@countertop/db')`. Environmental — this
+session's laptop run is a fifth independent confirmation.
 
 **Postgres in a fresh container** is installed but down, and the cluster has no
 `root` role:
@@ -127,58 +157,55 @@ psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE countertop_test OWNER root"
 npm run db:migrate:test
 ```
 
-`npm run ci:local` is different — it builds its own URL as
-`postgresql://$(whoami)@localhost/...` with no password, so it additionally
-needs `host … 127.0.0.1/32 trust` in `pg_hba.conf` and a reload.
+`npm run ci:local` builds its own URL as `postgresql://$(whoami)@localhost/…`
+with no password, so it additionally needs `host … 127.0.0.1/32 trust` in
+`pg_hba.conf` and a reload.
 
 **On the laptop**, `.env.test` points at `postgresql://shanelabounty@localhost`
 and the cluster is already up; `npm run db:migrate:test` is the only setup.
 **Run `npm run db:generate` if `typecheck` reports unknown Prisma columns.**
 
-**Note for anything run outside `npm test`:** vitest and `tsx` invoked directly
-get no `DATABASE_URL` and the local guard refuses with `points at
-"<unparseable>"`. Prefix with `npx dotenv -e .env.test -e .env.local --`.
+**Anything run outside `npm test`** gets no `DATABASE_URL` and the local guard
+refuses with `points at "<unparseable>"`. Prefix with `npx dotenv -e .env.test
+-e .env.local --`.
 
-**There is no pre-push hook** (C-125), and `postinstall` no longer sets
-`core.hooksPath`. If you have an old clone, `git config --unset
-core.hooksPath` once.
+## Still open from C-118 → C-127
 
-## Still open from C-118 → C-121
-
-- **`NotificationKind` has one value** (C-121). It exists because it is half
-  the unique index's grain, not because anything writes a second.
+- **`NotificationKind` has one value** (C-121) — it exists because it is half
+  the unique index's grain.
 - **Nothing reads `queueReadyNotification`'s return value** (C-121). "We told
-  them" and "we had already told them" are different facts; the boolean is
-  returned rather than discarded so the seam exists the day a caller wants it.
+  them" and "we had already told them" are different facts; the boolean exists
+  so the seam does.
 - **Still no append-only trigger on `NotificationOutbox`** (the model's own
-  `ponytail:`) — and C-121's migration dedupe is exactly the kind of `DELETE`
+  `ponytail:`), and C-121's migration dedupe is exactly the kind of `DELETE`
   such a trigger would block.
-- **Nothing in the rush redeems at the COUNTER.** Both its redemptions are
+- **Nothing in the rush redeems at the COUNTER.** Both redemptions are
   self-serve, so `redeemReward` and the staff receipt's reward button are
-  demonstrated only by the e2e suite.
+  demonstrated only by e2e.
 - **No member in the rush has a balance that expires.**
   `expireInactiveBalances` has unit tests and no demo.
 - **Five portfolio captures are content-stale and were deliberately not
-  regenerated** — `05-kitchen-queue`, `06-kitchen-card`,
-  `10-kitchen-viewport`, `07-report-midservice`, `11-report-after`.
-  Regenerating in a container re-renders every font, verifiably:
-  `12-staff-login.png`, a static page that cannot have changed, comes back
-  9007 → 7764 bytes. Run `SCREENSHOTS=1 PORT=3400 npm run test:e2e --
-  screenshots.spec.ts` on the machine that produced their siblings.
-  `15-loyalty.png` is committed and should be regenerated with the rest.
-- **A customer who abandons a checkout and comes back verifies again.**
+  regenerated** — `05-kitchen-queue`, `06-kitchen-card`, `10-kitchen-viewport`,
+  `07-report-midservice`, `11-report-after`. Regenerating in a container
+  re-renders every font, verifiably: `12-staff-login.png`, a static page that
+  cannot have changed, comes back 9007 → 7764 bytes. Run `SCREENSHOTS=1
+  PORT=3400 npm run test:e2e -- screenshots.spec.ts` on the machine that
+  produced their siblings. `15-loyalty.png` should be regenerated with them.
+- **A customer who abandons a checkout and comes back verifies again** —
   C-116's binding working as designed; also a second SMS per order on a real
   carrier.
 - **`Order.discountCents` has exactly one producer.** If a second appears,
   `settleRedemptionForOrder` assumes the discount and the `redeem` row are the
   same fact.
-- **No deadlock is constructible on the member lock — an argument, not a
-  test.**
+- **No deadlock is constructible on the member lock — an argument, not a test.**
 - **`reward_terms_changed` has no test.** Reaching it needs the reward's cash
   value edited mid-placement and C-106 ships no control for that value.
 - **Nothing bounds a staff `adjust` below zero.** Screen-level, pre-existing.
 - **The sleeps in the member-lock test are 250ms.** If it flakes, raise them;
   do not delete the test.
+- **A refund cannot be reversed at all** (C-127). A comp on the wrong ticket is
+  taken back by `adjustment_reversed`; a refund sent to the wrong customer has
+  no contradicting row and, since C-127, no longer surfaces as money to chase.
 
 ## Still open from earlier items
 
@@ -201,28 +228,20 @@ core.hooksPath` once.
   day** (C-079); it throws rather than clamping.
 - **Twenty-two of twenty-five items have no description** (C-080) — the
   mechanism ships, the copy is a restaurant's job.
-- **`e2e/refund.spec.ts:211`** ("a no-show is offered a refund rather than
-  given one") failed once at 8.0s in a C-108-era sweep and has passed in every
-  sweep since, including this one. A timeout, not an assertion.
-- **`e2e/cart.spec.ts:65`** ("the header cart count drops a line that gets
-  86'd out from under it") failed once at 6.6s mid-sweep during C-113's gate
-  run. Same shape; passed this sweep.
+- **`e2e/refund.spec.ts:211`** and **`e2e/cart.spec.ts:65`** each failed once
+  mid-sweep (8.0s and 6.6s, C-108 and C-113 era) and have passed every sweep
+  since, including this one. Timeouts, not assertions.
 - **Same-day only** for order-ahead (C-114) — multi-day is the master PRD's own
   catering/lead-time P2 item.
-- **A fully-booked day degrades silently to ASAP-only** (C-114) — no
-  "nothing left today" copy.
+- **A fully-booked day degrades silently to ASAP-only** (C-114) — no "nothing
+  left today" copy.
 - **No fixture pinned to an actual DST-transition date** (C-114) for
-  `zonedTimeToInstant` — a `ponytail:` comment on the function names the gap.
+  `zonedTimeToInstant` — a `ponytail:` on the function names the gap.
 - **Still no e2e drives a scheduled order PAST its slot** (C-123). The rush
-  does it at the database and report grain; Playwright does not, because
-  waiting out a real slot is not something it expresses cheaply.
-
-## Still open from C-069 / C-071, if you would rather clear debt
-
-- A void the provider refuses is chased by nothing (`ponytail:` in
+  does it at the database and report grain; Playwright does not.
+- **A void the provider refuses is chased by nothing** (`ponytail:` in
   `settleAuthorization`); a real processor expires holds on its own.
-- The staff receipt's payment line still reads "Pay at pickup" on a released
-  hold; only the customer's status page got the honest sentence.
-- A reversal cannot be pointed at a specific comp, and `refund_failed` rows
+- **The staff receipt's payment line still reads "Pay at pickup" on a released
+  hold**; only the customer's status page got the honest sentence.
+- **A reversal cannot be pointed at a specific comp**, and `refund_failed` rows
   accumulate uncapped on a stuck provider.
-- **A refund cannot be reversed at all** (C-127, new to this list).

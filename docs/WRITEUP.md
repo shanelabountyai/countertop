@@ -2336,25 +2336,31 @@ opinion early, while the diff that caused it is still one file.
 
 ## By the Numbers
 
+*Counted at **C-128**, 2026-09-15. The stamp is load-bearing: this table was
+written at C-029 and silently drifted for seventy-eight items before anyone
+recounted it, which made it the only thing in the repo that was **wrong**
+rather than merely absent. A dated number can be old; an undated one is a
+claim. Re-date it when you recount it.*
+
 | | |
 |---|---|
-| Requirements shipped | 45 — the PRD's 17 (C-001 → C-017), then 28 more worked off this document's own "left behind" lists |
-| Commits | 99 — mostly a work/SHA-record pair per item, plus the hotfixes and reverts the write-up itself accounts for |
-| TypeScript / TSX | 16,914 lines across 108 tracked files |
-| …of which tests | 6,980 lines — 41% of the codebase |
-| Domain engine (`packages/core`) | 5,713 lines, zero I/O, zero clock reads |
-| Database layer (`packages/db`) | 4,077 lines |
-| Web app (`apps/web`) | 7,106 lines |
-| Unit tests | 418, in 22 files, passing under `TZ=UTC` and `TZ=Pacific/Kiritimati` |
-| End-to-end specs | 119, in 14 files, against a production build, with axe on every screen |
-| Hand-written migrations | 7, carrying an append-only trigger and 25 CHECK constraints |
+| Requirements shipped | 107 — the PRD's 17 (C-001 → C-017), then 90 more worked off this document's own "left behind" lists |
+| Commits | 259 through C-127 — mostly a work/SHA-record pair per item, plus the hotfixes and reverts the write-up itself accounts for |
+| TypeScript / TSX | 46,347 lines across 183 tracked files |
+| …of which tests | 21,178 lines — 46% of the codebase |
+| Domain engine (`packages/core`) | 13,111 lines, zero I/O, zero clock reads |
+| Database layer (`packages/db`) | 16,169 lines |
+| Web app (`apps/web`) | 17,049 lines |
+| Unit tests | 1,086, in 45 files, passing under `TZ=UTC` and `TZ=Pacific/Kiritimati` |
+| End-to-end specs | 244, in 25 files, against a production build, with axe on every screen |
+| Hand-written migrations | 34, carrying 2 append-only triggers and 48 CHECK constraints across 19 tables |
 | Menu fixture | 25 items, 7 modifier groups, 5 categories |
 | The seeded rush | 30 orders / 20 simulated minutes / 5 ugly cases / 0 stuck, lost or duplicated — replayed in under a second |
-| Documentation | ~5,100 lines across the PRD, PROGRESS, RELEASE_NOTES, backlog and this file |
-| Defects recorded | 12, each with how it was found and what would catch it earlier |
-| Build window | 2026-08-25 into 2026-08-29 |
+| Documentation | ~15,800 lines across the PRD, PROGRESS, RELEASE_NOTES, backlog and this file |
+| Defects recorded | 72, each with how it was found and what would catch it earlier |
+| Build window | 2026-08-25 into 2026-09-15 |
 
-### What the twelve extra items were
+### What the first twelve extra items were (written at C-029)
 
 The backlog ended at C-017 and the project was complete against its PRD. The
 items after it came from one place: the **"Left behind"** section every
@@ -2370,8 +2376,14 @@ enforced, a gate step for the check that had escaped twice, shared fixtures for
 a defect class that had recurred four times, and a confirm step for the one
 consequential save that did not have one.
 
-Four of the eleven recorded defects were found in those twelve items, and three
-of the four were defects in code the earlier items had shipped green.
+Four of the eleven defects recorded *at that point* were found in those twelve
+items, and three of the four were defects in code the earlier items had shipped
+green. Seventy-eight items later the rate has gone *up*, not down — eleven
+recorded defects across the first twenty-nine items, seventy-two across a
+hundred and seven — and the sentence above is why: the later items are mostly
+the project auditing itself, and auditing shipped-green code is where the
+defects are. A project whose defect log thins out over time is either finished
+or has stopped looking.
 
 ### Carrying the number out, and where the subtraction happens (C-079)
 
@@ -3467,3 +3479,69 @@ is taken back by `adjustment_reversed`; a refund sent to the wrong customer has
 no contradicting row, and under C-127 it no longer even shows up as money to
 chase. That is the honest cost of the decision, and it is a smaller hole than
 the button was.
+
+### The only thing in the repo that was wrong rather than absent (C-128)
+
+Everything this project's documentation lacks, it lacks *openly*. A feature not
+yet described, a decision not yet written down, a `ponytail:` naming its own
+ceiling — every gap has a shape you can see. There was one exception, and it
+was the table two-thirds of the way up this file.
+
+**By the Numbers** was written at C-029, when the figures in it were true, and
+then never recounted. Seventy-eight items later it still said 45 requirements,
+99 commits, 418 unit tests in 22 files, 119 end-to-end specs in 14 files, 7
+migrations, 12 recorded defects, and a build window that closed on 29 August.
+The real figures were 107, 259, 1,086 in 45, 244 in 25, 34, 72, and a window
+still open on 15 September. Every row was a C-029 row wearing no date.
+
+The interesting thing is not that it drifted — a hand-maintained number will
+always drift. It is **which rows didn't.** The menu fixture is still 25 items,
+7 modifier groups, 5 categories. The seeded rush is still 30 orders in 20
+simulated minutes with 5 deliberately ugly cases. Those two rows sat correct
+through seventy-eight items of drift around them, and not by anyone's
+diligence: they are *specified* numbers. "30 orders in 20 minutes" is the
+master PRD's Success Metric and `rush.test.ts` asserts it, which is why C-124
+had to fit order-ahead into two **of** the thirty and C-126 had to fit a refund
+in the same way, rather than appending customers. `SAMPLE_MENU` is the fixture
+every hand-calculated price test is checked against, so changing it breaks
+arithmetic in another package.
+
+**The rows that drifted were the rows nothing was holding.** That is the
+general form, and it is the same lesson as C-125's — a gate that is routinely
+bypassed does not gate — arriving through documentation instead of process. A
+number in a table is load-bearing only if something reads it. Nothing reads any
+of these; no gate leg fails when they rot; and so they rotted, in the one
+document written for a reader who cannot check them.
+
+**The fix is not the recount.** A recount buys one session of accuracy and then
+starts drifting again, which is precisely the history being described. The
+table now opens with the date it was counted, and with a sentence saying why
+the date is the point: *a dated number can be old; an undated one is a claim.*
+That is a promise the project can actually keep, unlike "always current", and
+it converts the failure mode from *wrong* to *old* — which is the same category
+as every other gap in here, and the category a reader can reason about.
+
+Two paragraphs beside the table were frozen at C-029 as well, and were **scoped
+to their moment rather than rewritten.** "What the twelve extra items were" is
+a good account of the first twelve post-PRD items; it only read as stale
+because it sat beneath a table claiming 45, and then 106. It is now headed
+*What the first twelve extra items were (written at C-029)*, and its
+defect-ratio sentence says "the eleven defects recorded *at that point*". The
+prose did not need replacing. It needed a date, which is the same fix as the
+table's.
+
+*What I'd instrument next time:* a `docs:numbers` script emitting the table
+body, so the recount is a command rather than an afternoon — deliberately not
+built here, because a script that must itself be maintained against a table
+touched once every seventy-eight items is the more expensive of the two. The
+cheaper instrument is the one that shipped: make the staleness legible, so the
+document cannot lie even when it is out of date.
+
+*And one that nearly went in:* the rewritten ratio sentence first claimed the
+defect rate "has not moved much" across "eighty-nine items" — a number from the
+wrong subtraction attached to a trend nobody had checked. It moved: 11 defects
+across the first 29 items, 72 across 107. It went **up**, because the later
+items are mostly the project auditing itself. An item whose entire subject is
+unverified numbers sitting in a document is the last place an unverified number
+belongs, and the only reason it got caught is that the diff was read before the
+commit.

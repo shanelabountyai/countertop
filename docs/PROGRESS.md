@@ -8728,3 +8728,150 @@ that went back is not money the customer now owes.
 - **No migration.**
 
 C-127 committed and pushed at a1e1f74
+
+## C-128 — The table that was the only thing lying
+
+**What it built:** nothing. This item is a recount.
+
+`docs/WRITEUP.md`'s *By the Numbers* table was written at C-029 and never
+recounted. Every figure in it was a C-029 figure wearing no date, so by C-127
+it read: 45 requirements, 99 commits, 418 unit tests in 22 files, 119 e2e specs
+in 14 files, 7 migrations, 12 defects, and a build window ending 2026-08-29.
+
+**Actual, counted this session and now in the table:**
+
+| | was | is |
+|---|---|---|
+| Requirements shipped | 45 | **107** |
+| Commits | 99 | **259** (through C-127) |
+| TypeScript / TSX | 16,914 lines / 108 files | **46,347 / 183** |
+| …of which tests | 6,980 (41%) | **21,178 (46%)** |
+| `packages/core` | 5,713 | **13,111** |
+| `packages/db` | 4,077 | **16,169** |
+| `apps/web` | 7,106 | **17,049** |
+| Unit tests | 418 in 22 files | **1,086 in 45 files** |
+| E2E specs | 119 in 14 files | **244 in 25 files** |
+| Migrations | 7, one trigger, 25 CHECKs | **34, two triggers, 48 CHECKs, 19 tables** |
+| Documentation | ~5,100 lines | **~15,800** |
+| Defects recorded | 12 | **72** (this item's own narrative included) |
+| Build window | 08-25 → 08-29 | **08-25 → 09-15** |
+
+**Two rows did not move**, which is the interesting half: the menu fixture is
+still 25 items / 7 modifier groups / 5 categories, and the seeded rush is still
+30 orders / 20 simulated minutes / 5 ugly cases. Both are *specified* numbers —
+the master PRD's Success Metric and the fixture the price tests are
+hand-calculated against — and C-124 and C-126 each had to add a case to the
+rush *within* thirty rather than beside it. The table's stable rows are the
+rows something refuses to let drift.
+
+**How each number was got**, so the next recount is a re-run and not a
+re-derivation:
+
+- Requirements: `grep -cE "^- \[x\]" docs/backlog.md` (and `- \[ \]` is 0) — 107 with
+  this item ticked, 106 without.
+- Lines and files: `git ls-files '*.ts' '*.tsx' | xargs wc -l`, the same
+  filtered to `*.test.ts*`/`*.spec.ts*` for the test share.
+- Unit tests: `npm test` — 1086 passed in 45 files, 41s, zero failures.
+- E2E: `npx playwright test --list` **from `apps/web`** (from the repo root it
+  tries to collect the vitest files and reports `Total: 0 tests in 0 files`).
+- Constraints and triggers: queried from `countertop_test` rather than grepped
+  out of the migrations — `pg_constraint WHERE contype='c'` is 48 where a grep
+  for `CHECK (` says 51, because the migrations also drop and replace.
+- Defects: 12 bold `**C-0NN —**` leads plus 60 `### … (C-NNN)` narratives = 72
+  entries. One of the twelve (C-017) records finding *nothing*, deliberately.
+
+**The fix is the stamp, not the numbers.** The table now opens with *Counted at
+C-128, 2026-09-15*, and says why the date is load-bearing: a dated number can
+be old, an undated one is a claim. A recount without that line buys one
+session of accuracy and then starts drifting again — which is exactly what
+C-029's version did for seventy-eight items.
+
+**Two neighbouring pieces of prose were frozen at C-029 too**, and were scoped
+to their moment rather than rewritten:
+
+- `### What the twelve extra items were` → `### What the first twelve extra
+  items were (written at C-029)`. The section is a good account of the first
+  twelve post-PRD items; it only read as stale because it sat under a table
+  claiming 45 and then 106.
+- "Four of the eleven recorded defects were found in those twelve items" → "of
+  the eleven defects recorded *at that point*", with one sentence noting the
+  ratio has held across eighty-nine further items. That is the finding the
+  sentence was always making: auditing shipped-green code is where the defects
+  are.
+
+**Left behind:**
+
+- **Nothing recounts the table.** The stamp makes it honest, not current. A
+  `docs:numbers` script emitting the table body is the upgrade path, and was
+  not built — one script that must itself be maintained, against a table
+  touched once every seventy-eight items.
+- **`By the Numbers` sits at line ~2337 of a 3,547-line file**, with eleven
+  defect narratives appended *after* it (C-116 → C-127). A summary table
+  two-thirds of the way through a document is a structural oddity a portfolio
+  reader meets before the material it summarises. Not moved: the section
+  ordering is the document's own history and moving it rewrites every internal
+  reference.
+- **No gate leg reads any of these numbers**, so nothing fails when they drift.
+  That is the honest reason this item existed at all.
+
+**One claim this item nearly shipped, caught in its own diff.** The rewritten
+sentence under *What the first twelve extra items were* first read "eighty-nine
+items later the ratio has not moved much" — a number pulled from the wrong
+subtraction (107 − 17 rather than 107 − 29) attached to a trend nobody had
+checked. Checked: **11 recorded defects across the first 29 items, 71 across
+107** — the rate went *up*. It now says so, and says why (the later items are
+mostly the project auditing itself). An item whose whole purpose is that
+unverified numbers had been sitting in a document for seventy-eight items is
+the worst possible place to add one, which is the only reason it got looked at.
+
+**An environment incident during this item's gate run, and a hole it found in
+the pre-sweep recipe.** The unit leg started failing in clusters across
+unrelated files — `retention` 6/17, `menu` 7/27, `remake` 15/15, `payment`
+13/13, `authorization` 8/15 — with durations of 53s, 89s, 123s, 85s and 102s
+against the *same suite passing 1086/1086 in 41s* twenty minutes earlier in the
+same session. CLAUDE.md's signature exactly: a wall of failures across files
+with no shared code path, plus tests abnormally slow rather than
+abnormally wrong. A docs-only diff cannot fail `payment.test.ts`.
+
+- **Cause:** `kern.memorystatus_level` at **13%** (`swapcheck` refusing), with
+  three `JetsamEvent` reports on disk from the minutes of the run. Five
+  Playwright `test-server` processes were resident — one per live VS Code /
+  Claude Code session, and `swapcheck` listed four sessions across four
+  projects — on top of this run's own vitest pool.
+- **Not the connection pool.** `pg_stat_activity` showed 6 connections on
+  `countertop_test`, nowhere near the 30+ that names a pool problem. Checked
+  before reading a stack trace, per the rule, and it cleared that hypothesis in
+  one query.
+- **The hole:** CLAUDE.md's pre-sweep kill is `pkill -9 -f "$PWD.*playwright"`,
+  deliberately scoped to the project so two projects obeying the rule cannot
+  kill each other. **Vitest's workers set their process title to `node (vitest
+  8)` — no path at all** — so the `$PWD`-scoped pattern misses every one of
+  them. Five orphans survived the kill holding 265MB, 222MB, 191MB, 21MB and
+  21MB, and `kern.memorystatus_level` only went 14% → 80% once they were
+  reaped by name. A path-scoped pattern cannot see a process whose title
+  carries no path; vitest orphans need `pkill -9 -f 'node \(vitest'` as a
+  separate line, and that one is unavoidably machine-wide. **The parentheses
+  must be escaped** — the unescaped form was written into this entry first and
+  fails with `pkill: Cannot compile regular expression 'node (vitest'
+  (parentheses not balanced)`, which exits non-zero and reaps nothing. A kill
+  recipe that silently reaps nothing is worse than none, so it was run before
+  being believed, and the entry corrected.
+- **`Killed: 9` in the log was mine**, from the pkill, and the gate's exit 137
+  with it — the rule that `Killed: 9` names no culprit, in practice. What
+  settled it was the jetsam report timestamps, not the message.
+- Gate re-run from clean at 81% available, pressure 0.
+
+**The gate at C-128.** All five legs, on the laptop, second attempt after the
+memory incident above.
+
+- **1086 unit** in 45 files, unchanged — this item adds no code, and that is
+  the point of running it anyway: the numbers in the table are now the numbers
+  the gate just printed rather than numbers from a previous session's log.
+- **E2E 229 passed + 15 skipped = 244**, reconciling against `--list`'s 244,
+  zero failures, 7.8m.
+- Lint, typecheck and the production build clean.
+- **No migration**, so no drift check and `ci:local` was not run.
+- `demo:rush` not run — nothing in this item can change it, and `db:status`
+  was not consulted for the same reason.
+
+C-128 committed and pushed at (SHA recorded in the following commit)
