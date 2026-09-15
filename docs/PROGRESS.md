@@ -8653,3 +8653,5 @@ for at checkout and actually handed over. The rush had none.
 - **No refund in the e2e suite's rush spec.** The screens' refund flow is
   covered by `refund.spec.ts` against its own fixture, not by the mid-service
   capture.
+
+C-126 committed and pushed at 4329922

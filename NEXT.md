@@ -1,6 +1,6 @@
 # Next
 
-**C-126 shipped this session**: a refund, end to end, in the seeded rush — and
+**C-126 shipped this session** (`4329922`): a refund, end to end, in the seeded rush — and
 the run found a money defect on its first print. That defect is the next item.
 
 ## Pick this up first: the refund that reads as a debt
