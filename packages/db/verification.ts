@@ -8,6 +8,7 @@ import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import {
   canAttemptVerification,
   canUseVerifiedToken,
+  cutoffDaysBefore,
   instantMinutesAfter,
   loyaltyBalance,
   normalizePhone,
@@ -321,4 +322,25 @@ export async function confirmPhoneVerificationForCheckout(
   // value and would have refused `phone_not_enrollable` first if it failed to.
   const digest = phoneDigest(normalized!.digits);
   return { ok: true, token: issueVerifiedPhoneToken(digest, idempotencyKey, now) };
+}
+
+// --- The sweep (C-130, the schema's own `ponytail:`) ------------------------
+//
+// The upgrade path was written on the model at C-115: no sweep ever deleted an
+// old row, so this table grows by one per verification request forever. A row
+// is already dead the instant `expiresAt` passes — `canAttemptVerification`
+// refuses on the clock, never on whether the row still exists — so the margin
+// below buys nothing but a day of "what did this code actually say" if a
+// report comes in later. Reuses `cutoffDaysBefore`, the same subtraction
+// `retention.ts` already does for its two windows, rather than a second one.
+const VERIFICATION_SWEEP_MARGIN_DAYS = 1;
+
+/** Delete verification rows dead long enough that nothing can still need
+ *  them. Safe to run as often as the retention job runs — a second call the
+ *  same day just deletes nothing. */
+export async function sweepExpiredVerifications(now: Date): Promise<number> {
+  const { count } = await prisma.phoneVerification.deleteMany({
+    where: { expiresAt: { lt: cutoffDaysBefore(now, VERIFICATION_SWEEP_MARGIN_DAYS) } },
+  });
+  return count;
 }

@@ -1,9 +1,15 @@
-// The retention job, runnable (PRD 6 P0-4 and PRD 7 P0-5; C-091, C-105).
+// The retention job, runnable (PRD 6 P0-4 and PRD 7 P0-5; C-091, C-105, C-130).
 // `npm run db:retention`.
 //
-// Narrates and nothing else — the sweeps themselves are `retention.ts` and
-// `loyalty.ts` and are asserted by their own tests, so the job and the tests
-// can never be running different code. Same split as `rush-demo.ts`.
+// Narrates and nothing else — the sweeps themselves are `retention.ts`,
+// `loyalty.ts` and `verification.ts`, and are asserted by their own tests, so
+// the job and the tests can never be running different code. Same split as
+// `rush-demo.ts`.
+//
+// THE THIRD SWEEP BELOW HAS NO SETTING AND NO POLICY BEHIND IT (C-130) — a
+// `PhoneVerification` row is unconditionally dead once `expiresAt` passes, so
+// there is no window for a restaurant to configure, only a fixed margin for
+// debugging a report after the fact.
 //
 // TWO WINDOWS, ONE COMMAND. `retentionDays` bounds how long a customer's
 // identity is kept; `loyaltyExpiryDays` bounds how long an unused balance
@@ -24,6 +30,7 @@
 // than a line of config.
 import { expireInactiveBalances } from './loyalty';
 import { sweepRetention } from './retention';
+import { sweepExpiredVerifications } from './verification';
 import { prisma } from './index';
 
 const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
@@ -46,6 +53,13 @@ async function main(): Promise<void> {
     expiry.members === 0
       ? `Expiry window ${expiry.expiryDays} days. No balance to expire.`
       : `Expiry window ${expiry.expiryDays} days. Expired ${plural(expiry.points, 'point')} across ${plural(expiry.members, 'member')}.`,
+  );
+
+  const swept = await sweepExpiredVerifications(now);
+  console.log(
+    swept === 0
+      ? 'No expired verification codes to delete.'
+      : `Deleted ${plural(swept, 'expired verification code')}.`,
   );
 
   console.log('Order numbers, money, lines and events are untouched — no report moved.');

@@ -5,7 +5,12 @@
 // `canUseVerifiedToken`'s arithmetic; these prove the mechanisms built on top
 // of it — hashing, randomness, reading the newest row for a digest, and the
 // checkout bearer token's own signature.
-import { instantMinutesAfter, VERIFY_MAX_ATTEMPTS, VERIFY_TOKEN_TTL_MINUTES } from '@countertop/core';
+import {
+  instantMinutesAfter,
+  VERIFY_CODE_TTL_MINUTES,
+  VERIFY_MAX_ATTEMPTS,
+  VERIFY_TOKEN_TTL_MINUTES,
+} from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { enrolMember, phoneDigest } from './loyalty';
 import { prisma } from './index';
@@ -16,6 +21,7 @@ import {
   issueVerifiedPhoneToken,
   startPhoneVerification,
   stubSmsVerifyProvider,
+  sweepExpiredVerifications,
   verifiedPhoneFromToken,
   type SmsVerifyProvider,
 } from './verification';
@@ -297,5 +303,45 @@ describe('confirming for checkout (C-116)', () => {
     await startPhoneVerification(PHONE, NOW);
     const result = await confirmPhoneVerificationForCheckout(PHONE, '000000', 'attempt-1', NOW);
     expect(result).toMatchObject({ ok: false, reason: 'code_mismatch' });
+  });
+});
+
+// C-130 — the schema's own `ponytail:`. No `startPhoneVerification` needed to
+// build a row for this: the sweep does not care what the code was or who it
+// was for, only `expiresAt`.
+describe('sweeping expired codes (C-130)', () => {
+  const insertExpiring = (expiresAt: Date) =>
+    prisma.phoneVerification.create({
+      // `createdAt` before `expiresAt` — the CHECK the model's own comment
+      // names — so this has to move with `expiresAt`, not stay pinned to NOW.
+      data: {
+        phoneDigest: phoneDigest(PHONE),
+        codeHash: 'unused',
+        expiresAt,
+        createdAt: instantMinutesAfter(expiresAt, -VERIFY_CODE_TTL_MINUTES),
+      },
+    });
+
+  it('deletes a row expired past the one-day margin', async () => {
+    await insertExpiring(instantMinutesAfter(NOW, -60 * 25)); // 25h ago
+    expect(await sweepExpiredVerifications(NOW)).toBe(1);
+    expect(await prisma.phoneVerification.count()).toBe(0);
+  });
+
+  it('leaves a row that expired inside the margin alone', async () => {
+    await insertExpiring(instantMinutesAfter(NOW, -30)); // expired 30 min ago
+    expect(await sweepExpiredVerifications(NOW)).toBe(0);
+    expect(await prisma.phoneVerification.count()).toBe(1);
+  });
+
+  it('leaves an unexpired row alone, no matter how old the request', async () => {
+    await insertExpiring(instantMinutesAfter(NOW, 5));
+    expect(await sweepExpiredVerifications(NOW)).toBe(0);
+  });
+
+  it('reports zero rather than re-counting on a second run', async () => {
+    await insertExpiring(instantMinutesAfter(NOW, -60 * 25));
+    expect(await sweepExpiredVerifications(NOW)).toBe(1);
+    expect(await sweepExpiredVerifications(NOW)).toBe(0);
   });
 });

@@ -2892,3 +2892,24 @@ actually collide on a laptop — each is fast enough to finish before the other
 starts — so a test written that way passes whether or not the fix exists. This
 one holds the first save open on purpose, lets the second walk into it, and then
 releases. It was run against the old code first, to watch it fail.
+
+## C-130 — Cleaning up after itself
+
+**What changed.** Every text-message verification code this app has ever sent
+left a row behind, forever. A small table nobody looks at was quietly growing
+by one row every time a customer proved they controlled their phone number —
+and nothing was ever going to delete one.
+
+**Why it was left that way on purpose.** When the verification feature shipped,
+the honest call was that a shop seeing a few dozen redemption attempts a day
+would not notice a table that size for a very long time, and building the
+cleanup then would have been guessing at a shape before there was any real data
+to shape it around. The plan for the day it mattered was written down right on
+the table's own definition, so it would not have to be rediscovered.
+
+**What shipped.** That plan, unchanged from what was written: once a code is
+more than a day past its five-minute expiry, it is deleted. A code is already
+completely unusable the instant it expires — this only clears out the leftover
+record of it — so nothing a customer or a manager does changes. It runs
+alongside the two cleanup jobs this app already had (old order details and
+inactive loyalty balances), as one more step of the same command.

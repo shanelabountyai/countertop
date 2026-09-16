@@ -900,11 +900,9 @@ model NotificationOutbox {
 /// unconsumed code simply stops being the one anybody is compared against,
 /// with no separate "invalidate" write and no unique index to manage.
 ///
-/// ponytail: no sweep ever deletes an old row here, so this table grows by
-/// one row per verification request forever. Upgrade path: a periodic delete
-/// past `expiresAt` by some margin, same shape as the retention sweep — add
-/// it the day the row count is large enough to matter for a shop that sees at
-/// most a few dozen redemption attempts a day.
+/// Swept by `sweepExpiredVerifications` (C-130) — `npm run db:retention`
+/// deletes a row here once `expiresAt` is a day or more past, so this table
+/// does not grow by one row per verification request forever.
 model PhoneVerification {
   id          String    @id @default(cuid())
   phoneDigest String

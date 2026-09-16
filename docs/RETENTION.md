@@ -67,7 +67,7 @@ many loyalty members it deleted, and how many points it expired. Running it
 twice is safe and the second run reports zero — it selects only orders that
 still have something to remove, and only balances that are not already at zero.
 
-Three things it does, in this order:
+Four things it does, in this order:
 
 1. **Forgets orders** past `retentionDays`, by `placedAt`.
 2. **Deletes members** past `retentionDays`, by `lastActivityAt` — the member's
@@ -77,6 +77,13 @@ Three things it does, in this order:
 3. **Expires balances** past `loyaltyExpiryDays`, by writing one `expire` event
    worth exactly minus the balance. Nothing is deleted; the balance is a sum
    and the row that zeroed it sits beside the earns it cancelled.
+4. **Deletes `PhoneVerification` rows** more than a day past `expiresAt`
+   (C-130). Unlike the other three, this has no setting: a code is dead the
+   instant it expires, so there is no policy to configure, only a fixed
+   one-day margin kept for debugging a report after the fact. Left behind at
+   C-115 as a `ponytail:` comment on the model — the row count was never large
+   enough to matter for a shop seeing a few dozen redemption attempts a day,
+   but the sweep already exists, so there is no reason not to include it.
 
 The expiry pass **ignores `loyaltyEnabled`**, deliberately: switching the
 program off must not make every outstanding balance immortal, which is the

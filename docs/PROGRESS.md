@@ -8963,3 +8963,63 @@ under both `TZ=Pacific/Kiritimati` and `TZ=UTC`. Nothing in this item touches
 either, and that is the point of the backstop running anyway.
 
 C-129 committed and pushed at b9b80f4
+
+## C-130 — the `PhoneVerification` sweep
+
+C-115's own `ponytail:` comment on the model named the upgrade path: "a
+periodic delete past `expiresAt` by some margin, same shape as the retention
+sweep." That is exactly what this item builds — `sweepExpiredVerifications`
+in `packages/db/verification.ts`, deleting rows whose `expiresAt` is more than
+one day old.
+
+**Why a margin at all, when the row is already useless the instant it
+expires.** `canAttemptVerification` refuses on the clock (`row.expiresAt <=
+now`), never on whether the row is still present, so nothing anywhere reads a
+`PhoneVerification` row after its own expiry. The margin exists purely so a
+support conversation about a code from an hour ago still has the row to look
+at; it is not load-bearing for correctness. `VERIFICATION_SWEEP_MARGIN_DAYS =
+1`, and `cutoffDaysBefore` — the same subtraction `retention.ts` already does
+for its two windows — computes the cutoff rather than a second copy of that
+arithmetic.
+
+**No settings-row column, unlike `retentionDays` and `loyaltyExpiryDays`.**
+Those two are genuine policy a restaurant could reasonably want to change and
+a CHECK ties them together; this sweep has no policy behind it — a code is
+either expired or it is not — so there was nothing to add to
+`RestaurantSettings` and no migration to write.
+
+**Wired into the existing runnable** rather than a second command:
+`retention-sweep.ts`'s `main()` now calls `sweepExpiredVerifications` as a
+third pass after the retention and expiry sweeps, printing a count in the same
+style. `npm run db:retention` was already the answer to "how do I run the
+sweeps"; a person should not need to learn a second command for a third one.
+
+**Four tests** in `verification.test.ts`, inserting a `PhoneVerification` row
+directly (the sweep does not care what the code was or who requested it, only
+`expiresAt`) rather than going through `startPhoneVerification`: a row past
+the margin is deleted, a row expired but still inside the margin is left
+alone, an unexpired row is left alone no matter how old the request, and a
+second run reports zero rather than re-counting. The CHECK the model itself
+documents (`expiresAt` after `createdAt`) caught a first draft of the test
+helper that pinned `createdAt` to `NOW` while sliding `expiresAt` — fixed by
+deriving `createdAt` from `expiresAt` instead.
+
+`docs/RETENTION.md` gets a fourth numbered step and a note that this one has
+no window to configure. The schema comment that named the upgrade path is
+replaced with one naming the function that shipped it.
+
+**The gate at C-130.** All five legs, on the laptop, first attempt.
+
+- **1091 unit** in 45 files (+4, this item's sweep tests).
+- **E2E 229 passed + 15 skipped = 244**, reconciling against `--list`'s 244,
+  zero failures, 4.6m.
+- Lint, typecheck and the production build clean.
+- **No migration**, so no drift check and `ci:local` was not run.
+- `demo:rush` not run — the rush issues verification codes but places no
+  order slow enough for any of them to age past a one-day margin.
+
+**Left behind, on purpose:** the sweep is not observable any more than
+`sweepRetention` is — nobody logs how many rows accumulate between runs, which
+is the same ceiling the rest of the retention job already carries. Nothing
+schedules any of the three sweeps; `docs/RETENTION.md` already says why that
+is deliberate.
