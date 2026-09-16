@@ -12,12 +12,9 @@ run 35118720388 on `cd194d5`: green.
 
 ## Pick this up first
 
-1. **Five portfolio captures are content-stale** (see the standing list
-   below). Needs the machine that produced their siblings, not a container.
-
-2. **Nothing recounts `docs/WRITEUP.md`'s By the Numbers table** (C-128). The
-   stamp makes it honest, not current — this session's item pushed the unit
-   count from 1091 to 1092 and nothing in the gate flags the table as stale.
+1. **Nothing recounts `docs/WRITEUP.md`'s By the Numbers table** (C-128). The
+   stamp makes it honest, not current — C-131 pushed the unit count from 1091
+   to 1092 and nothing in the gate flags the table as stale.
 
 ## What C-131 built
 
@@ -123,13 +120,10 @@ and the cluster is already up; `npm run db:migrate:test` is the only setup.
   demonstrated only by e2e.
 - **No member in the rush has a balance that expires.**
   `expireInactiveBalances` has unit tests and no demo.
-- **Five portfolio captures are content-stale and were deliberately not
-  regenerated** — `05-kitchen-queue`, `06-kitchen-card`, `10-kitchen-viewport`,
-  `07-report-midservice`, `11-report-after`. Regenerating in a container
-  re-renders every font, verifiably: `12-staff-login.png`, a static page that
-  cannot have changed, comes back 9007 → 7764 bytes. Run `SCREENSHOTS=1
-  PORT=3400 npm run test:e2e -- screenshots.spec.ts` on the machine that
-  produced their siblings. `15-loyalty.png` should be regenerated with them.
+- ~~Five portfolio captures were content-stale~~ — regenerated on the laptop
+  (all 15 `screenshots.spec.ts` tests, `ed4b2d9`). `12-staff-login.png`
+  stayed at 9007 bytes, confirming the right machine (a container re-renders
+  every font; that file comes back 7764 bytes there).
 - **A customer who abandons a checkout and comes back verifies again** —
   C-116's binding working as designed; also a second SMS per order on a real
   carrier.
