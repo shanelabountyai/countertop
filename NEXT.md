@@ -1,78 +1,83 @@
 # Next
 
-**C-129 shipped this session** (`b9b80f4`): `writePrice`'s staged branch had
-half of CLAUDE.md's database rule — it contends on the unique constraint and
-then handed the loser a raw `P2002`. Now a bounded retry (3 attempts), so two
-managers re-staging the same row for the same day both get "latest wins", which
-is what the action already told them happened. One test, driven rather than
-hoped for. No migration. Gate green on the first attempt, five legs, 1087 unit
-/ 244 e2e.
+**C-130 shipped this session** (`5708aa2`): `PhoneVerification`'s own
+`ponytail:` comment — no sweep ever deleted an old row, so the table grew by
+one per verification request forever. `sweepExpiredVerifications` deletes rows
+more than a day past `expiresAt` (a code is already dead the instant it
+expires; the margin is only for debugging a report after the fact), wired into
+`npm run db:retention` as a third pass. No policy, no settings column, no
+migration. Four tests. Gate green on the first attempt, five legs, 1091 unit /
+244 e2e. CI run 35113435850 on `8e26131`: green.
 
 ## Pick this up first
 
-Nothing is blocking. The shortlist, minus the item C-129 took:
+Nothing is blocking. The shortlist, minus the item C-130 took:
 
-1. **No `PhoneVerification` sweep** (C-115's `ponytail:`) — one row per
-   verification request, forever, and C-120 made the rush issue two per run.
-   The upgrade path is written on the model: a periodic delete past
-   `expiresAt`, same shape as the retention sweep. Now the smallest real item
-   on the list.
-
-2. **`report.payment.refundedCents` still has no test over the rush** —
+1. **`report.payment.refundedCents` still has no test over the rush** —
    C-126's item, three times deferred now. The reconciliation is narrated by
    the demo and asserted at the unit grain, not over the seeded service.
 
-3. **Five portfolio captures are content-stale** (see the standing list below).
+2. **Five portfolio captures are content-stale** (see the standing list below).
    Needs the machine that produced their siblings, not a container.
 
-## What C-129 built
+3. **Nothing recounts `docs/WRITEUP.md`'s By the Numbers table** (C-128). The
+   stamp makes it honest, not current — this session's item pushed the unit
+   count from 1087 to 1091 and nothing in the gate flags the table as stale.
 
-- **A bounded retry around the staged transaction** in `packages/db/menu.ts`.
-  The loser's `deleteMany` runs before the winner commits, so it sees nothing
-  to delete and its `create` lands on the index; the retry's delete *does* see
-  the committed row.
-- **`MAX_STAGE_ATTEMPTS = 3`, not the order number's 25**, with the reason on
-  the constant: `takingNextOrderNumber` re-reads a maximum somebody else may
-  take again and expects to go round; this loop deletes the row it collided
-  with.
-- **The inline `P2002` check** that `refund.ts`, `authorization.ts` and
-  `loyalty.ts` already use — not a second copy of `placement.ts`'s private
-  `uniqueViolationTarget`, because this branch does not care which constraint.
-- **One test, C-119's shape for C-119's reason.** Two `writePrice` calls under
-  `Promise.all` each commit before the other opens, so the retry never runs and
-  a green test proves nothing. The test holds a transaction open, walks the
-  losing path into it, and releases. **Run against the unfixed code first** —
-  `Unique constraint failed on the fields: (itemId, effectiveDay)`.
+## What C-130 built
 
-## What C-129 leaves behind
+- **`sweepExpiredVerifications(now)`** in `packages/db/verification.ts` —
+  `phoneVerification.deleteMany` where `expiresAt` is more than
+  `VERIFICATION_SWEEP_MARGIN_DAYS` (1) days old, using `cutoffDaysBefore` (the
+  same subtraction `retention.ts` already does for its two windows) rather
+  than a second copy of that arithmetic.
+- **No settings-row column.** `retentionDays` and `loyaltyExpiryDays` are both
+  real policy a restaurant could want to change, tied together by a CHECK.
+  This sweep has no policy behind it — a code is either expired or it is
+  not — so there was nothing to add to `RestaurantSettings` and no migration.
+- **Wired into the existing runnable**, not a new command:
+  `retention-sweep.ts`'s `main()` now prints a third count after the retention
+  and expiry passes.
+- **Four tests** in `verification.test.ts`, inserting `PhoneVerification` rows
+  directly rather than through `startPhoneVerification` — the sweep only
+  cares about `expiresAt`. The model's own `expiresAt` > `createdAt` CHECK
+  caught a first draft that pinned `createdAt` to a fixed `NOW` while sliding
+  `expiresAt` around it; fixed by deriving `createdAt` from `expiresAt`.
+- **The schema comment updated**, not deleted: it named the upgrade path at
+  C-115 and now names the function that shipped it instead.
+- **`docs/RETENTION.md`** gets a fourth numbered step, explicit that this one
+  has no window to configure.
 
-- **The live branch has no retry and needs none** — `update` + `deleteMany`,
-  no insert, no unique violation to map. If a future edit adds an insert there,
-  this reasoning stops holding.
-- **Nothing tests the option grain of the race.** The retry is grain-agnostic
-  (one code path, `{...target}`), so the item test covers the branch; a second
-  test would cover the spread operator.
-- **The retry is not observable.** Nothing logs that a stage collided, so the
-  frequency of two managers racing is unknowable in production. A counter or a
-  log line is the upgrade path if it ever matters.
-- **`MAX_STAGE_ATTEMPTS` exhausted still throws a raw `P2002`** to the server
-  action, which is deliberate — three collisions is a different bug — but the
-  manager's screen would show the same unhandled error the item just removed.
+## What C-130 leaves behind
 
-## The gate at C-129
+- **The sweep is not observable**, same ceiling `sweepRetention` already
+  carries — nobody logs how many rows accumulate between runs.
+- **Still not scheduled**, same as its two siblings — `docs/RETENTION.md`
+  already says why that is deliberate for now.
+- **The one-day margin is a constant, not a setting** — deliberate, since
+  there is no policy behind it, but if a future support workflow ever wants a
+  longer look-back window this is the first place that assumption would need
+  to move.
+
+## The gate at C-130
 
 All five legs, on the laptop, **first attempt**.
 
-- **1087 unit** in 45 files (+1, this item's race test).
+- **1091 unit** in 45 files (+4, this item's sweep tests).
 - **E2E 229 passed + 15 skipped = 244**, reconciling against `--list`'s 244,
-  zero failures, 8.5m.
+  zero failures, 4.6m.
 - Lint, typecheck and the production build clean.
 - **No migration**, so no drift check and `ci:local` was not run.
-- `demo:rush` not run — the rush places orders, it does not stage prices.
-- **CI run 35013197524 on `82c5e57`: green**, the `gate` job succeeding — the
-  full sweep on a clean runner, including the migration history applied from
-  nothing with the drift check and both hostile timezones. This item changes
-  `.ts`, so `paths-ignore` did not skip it.
+- `demo:rush` not run — the rush issues verification codes but places no order
+  slow enough for one to age a day past its own five-minute expiry.
+- **CI run 35113435850 on `8e26131`: green** — the full `gate` job on a clean
+  runner, including the migration history applied from nothing with the drift
+  check and both hostile timezones. Pushed as two commits (work +
+  record-the-SHA) in one `git push`, so the head commit GitHub evaluated
+  `paths-ignore` against was the docs-only one — but `main` already existed,
+  so GitHub evaluated the whole `before..after` range rather than the head
+  commit alone (that caveat only bites a *brand-new* branch's first push), and
+  the `.ts` changes triggered the run normally.
 
 ## Before the next sweep
 
@@ -85,8 +90,7 @@ pkill -9 -f 'node \(vitest'      # parens MUST be escaped; vitest titles carry n
 lsof -ti :3400 | xargs -r kill -9
 ```
 
-Two vitest workers were resident from this session's own file-scoped run and
-were reaped by name before the sweep. Memory held at 74% available, pressure 0.
+Memory held at 46% available, pressure 0, this session.
 
 **If four Claude Code sessions are alive, close the ones you have walked away
 from before starting a sweep.**
@@ -104,7 +108,9 @@ from before starting a sweep.**
 - **A brand-new branch's FIRST push can skip CI**, documented in `ci.yml`
   rather than fixed: GitHub evaluates `paths-ignore` against the head commit
   alone, and every item's head commit is the docs-only "record the SHA" one. If
-  a new branch shows no run, dispatch it manually.
+  a new branch shows no run, dispatch it manually. (Pushing directly to
+  `main`, as this session did, does not hit this — `main` already has history,
+  so GitHub diffs the whole push range.)
 - **There is no pre-push hook** (C-125). Old clones: `git config --unset
   core.hooksPath` once.
 - **Anything run outside `npm test`** gets no `DATABASE_URL` and the local
@@ -137,10 +143,8 @@ with no password, so it additionally needs `host … 127.0.0.1/32 trust` in
 **On the laptop**, `.env.test` points at `postgresql://shanelabounty@localhost`
 and the cluster is already up; `npm run db:migrate:test` is the only setup.
 
-## Still open from C-118 → C-128
+## Still open from C-118 → C-129
 
-- **Nothing recounts `docs/WRITEUP.md`'s By the Numbers table** (C-128). The
-  stamp makes it honest, not current; no gate leg reads any of those figures.
 - **`NotificationKind` has one value** (C-121) — it exists because it is half
   the unique index's grain.
 - **Nothing reads `queueReadyNotification`'s return value** (C-121). "We told
@@ -171,11 +175,16 @@ and the cluster is already up; `npm run db:migrate:test` is the only setup.
 - **`reward_terms_changed` has no test.** Reaching it needs the reward's cash
   value edited mid-placement and C-106 ships no control for that value.
 - **Nothing bounds a staff `adjust` below zero.** Screen-level, pre-existing.
-- **The sleeps in the member-lock test are 250ms**, and now so are C-129's. If
+- **The sleeps in the member-lock test are 250ms**, and so are C-129's. If
   either flakes, raise them; do not delete the test.
 - **A refund cannot be reversed at all** (C-127). A comp on the wrong ticket is
   taken back by `adjustment_reversed`; a refund sent to the wrong customer has
   no contradicting row and, since C-127, no longer surfaces as money to chase.
+- **`MAX_STAGE_ATTEMPTS` exhausted still throws a raw `P2002`** to the server
+  action (C-129, deliberate — three collisions is a different bug) — the
+  manager's screen would show the same unhandled error the item just removed.
+- **The staged-price retry is not observable** (C-129) — nothing logs a
+  collision, so its frequency in production is unknowable.
 
 ## Still open from earlier items
 
