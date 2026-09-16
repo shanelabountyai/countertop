@@ -9,7 +9,15 @@ node_modules/
 test-results/
 playwright-report/
 .vercel/
-.claude/
+# Local session state. Note `.claude/*` and not `.claude/` — git will not
+# re-include anything inside an excluded *directory*, so excluding the entries
+# is what lets the two negations below take effect.
+.claude/*
+# Repo content rather than per-machine state: the shared skills and the project
+# permission allowlist. A skill that is not committed does not exist in a remote
+# session's fresh clone. settings.local.json stays ignored.
+!.claude/skills/
+!.claude/settings.json
 
 # Built portfolio page: 1.1MB of inlined screenshots, rebuilt by docs/portfolio/build.mjs
 docs/portfolio/countertop.html

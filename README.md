@@ -70,3 +70,4 @@ dev server for stack traces when debugging a single spec.
 | `packages/core` | The domain engine: pure functions, no database, no clock |
 | `packages/db` | Prisma schema and hand-written migrations |
 | `docs/` | `backlog.md`, `PROGRESS.md`, `RELEASE_NOTES.md`, `WRITEUP.md` |
+| `.claude/skills/` | Optional tooling Claude Code picks up — `codex`, a read-only second reader ([docs/CODEX.md](docs/CODEX.md)) |
