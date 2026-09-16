@@ -9023,3 +9023,5 @@ replaced with one naming the function that shipped it.
 is the same ceiling the rest of the retention job already carries. Nothing
 schedules any of the three sweeps; `docs/RETENTION.md` already says why that
 is deliberate.
+
+C-130 committed at 5708aa2
