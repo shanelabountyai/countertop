@@ -8567,3 +8567,97 @@ it trains the bypass.
   push lands; the discipline is still a human one.
 
 C-125 committed and pushed at f2b79d5
+
+---
+
+## C-126 — A refund in the rush, and what it turned up
+
+The last rush-script gap. C-069 made both of the rush's prepaid exits VOIDS —
+correctly, since money that never left the card needs no refund — which left
+`requestRefund`, `settleRefund`, `refund_failed` and the exceptions list
+demonstrated by unit tests and nothing else.
+
+**Built:** Kira Lindqvist (#14) is prepaid and collected at minute 21. At
+minute 24 a manager sends $4.25 back for a cold tamale — one line, not the
+ticket — and **the processor declines**. The ask survives as its own row, the
+failure lands on the exceptions list, and at minute 28 the *other* cook retries
+it off that list and it goes. Three assertions in `rush.test.ts`, and the demo
+narrates it in "the ugly cases" with an honest in-between state.
+
+**TWO DEFECTS FOUND, one in the product's model and one in my own first
+implementation. The second is the more useful story.**
+
+### The one I introduced, and how it was caught
+
+The first version made the retry part of the refund step — request, then settle
+a few minutes later, in one call. Forty-four green tests. The demo found it in
+one run:
+
+```
+--until 26
+  refund   … refused by the processor at 24 — on the exceptions list, not yet sent
+  $4.25 refunded to customers        ← at minute 26. It had not happened yet.
+```
+
+The two sections of the same summary contradicted each other. Bundling meant
+the settle executed with a minute-28 timestamp even when the clock stopped at
+26 — **stopping is a truncation, not a variant (C-124), and I had made it a
+variant.** Fixed by making `refund_retry` its own scheduled step, so the
+minute loop can simply decline to reach it. The proof is arithmetic: `--until
+26` now reports $176.52 collected instead of $172.27, exactly the $4.25 that
+was being refunded ahead of its own clock.
+
+**C-124's entry said "run the demo before calling a rush-touching item done."
+It caught a real defect in the very next rush-touching item.** No test would
+have: every test pins `RUSH_END_MINUTE`, and the bug only exists between the
+ask and the retry.
+
+### The one in the model — and a correction I got wrong twice
+
+Refunding $4.25 to a customer who has the food puts her on the report's chase
+list owing $4.25, with a live Collect control beside her name. The same money
+handed over as a COMP leaves her owing nothing.
+
+**This is intended, and it was specified in advance.** `report.test.ts`'s
+"keeps a refund in its own bucket, and shows the money as owed" asserts exactly
+this for a picked-up order, with a comment stating it was unreachable at the
+time and recorded *"because the day C-067 lets a picked-up order be refunded,
+this is what the report says."* C-126 is that day. `orderBalance` models a
+refund as **the payment coming back** — customer has the food, shop holds
+nothing, money is owed again.
+
+I called this a defect, then called it an expired premise like C-122's and
+C-125's, and both were wrong; the third reading, from the tests, is the right
+one. Recorded because the reasoning is the deliverable here, not just the code.
+
+**What is genuinely open** is narrower and realer: the model was written for a
+refund that REVERSES a payment, and Kira's is a goodwill refund. The shop does
+not want that $4.25 back. One mechanism, two business meanings, and
+`AdjustmentReason` already carries enough to tell them apart without being
+consulted. Which meaning wins is a product decision.
+
+**Decided:** assert it, don't change it. Changing it is a product call that
+would overturn a specified answer across four readers. Leaving it unasserted
+would make a surprising number indistinguishable from an unnoticed one. The
+test `puts a refunded customer back on the chase list, as specified` pins it
+and carries the contrast — comp vs refund on identical money — in the same
+test, because that contrast is the whole argument.
+
+**Verified the pin discriminates:** applying the candidate change
+(`collectedCents` → `capturedCents` in the owed term) makes it fail with
+`expected undefined to be defined`, and breaks **8 tests across 4 files** —
+which is the blast radius, measured rather than guessed.
+
+**Left behind:**
+- **The rush has one refund and it is partial.** A full refund on a picked-up
+  order — where the model says the customer owes the entire ticket again — is
+  still demonstrated nowhere.
+- **Nothing in the rush leaves a refund UNRESOLVED.** The exceptions list is
+  shown filling and emptying; a service that ends with money still stuck on it
+  is the operationally interesting case and is not scripted.
+- **`refund_failed` rows still accumulate uncapped** on a stuck provider
+  (C-069/C-071 debt, unchanged).
+
+**Gate:** lint / typecheck / 1082 unit (+2 over C-125's 1080) / build clean.
+E2E 219 passed + 15 skipped + the documented ten container failures = 244 on
+`--list`. `npm run demo:rush` run full, `--until 12` and `--until 26`.

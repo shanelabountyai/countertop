@@ -3316,3 +3316,105 @@ a comment and names `workflow_dispatch` as the answer. Fixing it properly would
 mean dropping `paths-ignore`, which would run the full twelve-minute gate on
 every typo fix in a markdown file — a worse trade for a case that announces
 itself.
+
+### Reading the same code three ways (C-126)
+
+The rush now issues a refund, and the report puts the refunded customer on the
+chase list for the money she was given back — with a live Collect button. The
+same money handed over as a comp leaves her owing nothing.
+
+I reached three different conclusions about that in one session, and the
+sequence is worth more than the answer.
+
+**First reading: a documented decision.** `orderBalance` carries a long comment
+about which term each thing is subtracted from, so I assumed the refund
+behaviour was among the things it decided.
+
+**Second reading: an expired premise.** Then I actually read the comment's last
+clause — *"a refund the product cannot yet issue is C-067's problem"* — and saw
+that it was written when refunds did not exist. That looked exactly like
+C-122's mis-describing `ponytail:` and C-125's hook header: prose written under
+a premise that later expired, left standing. Two instances that session had
+already made the pattern salient, and I fitted the third to it and said so.
+
+**Third reading, from the tests, and the correct one.** `report.test.ts`:
+
+```
+// Unreachable today (a refund only accompanies a cancel, and a cancelled
+// order is not a sale), and written down because the day C-067 lets a
+// picked-up order be refunded, this is what the report says.
+```
+
+Not an oversight, not an expired premise: an answer **specified in advance for
+exactly this case**, by people who knew it was unreachable and wrote the test
+anyway. C-126 is the day it became reachable, and the specification was waiting.
+
+**The failure mode in my own reasoning is the interesting part.** Having just
+found two instances of "a comment whose premise expired", I had a pattern
+loaded, and the third case was close enough in shape to match it. The comment
+in `payment.ts` genuinely does defer to C-067, so the second reading was not
+careless — it was a correct observation about the wrong artifact. The
+specification did not live in the file I was editing; it lived in a test in a
+different package, written for a case that could not yet happen.
+
+That is a specific and repeatable trap: **a recently-found pattern makes the
+next ambiguous case look like another instance of it.** The defence is dull and
+worked — I went looking for what else asserted this behaviour before writing
+the conclusion up, and the tests contradicted me. The cost of being wrong here
+would have been a `KNOWN DEFECT` line printed in the capstone demo about
+behaviour that was specified on purpose. Which would have been, precisely, a
+comment confidently mis-describing the code — the very failure the pattern I
+was over-applying is about.
+
+**What is actually open, stated narrowly.** `orderBalance` models a refund as
+*the payment coming back*: the customer has the food, the shop holds nothing,
+so the money is owed again. That is right for a reversal. Kira's refund is
+goodwill for a cold tamale and the shop does not want the $4.25 back. One
+mechanism, two business meanings, and `AdjustmentReason` already carries enough
+to tell them apart without being consulted. Which meaning wins is a product
+decision, not an arithmetic fix — so the test pins the current answer and
+carries the comp-versus-refund contrast inside it, because that contrast is the
+whole argument.
+
+I also measured what changing it would cost rather than guessing: swapping
+`collectedCents` for `capturedCents` in the owed term breaks **8 tests across 4
+files**, several of which assert the current meaning deliberately. That is a
+product decision with a blast radius, which is exactly what it should look
+like.
+
+### The demo caught what forty-four tests did not (C-126)
+
+C-124's entry ends: *"Run the demo before calling a rush-touching item done."*
+It earned that line in the very next rush-touching item.
+
+The first implementation made the retry part of the refund step — ask, then
+settle four minutes later, in one call. Every test passed. Then:
+
+```
+$ npm run demo:rush -- --until 26
+  refund   … refused by the processor at 24 — on the exceptions list, not yet sent
+  $4.25 refunded to customers
+```
+
+One summary, two contradictory sentences. Bundling meant the settle ran with a
+minute-28 timestamp even when the clock stopped at 26. **Stopping the rush is
+supposed to be a truncation, not a variant** — the orders that had not arrived
+simply have not arrived — and I had made it a variant: a stop at 26 produced a
+world where a refund both had and had not been sent.
+
+No test could have caught it, and that is the structural point rather than an
+excuse. Every test pins `RUSH_END_MINUTE` and runs to the end, where the bundle
+and the timeline agree exactly. The defect lives only in the two-minute window
+between the ask and the retry, and the only artifact that ever looks into that
+window is the demo with `--until`.
+
+The fix is the shape the rest of the script already had: `refund_retry` is its
+own scheduled step, and the minute loop declines to reach it. The confirmation
+is arithmetic rather than eyeballing — `--until 26` now reports $176.52
+collected rather than $172.27, and the difference is exactly the $4.25 that had
+been travelling back in time.
+
+The general form, and it is not really about demos: **a test suite that only
+ever evaluates the end state cannot see an ordering bug in the middle.** The
+rush has an `--until` precisely because the interesting states are transient,
+and the transient states are where bundling errors live.

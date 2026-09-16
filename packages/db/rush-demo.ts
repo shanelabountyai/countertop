@@ -103,6 +103,17 @@ async function main(): Promise<void> {
   if (until >= 14) {
     console.log('  double submit   Theo Marsh submitted twice; one order, same answer both times');
   }
+  // The refund (C-126), staged like the others: the ask at 24, the retry at
+  // 28, and the honest in-between state if the clock stops there. The
+  // in-between IS the case — a refund that failed and is sitting on somebody's
+  // list is the thing this line exists to show.
+  if (until >= 24) {
+    console.log(
+      until >= 28
+        ? '  refund          Kira Lindqvist $4.25 back at 24 — declined by the processor, retried off the exceptions list at 28'
+        : '  refund          Kira Lindqvist $4.25 refused by the processor at 24 — on the exceptions list, not yet sent',
+    );
+  }
   if (until >= PAUSE_MINUTE) {
     console.log(
       `  paused          ${bounced} arrivals bounced` +
@@ -171,6 +182,33 @@ async function main(): Promise<void> {
       `  ${money(report.payment.collectedCents)} collected, ` +
         `${money(report.payment.outstandingCents)} still owed on ` +
         `${plural(report.payment.outstanding.length, 'order')}`,
+    );
+  }
+  // Money sent back on purpose (C-126). Printed whenever there is any, like
+  // the rewards line below — a shop that refunded nothing should read the
+  // summary it read before.
+  if (report.payment.refundedCents > 0) {
+    console.log(`  ${money(report.payment.refundedCents)} refunded to customers`);
+    // AND SAY WHERE THAT MONEY WENT, because the "still owed" line above now
+    // contains it and a reader would otherwise have to work that out (C-126).
+    //
+    // This is INTENDED, and pre-specified: `orderBalance` models a refund as
+    // the payment coming back, so a customer who has the food and whose money
+    // has been returned owes it again. `report.test.ts`'s "keeps a refund in
+    // its own bucket" case wrote this answer down before any refund could
+    // reach a picked-up order, precisely for the day one could — which is
+    // today, because of this rush.
+    //
+    // It is still worth printing, because the case it was written for was a
+    // refund that REVERSES a payment, and Kira's is a goodwill refund for a
+    // cold tamale. The shop does not want that $4.25 back. Same mechanism, two
+    // business meanings, and the report can only tell one of them. That is a
+    // product decision rather than an arithmetic error, so the demo states it
+    // and NEXT.md carries it.
+    console.log(
+      '    ↳ and counted in "still owed" above — a refund is modelled as the payment ' +
+        'coming back, so she owes it again. Intended; arguably wrong for a goodwill ' +
+        'refund. See NEXT.md.',
     );
   }
   // Counted, never booked. A midday report that did not say this would look

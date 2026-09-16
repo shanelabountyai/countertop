@@ -2754,3 +2754,51 @@ was a code comment that described a bug wrongly and so stopped anyone looking
 at it. Here it was a safeguard whose stated reason for existing had expired.
 Both read as evidence the question was already handled. **Neither was checked
 until someone ran it.**
+
+## C-126 — Money going back, and not on the first try
+
+The demo restaurant now refunds somebody. It is the last thing the seeded rush
+did not do.
+
+It could not, for a good reason: an earlier item worked out that the two orders
+in the rush which were paid for and never collected should have their card
+holds *released* rather than charged and refunded. That was right — money that
+never leaves the card needs nothing sent back — and it quietly meant the whole
+refund apparatus appeared in no demonstration at all.
+
+So one customer now calls after picking up: one of her three items was cold.
+A manager sends $4.25 back, for that line rather than the ticket, and **the
+processor declines it.** The request survives as its own record, the failure
+lands on an exceptions list where somebody has to look at it, and four minutes
+later a second member of staff retries it and it goes through. Each of those is
+a separate named person on a separate record, which is the point — a refund is
+the one money operation you cannot undo by not doing it.
+
+**Running the demo found a bug in the demo.** The first version bundled the
+retry into the refund, and at first glance that worked — forty-four tests
+green. Then the summary was printed with the clock stopped at minute 26,
+between the failed attempt and the retry, and it said two contradictory things:
+the refund was "on the exceptions list, not yet sent", and $4.25 had been
+refunded. Stopping the clock early is supposed to be a truncation — the things
+that had not happened yet simply have not happened — and bundling had turned it
+into a different story. No test could have caught it; they all run to the end.
+Splitting the retry onto the timeline fixed it, and the numbers now agree at
+both stopping points.
+
+**And it surfaced a real question about the product.** Sending that $4.25 back
+puts the customer on the report's list of people who owe money, for $4.25, with
+a button offering to collect it. Handing her the identical $4.25 as a
+comp instead leaves her owing nothing.
+
+That is deliberate. The system treats a refund as the payment coming back: she
+has the food, the restaurant holds nothing, so the money is owed again — and a
+test written months ago says so in as many words, noting it was unreachable
+then and recording the answer for the day it became reachable. This is that
+day.
+
+But the case that answer was written for is a refund that reverses a payment,
+and this is a goodwill refund for a cold tamale. The restaurant does not want
+the money back. One mechanism, two meanings, and only one of them fits. That is
+a decision for whoever runs the restaurant rather than a bug to quietly fix, so
+the demo now says it out loud, and a test pins the current answer so nobody
+changes it by accident.

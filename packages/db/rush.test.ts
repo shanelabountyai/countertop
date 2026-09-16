@@ -1,11 +1,14 @@
 import {
   derivePaymentState,
   paymentTotals,
+  canCollectPayment,
+  orderBalance,
   elapsedMinutes,
   estimateAccuracy,
   instantMinutesAfter,
   isOpen,
   queueAging,
+  salesReport,
   serviceTimes,
   timeInState,
   timeInStateReport,
@@ -15,7 +18,9 @@ import {
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { ORDER_RECEIPT } from './placement';
-import { loadQuoteSamples, loadStatusTimelines } from './report';
+import { loadSettings } from './menu';
+import { loadRefundExceptions } from './refund';
+import { loadQuoteSamples, loadStatusTimelines, loadReportOrders } from './report';
 import {
   runRush,
   RUSH_ANCHOR,
@@ -694,11 +699,134 @@ describe('a card held at checkout, taken or let go', () => {
       expect(order.paymentState).toBe('unpaid');
     }
 
-    // And no refund anywhere in the service. The rush's only prepaid exits are
-    // these two, so the refund machinery has nothing to do — which is exactly
-    // what P1-1 asked for. A deliberate refund is proved in refund.test.ts and
-    // through the screens in the e2e suite.
-    expect(await prisma.orderEvent.count({ where: { kind: 'refund' } })).toBe(0);
+    // NEITHER OF THESE TWO refunds anything, which is still the point of this
+    // test: a void is not a refund, and C-069's whole argument is that money
+    // which never left the card needs no provider call to bring it back.
+    //
+    // The rush DOES contain exactly one refund now (C-126) — Kira's, a
+    // deliberate one on a ticket that was collected — and it is asserted
+    // below rather than here, because it is the opposite case.
+    expect(
+      await prisma.orderEvent.count({
+        where: { kind: 'refund', order: { events: { some: { kind: 'authorization_voided' } } } },
+      }),
+    ).toBe(0);
+  });
+
+  // C-126. The rush's only DELIBERATE refund: money that was genuinely taken
+  // and genuinely sent back, refused once by the processor on the way.
+  //
+  // It exists because C-069 turned both of the rush's other prepaid exits into
+  // voids — correctly — and left `requestRefund`, `settleRefund`,
+  // `refund_failed` and the exceptions list demonstrated by unit tests alone.
+  it('sends money back on purpose, and survives the processor refusing once', async () => {
+    const kira = await prisma.order.findFirstOrThrow({
+      where: { customerName: 'Kira Lindqvist' },
+      select: {
+        status: true,
+        totalCents: true,
+        paymentState: true,
+        events: {
+          select: { kind: true, amountCents: true, staffId: true },
+          orderBy: { at: 'asc' },
+        },
+      },
+    });
+
+    // She took the food. This is not a cancellation path.
+    expect(kira.status).toBe('picked_up');
+
+    const money = kira.events.filter((event) => event.amountCents !== null);
+    expect(money.map((event) => event.kind)).toEqual([
+      'authorization',
+      'capture',
+      'refund_requested',
+      'refund',
+    ]);
+
+    // THE ASK AND THE SEND CARRY DIFFERENT NAMES, which is the reason
+    // `settleRefund` takes a staff id of its own rather than reusing the
+    // requester's: a retry is somebody's tap, not a replay of the first
+    // person's decision.
+    const asked = money.find((event) => event.kind === 'refund_requested')!;
+    const sent = money.find((event) => event.kind === 'refund')!;
+    expect(asked.staffId).not.toBe(sent.staffId);
+    expect(asked.amountCents).toBe(425);
+    expect(sent.amountCents).toBe(425);
+
+    // The first attempt failed, and the failure is a ROW — that is what the
+    // exceptions list reads, and it is why a declined refund cannot be lost by
+    // the person who tried it closing the tab.
+    expect(await prisma.orderEvent.count({ where: { kind: 'refund_failed' } })).toBe(1);
+
+    // PARTIAL: she paid for three items and got one back, so the order is
+    // still `paid` rather than `refunded`.
+    const totals = paymentTotals(kira.events);
+    expect(totals.capturedCents).toBe(kira.totalCents);
+    expect(totals.refundedCents).toBe(425);
+    expect(kira.paymentState).toBe('paid');
+
+    // And by the end of the service the list is EMPTY — the retry cleared it.
+    // A demo that left a failed refund sitting there would be showing the
+    // exceptions list working and the retry not.
+    expect(await loadRefundExceptions()).toHaveLength(0);
+  });
+
+  // C-126 — the collision this rush is the first thing to make reachable.
+  //
+  // `orderBalance` models a refund as THE PAYMENT COMING BACK: the customer
+  // has the food, the shop holds nothing, so the money is owed again and the
+  // order belongs on the chase list. That is deliberate and it was written
+  // down in advance — `report.test.ts`'s "keeps a refund in its own bucket"
+  // asserts exactly this for a picked-up order, with a comment saying it was
+  // unreachable then and recorded "because the day C-067 lets a picked-up
+  // order be refunded, this is what the report says". This is that day.
+  //
+  // SO WHY FLAG IT. The case that model was written for is a refund that
+  // reverses a payment. Kira's is a goodwill refund for a cold tamale — the
+  // shop gave $4.25 back and does not want it returned. The same money given
+  // as a COMP produces outstanding $0.00 and no Collect control; given as a
+  // refund it produces $4.25 owed and a live Collect button. One mechanism,
+  // two business meanings, and `AdjustmentReason` already carries enough to
+  // tell them apart without being consulted here.
+  //
+  // Asserted rather than changed: which meaning wins is a product decision,
+  // not an arithmetic fix, and it would overturn a specified answer in four
+  // readers. Asserted rather than left alone because an unasserted surprising
+  // number is indistinguishable from an unnoticed one.
+  //
+  // IF THE MEANING IS EVER CHANGED: Kira drops out of `outstanding`, the count
+  // goes 9 → 8, and this test fails with "expected undefined to be defined" —
+  // verified by applying that change. Rewrite it then; do not delete it.
+  it('puts a refunded customer back on the chase list, as specified', async () => {
+    const { timezone } = await loadSettings();
+    const report = salesReport(await loadReportOrders(RUSH_ANCHOR), timezone);
+
+    const kira = report.payment.outstanding.find(
+      (order) => order.customerName === 'Kira Lindqvist',
+    );
+
+    // She is on the chase list for exactly the money that was sent back to her.
+    expect(kira).toBeDefined();
+    expect(kira!.owedCents).toBe(425);
+
+    // And the control the staff receipt gates on agrees, which is the half
+    // that reaches a person: somebody can be asked to pay a goodwill refund
+    // back at the counter.
+    expect(canCollectPayment('picked_up', kira!.owedCents)).toBe(true);
+
+    // THE CONTRAST, in the same test, because it is the whole argument: the
+    // identical $4.25 handed over as a comp leaves her owing nothing.
+    expect(
+      orderBalance({
+        totalCents: 2268,
+        events: [
+          { kind: 'authorization', amountCents: 2268 },
+          { kind: 'capture', amountCents: 2268 },
+          { kind: 'adjustment', amountCents: 425 },
+        ] as never,
+      }).outstandingCents,
+    ).toBe(0);
   });
 
   it('captures at the counter, once, for exactly what was held', async () => {

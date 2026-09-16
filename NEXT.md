@@ -1,107 +1,97 @@
 # Next
 
-**C-125 shipped this session** (`f2b79d5`): the gate moved into CI, and the hole the
-pre-push hook was badly filling is closed.
+**C-126 shipped this session**: a refund in the seeded rush, end to end — and
+two defects, one of them mine.
 
-**The finding, and it is a process defect rather than a code one.** C-118
-through C-124 all shipped on unmerged `claude/…` branches. `main` sat at
-`f239791` (C-117). `ci.yml` triggered only on `push: branches: [main]` and on
-`pull_request`, and no PR has ever existed in this repo. So for SEVEN
-CONSECUTIVE ITEMS, CLAUDE.md's "watch CI green before saying done" had nothing
-to watch — every one of them was verified by a hand-run in a container and
-nothing else.
+Kira Lindqvist (#14) is prepaid and collected at minute 21. At 24 a manager
+sends $4.25 back for a cold tamale and **the processor declines**; the ask
+survives as its own row, the failure lands on the exceptions list, and the
+*other* cook retries it off that list at 28. This closes the last rush-script
+gap: C-069 made both other prepaid exits voids, correctly, which had left
+`requestRefund`, `settleRefund`, `refund_failed` and the exceptions list
+demonstrated by unit tests alone.
 
-**The pre-push hook was the only gate, and it was the wrong one.** Its header
-read "CI is blocked on GitHub Actions billing (every run since C-029 dies in
-~3s)" — false since the repo went public on 2026-08-31, and its own closing
-line said "Delete this hook once CI actually runs". It ran `ci:local` plus the
-whole gate, took ~12 minutes, and CANNOT PASS IN A CONTAINER, so C-123 and
-C-124 were both pushed with `--no-verify`. A gate that is routinely bypassed
-does not gate; it trains the bypass. **Same lesson as C-122's misleading
-`ponytail:`, one layer up: a safeguard whose stated premise is false is worse
-than no safeguard, because it reads as a reason not to look.**
+**The demo caught a bug forty-four tests did not, exactly as C-124 said it
+would.** My first version bundled the retry into the refund step. Green
+everywhere. Then `--until 26`, between the ask and the retry:
 
-**What was done, in this order, so there was never a window with no gate:**
+```
+  refund   … refused by the processor at 24 — on the exceptions list, not yet sent
+  $4.25 refunded to customers        ← it had not happened yet
+```
 
-1. **Ran `ci.yml` on the branch via `workflow_dispatch` first** — run 116 on
-   `8ca3447`, green across all 18 steps. That was the first independent
-   verification of anything since C-117.
-2. **Added `claude/**` to `ci.yml`'s push triggers**, so branch work is gated
-   while it is still branch work. Runs are free on a public repo, and
-   `concurrency` is keyed on `github.ref`, so a branch run never delays
-   `main`'s.
-3. **Fast-forwarded `main`** from `f239791` to the CI-verified SHA — clean,
-   16 commits, zero divergence, no merge commit.
-4. **Deleted `.githooks/pre-push`** per its own instruction, and removed the
-   `git config core.hooksPath .githooks` from `package.json`'s `postinstall`
-   that wired it. Leaving that line would have pointed git at a hooks
-   directory with nothing in it.
+One summary, two contradictory sentences: the settle ran with a minute-28
+timestamp even when the clock stopped at 26. **Stopping is a truncation, not a
+variant** — I had made it a variant. `refund_retry` is now its own scheduled
+step, and `--until 26` reports $176.52 collected rather than $172.27, which is
+exactly the $4.25 that had been travelling back in time. No test could have
+caught this: they all pin `RUSH_END_MINUTE` and run to the end, where the two
+shapes agree. **A suite that only evaluates the end state cannot see an
+ordering bug in the middle.**
 
-**What run 116 settled, all of it previously asserted rather than checked:**
+**The second finding is a product question, and I got it wrong twice before
+getting it right.** A refunded customer lands on the report's chase list owing
+the refund, with a live Collect control; the same money as a COMP leaves her
+owing nothing. I called it a defect, then called it an expired premise like
+C-122's and C-125's — and both were wrong. `report.test.ts` asserts this exact
+case for a picked-up order and says it was written *"because the day C-067 lets
+a picked-up order be refunded, this is what the report says."* **C-126 is that
+day; the specification was waiting.** `docs/WRITEUP.md` has why the middle
+reading was a recently-found pattern being over-applied to the next ambiguous
+case — worth reading before the next `ponytail:` gets called stale.
 
-- **The ten "pre-existing container" e2e failures are genuinely
-  environmental.** Playwright exited 0 on a clean runner, so `contact`,
-  `last-call` ×2, `menu-editing` ×2, `menu` ×3 and `refund` ×2 all pass. The
-  note carried from C-118 to C-124 was correct — and is now verified rather
-  than inherited.
-- **C-121's migration applies from nothing**, all six hand-written invariants
-  exist, and there is **no schema drift** — so declaring
-  `@@unique([orderId, kind], map:)` in `schema.prisma` rather than in the
-  migration alone was right.
-- **Both hostile timezones agree**, ~50s each.
-- The `Order_businessDay_seq_key` duplicate-key ERRORs in the teardown log are
-  **not failures** — that is the seeded rush contending on the constraint
-  exactly as CLAUDE.md specifies, with the violation mapped to a retry.
+**What is genuinely open, narrowly stated:** `orderBalance` models a refund as
+*the payment coming back*, which fits a reversal and does not fit goodwill. The
+shop does not want Kira's $4.25 back. One mechanism, two business meanings, and
+`AdjustmentReason` already carries enough to tell them apart without being
+consulted. **This is a product decision, and it is yours** — the candidate
+change (`collectedCents` → `capturedCents` in the owed term) breaks **8 tests
+across 4 files**, measured, several asserting the current meaning on purpose.
+Pinned meanwhile by `puts a refunded customer back on the chase list, as
+specified`, which carries the comp-vs-refund contrast inside it.
 
-## Read this before the next push
+## What C-126 leaves behind
 
-- **`npm run gate` is now a manual discipline.** Nothing runs it for you
-  locally any more. CI runs it on every push to `main` and to `claude/**`, and
-  that is the backstop — but a red CI after the fact is worse than a red gate
-  before it, so run it.
-- **`npm run ci:local` is still the only thing that applies the whole
-  migration history from nothing** with the drift check. Run it for any
-  session that adds a migration. `ci.yml` does the same work, after the push.
-- **A brand-new branch's FIRST push can skip CI**, and this is documented in
-  `ci.yml` rather than fixed: GitHub evaluates `paths-ignore` against the head
-  commit alone on a new branch, and every backlog item's head commit is the
-  docs-only "record the SHA" one. Later pushes evaluate the whole range and
-  trigger normally. If a new branch shows no run, that is this — dispatch it
-  manually rather than assuming the trigger is broken.
+- **The rush's one refund is PARTIAL.** A full refund on a picked-up order —
+  where the model says the customer owes the entire ticket again, the starkest
+  form of the question above — is demonstrated nowhere.
+- **Nothing leaves a refund UNRESOLVED.** The exceptions list is shown filling
+  and emptying; a service that ENDS with money stuck on it is the
+  operationally interesting case and is not scripted.
+- **`refund_failed` rows still accumulate uncapped** on a stuck provider
+  (C-069/C-071 debt, unchanged).
 
 ## Next unblocked item: pick one — nothing is blocking
 
-Same menu as last session, minus the one just taken.
+The rush-script items are done. What is left:
 
-1. **The rush no longer exercises a refund end to end.** Both its prepaid exits
-   are voids, which is C-069 working correctly — but it means the refund
-   machinery, `refund_failed`, and the exceptions list appear in no demo at
-   all. ~six lines of rush script plus assertions. **Still the cheapest real
-   gap, and now the only rush-script item left.**
+1. **Decide what a goodwill refund means** (C-126, above). The only item on
+   this list that is a product call rather than a code one, and the demo now
+   prints the question every run.
 2. **No `PhoneVerification` sweep** (C-115's `ponytail:`) — one row per
    verification request, forever, and C-120 made the rush issue two per run.
    The upgrade path is written on the model: a periodic delete past
    `expiresAt`, same shape as the retention sweep.
-3. **`writePrice`'s staged branch surfaces a raw `P2002`.** This was on last
-   session's list as "`stagePrice` is the other read-modify-write in
-   `menu.ts`" and **that framing was wrong** — probed this session before the
-   item was chosen. The function is `writePrice`, and its delete-then-create is
-   NOT unguarded: `StagedPrice` carries `@@unique([itemId, effectiveDay])` and
-   `@@unique([optionId, effectiveDay])`, and since exactly one target column is
-   non-null per row (the `staged_price_one_target` CHECK), each grain really is
-   covered. **No duplicate row is constructible.** What IS missing is the other
-   half of the discipline CLAUDE.md states for order numbers — "map the
-   violation to a retry": two managers re-staging the same row for the same day
-   contend on the constraint correctly and the loser gets an unmapped Prisma
-   error instead of "latest wins". Smaller than the backlog implied, and real.
-4. **`docs/WRITEUP.md`'s "By the Numbers" table is stale and nobody has been
-   maintaining it.** It says 45 requirements, 418 unit tests, 119 e2e specs and
-   a build window ending 2026-08-29. The current figures: 103 ticked backlog
-   entries (latest numbered C-124), 1080 unit tests in 45 files, 244 e2e specs
-   in 25 files. Not wrong per-item — simply never updated since roughly
-   C-045. Its "30 orders / 5 ugly cases" row is still accurate after
-   C-124. A single pass with the current numbers, or a decision to delete the
-   table rather than keep lying in it.
+3. **`writePrice`'s staged branch surfaces a raw `P2002`.** Probed at C-124
+   before the item was chosen, and the backlog's old framing ("`stagePrice` is
+   a read-modify-write") **was wrong**: `StagedPrice` carries
+   `@@unique([itemId, effectiveDay])` and `@@unique([optionId, effectiveDay])`
+   and the `staged_price_one_target` CHECK keeps exactly one target column
+   non-null, so no duplicate row is constructible. What IS missing is the
+   other half of CLAUDE.md's order-number discipline — "map the violation to a
+   retry": two managers re-staging the same row for the same day contend
+   correctly and the loser gets an unmapped Prisma error instead of "latest
+   wins". Smaller than the backlog implied, and real.
+4. **`docs/WRITEUP.md`'s "By the Numbers" table is stale.** It claims 45
+   requirements, 418 unit tests, 119 e2e specs and a window ending 2026-08-29.
+   Current: 105 ticked backlog entries (latest C-126), **1082 unit tests** in
+   45 files, **244 e2e specs** in 25 files. Never updated since roughly C-045.
+   One pass with real numbers, or delete the table rather than keep lying in
+   it.
+5. **`ci-self-hosted.yml` now overlaps `ci.yml` almost entirely** (C-125's
+   note). It exists because of C-036, whose premise was the billing block
+   C-125 deleted from the pre-push hook — the same dead premise, still
+   standing. Worth the same audit.
 
 **If you would rather clear the older debt**, the C-069/C-071 list at the
 bottom of this file is still accurate.
@@ -124,18 +114,21 @@ bottom of this file is still accurate.
   true). The rush now does it at the database and report grain; Playwright does
   not, because waiting out a real slot is not something it expresses cheaply.
 
-## The gate at C-124
+## The gate at C-126
 
-`lint` / `typecheck` / `test` / `build:test` / `test:e2e`, all five run.
+All five legs run. **1082 unit** (+2 over C-125's 1080 — exactly the tests
+added), 45 files, identical under `TZ=UTC` and `TZ=Pacific/Kiritimati`.
+Lint, typecheck and the production build clean. **E2E 219 passed + 15 skipped
++ 10 failed**, reconciling to `--list`'s 244; the ten are the documented
+container set, and CI runs them clean.
 
-- **1080 unit** (+8 over C-123's 1072 — exactly the tests added), 45 files, and
-  identical under `TZ=UTC` and `TZ=Pacific/Kiritimati`.
-- **E2E 219 passed + 15 skipped + 10 failed**, reconciling to `--list`'s 244;
-  the ten are the documented pre-existing set, unchanged.
-- Lint, typecheck and the production build clean.
-- **No migration**, so no drift check was needed and `ci:local` was not run.
-- **`npm run demo:rush` was run, both full and `--until 12`** — which is how
-  the grid defect above was found. Do this.
+**No migration**, so `ci:local` was not run.
+
+**`npm run demo:rush` was run full, `--until 12` and `--until 26`** — and
+`--until 26` is the one that found the bundling defect. Do this, and do it at a
+stop in the middle rather than only at the end: the end state is where the bug
+hides.
+
 
 ## Environment notes for whoever runs the gate next
 

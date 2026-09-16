@@ -26,6 +26,7 @@ import {
   availableSlots,
   EMPTY_CART,
   instantMinutesAfter,
+  type AdjustmentReason,
   type CancelReason,
   type Cart,
   type Composition,
@@ -40,6 +41,8 @@ import {
   confirmPhoneVerificationForCheckout,
   startPhoneVerification,
 } from './verification';
+import { type PaymentProvider } from './provider';
+import { requestRefund, settleRefund } from './refund';
 import { applyOrderAction } from './transitions';
 import {
   resetDatabase,
@@ -382,7 +385,39 @@ type KitchenStep =
   | { at: number; step: 'advance' }
   | { at: number; step: 'revert'; reason: string }
   | { at: number; step: 'cancel'; reason: CancelReason; note?: string }
-  | { at: number; step: 'abandon' };
+  | { at: number; step: 'abandon' }
+  /**
+   * A DELIBERATE refund on a ticket the customer already took away (C-126).
+   *
+   * Not a cancellation's automatic attempt — those are the two prepaid exits
+   * the rush already had, and C-069 made both of them VOIDS, correctly: money
+   * that never left the card needs no refund. Which left the refund machinery,
+   * `refund_failed` and the exceptions list demonstrated by nothing.
+   *
+   * The first attempt fails at the provider, which is the point: a refund is
+   * the one money operation that CANNOT be undone by not doing it, so the
+   * failure has to land somewhere a human looks. It lands on the exceptions
+   * list, and `retryAt` is somebody tapping Send again.
+   */
+  | {
+      at: number;
+      step: 'refund';
+      amountCents: number;
+      reason: AdjustmentReason;
+      note: string;
+    }
+  /**
+   * The retry, off the exceptions list, and A STEP OF ITS OWN rather than
+   * something the request does for itself a few minutes later.
+   *
+   * The first version bundled both into one step and it was wrong in the way
+   * only the demo could show: `--until 26` stopped the clock two minutes
+   * before the retry and the summary still reported the money as refunded,
+   * because the bundled call had already made it. Stopping is a truncation,
+   * not a variant (C-124) — so the retry has to sit on the timeline where the
+   * loop can decline to reach it.
+   */
+  | { at: number; step: 'refund_retry' };
 
 /**
  * The default cadence: accepted a minute after it lands, on the grill two
@@ -578,7 +613,35 @@ export const RUSH_ORDERS: RushOrder[] = [
       { at: slot + 9, step: 'advance' },
     ],
   },
-  { label: 'Kira Lindqvist', minute: 7, composition: 12 },
+  // UGLY CASE 6 — money going back, on purpose, and not on the first try
+  // (C-126). Kira's order is placed at minute 7, prepaid, and collected on the
+  // default cadence at minute 21. At minute 24 she calls: one of the three
+  // items was cold. A manager sends $4.25 back — the tamale's own line, not
+  // the ticket — and the PROCESSOR DECLINES. The order does not change status,
+  // the ask survives as its own row, and the failure lands on the exceptions
+  // list where somebody has to look at it. Theo retries it at minute 28 and it
+  // goes.
+  //
+  // This is the only refund in the rush, and it exists because C-069 made both
+  // of the other prepaid exits VOIDS — correctly, since money that never left
+  // the card needs no refund, but it left `refundExceptions` and the whole
+  // `refund_failed` path demonstrated by nothing but unit tests.
+  {
+    label: 'Kira Lindqvist',
+    minute: 7,
+    composition: 12,
+    kitchen: [
+      ...cadence(7),
+      {
+        at: 24,
+        step: 'refund',
+        amountCents: 425,
+        reason: 'quality',
+        note: 'Tamale was cold, refunded that line',
+      },
+      { at: 28, step: 'refund_retry' },
+    ],
+  },
   { label: 'Luca Ferrante', minute: 7, composition: 13 },
   { label: 'Mira Halvorsen', minute: 8, composition: 1 },
   { label: 'Nate Boateng', minute: 9, composition: 2 },
@@ -896,6 +959,56 @@ async function move(
   label: string,
 ): Promise<void> {
   const now = at(anchor, step.at);
+
+  // A refund is not an order ACTION — it does not move the status, and it goes
+  // through the money path rather than the state machine. So it is handled
+  // here rather than being bent into `applyOrderAction`'s shape.
+  if (step.step === 'refund') {
+    // The ask, and it FAILS at the provider. `requestRefund` writes the ask
+    // and the failure as separate rows on purpose (C-071): the ask is a
+    // person's decision and survives, the failure is what the exceptions list
+    // reads and what a human has to come back to.
+    const declining: PaymentProvider = async () => {
+      throw new Error('Processor declined: issuer unavailable');
+    };
+    const asked = await requestRefund(
+      orderId,
+      { amountCents: step.amountCents, reason: step.reason, note: step.note },
+      now,
+      cookFor(label),
+      declining,
+    );
+    if (asked.ok) {
+      throw new Error(
+        `${label}'s refund at minute ${step.at} was supposed to fail at the provider and did not`,
+      );
+    }
+    return;
+  }
+
+  if (step.step === 'refund_retry') {
+    // By a DIFFERENT person, which is the whole reason `settleRefund` takes a
+    // staff id of its own: a retry is somebody's tap, not a replay of the
+    // first person's decision.
+    //
+    // DERIVED as "whoever is not the one who asked" rather than named. The
+    // first version hardcoded a cook who turned out to be the same person
+    // `cookFor` picks for this ticket, so the two-names story the test asserts
+    // was quietly false — and the test caught it.
+    const asker = cookFor(label);
+    const other = COOKS.find((cook) => cook !== asker);
+    if (other === undefined) {
+      throw new Error('the retry needs a second cook on the roster');
+    }
+    const retried = await settleRefund(orderId, now, other);
+    if (!retried.ok) {
+      throw new Error(
+        `${label}'s refund retry at minute ${step.at} failed: ${JSON.stringify(retried)}`,
+      );
+    }
+    return;
+  }
+
   const action =
     step.step === 'advance'
       ? ({ kind: 'advance', actor: 'staff' } as const)
