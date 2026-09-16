@@ -1,52 +1,69 @@
 # Next
 
-**C-132 shipped this session:** `docs/WRITEUP.md`'s By the Numbers table,
-recounted for the first time since C-128. Every figure re-derived the same
-way C-128 recorded doing it (`docs/PROGRESS.md`'s C-132 entry has the exact
-commands), so this was a re-run, not a re-derivation.
+**C-133 shipped this session:** a refund and a comp can each be pointed at,
+and taken back, by name. Closes two backlog "Left behind" notes: C-071's ("a
+reversal cannot be pointed at a specific comp") and C-127's ("nothing can
+reverse a refund").
 
-**The interesting part:** the menu-fixture row ("7 modifier groups") wasn't
-drift — it was a miscount that predates C-128 itself. `SAMPLE_MENU` has
-carried 8 since C-017; the 8th group (`tortilla-style`) is quoted for its
-hyphen and doesn't match the plain-identifier shape a manual scan or naive
-grep expects, so both the C-017 prose and the C-128 recount skipped it the
-same way. Corrected in the table, in the "specified numbers don't drift"
-paragraph, and logged as the 73rd Defects Found entry.
+**What shipped:** `refund_reversed`, a new event kind whose own migration
+(`ALTER TYPE ... ADD VALUE`, split from the migration that uses it, same as
+`adjustment_reversed`'s was) is followed by a second migration adding two
+self-link columns — `refundReversalOfId` (new, so its CHECK is a full
+equivalence) and `adjustmentReversalOfId` (retrofitted onto `adjustment_reversed`,
+so its CHECK is one-directional, leaving pre-C-071 rows null). A refund
+reversal is full-only, derives its amount from the refund it names, and
+writes no provider call — it is a flag, not automated money recovery. A comp
+reversal is now bounded by ITS OWN comp's remaining amount
+(`targetRemainingCents`) rather than the order's aggregate `adjustedCents`,
+which is the actual fix for the C-071 gap. `paymentTotals` gained
+`refundReversedCents`, added into `outstandingCents` only —
+`refundedCents` stays raw on purpose, so a reversed refund shows as both
+"sent" and "owed again" rather than one erasing the other (a fourth
+documented exception to the three-bucket revenue invariant, alongside the
+comp and hold terms). UI: "Reverse a refund" (new) mirrors "Put an
+adjustment back" — both auto-select their target when there is only one.
 
-Full new figures: 111 requirements, 273 commits through C-131, 46,535
-TS/TSX lines (21,295 tests, 46%), 1,092 unit tests in 45 files, 244 e2e in
-25 files (unchanged), 34 migrations / 2 triggers / 48 CHECKs / 19 tables
-(unchanged), ~16,150 doc lines, 73 defects, 2026-08-25 → 2026-09-16.
+**The interesting part:** the receipt's "Still owed" line was gated on
+`adjustedCents > 0`, which meant a reversed refund (no comp involved at all)
+reopened `outstandingCents` with nothing on the screen to show it moved.
+Found by actually running the new e2e test in a browser before calling this
+done, not by a type error or a unit test — fixed by gating the line on
+`adjustedCents > 0 || refundReversedCents > 0` instead
+(`apps/web/app/kitchen/orders/[id]/page.tsx`).
 
-Docs-only — no code, no migration, no gate run (CI's `paths-ignore` skips
-`**/*.md` and `docs/**` the same way it skips a "record the SHA" commit).
+Full gate green this session: lint, typecheck, 1115 unit tests, production
+build, and 245 e2e specs (230 passed, 15 skipped — the screenshot suite,
+unchanged — 0 failed, reconciled against `--list`'s total). Two new
+migrations, applied to both `countertop_test` and `countertop_dev` via
+`npm run db:migrate:all` before the gate ran.
 
 ## Pick this up first
 
-NEXT.md's shortlist after C-131 (portfolio screenshots, this recount) is now
-fully closed, and `docs/backlog.md` has no unchecked items. There is no
-single obvious next item — pick anything off "Still open" below, or ask
-which one matters most. Two that stand out as actual decisions rather than
-busywork:
+Both items C-132's NEXT.md flagged as "actual decisions" are now resolved:
+the refund-reversal item shipped this session as C-133. One is left:
 
-1. **A refund cannot be reversed at all** (C-127's own left-behind item) —
-   needs a decision on what a wrongly-sent refund's contradicting row should
-   look like, not just a patch.
-2. **No per-batch menu-change event** — the only thing still open in PRD 4
+1. **No per-batch menu-change event** — the only thing still open in PRD 4
    itself, as opposed to a backlog "left behind" note.
+
+Otherwise there is no single obvious next item — pick anything off "Still
+open" below, or ask which one matters most.
 
 ## Read this before the next push
 
-- **`npm run gate` is a manual discipline** (C-125). A docs-only push skips
-  CI by design (`paths-ignore`); anything touching code still needs the full
-  gate run before push, same as always.
-- **This session's `npx vitest run` (bypassing `npm test`) ran unusually
-  slow** — still running past 15 minutes for a suite that normally finishes
-  in well under a minute. `pg_stat_activity` showed `rental_test` holding 35
-  connections mid-run, well over its own 10-connection convention cap — an
-  environmental symptom (`docs/conventions.md` → *Cap the connection pool per
-  project*), not a countertop regression. If a future session sees the same
-  thing, check `pg_stat_activity` before suspecting the code.
+- **`npm run gate` is a manual discipline** (C-125). Anything touching code
+  needs the full gate run before push — this session ran lint, typecheck,
+  `npm test`, `build:test` and `test:e2e` individually rather than the
+  combined `npm run gate` script, which is equivalent but let each stage's
+  output be inspected on its own.
+- **A new `OrderEventKind` value needs its own migration file**, separate
+  from any migration whose CHECK names it — Postgres refuses a new enum
+  value used in the transaction that added it. `adjustment_reversed`'s
+  migration (C-071) documents this; C-133's `refund_reversed` follows the
+  same split.
+- **Run `npm run db:migrate:all` after adding a migration**, before running
+  tests — a schema drift here reads as a wall of unrelated test failures
+  (every db-level test file failed this session until the migration was
+  applied), not a clear "missing column" error.
 - **Before any e2e sweep, both kill lines** (C-128's incident, confirmed
   again at C-131):
   ```sh
@@ -66,8 +83,14 @@ busywork:
   `npx dotenv -e .env.test -e .env.local --`.
 - **Run `npm run db:generate`** if `typecheck` reports unknown Prisma
   columns.
+- **Never run `prettier --write` in this repo** — there is no `.prettierrc`
+  and no Prettier dependency, so its defaults (double quotes, its own
+  wrapping) fight this codebase's actual style (single quotes, hand-tuned
+  comment wrapping) and reformat far more of a file than intended. Caught
+  this session before it was committed; `git checkout --` the file and
+  reapply the real edit if it happens again.
 
-## Still open (carried forward, unchanged by C-132)
+## Still open (carried forward, closes two items from C-132's list)
 
 - **`NotificationKind` has one value** (C-121) — half the unique index's
   grain.
@@ -89,7 +112,6 @@ busywork:
 - **Nothing bounds a staff `adjust` below zero.**
 - **The sleeps in the member-lock test are 250ms** — raise them if either
   flakes; do not delete the test.
-- **A refund cannot be reversed at all** (C-127) — see "Pick this up first."
 - **`MAX_STAGE_ATTEMPTS` exhausted still throws a raw `P2002`** (C-129,
   deliberate).
 - **The staged-price retry is not observable** (C-129) — no collision log.
@@ -106,10 +128,12 @@ busywork:
 - **`setLastOrderIn` cannot express the last `minutesOut` minutes of the
   local day** (C-079) — throws rather than clamping.
 - **Twenty-two of twenty-five items have no description** (C-080).
-- **`e2e/refund.spec.ts:211`, `e2e/cart.spec.ts:65`, `e2e/last-call.spec.ts:17`**
-  — each has failed once on an unrelated change and passed every rerun since.
-  Timeouts, not assertions. If any fails twice on an unrelated change, it's
-  earned real investigation.
+- **`e2e/refund.spec.ts:211`, `e2e/cart.spec.ts:65`, `e2e/cart.spec.ts:39`,
+  `e2e/last-call.spec.ts:17`** — each has failed once on an unrelated change
+  and passed every rerun since (`:39` new this session, same class as `:65`
+  in the same file — a "Guacamole is sold out" assertion timing out, not
+  failing). Timeouts, not assertions. If any fails twice on an unrelated
+  change, it's earned real investigation.
 - **Same-day only for order-ahead** (C-114) — multi-day is a master-PRD P2
   item.
 - **A fully-booked day degrades silently to ASAP-only** (C-114).
@@ -121,5 +145,7 @@ busywork:
   `settleAuthorization`).
 - **The staff receipt's payment line still reads "Pay at pickup" on a
   released hold.**
-- **A reversal cannot be pointed at a specific comp**, and `refund_failed`
-  rows accumulate uncapped on a stuck provider.
+- **`refund_failed` rows accumulate uncapped on a stuck provider.**
+- **No report line for a reversed refund** (C-133) — `report.ts` still
+  reads `refundedCents` raw; a reversed refund is visible on the order's own
+  receipt and invisible on the sales report until that line is written.
