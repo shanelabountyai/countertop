@@ -34,6 +34,14 @@ export const eventRow = (draft: OrderEventDraft, staffId?: string | null) => ({
   // The hold this event settles (C-069). Null on everything but a `capture` or
   // an `authorization_voided`, and the CHECK says so in both directions.
   authorizationId: draft.authorizationId ?? null,
+  // The settled refund this row corrects (C-133). Null on everything but a
+  // `refund_reversed`, and the CHECK says so in both directions.
+  refundReversalOfId: draft.refundReversalOfId ?? null,
+  // The comp this row corrects (C-133). Null on everything but an
+  // `adjustment_reversed` written since this item shipped — the CHECK is
+  // one-directional, the same leniency `refundRequestId`'s gives rows
+  // written before its own link existed.
+  adjustmentReversalOfId: draft.adjustmentReversalOfId ?? null,
   // WHICH staff member, where `actor` says what KIND (C-086). Stamped ONLY on
   // an event the engine attributes to staff: the customer's placement and the
   // system's refund are not somebody's tap, and putting the cook who cancelled

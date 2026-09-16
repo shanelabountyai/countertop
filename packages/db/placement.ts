@@ -101,6 +101,12 @@ export const ORDER_RECEIPT = {
         amountCents: true,
         refundRequestId: true,
         authorizationId: true,
+        // `refundReversalOfId` and `adjustmentReversalOfId` joined in C-133,
+        // for the same reason `refundRequestId` did: `reversibleRefunds` and
+        // `reversibleAdjustments` place each reversal against the specific
+        // row it corrects, which is a question about the SHAPE of the log.
+        refundReversalOfId: true,
+        adjustmentReversalOfId: true,
       },
     },
   },

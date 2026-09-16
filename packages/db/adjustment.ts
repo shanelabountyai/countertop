@@ -53,7 +53,14 @@ export async function adjustOrder(
 ): Promise<AdjustOrderResult> {
   const order = await client.order.findUnique({
     where: { id: orderId },
-    select: { totalCents: true, events: { select: { kind: true, amountCents: true } } },
+    select: {
+      totalCents: true,
+      // `id` and `adjustmentReversalOfId` joined the two money scalars in
+      // C-133, for a reversal alone: it names one comp among possibly several
+      // and is bounded by that comp's own remaining amount, which is a
+      // question about the SHAPE of the log the other two kinds never ask.
+      events: { select: { id: true, kind: true, amountCents: true, adjustmentReversalOfId: true } },
+    },
   });
   if (!order) return { ok: false, reason: 'order_not_found', message: 'That order could not be found.' };
 

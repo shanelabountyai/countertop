@@ -271,3 +271,45 @@ test('a comp written on the wrong ticket is put back, not erased', async ({ page
   await expect(activity).toContainText('Adjustment put back');
   await expect(activity).toContainText('comped the wrong ticket');
 });
+
+// C-133. A refund really did call the provider, so undoing one is a separate
+// fact from undoing a comp — its own row, its own section, no provider call
+// of its own (it flags the mistake; getting the money back is a person's job).
+test('a refund sent to the wrong place is reversed, not erased', async ({ page }) => {
+  const link = await placeOrderFor(page, 'Wren Alvarez', { payAtPickup: true });
+  await openReceipt(page);
+  await page.getByRole('button', { name: 'Collected — mark paid' }).click();
+
+  const sendBack = section(page, 'Send money back');
+  await sendBack.getByLabel('Reason').selectOption('quality');
+  await page.getByTestId('refund-amount').fill('11.85');
+  await page.getByTestId('send-refund').click();
+  await expect(page.getByTestId('order-activity')).toContainText('Refunded');
+
+  // OWED AGAIN, the one deliberate undo of C-127's "closed fact" rule — and
+  // scoped to exactly this refund: the section only renders while one exists
+  // to correct.
+  const reverse = section(page, 'Reverse a refund');
+  await expect(reverse).toBeVisible();
+  await reverse.getByTestId('refund-reversal-note').fill('sent to the wrong customer');
+  await page.getByTestId('reverse-refund').click();
+
+  // OWED AGAIN, and visible: a reversal reopens `outstandingCents` on an
+  // order nobody ever comped, so the "Still owed" line has to render off
+  // this event alone, not off `adjustedCents`.
+  await expect(page.getByTestId('history-outstanding')).toHaveText('$11.85');
+  const activity = page.getByTestId('order-activity');
+  await expect(activity).toContainText('Refunded');
+  await expect(activity).toContainText('Refund put back');
+  await expect(activity).toContainText('sent to the wrong customer');
+
+  // The original refund is still there — both decisions in the log, neither
+  // erased — and the section itself is gone: nothing left to correct.
+  await expect(section(page, 'Reverse a refund')).toHaveCount(0);
+
+  // The customer's own status page still says what actually happened: the
+  // money left. The reversal is the restaurant's own bookkeeping, not a
+  // second wire transfer, so there is nothing here for a customer to see.
+  await page.goto(link);
+  await expect(page.getByTestId('status-payment')).toHaveText('Refunded');
+});

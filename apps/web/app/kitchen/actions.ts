@@ -34,6 +34,7 @@ import { remakeOrder } from '@countertop/db/remake';
 import { collectOrderPayment } from '@countertop/db/payment';
 import {
   requestRefund,
+  reverseRefund,
   settleRefund,
   type SettleRefundReason,
 } from '@countertop/db/refund';
@@ -379,6 +380,11 @@ const ECHOABLE_REFUSALS: readonly AdjustmentRefusalReason[] = [
   // log, and neither interpolates anything the caller sent.
   'reversal_exceeds_adjusted',
   'nothing_to_reverse',
+  // C-133's two: the reversal control always sends the id of a comp it just
+  // listed, so reaching either means a hand-crafted request — but neither
+  // message quotes anything that request sent, so both are safe to echo.
+  'reversal_target_required',
+  'reversal_target_not_found',
 ];
 
 /**
@@ -544,6 +550,55 @@ export async function refundOrderForm(formData: FormData): Promise<void> {
 }
 
 /**
+ * Flag a settled refund as sent in error (C-133).
+ *
+ * ITS OWN FORM, like every other money control on this page: a form's
+ * implicit submission fires its first submit button, and sharing one would
+ * make Enter in a note field correct the wrong refund.
+ *
+ * NO AMOUNT FIELD, unlike `refundOrderForm`'s. A reversal is a full undo of
+ * the one refund it names — there is no whole-thing reading for the client to
+ * inflate, so there is nothing here for the server-is-the-price-authority
+ * rule to have to bound.
+ *
+ * Every refusal is echoed. `reverseRefund`'s messages are all composed of
+ * fixed sentences and server-computed figures — none of them quotes the
+ * caller's own string back — so there is no allow-list to maintain the way
+ * `adjustOrderForm`'s has to for `unknown_adjustment_kind`.
+ */
+export async function reverseRefundForm(formData: FormData): Promise<void> {
+  const orderId = formData.get('orderId');
+  if (typeof orderId !== 'string' || orderId === '') {
+    return redirect('/kitchen/orders');
+  }
+  const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
+  const refuse = (message: string): never =>
+    redirect(`${back}?refundReversalError=${encodeURIComponent(message)}`);
+
+  // WHICH refund this corrects. Untrusted, and it does not need to be
+  // trusted — `reverseRefund` looks it up among this order's own settled
+  // refunds, so a hand-crafted id belonging to another order finds nothing.
+  const refundId = formData.get('refundId');
+  if (typeof refundId !== 'string' || refundId === '') {
+    return refuse('Pick which refund this corrects.');
+  }
+
+  const note = formData.get('note');
+  const result = await reverseRefund(
+    orderId,
+    { refundId, note: typeof note === 'string' ? note : '' },
+    new Date(),
+    await currentShiftId(),
+  );
+  if (!result.ok) return refuse(result.message);
+
+  // The subtree: a reversal changes what the queue card says is owed as well
+  // as what this receipt says — both ask `orderBalance`.
+  revalidatePath('/kitchen', 'layout');
+  redirect(back);
+}
+
+/**
  * The refund refusals whose message may travel back down a query string.
  *
  * C-084's rule, applied a third time: allow-list the KINDS rather than trust
@@ -663,6 +718,12 @@ export async function adjustOrderForm(formData: FormData): Promise<void> {
     amountCents = parsed;
   }
 
+  // WHICH comp this reversal is about (C-133). Untrusted, and it does not
+  // need to be trusted — `adjustOrder` looks it up among this order's own
+  // events, so a hand-crafted id belonging to another order finds nothing and
+  // is refused.
+  const reversalOfId = formData.get('reversalOfId');
+
   const note = formData.get('note');
   const result = await adjustOrder(
     orderId,
@@ -671,6 +732,9 @@ export async function adjustOrderForm(formData: FormData): Promise<void> {
       reason: reason as AdjustmentReason,
       ...(amountCents === undefined ? {} : { amountCents }),
       ...(typeof note === 'string' && note !== '' ? { note } : {}),
+      ...(kind === 'reversal' && typeof reversalOfId === 'string' && reversalOfId !== ''
+        ? { reversalOfId }
+        : {}),
     },
     // `now` read here and passed down, and WHO read from the shift rather than
     // from the form — the same rule every other write on this screen follows.

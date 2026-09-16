@@ -21,7 +21,17 @@ const TOTAL = 1375;
 
 const order = (...events: MoneyEvent[]): AdjustableOrder => ({ totalCents: TOTAL, events });
 const paid = (amountCents: number): MoneyEvent => ({ kind: 'payment', amountCents });
-const comped = (amountCents: number): MoneyEvent => ({ kind: 'adjustment', amountCents });
+
+let compIdCounter = 0;
+/** Its own id (C-133), so a reversal test can name exactly which comp it is
+ *  correcting — the same reason every `RefundEvent` fixture already carries
+ *  one. Auto-incrementing rather than a fixed string: a test with two comps
+ *  on one order needs them distinguishable. */
+const comped = (amountCents: number): MoneyEvent & { id: string } => ({
+  kind: 'adjustment',
+  amountCents,
+  id: `comp-${(compIdCounter += 1)}`,
+});
 
 describe('adjustableRemainingCents', () => {
   it('is the whole total on an untouched order', () => {
@@ -217,6 +227,7 @@ describe('what an adjustment does to the money', () => {
     expect(paymentTotals([comped(1375)])).toEqual({
       capturedCents: 0,
       refundedCents: 0,
+      refundReversedCents: 0,
       adjustedCents: 1375,
       authorizedCents: 0,
     });
@@ -228,15 +239,27 @@ describe('what an adjustment does to the money', () => {
 // reason: the log is append-only, and a decision that vanishes is one nobody
 // can be asked about at close.
 describe('adjustmentEvent — reversal', () => {
-  const reverse = (amountCents: number, note = 'comped the wrong ticket') =>
+  const reverse = (
+    target: { id: string },
+    adjustableOrder: AdjustableOrder,
+    amountCents: number,
+    note = 'comped the wrong ticket',
+  ) =>
     adjustmentEvent(
-      order(comped(1000)),
-      { kind: 'reversal', amountCents, reason: ADJUSTMENT_REVERSAL_REASON, note },
+      adjustableOrder,
+      {
+        kind: 'reversal',
+        amountCents,
+        reason: ADJUSTMENT_REVERSAL_REASON,
+        note,
+        reversalOfId: target.id,
+      },
       NOW,
     );
 
-  it('writes its own kind, not a negative adjustment', () => {
-    const result = reverse(400);
+  it('writes its own kind, not a negative adjustment, and names the comp it corrects', () => {
+    const comp = comped(1000);
+    const result = reverse(comp, order(comp), 400);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.event).toMatchObject({
@@ -248,13 +271,16 @@ describe('adjustmentEvent — reversal', () => {
       actor: 'staff',
       fromStatus: null,
       toStatus: null,
+      // THE POINT OF C-133: which comp, by row, not by aggregate.
+      adjustmentReversalOfId: comp.id,
     });
   });
 
   // THE BOUND IS THE MIRROR of the other two kinds: they spend what is left of
-  // the order, this spends what has already been given away.
-  it('is bounded by what was adjusted, not by the order total', () => {
-    const result = reverse(1001);
+  // the order, this spends what its OWN comp has already given away.
+  it('is bounded by what its comp was adjusted, not by the order total', () => {
+    const comp = comped(1000);
+    const result = reverse(comp, order(comp), 1001);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe('reversal_exceeds_adjusted');
@@ -262,21 +288,74 @@ describe('adjustmentEvent — reversal', () => {
   });
 
   it('is cumulative — reversing twice cannot take back more than was comped', () => {
-    const result = adjustmentEvent(
-      order(comped(1000), { kind: 'adjustment_reversed', amountCents: 600 }),
-      { kind: 'reversal', amountCents: 500, reason: ADJUSTMENT_REVERSAL_REASON, note: 'again' },
-      NOW,
-    );
+    const comp = comped(1000);
+    const firstReversal: MoneyEvent & { adjustmentReversalOfId: string } = {
+      kind: 'adjustment_reversed',
+      amountCents: 600,
+      adjustmentReversalOfId: comp.id,
+    };
+    const result = reverse(comp, order(comp, firstReversal), 500, 'again');
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe('reversal_exceeds_adjusted');
   });
 
-  it('refuses when there is nothing to take back', () => {
+  // THE ACTUAL GAP C-133 CLOSES: two comps on one order, and a reversal that
+  // names one must not be able to spend the OTHER's room. Before this item
+  // both drew from the same aggregate `adjustedCents`, so a fully-reversed
+  // $3 comp still read as "$13 left to take back" as long as the $10 comp
+  // beside it had not been touched.
+  it('scopes the bound to the comp it names, never to a sibling comp', () => {
+    const small = comped(300);
+    const big = comped(1000);
+    const smallAlreadyReversed: MoneyEvent & { adjustmentReversalOfId: string } = {
+      kind: 'adjustment_reversed',
+      amountCents: 300,
+      adjustmentReversalOfId: small.id,
+    };
+    const both = order(small, big, smallAlreadyReversed);
+
+    const againstSmall = reverse(small, both, 1, 'anything left on the small one?');
+    expect(againstSmall.ok).toBe(false);
+    if (!againstSmall.ok) expect(againstSmall.reason).toBe('nothing_to_reverse');
+
+    const againstBig = reverse(big, both, 1000, 'the big one is untouched');
+    expect(againstBig.ok).toBe(true);
+  });
+
+  it('refuses a reversal naming no comp', () => {
     const result = adjustmentEvent(
-      order(paid(1375)),
+      order(comped(1000)),
       { kind: 'reversal', amountCents: 100, reason: ADJUSTMENT_REVERSAL_REASON, note: 'oops' },
       NOW,
     );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('reversal_target_required');
+  });
+
+  it('refuses a reversal naming a comp this order does not have', () => {
+    const result = adjustmentEvent(
+      order(comped(1000)),
+      {
+        kind: 'reversal',
+        amountCents: 100,
+        reason: ADJUSTMENT_REVERSAL_REASON,
+        note: 'oops',
+        reversalOfId: 'not-on-this-order',
+      },
+      NOW,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('reversal_target_not_found');
+  });
+
+  it('refuses when there is nothing left on that comp to take back', () => {
+    const comp = comped(1000);
+    const fully: MoneyEvent & { adjustmentReversalOfId: string } = {
+      kind: 'adjustment_reversed',
+      amountCents: 1000,
+      adjustmentReversalOfId: comp.id,
+    };
+    const result = reverse(comp, order(comp, fully), 100, 'anything left?');
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe('nothing_to_reverse');
   });
@@ -286,9 +365,15 @@ describe('adjustmentEvent — reversal', () => {
   // decision, and it puts money back onto a bill somebody has already been
   // told they do not owe.
   it('always requires a note', () => {
+    const comp = comped(1000);
     const result = adjustmentEvent(
-      order(comped(1000)),
-      { kind: 'reversal', amountCents: 400, reason: ADJUSTMENT_REVERSAL_REASON },
+      order(comp),
+      {
+        kind: 'reversal',
+        amountCents: 400,
+        reason: ADJUSTMENT_REVERSAL_REASON,
+        reversalOfId: comp.id,
+      },
       NOW,
     );
     expect(result.ok).toBe(false);
@@ -298,10 +383,11 @@ describe('adjustmentEvent — reversal', () => {
   // The whole shape, end to end: the comp is still there, the correction is
   // beside it, and the balance is the net of the two.
   it('leaves both decisions in the log and restores what is owed', () => {
-    const result = reverse(1000);
+    const comp = comped(1000);
+    const result = reverse(comp, order(comp), 1000);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const after = order(comped(1000), {
+    const after = order(comp, {
       kind: result.event.kind,
       amountCents: result.event.amountCents ?? 0,
     });

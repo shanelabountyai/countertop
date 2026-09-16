@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { pendingRefunds, refundNeedsAttention, refundRequestEvent, type RefundEvent } from './refund';
+import { ADJUSTMENT_REVERSAL_REASON } from './adjustment';
+import {
+  pendingRefunds,
+  refundNeedsAttention,
+  refundRequestEvent,
+  refundReversalEvent,
+  reversibleRefunds,
+  type RefundEvent,
+} from './refund';
 
 // PRD 3 P0-4 (C-067) and P0-6 (C-071). Where a refund got to used to be a
 // question about the ORDER, because cancelling was the only thing that could
@@ -31,6 +39,11 @@ const against = (
   request: RefundEvent,
   amountCents: number | null,
 ): RefundEvent => ({ ...money(kind, amountCents), refundRequestId: request.id });
+/** A reversal against a specific settled refund (C-133). */
+const reversalOf = (refund: RefundEvent): RefundEvent => ({
+  ...money('refund_reversed', refund.amountCents),
+  refundReversalOfId: refund.id,
+});
 
 describe('pendingRefunds', () => {
   it('is empty when nobody ever asked for one', () => {
@@ -256,5 +269,101 @@ describe('refundRequestEvent', () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe('unknown_refund_reason');
+  });
+});
+
+// C-133. A refund sent in error, taken back by a CONTRADICTING ROW that names
+// the specific refund it corrects — never a delete, and never the order's
+// aggregate.
+describe('reversibleRefunds', () => {
+  it('is empty when nothing has ever been settled', () => {
+    expect(reversibleRefunds([payment(3420)])).toEqual([]);
+  });
+
+  it('offers a settled refund by its own id and amount', () => {
+    const request = requested(500);
+    const settled = against('refund', request, 500);
+    expect(reversibleRefunds([payment(3420), request, settled])).toEqual([
+      { id: settled.id, amountCents: 500 },
+    ]);
+  });
+
+  it('drops a refund once it has already been reversed', () => {
+    const request = requested(500);
+    const settled = against('refund', request, 500);
+    expect(reversibleRefunds([payment(3420), request, settled, reversalOf(settled)])).toEqual([]);
+  });
+
+  // TWO REFUNDS, ONE REVERSED: the property `pendingRefunds` already proves
+  // for requests, proved here for settlements — a sibling refund's own
+  // correction must not make an untouched one disappear from the list.
+  it('keeps a second settled refund live while the first is reversed', () => {
+    const first = requested(300);
+    const firstSettled = against('refund', first, 300);
+    const second = requested(500);
+    const secondSettled = against('refund', second, 500);
+    const events = [payment(3420), first, firstSettled, reversalOf(firstSettled), second, secondSettled];
+    expect(reversibleRefunds(events)).toEqual([{ id: secondSettled.id, amountCents: 500 }]);
+  });
+});
+
+describe('refundReversalEvent', () => {
+  const request = requested(500);
+  const settled = against('refund', request, 500);
+  const order = (...extra: RefundEvent[]) => ({
+    totalCents: 3420,
+    events: [payment(3420), request, settled, ...extra],
+  });
+
+  it('derives its amount from the refund it names, never from a caller', () => {
+    const result = refundReversalEvent(order(), { refundId: settled.id, note: 'sent to the wrong customer' }, NOW);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.amountCents).toBe(500);
+    expect(result.event).toMatchObject({
+      at: NOW,
+      kind: 'refund_reversed',
+      amountCents: 500,
+      // THE SAME WORD a comp's own reversal writes — one reason, not staff-
+      // pickable, and never re-typed per correction.
+      reason: ADJUSTMENT_REVERSAL_REASON,
+      actor: 'staff',
+      fromStatus: null,
+      toStatus: null,
+      refundReversalOfId: settled.id,
+    });
+  });
+
+  it('refuses a refund this order does not have', () => {
+    const result = refundReversalEvent(
+      order(),
+      { refundId: 'not-on-this-order', note: 'wrong id' },
+      NOW,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('refund_reversal_target_not_found');
+  });
+
+  it('refuses a refund already reversed', () => {
+    const result = refundReversalEvent(
+      order(reversalOf(settled)),
+      { refundId: settled.id, note: 'again' },
+      NOW,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('refund_reversal_already_reversed');
+  });
+
+  // ALWAYS a note, the same discipline `adjustmentEvent`'s reversal holds:
+  // money coming back onto a bill is the one correction nobody should be able
+  // to make silently.
+  it('requires a note and caps its length', () => {
+    const bare = refundReversalEvent(order(), { refundId: settled.id, note: '' }, NOW);
+    expect(bare.ok).toBe(false);
+    if (!bare.ok) expect(bare.reason).toBe('refund_reversal_note_required');
+
+    const long = refundReversalEvent(order(), { refundId: settled.id, note: 'x'.repeat(141) }, NOW);
+    expect(long.ok).toBe(false);
+    if (!long.ok) expect(long.reason).toBe('refund_reversal_note_too_long');
   });
 });

@@ -163,6 +163,21 @@ export const ORDER_EVENT_KINDS = [
    *  `capture_failed`, which is the honest name for a hold that could not be
    *  turned into money and leaves the order owing at the counter. */
   'authorization_voided',
+  /** A refund taken back (C-133). The refund's own mirror of
+   *  `adjustment_reversed`: the money was sent to the wrong place, and the
+   *  correction is a CONTRADICTING ROW rather than a delete — the log is
+   *  append-only, and a refund that vanishes is one nobody can be asked
+   *  about at close. Points at the specific `refund` it corrects
+   *  (`refundReversalOfId`), the same way `refundRequestId` points an
+   *  attempt at its request.
+   *
+   *  Carries the amount, mirrored from the refund it reverses rather than
+   *  typed again — the same "derived, not trusted" rule a comp's own amount
+   *  follows. `paymentTotals` adds it back onto what is owed rather than
+   *  netting it against `refundedCents`: the refunded bucket stays the
+   *  honest record that the money left, and the reversal's job is to say it
+   *  needs to be chased again, not to pretend it never went. */
+  'refund_reversed',
 ] as const;
 export type OrderEventKind = (typeof ORDER_EVENT_KINDS)[number];
 
@@ -527,6 +542,25 @@ export type OrderEventDraft = {
    * so its index is plain.
    */
   authorizationId?: string;
+  /**
+   * The specific REFUND this event corrects (C-133).
+   *
+   * Set only on `refund_reversed`, and it is `refundRequestId`'s idea run the
+   * other way: not "which request was this attempt for" but "which settled
+   * attempt does this reversal name". The settled row's own id, so a reader
+   * of the log can find exactly which refund a reversal is about rather than
+   * reading it against the order's aggregate.
+   */
+  refundReversalOfId?: string;
+  /**
+   * The specific COMP this event corrects (C-133).
+   *
+   * Set only on `adjustment_reversed`. Until this item a reversal was bounded
+   * by what the whole order had been adjusted, net — correct arithmetic, but
+   * unable to say WHICH comp was wrong on an order carrying more than one.
+   * This is the answer, the same shape `refundReversalOfId` is above.
+   */
+  adjustmentReversalOfId?: string;
   detail?: Record<string, unknown>;
 };
 

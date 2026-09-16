@@ -257,6 +257,18 @@ enum OrderEventKind {
   /// vocabulary test compares `ORDER_EVENT_KINDS` against `pg_enum` position
   /// for position, and `ALTER TYPE ... ADD VALUE` appends.
   authorization_voided
+  /// A refund taken back (C-133). `refund`'s own mirror of
+  /// `adjustment_reversed`: money sent to the wrong place, corrected by a
+  /// CONTRADICTING ROW rather than a delete. Points at the specific `refund`
+  /// it corrects (`refundReversalOfId`), never at the order's aggregate.
+  ///
+  /// Carries the amount, mirrored from the refund it reverses — the same
+  /// "derived, not trusted" rule a comp's own amount follows.
+  ///
+  /// AT THE END, and the position is load-bearing rather than tidy: the
+  /// vocabulary test compares `ORDER_EVENT_KINDS` against `pg_enum` position
+  /// for position, and `ALTER TYPE ... ADD VALUE` appends.
+  refund_reversed
 }
 
 // ---------------------------------------------------------------------------
@@ -797,6 +809,43 @@ model OrderEvent {
   /// the link above, and a `?` rather than a `[]` because the unique constraint
   /// makes it at most one.
   settlement      OrderEvent?    @relation("AuthorizationSettlement")
+  /// The specific settled `refund` this event corrects (C-133).
+  ///
+  /// Non-null on `refund_reversed`, null on everything else, and
+  /// `order_event_refund_reversal_link_matches_kind` — an EQUIVALENCE, both
+  /// directions, because this kind is new with this column and there is no
+  /// legacy row to be lenient about — says the second half. `refundRequestId`
+  /// points an attempt at its request; this points a correction at the
+  /// specific attempt that landed, which is what makes "which refund was this
+  /// about" answerable on an order carrying more than one.
+  ///
+  /// `Restrict`, like the other self-links: the append-only trigger already
+  /// refuses every delete on this table, and this says the same thing where a
+  /// future migration can see it.
+  refundReversalOfId    String?
+  refundReversalOf      OrderEvent?  @relation("RefundReversal", fields: [refundReversalOfId], references: [id], onDelete: Restrict)
+  /// The reversal that corrected this refund, if any — the reverse of the
+  /// link above. A PARTIAL UNIQUE index enforcing at most one lives beside it
+  /// in the migration only, the same shape `refundRequestId`'s settled-refund
+  /// index takes: a refund is corrected in full or not at all, so there is
+  /// nothing to leave room for a second one.
+  refundReversals       OrderEvent[] @relation("RefundReversal")
+  /// The specific comp this event corrects (C-133).
+  ///
+  /// Non-null on `adjustment_reversed`, null on everything else — but
+  /// `order_event_adjustment_reversal_link_matches_kind` is ONE-DIRECTIONAL,
+  /// unlike the refund link above: `adjustment_reversed` existed since C-071,
+  /// so real rows predate this column and are honestly left null rather than
+  /// having a comp invented for them to point at. What the CHECK still
+  /// enforces is the half that keeps the link meaningful: nothing that is not
+  /// a reversal may claim to be one.
+  ///
+  /// UNBOUNDED on the reverse side, unlike the refund link's: a comp may be
+  /// taken back in more than one partial reversal, so more than one row may
+  /// name the same target.
+  adjustmentReversalOfId String?
+  adjustmentReversalOf   OrderEvent?  @relation("AdjustmentReversal", fields: [adjustmentReversalOfId], references: [id], onDelete: Restrict)
+  adjustmentReversals    OrderEvent[] @relation("AdjustmentReversal")
   detail          Json?
 
   @@index([orderId, at])
@@ -818,6 +867,14 @@ model OrderEvent {
   /// the CHECK constraints, and CI asserts it by name in `pg_class` for the
   /// same reason it asserts those.
   @@index([refundRequestId])
+  /// Postgres does not index a foreign key for you, and `Restrict` scans this
+  /// on every attempted delete. It is also what `reversibleRefunds` reads to
+  /// exclude an already-corrected refund from the control's own list.
+  @@index([refundReversalOfId])
+  /// Postgres does not index a foreign key for you, and `Restrict` scans this
+  /// on every attempted delete. It is also what `reversibleAdjustments` reads
+  /// to net a comp's own reversals against it.
+  @@index([adjustmentReversalOfId])
 }
 
 /// What a notification is ABOUT (C-121).

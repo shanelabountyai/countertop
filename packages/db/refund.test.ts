@@ -11,7 +11,7 @@ import { prisma } from './index';
 import { placeOrder, type PlacementInput } from './placement';
 import { adjustOrder } from './adjustment';
 import { collectOrderPayment } from './payment';
-import { loadRefundExceptions, requestRefund, settleRefund } from './refund';
+import { loadRefundExceptions, requestRefund, reverseRefund, settleRefund } from './refund';
 import { type PaymentProvider } from './provider';
 import { applyOrderAction } from './transitions';
 import {
@@ -544,10 +544,18 @@ describe('a refund issued on purpose', () => {
 // PRD 3 P0-6 (C-071). A mistaken comp is corrected by a contradicting row, and
 // the append-only trigger is what makes that not a preference.
 describe('taking an adjustment back', () => {
-  const reverse = (orderId: string, amountCents: number) =>
+  // The comp's own row id (C-133) — a reversal names it rather than the
+  // order's aggregate, so every test here fetches it the way the screen's
+  // dropdown does: off the log, not off the amount it happened to carry.
+  const compIdOf = async (orderId: string) => {
+    const row = await prisma.orderEvent.findFirstOrThrow({ where: { orderId, kind: 'adjustment' } });
+    return row.id;
+  };
+
+  const reverse = (orderId: string, reversalOfId: string, amountCents: number) =>
     adjustOrder(
       orderId,
-      { kind: 'reversal', amountCents, reason: 'mistake', note: 'comped the wrong ticket' },
+      { kind: 'reversal', amountCents, reason: 'mistake', note: 'comped the wrong ticket', reversalOfId },
       DINNER,
     );
 
@@ -556,7 +564,8 @@ describe('taking an adjustment back', () => {
     await adjustOrder(order.id, { kind: 'comp', reason: 'quality' }, DINNER);
     expect(orderBalance(await reload(order.id)).outstandingCents).toBe(0);
 
-    expect(await reverse(order.id, order.totalCents)).toEqual({
+    const compId = await compIdOf(order.id);
+    expect(await reverse(order.id, compId, order.totalCents)).toEqual({
       ok: true,
       amountCents: order.totalCents,
     });
@@ -571,12 +580,16 @@ describe('taking an adjustment back', () => {
         where: { orderId: order.id, kind: { in: ['adjustment', 'adjustment_reversed'] } },
       }),
     ).toBe(2);
+    // The reversal names the comp it corrected, not the order in general.
+    expect(
+      await prisma.orderEvent.findFirstOrThrow({ where: { orderId: order.id, kind: 'adjustment_reversed' } }),
+    ).toMatchObject({ adjustmentReversalOfId: compId });
   });
 
   it('never touches the snapshot columns, in either direction', async () => {
     const order = await place({ paidNow: false });
     await adjustOrder(order.id, { kind: 'comp', reason: 'quality' }, DINNER);
-    await reverse(order.id, 500);
+    await reverse(order.id, await compIdOf(order.id), 500);
 
     const after = await prisma.order.findUniqueOrThrow({
       where: { id: order.id },
@@ -592,9 +605,139 @@ describe('taking an adjustment back', () => {
   it('refuses more than was ever taken off', async () => {
     const order = await place({ paidNow: false });
     await adjustOrder(order.id, { kind: 'partial', amountCents: 500, reason: 'late' }, DINNER);
-    expect(await reverse(order.id, 501)).toMatchObject({
+    expect(await reverse(order.id, await compIdOf(order.id), 501)).toMatchObject({
       ok: false,
       reason: 'reversal_exceeds_adjusted',
     });
+  });
+
+  // THE ACTUAL POINT OF C-133, through the real write path: a second comp on
+  // the same order must not lend its room to a reversal naming the first one.
+  it('refuses to borrow a sibling comp\'s room', async () => {
+    const order = await place({ paidNow: false });
+    await adjustOrder(order.id, { kind: 'partial', amountCents: 300, reason: 'late' }, DINNER);
+    await adjustOrder(order.id, { kind: 'partial', amountCents: 700, reason: 'wrong_item' }, DINNER);
+    const [first] = await prisma.orderEvent.findMany({
+      where: { orderId: order.id, kind: 'adjustment' },
+      orderBy: { at: 'asc' },
+    });
+
+    const result = await reverse(order.id, first!.id, 700);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('reversal_exceeds_adjusted');
+  });
+
+  it('refuses a reversal naming a comp this order does not have', async () => {
+    const order = await place({ paidNow: false });
+    await adjustOrder(order.id, { kind: 'comp', reason: 'quality' }, DINNER);
+    const other = await place({ paidNow: false });
+    await adjustOrder(other.id, { kind: 'comp', reason: 'quality' }, DINNER);
+
+    const result = await reverse(order.id, await compIdOf(other.id), 100);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('reversal_target_not_found');
+  });
+});
+
+// C-133: a refund flagged as sent in error. Its own describe block, unlike the
+// comp's reversal above, because the write path is its own function
+// (`reverseRefund`, not `adjustOrder`) — a refund really did call the
+// provider, so undoing one is a separate fact from undoing a comp, never a
+// second provider call.
+describe('reversing a refund', () => {
+  const settledRefundIdOf = async (orderId: string) => {
+    const row = await prisma.orderEvent.findFirstOrThrow({ where: { orderId, kind: 'refund' } });
+    return row.id;
+  };
+
+  it('re-opens what is owed without touching the till or the original row', async () => {
+    const order = await place({ paidNow: true });
+    await requestRefund(order.id, { amountCents: order.totalCents, reason: 'quality' }, DINNER);
+    expect(orderBalance(await reload(order.id)).outstandingCents).toBe(0);
+
+    const refundId = await settledRefundIdOf(order.id);
+    const result = await reverseRefund(
+      order.id,
+      { refundId, note: 'sent to the wrong customer' },
+      DINNER,
+    );
+    expect(result).toEqual({ ok: true, amountCents: order.totalCents });
+
+    const after = await reload(order.id);
+    // OWED AGAIN — the one deliberate undo of C-127's "closed fact" stance,
+    // scoped to exactly this refund.
+    expect(orderBalance(after).outstandingCents).toBe(order.totalCents);
+    // The original `refund` row is untouched: still there, still the same
+    // amount, still the same provider reference.
+    const original = await prisma.orderEvent.findUniqueOrThrow({ where: { id: refundId } });
+    expect(original.amountCents).toBe(order.totalCents);
+    expect(original.providerRef).not.toBeNull();
+    // Two rows, not a delete and not an edit.
+    expect(
+      await prisma.orderEvent.count({ where: { orderId: order.id, kind: { in: ['refund', 'refund_reversed'] } } }),
+    ).toBe(2);
+  });
+
+  it('names the specific refund it corrects', async () => {
+    const order = await place({ paidNow: true });
+    await requestRefund(order.id, { amountCents: 500, reason: 'quality' }, DINNER);
+    const refundId = await settledRefundIdOf(order.id);
+    await reverseRefund(order.id, { refundId, note: 'mistake' }, DINNER);
+
+    const row = await prisma.orderEvent.findFirstOrThrow({
+      where: { orderId: order.id, kind: 'refund_reversed' },
+    });
+    expect(row.refundReversalOfId).toBe(refundId);
+    expect(row.amountCents).toBe(500);
+  });
+
+  it('refuses to reverse the same refund twice', async () => {
+    const order = await place({ paidNow: true });
+    await requestRefund(order.id, { amountCents: 500, reason: 'quality' }, DINNER);
+    const refundId = await settledRefundIdOf(order.id);
+    await reverseRefund(order.id, { refundId, note: 'first' }, DINNER);
+
+    const second = await reverseRefund(order.id, { refundId, note: 'again' }, DINNER);
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.reason).toBe('refund_reversal_already_reversed');
+  });
+
+  // THE CONSTRAINT IS THE MECHANISM, the same argument every unique index in
+  // this file makes: two staff correcting the same refund at once must not
+  // both land. The app-level check above catches the ordinary case; this
+  // proves the database itself refuses the race the app-level check cannot
+  // see — a second write racing between the first's read and its write.
+  it('refuses a raced double reversal at the database, not just in the app', async () => {
+    const order = await place({ paidNow: true });
+    await requestRefund(order.id, { amountCents: 500, reason: 'quality' }, DINNER);
+    const refundId = await settledRefundIdOf(order.id);
+    await reverseRefund(order.id, { refundId, note: 'first' }, DINNER);
+
+    await expect(
+      prisma.orderEvent.create({
+        data: { orderId: order.id, at: DINNER, kind: 'refund_reversed', actor: 'staff', amountCents: 500, refundReversalOfId: refundId },
+      }),
+    ).rejects.toThrow(/unique/i);
+  });
+
+  it('refuses a refund this order does not have', async () => {
+    const order = await place({ paidNow: true });
+    const result = await reverseRefund(
+      order.id,
+      { refundId: 'not-on-this-order', note: 'wrong id' },
+      DINNER,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('refund_reversal_target_not_found');
+  });
+
+  it('says so rather than throwing when the order is gone', async () => {
+    const result = await reverseRefund(
+      '00000000-0000-4000-8000-000000000000',
+      { refundId: 'whatever', note: 'wrong id' },
+      DINNER,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('order_not_found');
   });
 });

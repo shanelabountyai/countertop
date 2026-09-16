@@ -33,6 +33,7 @@ describe('paymentTotals', () => {
     expect(paymentTotals([payment(3420), refund(300), adjustment(500)])).toEqual({
       capturedCents: 3420,
       refundedCents: 300,
+      refundReversedCents: 0,
       adjustedCents: 500,
       authorizedCents: 0,
     });
@@ -42,6 +43,7 @@ describe('paymentTotals', () => {
     expect(paymentTotals([move(), payment(1456), move()])).toEqual({
       capturedCents: 1456,
       refundedCents: 0,
+      refundReversedCents: 0,
       adjustedCents: 0,
       authorizedCents: 0,
     });
@@ -51,6 +53,7 @@ describe('paymentTotals', () => {
     expect(paymentTotals([])).toEqual({
       capturedCents: 0,
       refundedCents: 0,
+      refundReversedCents: 0,
       adjustedCents: 0,
       authorizedCents: 0,
     });
@@ -232,6 +235,7 @@ describe('paymentTotals under a reversal', () => {
     expect(paymentTotals([payment(3420), adjustment(1000), reversed(400)])).toEqual({
       capturedCents: 3420,
       refundedCents: 0,
+      refundReversedCents: 0,
       adjustedCents: 600,
       authorizedCents: 0,
     });
@@ -257,6 +261,47 @@ describe('paymentTotals under a reversal', () => {
   });
 });
 
+// C-133. A refund reversal is the one deliberate re-inversion of C-127's
+// "closed fact" stance: `refundedCents` stays RAW (the money really did
+// leave), and `refundReversedCents` is a separate figure added back onto
+// `outstandingCents` alone.
+describe('paymentTotals under a refund reversal', () => {
+  const reversedRefund = (amountCents: number): MoneyEvent => ({
+    kind: 'refund_reversed',
+    amountCents,
+  });
+
+  it('adds a new figure without touching refundedCents', () => {
+    expect(paymentTotals([payment(3420), refund(300), reversedRefund(300)])).toEqual({
+      capturedCents: 3420,
+      refundedCents: 300,
+      refundReversedCents: 300,
+      adjustedCents: 0,
+      authorizedCents: 0,
+    });
+  });
+
+  // THE POINT: reopening what is owed without pretending the money is back in
+  // the till. `collectedCents` — the pool available to refund again — does
+  // NOT move, because the restaurant does not, in fact, hold this money; it
+  // is `outstandingCents` — what the customer owes — that reopens.
+  it('reopens outstandingCents without reopening collectedCents', () => {
+    const order = { totalCents: 3420, events: [payment(3420), refund(3420), reversedRefund(3420)] };
+    expect(orderBalance(order)).toEqual({ collectedCents: 0, outstandingCents: 3420 });
+  });
+
+  // THE THREE-BUCKET INVARIANT NOW HAS A FOURTH DOCUMENTED EXCEPTION
+  // (`docs/WRITEUP.md`), the same shape the comp term and the hold term
+  // already are: `refunded` (300, the honest fact it left) and `outstanding`
+  // (300, it should come back) both count this same amount on purpose.
+  it('double-counts the reversed slice across refunded and outstanding, on purpose', () => {
+    const order = { totalCents: 3420, events: [payment(3420), refund(300), reversedRefund(300)] };
+    const balance = orderBalance(order);
+    const { refundedCents } = paymentTotals(order.events);
+    expect(balance.collectedCents + balance.outstandingCents + refundedCents).toBe(3420 + 300);
+  });
+});
+
 // PRD 3 P1-1 (C-069). A hold is a third thing the enum could not say: not
 // collected, and not owed. The arithmetic is all here, because that is what
 // keeps `MoneyEvent` two scalars — a capture and a void carry the amount they
@@ -273,6 +318,7 @@ describe('a hold, held and settled', () => {
     expect(paymentTotals([held(3507)])).toEqual({
       capturedCents: 0,
       refundedCents: 0,
+      refundReversedCents: 0,
       adjustedCents: 0,
       authorizedCents: 3507,
     });
@@ -310,6 +356,7 @@ describe('a hold, held and settled', () => {
     expect(paymentTotals(events)).toEqual({
       capturedCents: 0,
       refundedCents: 0,
+      refundReversedCents: 0,
       adjustedCents: 0,
       authorizedCents: 0,
     });

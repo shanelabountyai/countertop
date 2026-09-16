@@ -165,6 +165,11 @@ export function describeEvent(entry: {
       // is somebody reconciling a till at midnight, and what they need to know
       // is that the money went back ON the bill.
       return 'Adjustment put back';
+    case 'refund_reversed':
+      // The refund's own mirror (C-133), same word for the same reason: the
+      // refund above this row is still there, still says who sent it, and
+      // this is a second decision — the money owed again — beside it.
+      return 'Refund put back';
   }
 }
 
@@ -248,7 +253,12 @@ export function describeEventReason(entry: {
   if (entry.kind === 'revert') {
     return REVERT_REASON_LABEL[entry.reason as RevertReason] ?? entry.reason;
   }
-  if (entry.kind !== 'adjustment' && entry.kind !== 'adjustment_reversed' && entry.kind !== 'remake') {
+  if (
+    entry.kind !== 'adjustment' &&
+    entry.kind !== 'adjustment_reversed' &&
+    entry.kind !== 'refund_reversed' &&
+    entry.kind !== 'remake'
+  ) {
     return entry.reason;
   }
   return ADJUSTMENT_REASON_LABEL[entry.reason as AdjustmentReason] ?? entry.reason;

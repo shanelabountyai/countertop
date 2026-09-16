@@ -238,6 +238,125 @@ describe('one settled refund per request (P0-6)', () => {
   });
 });
 
+// C-133. `refund_reversed` is new with its own column, so the CHECK is an
+// EQUIVALENCE in both directions — unlike `adjustment_reversed`'s, which has
+// to be lenient about rows written before its own link column existed.
+describe('a refund reversal names its refund (C-133)', () => {
+  beforeEach(resetDatabase);
+
+  const withSettledRefund = async () => {
+    const created = await prisma.order.create({
+      data: {
+        ...order(),
+        events: {
+          create: [
+            { at: AT, kind: 'refund_requested', actor: 'staff', amountCents: 500 },
+            { at: AT, kind: 'refund', actor: 'staff', amountCents: 500 },
+          ],
+        },
+      },
+      include: { events: true },
+    });
+    const settled = created.events.find((event) => event.kind === 'refund');
+    if (!settled) throw new Error('no settled refund created');
+    return settled;
+  };
+
+  it('requires the link on a reversal and refuses it everywhere else', async () => {
+    const settled = await withSettledRefund();
+    await expect(
+      prisma.orderEvent.create({
+        data: { orderId: settled.orderId, at: AT, kind: 'refund_reversed', actor: 'staff', amountCents: 500 },
+      }),
+    ).rejects.toThrow(/order_event_refund_reversal_link_matches_kind/i);
+
+    await expect(
+      prisma.orderEvent.create({
+        data: {
+          orderId: settled.orderId,
+          at: AT,
+          kind: 'note',
+          actor: 'staff',
+          refundReversalOfId: settled.id,
+          detail: { note: 'not a reversal' },
+        },
+      }),
+    ).rejects.toThrow(/order_event_refund_reversal_link_matches_kind/i);
+  });
+
+  it('refuses a second reversal against the same refund', async () => {
+    const settled = await withSettledRefund();
+    await prisma.orderEvent.create({
+      data: {
+        orderId: settled.orderId,
+        at: AT,
+        kind: 'refund_reversed',
+        actor: 'staff',
+        amountCents: 500,
+        refundReversalOfId: settled.id,
+      },
+    });
+    await expect(
+      prisma.orderEvent.create({
+        data: {
+          orderId: settled.orderId,
+          at: AT,
+          kind: 'refund_reversed',
+          actor: 'staff',
+          amountCents: 500,
+          refundReversalOfId: settled.id,
+        },
+      }),
+    ).rejects.toThrow(/unique/i);
+  });
+});
+
+// C-133. UNLIKE the refund link above, this one predates its own column
+// (`adjustment_reversed` since C-071), so the CHECK is one-directional: a
+// reversal may still leave it null, but nothing else may claim it.
+describe('a comp reversal that names its comp (C-133)', () => {
+  beforeEach(resetDatabase);
+
+  it('refuses the link on an event that is not a reversal', async () => {
+    const created = await prisma.order.create({
+      data: {
+        ...order(),
+        events: { create: { at: AT, kind: 'adjustment', actor: 'staff', amountCents: 500 } },
+      },
+      include: { events: true },
+    });
+    const [comp] = created.events;
+    if (!comp) throw new Error('no comp created');
+
+    await expect(
+      prisma.orderEvent.create({
+        data: {
+          orderId: created.id,
+          at: AT,
+          kind: 'note',
+          actor: 'staff',
+          adjustmentReversalOfId: comp.id,
+          detail: { note: 'not a reversal' },
+        },
+      }),
+    ).rejects.toThrow(/order_event_adjustment_reversal_link_matches_kind/i);
+  });
+
+  it('accepts a reversal that leaves the link null — a pre-C-133 row', async () => {
+    const created = await prisma.order.create({
+      data: {
+        ...order(),
+        events: { create: { at: AT, kind: 'adjustment', actor: 'staff', amountCents: 500 } },
+      },
+    });
+    await expect(
+      prisma.orderEvent.create({
+        data: { orderId: created.id, at: AT, kind: 'adjustment_reversed', actor: 'staff', amountCents: 500 },
+      }),
+    ).resolves.toMatchObject({ adjustmentReversalOfId: null });
+  });
+});
+
 describe('deterministic ticket ordering', () => {
   beforeEach(resetDatabase);
 

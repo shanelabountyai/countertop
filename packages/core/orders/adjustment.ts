@@ -130,7 +130,12 @@ export type AdjustmentRefusalReason =
   | 'adjustment_exceeds_total'
   | 'nothing_left_to_adjust'
   | 'reversal_exceeds_adjusted'
-  | 'nothing_to_reverse';
+  | 'nothing_to_reverse'
+  /** A reversal named no comp, or named one this order does not have (C-133).
+   *  Unreachable from the rendered form — it always sends the id of a comp it
+   *  just listed — so reaching this means a hand-crafted request. */
+  | 'reversal_target_required'
+  | 'reversal_target_not_found';
 
 export type AdjustmentInput = {
   kind: AdjustmentKind;
@@ -142,19 +147,67 @@ export type AdjustmentInput = {
   amountCents?: number;
   reason: AdjustmentReason;
   note?: string;
+  /** WHICH comp a reversal is about (C-133). Required exactly when `kind` is
+   *  `reversal` — an order can carry more than one comp, and a reversal with
+   *  no link corrects the order's aggregate rather than any one decision,
+   *  which is the gap this closes: the bound below is that comp's own
+   *  remaining amount, not the order's net. */
+  reversalOfId?: string;
 };
 
 export type AdjustmentResult =
   | { ok: true; event: OrderEventDraft }
   | { ok: false; reason: AdjustmentRefusalReason; message: string };
 
+/** An adjustment event widened by the two columns a reversal needs to name
+ *  its target and be found by name (C-133). A database row satisfies it
+ *  structurally, like every other input here. */
+export type AdjustmentEvent = MoneyEvent & {
+  id?: string;
+  /** Set on `adjustment_reversed` only — which specific comp this row
+   *  corrects. Optional because most callers of `adjustmentEvent` never
+   *  reach the reversal branch and have no reason to select it. */
+  adjustmentReversalOfId?: string | null;
+};
+
 /** Enough of an order to adjust it. A database row satisfies it structurally,
  *  like every other input here. */
 export type AdjustableOrder = {
   /** The snapshot's total. Read, never written. */
   totalCents: number;
-  events: readonly MoneyEvent[];
+  events: readonly AdjustmentEvent[];
 };
+
+/** How much of ONE comp has not been taken back yet (C-133). The reversal's
+ *  own bound: what that specific row gave away, less whatever reversals
+ *  already name it — cumulative the same way `adjustableRemainingCents` is,
+ *  so reversing the same comp twice cannot take back more than it gave. */
+function targetRemainingCents(events: readonly AdjustmentEvent[], targetId: string): number {
+  const reversedAgainstTarget = events.reduce(
+    (sum, event) =>
+      event.kind === 'adjustment_reversed' && event.adjustmentReversalOfId === targetId
+        ? sum + (event.amountCents ?? 0)
+        : sum,
+    0,
+  );
+  const target = events.find((event) => event.id === targetId);
+  return Math.max(0, (target?.amountCents ?? 0) - reversedAgainstTarget);
+}
+
+/** The comps a reversal control may offer right now (C-133): every `adjustment`
+ *  on this order with something still un-taken-back against it. One answer,
+ *  so the screen's dropdown and the engine's own lookup cannot disagree about
+ *  which comps are live. */
+export function reversibleAdjustments(
+  events: readonly AdjustmentEvent[],
+): { id: string; amountCents: number }[] {
+  const isComp = (event: AdjustmentEvent): event is AdjustmentEvent & { id: string } =>
+    event.kind === 'adjustment' && event.id !== undefined;
+  return events
+    .filter(isComp)
+    .map((event) => ({ id: event.id, amountCents: targetRemainingCents(events, event.id) }))
+    .filter((entry) => entry.amountCents > 0);
+}
 
 /**
  * How much of this order has not been adjusted away yet.
@@ -225,16 +278,35 @@ export function adjustmentEvent(
     return refuse('adjustment_note_required', 'Say what was wrong with the original.');
   }
 
+  // A REVERSAL NAMES ITS COMP (C-133). Required before the bound is even
+  // computed, because the bound IS that comp's own remaining amount — an
+  // order carrying two comps can no longer answer "how much is left to take
+  // back" with one number for both of them.
+  let reversalTargetId: string | undefined;
+  if (isReversal(input.kind)) {
+    if (!input.reversalOfId) {
+      return refuse('reversal_target_required', 'Pick which comp this corrects.');
+    }
+    const targetExists = order.events.some(
+      (event) => event.id === input.reversalOfId && event.kind === 'adjustment',
+    );
+    if (!targetExists) {
+      return refuse('reversal_target_not_found', 'That comp could not be found on this order.');
+    }
+    reversalTargetId = input.reversalOfId;
+  }
+
   // THE BOUND IS THE MIRROR. Comp and partial spend what is left of the order;
-  // a reversal spends what has already been given away — `paymentTotals`' NET
-  // `adjustedCents`, which has the reversals already subtracted out of it, so
-  // reversing twice cannot take back more than was ever comped.
+  // a reversal spends what its OWN comp gave away and has not already taken
+  // back — `targetRemainingCents`, scoped to the one row it names rather than
+  // the order's net, so reversing twice cannot take back more than that comp
+  // ever gave, and a second comp's room cannot be borrowed by mistake.
   const boundCents = isReversal(input.kind)
-    ? paymentTotals(order.events).adjustedCents
+    ? targetRemainingCents(order.events, reversalTargetId!)
     : adjustableRemainingCents(order);
   if (boundCents === 0) {
     return isReversal(input.kind)
-      ? refuse('nothing_to_reverse', 'There is nothing on this order left to take back.')
+      ? refuse('nothing_to_reverse', 'There is nothing left on this comp to take back.')
       : refuse('nothing_left_to_adjust', 'This order has already been adjusted in full.');
   }
 
@@ -249,7 +321,7 @@ export function adjustmentEvent(
     return isReversal(input.kind)
       ? refuse(
           'reversal_exceeds_adjusted',
-          `That is more than the ${formatBoundCents(boundCents)} taken off this order.`,
+          `That is more than the ${formatBoundCents(boundCents)} left on this comp.`,
         )
       : refuse(
           'adjustment_exceeds_total',
@@ -277,6 +349,7 @@ export function adjustmentEvent(
       // GROUP BY rather than a scan of typed sentences.
       reason: input.reason,
       amountCents,
+      ...(reversalTargetId === undefined ? {} : { adjustmentReversalOfId: reversalTargetId }),
       detail: {
         amountCents,
         adjustment: input.kind,

@@ -30,6 +30,8 @@ import {
   pointsToNextReward,
   pendingRefunds,
   previousStatus,
+  reversibleAdjustments,
+  reversibleRefunds,
   REVERT_REASONS,
   UNDOABLE_EXIT_STATUSES,
 } from '@countertop/core';
@@ -53,6 +55,7 @@ import {
   addOrderNoteForm,
   adjustOrderForm,
   refundOrderForm,
+  reverseRefundForm,
   collectPayment,
   forgetCustomerForm,
   redeemRewardForm,
@@ -74,13 +77,22 @@ export default async function OrderHistoryDetailPage({
     redeemError?: string;
     revertError?: string;
     refundError?: string;
+    refundReversalError?: string;
     noteError?: string;
     forget?: string;
   }>;
 }) {
   const { id } = await params;
-  const { adjustError, reversalError, redeemError, revertError, refundError, noteError, forget } =
-    await searchParams;
+  const {
+    adjustError,
+    reversalError,
+    redeemError,
+    revertError,
+    refundError,
+    refundReversalError,
+    noteError,
+    forget,
+  } = await searchParams;
   const [gateState, order, activity, remakes, notifications] = await Promise.all([
     loadGateState(new Date()),
     findOrderByIdForStaff(id),
@@ -111,7 +123,7 @@ export default async function OrderHistoryDetailPage({
 
   // Both read from the SAME events the balance is summed from, so the figure
   // the form bounds itself by and the figure the server enforces cannot drift.
-  const { adjustedCents } = paymentTotals(order.events);
+  const { adjustedCents, refundReversedCents } = paymentTotals(order.events);
   const remainingCents = adjustableRemainingCents(order);
   const balance = orderBalance(order);
 
@@ -122,6 +134,12 @@ export default async function OrderHistoryDetailPage({
   // both ask, and the exceptions QUERY asks the same question of the same two
   // columns.
   const pending = pendingRefunds(order.events);
+
+  // The comps and the settled refunds a reversal control may still name
+  // (C-133). Same `order.events` every other panel on this page reads, so the
+  // dropdown and the write path cannot disagree about what is live.
+  const reversibleComps = reversibleAdjustments(order.events);
+  const reversibleSettledRefunds = reversibleRefunds(order.events);
 
   // Whether the reward can be spent, asked of the SAME function the write
   // asks (C-104) — so a button that renders is a button that works, and a
@@ -403,14 +421,27 @@ export default async function OrderHistoryDetailPage({
               fact beside the money, not an edit to it. Rendering it as a
               smaller total would be the exact defect the requirement's
               "never updates subtotalCents/taxCents/totalCents" forbids, done
-              in CSS instead of SQL. */}
-          {adjustedCents > 0 && (
+              in CSS instead of SQL.
+
+              GATED ON EITHER, not just `adjustedCents` (C-133): a reversed
+              refund reopens `outstandingCents` on an order nobody ever
+              comped, and the old single condition left that case with no
+              "Still owed" line at all — the balance moved and the receipt
+              said nothing. The "Adjusted" row itself stays comp-only; a
+              reversed refund has its own line in the Activity log below. */}
+          {(adjustedCents > 0 || refundReversedCents > 0) && (
             <>
-              <div className="flex justify-between border-t border-neutral-300 pt-2 text-sm">
-                <dt>Adjusted</dt>
-                <dd data-testid="history-adjusted">−{formatCents(adjustedCents)}</dd>
-              </div>
-              <div className="flex justify-between text-lg font-semibold">
+              {adjustedCents > 0 && (
+                <div className="flex justify-between border-t border-neutral-300 pt-2 text-sm">
+                  <dt>Adjusted</dt>
+                  <dd data-testid="history-adjusted">−{formatCents(adjustedCents)}</dd>
+                </div>
+              )}
+              <div
+                className={`flex justify-between text-lg font-semibold ${
+                  adjustedCents > 0 ? '' : 'border-t border-neutral-300 pt-2'
+                }`}
+              >
                 <dt>Still owed</dt>
                 <dd data-testid="history-outstanding">{formatCents(balance.outstandingCents)}</dd>
               </div>
@@ -614,7 +645,7 @@ export default async function OrderHistoryDetailPage({
           something left to adjust, and this needs something already adjusted.
           On a fully comped order the first is gone and this is the only money
           control on the screen. */}
-      {adjustedCents > 0 && (
+      {reversibleComps.length > 0 && (
         <section className="mt-6 rounded-lg border border-neutral-300 p-4">
           <h2 className="font-semibold">Put an adjustment back</h2>
           <p className="mt-1 text-sm text-neutral-600">
@@ -635,6 +666,34 @@ export default async function OrderHistoryDetailPage({
 
           <form action={adjustOrderForm} className="mt-3 flex flex-col gap-3">
             <input type="hidden" name="orderId" value={order.id} />
+            {/* WHICH comp this corrects (C-133) — bounded by that comp's own
+                remaining amount, not the order's net, so a second comp's room
+                cannot be borrowed by mistake. A single reversible comp is the
+                ordinary case and skips the question the screen already knows
+                the answer to. */}
+            {reversibleComps.length === 1 ? (
+              <input type="hidden" name="reversalOfId" value={reversibleComps[0]!.id} />
+            ) : (
+              <label className="flex flex-col gap-1">
+                <span className="text-sm font-medium">Which comp</span>
+                <select
+                  name="reversalOfId"
+                  required
+                  defaultValue=""
+                  data-testid="reversal-target"
+                  className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+                >
+                  <option value="" disabled>
+                    Pick one
+                  </option>
+                  {reversibleComps.map((comp) => (
+                    <option key={comp.id} value={comp.id}>
+                      {formatCents(comp.amountCents)} still on this comp
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {/* No reason dropdown: there is one reason to take a comp back, the
                 action writes it, and the note is where it is explained. The
                 note is REQUIRED — money going back onto a customer's bill is
@@ -798,6 +857,87 @@ export default async function OrderHistoryDetailPage({
                 Send it back
               </button>
             </div>
+          </form>
+        </section>
+      )}
+
+      {/* A refund taken back (C-133): the money's own mirror of "Put an
+          adjustment back" above, for the case that control cannot reach — a
+          refund really did call the provider, so correcting one is a
+          separate fact from correcting a comp, and it gets its own section
+          for the same reason: it appears under a condition of its own
+          (something settled and not yet corrected), and a form's implicit
+          submission must not let Enter in a note field re-send a customer's
+          money instead. */}
+      {reversibleSettledRefunds.length > 0 && (
+        <section className="mt-6 rounded-lg border border-neutral-300 p-4">
+          <h2 className="font-semibold">Reverse a refund</h2>
+          <p className="mt-1 text-sm text-neutral-600">
+            Sent to the wrong place? This flags the refund as a mistake and
+            puts the money back on what this order owes — it does not call the
+            provider. The original refund stays in the log exactly as it was.
+          </p>
+
+          {refundReversalError && (
+            <p
+              role="status"
+              data-testid="refund-reversal-error"
+              className="mt-3 rounded-lg border border-red-700 bg-red-50 p-3 text-sm font-semibold text-red-900"
+            >
+              {refundReversalError}
+            </p>
+          )}
+
+          <form action={reverseRefundForm} className="mt-3 flex flex-col gap-3">
+            <input type="hidden" name="orderId" value={order.id} />
+            {reversibleSettledRefunds.length === 1 ? (
+              <input type="hidden" name="refundId" value={reversibleSettledRefunds[0]!.id} />
+            ) : (
+              <label className="flex flex-col gap-1">
+                <span className="text-sm font-medium">Which refund</span>
+                <select
+                  name="refundId"
+                  required
+                  defaultValue=""
+                  data-testid="refund-reversal-target"
+                  className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+                >
+                  <option value="" disabled>
+                    Pick one
+                  </option>
+                  {reversibleSettledRefunds.map((refund) => (
+                    <option key={refund.id} value={refund.id}>
+                      {formatCents(refund.amountCents)} refunded
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {/* No reason dropdown, the same argument the comp's reversal makes:
+                there is one reason to take a refund back, and the note is
+                where it is explained. REQUIRED for the same reason — money
+                coming back onto a bill is the one correction nobody should be
+                able to make silently. */}
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium">What was wrong with the original</span>
+              <input
+                type="text"
+                name="note"
+                required
+                maxLength={140}
+                data-testid="refund-reversal-note"
+                placeholder="Sent to the wrong customer"
+                className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
+              />
+            </label>
+
+            <button
+              type="submit"
+              data-testid="reverse-refund"
+              className="min-h-12 rounded-lg border-2 border-neutral-900 px-4 text-lg font-bold"
+            >
+              Reverse it
+            </button>
           </form>
         </section>
       )}

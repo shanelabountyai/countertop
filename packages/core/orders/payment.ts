@@ -45,6 +45,7 @@ const sumOf = (events: readonly MoneyEvent[], kind: OrderEventKind): number =>
 export function paymentTotals(events: readonly MoneyEvent[]): {
   capturedCents: number;
   refundedCents: number;
+  refundReversedCents: number;
   adjustedCents: number;
   authorizedCents: number;
 } {
@@ -56,7 +57,19 @@ export function paymentTotals(events: readonly MoneyEvent[]): {
     // place that has to know there are two of them — which is the whole reason
     // nothing outside this file sums the log by hand.
     capturedCents: sumOf(events, 'payment') + sumOf(events, 'capture'),
+    // RAW, deliberately NOT netted against a reversal (C-133) — unlike
+    // `adjustedCents` below. A comp never called a provider, so taking one
+    // back is pure bookkeeping and the net is the whole truth. A refund
+    // really did leave through the provider, so `refundedCents` stays the
+    // honest record that it went; `refundReversedCents` is a second, separate
+    // fact — that it should not have — and `outstandingCents` is where that
+    // fact lands, not here.
     refundedCents: sumOf(events, 'refund'),
+    /** A refund flagged as sent in error (C-133). Its own figure rather than
+     *  folded into `refundedCents`, for the reason above: two facts, two
+     *  numbers, so a reader can see both the money that left and the part of
+     *  it that should not have without one erasing the other. */
+    refundReversedCents: sumOf(events, 'refund_reversed'),
     adjustedCents: Math.max(
       0,
       sumOf(events, 'adjustment') - sumOf(events, 'adjustment_reversed'),
@@ -176,9 +189,8 @@ export type OrderBalance = {
  * of its own rather than an adjustment to net sales.
  */
 export function orderBalance(order: OrderMoney): OrderBalance {
-  const { capturedCents, refundedCents, adjustedCents, authorizedCents } = paymentTotals(
-    order.events,
-  );
+  const { capturedCents, refundedCents, refundReversedCents, adjustedCents, authorizedCents } =
+    paymentTotals(order.events);
   const collectedCents = Math.max(0, capturedCents - refundedCents);
   return {
     collectedCents,
@@ -213,9 +225,21 @@ export function orderBalance(order: OrderMoney): OrderBalance {
     // the unclaimed part of the ticket. Neither answer is right — the data is
     // wrong — and this one is at least arrived at by the same arithmetic as
     // every other.
+    // `+ refundReversedCents` IS THE FOURTH DOCUMENTED EXCEPTION to
+    // "collected + outstanding + refunded = revenue" (C-133), following
+    // exactly the precedent the comp term and the hold term already set two
+    // paragraphs up: a reversed refund is flagged as money that should not
+    // have left, so it goes back on what the ticket owes — the one deliberate
+    // undo of C-127's "closed fact" stance, scoped to exactly the slice a
+    // human said was a mistake. `refundedCents` above is UNCHANGED by it on
+    // purpose, so the reversed amount is now counted in both `refunded` (it
+    // really did leave) and `outstanding` (it should come back) — the same
+    // kind of double appearance C-065's comp already causes against `booked`,
+    // and for the same reason: two honest facts about one order are not
+    // required to add up like one.
     outstandingCents: Math.max(
       0,
-      order.totalCents - capturedCents - adjustedCents - authorizedCents,
+      order.totalCents - capturedCents - adjustedCents - authorizedCents + refundReversedCents,
     ),
   };
 }

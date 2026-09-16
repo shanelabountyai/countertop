@@ -1,0 +1,13 @@
+-- ---------------------------------------------------------------------------
+-- C-133: `refund_reversed` — a refund taken back.
+--
+-- ITS OWN FILE, and not by preference, exactly as `adjustment_reversed`'s was
+-- (20260906090000): Postgres refuses a new enum value used in the transaction
+-- that created it, and the next migration's CHECK names this value.
+--
+-- `refund`'s own mirror of `adjustment_reversed` (C-071): the counter sent
+-- money to the wrong place, and the log is append-only, so the correction was
+-- never going to be a delete. Points at the specific `refund` it corrects —
+-- the next migration adds that column and the CHECK behind it.
+-- ---------------------------------------------------------------------------
+ALTER TYPE "OrderEventKind" ADD VALUE 'refund_reversed';

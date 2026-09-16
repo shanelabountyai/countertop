@@ -38,11 +38,14 @@ import {
   formatBoundCents,
   orderBalance,
   pendingRefunds,
+  refundReversalEvent,
   refundRequestEvent,
   type EventActor,
   type PendingRefund,
   type RefundRefusalReason,
   type RefundRequestInput,
+  type RefundReversalInput,
+  type RefundReversalRefusalReason,
 } from '@countertop/core';
 import { Prisma, prisma } from './index';
 import { mockPaymentProvider, type PaymentProvider } from './provider';
@@ -346,6 +349,74 @@ export async function requestRefund(
   // a lock on somebody else's timetable, and a refund that fails must leave
   // the ask standing rather than rolling it back into nothing.
   return settleRefund(orderId, now, staffId, provider, request.id);
+}
+
+export type ReverseRefundResult =
+  | { ok: true; amountCents: number }
+  | {
+      ok: false;
+      reason: RefundReversalRefusalReason | 'order_not_found' | 'raced';
+      message: string;
+    };
+
+/**
+ * Flag a settled refund as sent in error (C-133).
+ *
+ * NO PROVIDER CALL, unlike everything else in this file. Getting the money
+ * back from wherever it wrongly went is a real-world follow-up this row does
+ * not automate — the same honest gap `authorization_voided`'s `capture_failed`
+ * reason leaves for a hold that could not be turned into money. What this
+ * writes is the fact a person needs first: the refund was a mistake, and the
+ * order is owing again because of it. `orderBalance`'s `outstandingCents`
+ * reads the event the moment it lands.
+ *
+ * ONE WRITE, no transaction to coordinate — unlike `settleRefund`, which also
+ * has to recompute `paymentState`. A reversal does not touch that cache
+ * (C-133 follows C-071's own precedent: a comp's reversal never did either),
+ * so there is nothing here for a second statement to keep in step with.
+ */
+export async function reverseRefund(
+  orderId: string,
+  input: RefundReversalInput,
+  now: Date,
+  /** Who decided (PRD 6 P0-2). Never automatic — there is no honest system
+   *  reading of "this refund was a mistake"; a person has to say so. */
+  staffId?: string | null,
+): Promise<ReverseRefundResult> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      totalCents: true,
+      events: {
+        select: { id: true, kind: true, amountCents: true, refundRequestId: true, refundReversalOfId: true },
+      },
+    },
+  });
+  if (!order) {
+    return { ok: false, reason: 'order_not_found', message: 'That order could not be found.' };
+  }
+
+  const built = refundReversalEvent(order, input, now);
+  if (!built.ok) return built;
+
+  try {
+    await prisma.orderEvent.create({
+      data: { orderId, ...eventRow(built.event, staffId) },
+    });
+  } catch (error) {
+    // The partial unique index behind `refundReversalOfId`: somebody else
+    // reversed this exact refund between the lookup above and this write.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return {
+        ok: false,
+        reason: 'raced',
+        message: 'Someone else already reversed this refund. Reload the receipt.',
+      };
+    }
+    throw error;
+  }
+
+  return { ok: true, amountCents: built.amountCents };
 }
 
 /** A message from something thrown across a boundary this code does not own.

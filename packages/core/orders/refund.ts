@@ -23,21 +23,31 @@
 // and returns an event to append; it reads no clock and no database.
 import { MAX_CANCEL_NOTE_LENGTH, type OrderEventDraft } from './state-machine';
 import { formatBoundCents, orderBalance, type MoneyEvent, type OrderMoney } from './payment';
-import { isStaffAdjustmentReason, type AdjustmentReason } from './adjustment';
+import {
+  ADJUSTMENT_REVERSAL_REASON,
+  isStaffAdjustmentReason,
+  type AdjustmentReason,
+} from './adjustment';
 
 /**
  * Enough of a refund event to place it against its request.
  *
- * `MoneyEvent` plus the two columns that turn a flat log into a set of claims:
+ * `MoneyEvent` plus the columns that turn a flat log into a set of claims:
  * the row's own id — which IS the idempotency key, so a request is identified
- * by the same value the provider is given — and the link an attempt carries
- * back to the request it was made against.
+ * by the same value the provider is given — the link an attempt carries back
+ * to the request it was made against, and the link a reversal carries back to
+ * the specific settled refund it corrects (C-133).
  *
  * A database row satisfies it structurally, like every other input here.
  */
 export type RefundEvent = MoneyEvent & {
   id: string;
   refundRequestId: string | null;
+  /** Set only on `refund_reversed` — which settled `refund` this row
+   *  corrects. Optional because every OTHER caller of this module's
+   *  functions never reaches the reversal branch and has no reason to
+   *  select it. */
+  refundReversalOfId?: string | null;
 };
 
 /** A refund the restaurant has asked for and not yet sent. */
@@ -242,3 +252,114 @@ const refuse = (reason: RefundRefusalReason, message: string): RefundRequestResu
   reason,
   message,
 });
+
+/**
+ * A settled refund not yet corrected (C-133) — what a reversal control may
+ * offer. ONE ANSWER, the way `pendingRefunds` is one answer to "what is owed":
+ * the screen's dropdown and `refundReversalEvent`'s own lookup below both ask
+ * this, so they cannot disagree about which refunds are live.
+ */
+export function reversibleRefunds(events: readonly RefundEvent[]): { id: string; amountCents: number }[] {
+  const reversed = new Set(
+    events
+      .filter((event) => event.kind === 'refund_reversed')
+      .map((event) => event.refundReversalOfId),
+  );
+  return events
+    .filter((event) => event.kind === 'refund' && !reversed.has(event.id))
+    .map((event) => ({ id: event.id, amountCents: event.amountCents ?? 0 }));
+}
+
+export type RefundReversalRefusalReason =
+  | 'refund_reversal_note_required'
+  | 'refund_reversal_note_too_long'
+  | 'refund_reversal_target_not_found'
+  | 'refund_reversal_already_reversed';
+
+export type RefundReversalInput = {
+  /** The settled `refund` row this corrects. Untrusted, and it does not need
+   *  to be trusted — the lookup below finds it among THIS order's own
+   *  settled refunds, so an id belonging to another order finds nothing. */
+  refundId: string;
+  /** ALWAYS required, whatever a dropdown could offer as a reason: there is
+   *  one reason to take a refund back, the same one a comp's reversal writes
+   *  (`ADJUSTMENT_REVERSAL_REASON`), and the note is where it is explained —
+   *  money that left twice over is the one mistake nobody should be able to
+   *  flag silently. */
+  note: string;
+};
+
+export type RefundReversalResult =
+  | { ok: true; event: OrderEventDraft; amountCents: number }
+  | { ok: false; reason: RefundReversalRefusalReason; message: string };
+
+/**
+ * Validate a refund reversal and produce the event to append, or refuse it.
+ *
+ * A FULL REVERSAL OF ONE REFUND, never a partial one — unlike a comp's, which
+ * can be taken back in part because the ordinary case is two comps and one of
+ * them wrong. A refund is already the granular unit (a deliberate refund can
+ * be issued for part of a balance and settled on its own), so "the wrong
+ * refund went out" has one honest correction: all of it, named by the row it
+ * corrects. The amount is DERIVED from that row, the same way a comp's own
+ * amount is — never a number this function trusts from a caller.
+ */
+export function refundReversalEvent(
+  order: RefundableOrder,
+  input: RefundReversalInput,
+  now: Date,
+): RefundReversalResult {
+  if (!input.note.trim()) {
+    return refuseReversal('refund_reversal_note_required', 'Say what was wrong with the original.');
+  }
+  if (input.note.length > MAX_CANCEL_NOTE_LENGTH) {
+    return refuseReversal(
+      'refund_reversal_note_too_long',
+      `Keep the note to ${MAX_CANCEL_NOTE_LENGTH} characters.`,
+    );
+  }
+
+  // Assigned rather than read inline: `RefundableOrder`'s `events` is an
+  // intersection of `OrderMoney`'s and this module's own, and TypeScript
+  // resolves a method called directly on an intersected array against its
+  // widest member. Naming it once, at this type, is what lets every lookup
+  // below see the columns this function actually needs.
+  const events: readonly RefundEvent[] = order.events;
+  const target = events.find((event) => event.id === input.refundId && event.kind === 'refund');
+  if (!target) {
+    return refuseReversal(
+      'refund_reversal_target_not_found',
+      'That refund could not be found on this order.',
+    );
+  }
+  const alreadyReversed = events.some(
+    (event) => event.kind === 'refund_reversed' && event.refundReversalOfId === target.id,
+  );
+  if (alreadyReversed) {
+    return refuseReversal('refund_reversal_already_reversed', 'That refund has already been reversed.');
+  }
+
+  const amountCents = target.amountCents ?? 0;
+  return {
+    ok: true,
+    amountCents,
+    event: {
+      at: now,
+      kind: 'refund_reversed',
+      fromStatus: null,
+      toStatus: null,
+      actor: 'staff',
+      // THE SAME WORD a comp's own reversal writes — one reason to correct a
+      // money decision, and it is not staff-pickable for either of them.
+      reason: ADJUSTMENT_REVERSAL_REASON,
+      amountCents,
+      refundReversalOfId: target.id,
+      detail: { note: input.note.trim() },
+    },
+  };
+}
+
+const refuseReversal = (
+  reason: RefundReversalRefusalReason,
+  message: string,
+): RefundReversalResult => ({ ok: false, reason, message });

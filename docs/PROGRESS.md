@@ -9148,3 +9148,93 @@ the next drift is caught by the next person who reads the stamp and does the
 arithmetic, same as this one.
 
 C-132 committed at 5aad4c6
+
+## C-133 — A refund and a comp can each be pointed at, and taken back, by name
+
+Closes two "Left behind" notes: C-071's ("a reversal cannot be pointed at a
+specific comp") and C-127's ("nothing can reverse a refund").
+
+**Built:**
+- **`refund_reversed`**, a new `OrderEventKind`, own migration
+  (`20260916090000_refund_reversed_kind`) for the reason
+  `adjustment_reversed`'s was split: Postgres refuses a new enum value used in
+  the transaction that adds it.
+- **Two self-link columns** on `OrderEvent`
+  (`20260916090100_refund_and_adjustment_reversal_links`):
+  `refundReversalOfId` (new with this migration, so its CHECK is an
+  EQUIVALENCE both directions, the same argument `authorizationId`'s made) and
+  `adjustmentReversalOfId` (retrofitted onto `adjustment_reversed`, which has
+  existed since C-071 — real rows predate the column, so its CHECK is
+  one-directional, the same leniency `refundRequestId`'s gives pre-C-071
+  rows). A partial unique index enforces at most one reversal per settled
+  refund; no equivalent index on the comp side, because a comp may legitimately
+  be reversed in more than one partial correction.
+- **`refundReversalEvent`** (`packages/core/orders/refund.ts`) and
+  **`reverseRefund`** (`packages/db/refund.ts`) — the refund's own
+  `adjustmentEvent`/`adjustOrder` pair. Full reversal only, amount DERIVED from
+  the refund it names (never a caller's number), reason fixed to
+  `ADJUSTMENT_REVERSAL_REASON` (reused, not re-declared), note REQUIRED. No
+  provider call — this is a flag, not a wire transfer in reverse; the
+  `capture_failed`/void precedent already leaves real-world money recovery to
+  a person.
+- **`adjustmentEvent`'s reversal branch retargeted.** `AdjustmentInput` gains
+  `reversalOfId` (required for `kind: 'reversal'`); the bound is now
+  `targetRemainingCents` — that specific comp's own amount less reversals
+  already linked to it — replacing the old aggregate `paymentTotals().
+  adjustedCents`. In every existing single-comp test the two numbers coincide,
+  which is why the existing suite needed fixture updates (ids on `comped()`)
+  rather than behavior changes; the new multi-comp test
+  (`scopes the bound to the comp it names, never to a sibling comp`) is the one
+  the aggregate could not have passed.
+- **`paymentTotals` gains `refundReversedCents`**, added into
+  `outstandingCents` and nowhere else — `refundedCents` stays raw on purpose,
+  so a reversed refund reads as both "sent" (true) and "owed again" (also
+  true) rather than one erasing the other. This is the one deliberate
+  re-inversion of C-127's "closed fact" stance, scoped to exactly the slice a
+  human flagged as a mistake.
+- **UI**: "Reverse a refund" (new) mirrors "Put an adjustment back" exactly —
+  both read a `reversibleRefunds`/`reversibleAdjustments` list off the same
+  `order.events` every other panel on the receipt reads, auto-selecting the
+  target via a hidden input when there is exactly one and offering a `<select>`
+  only when there is more than one, so the ordinary case asks the counter
+  nothing new.
+- **Tests**: core (`adjustment.test.ts`, `refund.test.ts`, `payment.test.ts`)
+  for the pure functions and the netting; db-level (`refund.test.ts`,
+  `adjustment.test.ts`'s sibling block in the same file, `constraints.test.ts`)
+  proving the CHECKs, the partial unique index, and a raced double-reversal
+  refused at the database rather than only in the app.
+
+**Decided:**
+- **Full reversal only for a refund, partial allowed for a comp.** A comp
+  never called a provider, so a partial correction is free; a refund is
+  already the granular unit (a deliberate refund can be issued for part of a
+  balance and settled on its own), so "the wrong refund went out" has one
+  honest correction — all of it — rather than a second amount for a human to
+  get right on top of the first.
+- **The reversal is a flag, not automated recovery**, for both kinds — the
+  comp's already was (no money ever moved), and the refund's follows the same
+  precedent the void path set: the system records what needs fixing, a person
+  does the fixing.
+- **`paymentState` stays lossy**, unchanged, on purpose — C-127's own comment
+  already established the enum is a cache that stops being the thing anybody
+  asks about money once the balance exists; this is the second case (after the
+  partial-refund one) where the cache and the balance legitimately disagree.
+
+**Left behind:**
+- **No report line for a reversed refund.** `report.ts` still reads
+  `paymentTotals().refundedCents` raw; a reversed refund is visible on the
+  order's own receipt (`outstandingCents` moves) and invisible on the sales
+  report until that line is written. Recorded as a scaling caveat, not a
+  defect — nothing regressed, a line was never added.
+- **No e2e coverage added this session** — unit and db-level tests prove the
+  engine and the constraints; the "Reverse a refund" and retargeted "Put an
+  adjustment back" panels are exercised by the existing comp-reversal spec
+  (which needed no changes, since a single un-reversed comp still
+  auto-selects) but nothing drives the new refund-reversal panel through a
+  browser yet.
+- **`refund_failed` rows still accumulate uncapped on a stuck provider**
+  (C-071's own leftover, untouched here).
+- No migration gap: `npm run db:migrate:all` applied both new migrations to
+  `countertop_test` and `countertop_dev` before the gate ran.
+
+C-133 committed at

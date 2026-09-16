@@ -2968,3 +2968,35 @@ wrong. Some numbers are wrong on day one and simply never get checked again
 because nothing about them looks suspicious. The fix here isn't a smarter
 count; it's writing down, in the open, exactly how each figure was produced,
 so anyone — human or otherwise — can rerun the same steps and catch it.
+
+## C-133 — Taking back money sent to the wrong place
+
+Two things this product could not do until now: correct a specific comp when
+more than one was on the same order, and correct a refund at all.
+
+**The comp gap.** A counter that comps two things on one ticket — a mistake
+Tuesday, a real one Wednesday — could already write "give this back", but only
+against the order's total, never against either comp by name. Correcting the
+Tuesday one couldn't say which one it meant; the receipt just knew the order
+had been adjusted twice. Now a correction names the specific comp it is about,
+and is bounded by what THAT one gave away — not by whatever the order happens
+to have given away in total.
+
+**The refund gap.** Nothing could undo a refund at all. Send money to the
+wrong customer, and there was no way to say so — the log had no row for it,
+and the report's math had already stopped counting a sent refund as money
+still owed (C-127's own fix, and the right one). A mis-sent refund vanished
+from every list that would have helped somebody notice.
+
+**What shipped.** Both corrections are a new row beside the original, never a
+delete or an edit — the same rule this project has followed since its first
+comp. A reversal names exactly what it corrects, so "which comp" and "which
+refund" are questions the log can always answer, on an order carrying any
+number of either. A reversed refund goes back on what the order owes, so it
+resurfaces exactly where a person would look for it.
+
+**What it does not do.** Neither correction calls anyone. Taking back a comp
+never did — no money moved in the first place. Taking back a refund is a flag,
+not a wire transfer in reverse: the system says "this needs to be fixed" and
+puts the amount back on the books, but getting the money back from wherever it
+wrongly went is still a phone call, not a button.
