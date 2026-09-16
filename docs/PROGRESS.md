@@ -9025,3 +9025,59 @@ schedules any of the three sweeps; `docs/RETENTION.md` already says why that
 is deliberate.
 
 C-130 committed at 5708aa2
+
+## C-131 — `report.payment.refundedCents`, over the rush
+
+NEXT.md's shortlist had this at the top three sessions running: C-126 put the
+rush's two refunds in the demo, C-127 fixed a double-counting defect in
+`orderBalance` and rewrote `report.test.ts`'s conservation test to sum all
+three payment buckets instead of two — but every one of those tests, including
+the fixed one, is a hand-built fixture of one to three orders. Nothing had
+ever called `salesReport` over the full thirty-order rush and looked at what
+`refundedCents` came back as.
+
+**One test, no code change.** `packages/db/rush.test.ts` already runs
+`runRush(RUSH_ANCHOR)` once, in a shared `beforeAll`, and every `describe`
+block in the file reads the database that run left behind rather than
+reseeding. The new block does the same: `salesReport(await
+loadReportOrders(RUSH_ANCHOR), 'America/Los_Angeles')`, the identical call
+`rush-demo.ts` prints from, and two assertions —
+
+- `refundedCents` is exactly 495 (Gia Moretti's $4.95 partial refund, the
+  rush's only successful one). Vik Ramsay's $14.88 was requested and the
+  provider refused it, so it never leaves `outstanding` for this bucket; it
+  lands on the refund exceptions list instead, which `rush.test.ts` already
+  asserts in its own describe block.
+- `collectedCents + outstandingCents + refundedCents` still equals booked
+  revenue for the window — C-127's restored invariant, now checked against
+  thirty real orders' worth of payment events instead of three literals typed
+  into a fixture.
+
+**Why this was a gap and not a defect.** The rush already exercises both
+refund shapes correctly — `rush.test.ts`'s existing tests read `paymentTotals`
+per order and get the right numbers for Gia and Vik individually. What was
+missing was the aggregate: nobody had run the report-level sum over a service
+with a mix of paid, unpaid, partially-refunded and refund-attempted-and-failed
+orders in it, which is exactly the shape a real report reads. `rush-demo.ts`
+console-logs `report.payment.refundedCents` when it's non-zero but asserts
+nothing — that's a demo script, not a test.
+
+**Found on the way: a genuine flake, not a regression.** The first gate run
+failed at `e2e/last-call.spec.ts:17` (`Killed: 9`, mid-sweep). `git status`
+confirmed the only changed file was `rush.test.ts` — nothing touched
+last-call, checkout-gate, or report code — and the spec passed clean on
+immediate rerun in isolation. Logged rather than chased further, same
+disposition as the two specs already on this list in NEXT.md.
+
+**The gate at C-131.** All five legs, on the laptop, second attempt (the
+`last-call` flake above).
+
+- **1092 unit** in 45 files (+1, this item's rush-scoped test).
+- **E2E 229 passed + 15 skipped = 244**, reconciling against `--list`'s 244,
+  zero failures, 5.2m.
+- Lint, typecheck and the production build clean.
+- No migration, so no drift check and `ci:local` was not run.
+
+**Left behind:** items 2 and 3 from NEXT.md's shortlist — the five
+content-stale portfolio captures, and `docs/WRITEUP.md`'s By the Numbers table
+not recounting itself since C-128 (1092 unit now, up from 1091).

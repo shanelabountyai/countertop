@@ -6,6 +6,7 @@ import {
   instantMinutesAfter,
   isOpen,
   queueAging,
+  salesReport,
   serviceTimes,
   timeInState,
   timeInStateReport,
@@ -15,7 +16,7 @@ import {
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from './index';
 import { ORDER_RECEIPT } from './placement';
-import { loadQuoteSamples, loadStatusTimelines } from './report';
+import { loadQuoteSamples, loadReportOrders, loadStatusTimelines } from './report';
 import { loadRefundExceptions } from './refund';
 import {
   runRush,
@@ -992,6 +993,33 @@ describe('the punch card across the rush', () => {
       ...ORDER_RECEIPT,
     });
     expect(after).toEqual(before);
+  });
+});
+
+// C-126, three times deferred (NEXT.md): the rush refunds twice — once
+// through, once refused — and until now nothing checked what the report's
+// own `refundedCents` bucket did with that. Reusing the one `beforeAll` rush
+// rather than reseeding, same as every other describe block in this file.
+describe("the report's payment split, over the whole rush", () => {
+  it('books only Gia’s refund, and the three buckets still cover all the revenue', async () => {
+    const report = salesReport(await loadReportOrders(RUSH_ANCHOR), 'America/Los_Angeles');
+
+    // Gia's $4.95 partial refund is the only money that went back; Vik's
+    // $14.88 was requested and the provider refused it, so it never leaves
+    // `outstanding`/`collected` for this bucket — it lives on the refund
+    // exceptions list instead (asserted separately, above).
+    expect(report.payment.refundedCents).toBe(495);
+
+    // The invariant `PaymentSplit`'s own doc comment makes, at rush scale
+    // rather than a 1-3 order fixture: refunded money is its own bucket,
+    // never netted out of collected or outstanding, and never removed from
+    // booked revenue.
+    const revenue = report.days.reduce((sum, day) => sum + day.totalCents, 0);
+    expect(
+      report.payment.collectedCents +
+        report.payment.outstandingCents +
+        report.payment.refundedCents,
+    ).toBe(revenue);
   });
 });
 

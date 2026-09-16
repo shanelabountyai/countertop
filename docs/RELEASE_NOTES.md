@@ -2913,3 +2913,29 @@ completely unusable the instant it expires — this only clears out the leftover
 record of it — so nothing a customer or a manager does changes. It runs
 alongside the two cleanup jobs this app already had (old order details and
 inactive loyalty balances), as one more step of the same command.
+
+## C-131 — Proving the refund math at full volume, not just on paper
+
+**What changed.** Nothing in the product. This closes a gap in how confident
+the tests could make anyone that the refund numbers are right.
+
+**The gap.** Two earlier items (C-126, C-127) put a refund into the thirty-order
+simulated rush that stands in for a real dinner service, and fixed a bug where
+a refunded customer was incorrectly shown as still owing money. Both were
+proven correct — but only against small, hand-built examples of one to three
+orders, never against the messy thirty-order rush itself, where a refund sits
+next to paid orders, unpaid orders, and a *second* refund the payment
+processor actually declined.
+
+**What shipped.** One test that runs the full simulated rush and checks the
+sales report's own numbers against it: exactly $4.95 refunded (the one
+successful refund; the declined one correctly shows as still owed rather than
+returned), and every dollar of the night's revenue accounted for across
+collected, still-owed, and refunded — none double-counted, none missing.
+
+**Why it matters for a portfolio reader.** A bug fix proven on three
+hand-picked orders can still hide a mistake that only shows up when the real
+mix of cases — paid, unpaid, partial refund, failed refund — sit in the same
+report together. This is the difference between "the fix works on the example
+I built to demonstrate it" and "the fix works on the demo the whole project is
+graded against."
