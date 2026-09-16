@@ -2939,3 +2939,32 @@ mix of cases — paid, unpaid, partial refund, failed refund — sit in the same
 report together. This is the difference between "the fix works on the example
 I built to demonstrate it" and "the fix works on the demo the whole project is
 graded against."
+
+## C-132 — Recounting the numbers, and finding one that was already wrong
+
+**What changed.** Nothing in the product. `docs/WRITEUP.md`'s summary table —
+requirement count, lines of code, test counts, and so on — was recounted for
+the first time since C-128, since a few of those figures had quietly moved in
+the three items since.
+
+**What shipped.** Updated figures throughout, each re-derived the same way the
+last recount recorded doing it, so the process is a repeatable command rather
+than a fresh judgment call each time.
+
+**The interesting part.** One row wasn't drift at all — it was wrong from the
+start. The table has said the sample menu has 7 modifier groups since the
+table's own writer originally counted it; the menu has actually had 8 since
+before that count was ever taken. The 8th group's internal name needs to be
+quoted (it contains a hyphen), which is just different enough from all the
+others that both the original count and last session's recount skipped it
+without noticing. Caught this time by asking a second, independent pass to
+re-verify the numbers that were supposedly too stable to need re-checking,
+and taking the disagreement seriously instead of trusting the older figure by
+default.
+
+**Why it matters for a portfolio reader.** The lesson isn't "count more
+carefully" — it's that a number's age isn't the only thing that can make it
+wrong. Some numbers are wrong on day one and simply never get checked again
+because nothing about them looks suspicious. The fix here isn't a smarter
+count; it's writing down, in the open, exactly how each figure was produced,
+so anyone — human or otherwise — can rerun the same steps and catch it.

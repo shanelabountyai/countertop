@@ -9083,3 +9083,68 @@ content-stale portfolio captures, and `docs/WRITEUP.md`'s By the Numbers table
 not recounting itself since C-128 (1092 unit now, up from 1091).
 
 C-131 committed at 00ab343
+
+## C-132 — By the Numbers, recounted
+
+NEXT.md's own top item: the table hadn't recounted itself since C-128, and
+C-131 had already moved one figure (1091 → 1092 unit tests). Docs-only, no
+code, no migration.
+
+**Every figure re-derived the same way C-128 recorded doing it, so this was a
+re-run, not a re-derivation:**
+
+| | was (C-128) | is (C-132) |
+|---|---|---|
+| Requirements shipped | 107 | **111** (`grep -cE "^- \[x\]" docs/backlog.md`, this item ticked) |
+| Commits | 259 through C-127 | **273** through C-131 |
+| TypeScript / TSX | 46,347 / 183 files | **46,535 / 183** |
+| …of which tests | 21,178 (46%) | **21,295 (46%)** |
+| `packages/core` | 13,111 | **13,111** (unchanged) |
+| `packages/db` | 16,169 | **16,357** |
+| `apps/web` | 17,049 | **17,049** (unchanged) |
+| Unit tests | 1,086 in 45 files | **1,092 in 45 files** |
+| E2E specs | 244 in 25 files | **244 in 25** (unchanged; `playwright test --list` from `apps/web`) |
+| Migrations | 34, 2 triggers, 48 CHECKs, 19 tables | **unchanged** — no migration since C-128 |
+| Documentation | ~15,800 | **~16,150** |
+| Defects recorded | 72 | **73** (see below) |
+| Build window | 08-25 → 09-15 | **08-25 → 09-16** |
+
+**One row was not drift — it was already wrong when C-128 wrote it.** The
+menu-fixture row has read "25 items, 7 modifier groups, 5 categories" since
+C-128, and the surrounding paragraph used it as the proof that *specified*
+numbers don't drift. `SAMPLE_MENU` has carried **8** modifier groups since
+C-017 (its own comment says so: "C-017 grew it to the PRD's 25 items and 8
+groups"). The eighth, `tortilla-style`, is keyed `'tortilla-style': {` —
+quoted, for the hyphen — so it doesn't match the plain `identifier: {` shape
+every other group in the file uses, and both a manual scan (C-017, C-128) and
+a naive grep (this session's first pass) skip it the same way. Caught this
+time because a Haiku subagent tasked with re-verifying the "these don't
+drift" rows counted 8 from the fixture's own source comment, disagreeing with
+the table it was supposed to confirm; the disagreement is what got chased
+down to the quoted key rather than resolved by trusting the older number.
+
+Corrected in the table, in the "which rows didn't [drift]" paragraph (with a
+footnote marking it a correction rather than a silent edit — the same
+discipline C-128 applied to C-029's frozen prose), and as a new **Defects
+Found** entry (72 → 73): a wrong number, how it was found, what would catch
+it earlier. Nothing reliably would — the entry says so; a script counting
+modifier groups has the same blind spot unless someone thinks to test it
+against the one oddly-keyed group, and by then a human recount already caught
+it just as fast. That is the same conclusion C-128 reached about building
+`docs:numbers`, now confirmed by the tool that would have needed it also
+missing the same row.
+
+**Why "Requirements shipped" moved by more than one per item.** C-128 counted
+it via the backlog's checked boxes, not the highest `C-NNN`; the two are not
+the same, because fifteen numbers between C-072 and C-099 were reserved and
+never turned into backlog items. Recounting the same way (`grep -cE "^- \[
+x\]"`) rather than the highest commit-message number avoided reproducing that
+gap as a phantom four-item jump.
+
+**Left behind:** nothing new. NEXT.md's shortlist after C-131 had two items —
+the portfolio screenshots (regenerated last session, `ed4b2d9`) and this
+recount — and both are now closed. No gate leg reads any of these numbers;
+the next drift is caught by the next person who reads the stamp and does the
+arithmetic, same as this one.
+
+C-132 committed at [pending]

@@ -2230,6 +2230,29 @@ The generalisation: when a fixture is built to demonstrate a fix, **run the
 defect against the fixture and check the demonstration changes**. A rush that
 prints the same sentence either way is a recording, not a proof.
 
+**C-132 — the row claiming nothing drifts was wrong before it was written.**
+By the Numbers' menu-fixture row, and the paragraph built around it arguing
+that *specified* numbers (unlike derived ones) hold steady, both said "7
+modifier groups." `SAMPLE_MENU` has had 8 since C-017 — `size`, `protein`,
+`addons`, `salsa`, `toppings`, `fillings`, `rice`, and `tortilla-style`.
+
+*How it was found:* recounting the table for C-132 (triggered by C-131
+bumping the unit-test count), a subagent tasked with re-verifying the "don't
+drift" rows reported 8. A grep for four-space-indented `identifier: {` lines
+— the shape every other group in the file matches — returned 7, because
+`tortilla-style` is written `'tortilla-style': {`, quoted for the hyphen. The
+original C-128 recount, and the C-017 prose before it, both undercounted the
+same way: eyeballing or grep-matching a list where one entry doesn't match
+the others' shape.
+
+*Fix:* corrected to 8 in the table and the paragraph above; a footnote marks
+it as a miscount, not drift, so the table's own history stays legible.
+
+*What I'd instrument next time:* nothing — the same lesson as C-128's own
+entry. A script to count modifier groups would have the same blind spot
+unless someone thought to test it against the one oddly-keyed group, and by
+then a human recount would have caught it just as fast.
+
 ## Skills Learned / Functions Unlocked
 
 - **Modelling variants as one mechanism instead of three.** S/M/L is a required
@@ -2336,29 +2359,29 @@ opinion early, while the diff that caused it is still one file.
 
 ## By the Numbers
 
-*Counted at **C-128**, 2026-09-15. The stamp is load-bearing: this table was
-written at C-029 and silently drifted for seventy-eight items before anyone
-recounted it, which made it the only thing in the repo that was **wrong**
-rather than merely absent. A dated number can be old; an undated one is a
-claim. Re-date it when you recount it.*
+*Counted at **C-132**, 2026-09-16 (previously **C-128**, 2026-09-15). The
+stamp is load-bearing: this table was written at C-029 and silently drifted
+for seventy-eight items before anyone recounted it, which made it the only
+thing in the repo that was **wrong** rather than merely absent. A dated
+number can be old; an undated one is a claim. Re-date it when you recount it.*
 
 | | |
 |---|---|
-| Requirements shipped | 107 — the PRD's 17 (C-001 → C-017), then 90 more worked off this document's own "left behind" lists |
-| Commits | 259 through C-127 — mostly a work/SHA-record pair per item, plus the hotfixes and reverts the write-up itself accounts for |
-| TypeScript / TSX | 46,347 lines across 183 tracked files |
-| …of which tests | 21,178 lines — 46% of the codebase |
+| Requirements shipped | 111 — the PRD's 17 (C-001 → C-017), then 94 more worked off this document's own "left behind" lists |
+| Commits | 273 through C-131 — mostly a work/SHA-record pair per item, plus the hotfixes and reverts the write-up itself accounts for |
+| TypeScript / TSX | 46,535 lines across 183 tracked files |
+| …of which tests | 21,295 lines — 46% of the codebase |
 | Domain engine (`packages/core`) | 13,111 lines, zero I/O, zero clock reads |
-| Database layer (`packages/db`) | 16,169 lines |
+| Database layer (`packages/db`) | 16,357 lines |
 | Web app (`apps/web`) | 17,049 lines |
-| Unit tests | 1,086, in 45 files, passing under `TZ=UTC` and `TZ=Pacific/Kiritimati` |
+| Unit tests | 1,092, in 45 files, passing under `TZ=UTC` and `TZ=Pacific/Kiritimati` |
 | End-to-end specs | 244, in 25 files, against a production build, with axe on every screen |
 | Hand-written migrations | 34, carrying 2 append-only triggers and 48 CHECK constraints across 19 tables |
-| Menu fixture | 25 items, 7 modifier groups, 5 categories |
+| Menu fixture | 25 items, **8** modifier groups, 5 categories |
 | The seeded rush | 30 orders / 20 simulated minutes / 5 ugly cases / 0 stuck, lost or duplicated — replayed in under a second |
-| Documentation | ~15,800 lines across the PRD, PROGRESS, RELEASE_NOTES, backlog and this file |
-| Defects recorded | 72, each with how it was found and what would catch it earlier |
-| Build window | 2026-08-25 into 2026-09-15 |
+| Documentation | ~16,150 lines across the PRD, PROGRESS, RELEASE_NOTES, backlog and this file |
+| Defects recorded | 73, each with how it was found and what would catch it earlier |
+| Build window | 2026-08-25 into 2026-09-16 |
 
 ### What the first twelve extra items were (written at C-029)
 
@@ -3496,7 +3519,7 @@ still open on 15 September. Every row was a C-029 row wearing no date.
 
 The interesting thing is not that it drifted — a hand-maintained number will
 always drift. It is **which rows didn't.** The menu fixture is still 25 items,
-7 modifier groups, 5 categories. The seeded rush is still 30 orders in 20
+8 modifier groups, 5 categories. The seeded rush is still 30 orders in 20
 simulated minutes with 5 deliberately ugly cases. Those two rows sat correct
 through seventy-eight items of drift around them, and not by anyone's
 diligence: they are *specified* numbers. "30 orders in 20 minutes" is the
@@ -3505,6 +3528,13 @@ had to fit order-ahead into two **of** the thirty and C-126 had to fit a refund
 in the same way, rather than appending customers. `SAMPLE_MENU` is the fixture
 every hand-calculated price test is checked against, so changing it breaks
 arithmetic in another package.
+
+*Correction (C-132): this paragraph originally said "7 modifier groups" — a
+miscount at C-128 itself, not a drift. `SAMPLE_MENU` has carried 8 since
+C-017 (`'tortilla-style'`, keyed with a quote because of the hyphen, is easy
+to skip on a manual scan). The specified-number claim survives: the group
+count was wrong the moment it was typed, not wrong because it moved. See the
+new Defects Found entry below.*
 
 **The rows that drifted were the rows nothing was holding.** That is the
 general form, and it is the same lesson as C-125's — a gate that is routinely
