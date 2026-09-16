@@ -9081,3 +9081,5 @@ disposition as the two specs already on this list in NEXT.md.
 **Left behind:** items 2 and 3 from NEXT.md's shortlist — the five
 content-stale portfolio captures, and `docs/WRITEUP.md`'s By the Numbers table
 not recounting itself since C-128 (1092 unit now, up from 1091).
+
+C-131 committed at 00ab343
