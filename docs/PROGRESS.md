@@ -8661,3 +8661,5 @@ which is the blast radius, measured rather than guessed.
 **Gate:** lint / typecheck / 1082 unit (+2 over C-125's 1080) / build clean.
 E2E 219 passed + 15 skipped + the documented ten container failures = 244 on
 `--list`. `npm run demo:rush` run full, `--until 12` and `--until 26`.
+
+C-126 committed and pushed at 6808d82

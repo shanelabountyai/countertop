@@ -1,6 +1,6 @@
 # Next
 
-**C-126 shipped this session**: a refund in the seeded rush, end to end — and
+**C-126 shipped this session** (`6808d82`): a refund in the seeded rush, end to end — and
 two defects, one of them mine.
 
 Kira Lindqvist (#14) is prepaid and collected at minute 21. At 24 a manager
