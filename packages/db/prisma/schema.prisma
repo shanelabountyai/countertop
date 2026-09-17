@@ -451,6 +451,33 @@ model ItemModifierGroup {
   @@index([itemId, sortOrder])
 }
 
+/// PRD 4's last open question, resolved per-batch: one row per `setAvailability`
+/// call, not one per row it flipped. `setAvailability` is the only writer — the
+/// single-tap board actions route through it too, so there is one write path
+/// and one log, the same property C-109 gave the flip itself.
+///
+/// Append-only, enforced by a trigger in the migration, same shape as
+/// `OrderEvent`. `items`/`options` are `{id, name}` pairs snapshotted at write
+/// time: a later rename must not rewrite what a cook read on the board that day.
+model MenuChangeEvent {
+  id        String     @id @default(uuid())
+  at        DateTime   @db.Timestamptz(3)
+  /// The state everything named below was set TO.
+  available Boolean
+  actor     EventActor
+  /// Always null today: no staff session exists to attribute a board tap to.
+  /// Left nullable rather than dropped, so the column does not move the day
+  /// one does.
+  staffId   String?
+  staff     StaffMember? @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  /// `[{id, name}]`. Empty array, never null, when this batch touched none.
+  items     Json
+  /// `[{id, name}]`. Empty array, never null, when this batch touched none.
+  options   Json
+
+  @@index([at])
+}
+
 // ---------------------------------------------------------------------------
 // Order — the snapshot. Every column below is a copy or a computed value.
 // ---------------------------------------------------------------------------
@@ -1019,6 +1046,7 @@ model StaffMember {
   /// `Restrict`, like every other attribution: a name outlives the rows it is
   /// on.
   loyaltyEvents LoyaltyEvent[]
+  menuChangeEvents MenuChangeEvent[]
 }
 
 // ---------------------------------------------------------------------------

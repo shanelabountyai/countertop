@@ -344,29 +344,94 @@ export async function writePrice(
  * locked: the loser of a race matches nothing, returns nothing, and claims
  * nothing. Same shape as C-119's member lock — the fix is not a lock added
  * around a read, it is the read and the write becoming one statement.
+ *
+ * The only writer of `MenuItem.available` / `ModifierOption.available` (C-134)
+ * — the single-tap board actions call this with a one-element array too — so
+ * it is also the only place that writes a `MenuChangeEvent`, one row per call,
+ * naming exactly the rows this call flipped. A call that flipped nothing (every
+ * id already matched, or an unknown id) writes no event: a report line that
+ * says "changed nothing" is not a report a cook wants to read back.
  */
 export async function setAvailability(
   itemIds: string[],
   optionIds: string[],
   available: boolean,
+  now: Date = new Date(),
 ): Promise<{ itemIds: string[]; optionIds: string[] }> {
   // STILL ONE TRANSACTION, for the reason it always was: a batch that killed
   // the items and not the options would leave the fryer half off the menu.
   // What changed is that each statement is now its own guard — the
   // `available: !available` clause is in the WHERE of the UPDATE, not in a
   // SELECT that ran before it.
-  const [items, options] = await prisma.$transaction([
-    prisma.menuItem.updateManyAndReturn({
+  //
+  // Interactive form, not the array form: the event write needs the ids AND
+  // names the two updates just returned, and Prisma's array `$transaction`
+  // cannot pass one statement's result into another. Still one transaction,
+  // still one round trip's worth of guarantee — a callback form runs its
+  // statements sequentially inside the same database transaction, the same
+  // as the array form did.
+  const { items, options } = await prisma.$transaction(async (tx) => {
+    const items = await tx.menuItem.updateManyAndReturn({
       where: { id: { in: itemIds }, available: !available },
       data: { available },
-      select: { id: true },
-    }),
-    prisma.modifierOption.updateManyAndReturn({
+      select: { id: true, name: true },
+    });
+    const options = await tx.modifierOption.updateManyAndReturn({
       where: { id: { in: optionIds }, available: !available },
       data: { available },
-      select: { id: true },
-    }),
-  ]);
+      select: { id: true, name: true },
+    });
+
+    if (items.length > 0 || options.length > 0) {
+      await tx.menuChangeEvent.create({
+        data: {
+          at: now,
+          available,
+          actor: 'staff',
+          items: items.map((r) => ({ id: r.id, name: r.name })),
+          options: options.map((r) => ({ id: r.id, name: r.name })),
+        },
+      });
+    }
+
+    return { items, options };
+  });
 
   return { itemIds: items.map((r) => r.id), optionIds: options.map((r) => r.id) };
+}
+
+const MENU_ACTIVITY_LIMIT = 20;
+
+export type MenuChangeEntry = {
+  at: Date;
+  available: boolean;
+  staffName: string | null;
+  items: { id: string; name: string }[];
+  options: { id: string; name: string }[];
+};
+
+/**
+ * The 86 board's own report (C-134) — most recent batch first, capped the
+ * same way a history search is: this is a page a cook glances at, not an
+ * export.
+ */
+export async function loadMenuActivity(limit = MENU_ACTIVITY_LIMIT): Promise<MenuChangeEntry[]> {
+  const events = await prisma.menuChangeEvent.findMany({
+    orderBy: { at: 'desc' },
+    take: limit,
+    select: {
+      at: true,
+      available: true,
+      items: true,
+      options: true,
+      staff: { select: { name: true } },
+    },
+  });
+
+  return events.map(({ staff, items, options, ...event }) => ({
+    ...event,
+    staffName: staff?.name ?? null,
+    items: items as { id: string; name: string }[],
+    options: options as { id: string; name: string }[],
+  }));
 }

@@ -9238,3 +9238,92 @@ specific comp") and C-127's ("nothing can reverse a refund").
   `countertop_test` and `countertop_dev` before the gate ran.
 
 C-133 committed at 9ad6620
+
+## C-134 — A per-batch menu-change event, and a race the change exposed (PRD 4's builder Open Question)
+
+The last open item in `prd-menu-under-pressure.md`: "should the bulk 86 write
+one event per affected row or one event for the batch?" Per-batch, per the
+PRD's own reasoning — a five-item, one-option sweep of the fryer is a single
+line on a report, not five.
+
+**Built:**
+- **`MenuChangeEvent`** (`packages/db/prisma/schema.prisma`), a new
+  append-only table alongside `OrderEvent`, same trigger shape
+  (`20260916110000_menu_change_event`, hand-written): `at`, `available`,
+  `actor`, an optional `staffId` (`Restrict`, always null today — no staff
+  session exists to attribute a board tap to, left nullable rather than
+  dropped so the column does not move the day one does), and `items`/`options`
+  as `[{id, name}]` JSONB pairs, snapshotted at write time so a later rename
+  cannot rewrite what a cook read on the board that day. UPDATE and DELETE
+  both raise; TRUNCATE stays legal for the test suite's resets.
+- **`setAvailability` becomes the ONLY writer** of `MenuItem.available` /
+  `ModifierOption.available` — the two single-tap board actions
+  (`setItemAvailable`, `setOptionAvailable` in `apps/web/app/kitchen/
+  actions.ts`) now call it with a one-element array instead of running their
+  own `prisma.updateMany`. A one-element array is still a batch, so a single
+  tap gets logged the same way a bulk sweep does, closing the gap C-109's own
+  comment predicted ("the same booleans a single tap writes") but never
+  actually built.
+- **One event per call, none when nothing flips.** `setAvailability` moved
+  from the array-form `$transaction([...])` to the callback form
+  (`prisma.$transaction(async (tx) => {...})`), because the event needs the
+  ids AND names the two updates just returned, and the array form cannot pass
+  one statement's result into another. The write still happens inside ONE
+  transaction — a callback runs its statements sequentially inside the same
+  database transaction the array form did, so C-122's guarantee (the
+  `available: !available` guard in the WHERE, not a read before a write) is
+  unchanged; the two-cooks-racing suite passed unmodified.
+- **`loadMenuActivity`** (`packages/db/menu.ts`) and a "Recent changes"
+  section on `/kitchen/availability` — most recent batch first, capped at 20,
+  same shape as `loadOrderActivity`'s reader. `namesLine` (the truncation
+  logic `usedOnLine` already had) is shared rather than duplicated so a
+  five-name batch and a four-item "used on" line agree about where the "+N
+  more" cutoff falls.
+- **Tests**: `packages/db/menu.test.ts` — one event for a batch spanning both
+  grains, one event for a single-row call, no event when the call is a no-op,
+  and the append-only trigger refusing both UPDATE and DELETE. One e2e case
+  (`availability.spec.ts`) asserting a single tap and a bulk sweep each write
+  exactly one line to the report, most recent first.
+
+**The interesting part — a regression, found and root-caused before calling
+this done, not shipped and discovered later.** The full e2e sweep came back
+with `e2e/cart.spec.ts:65` failing consistently — not the timeout-flavored
+flake `NEXT.md` already had it filed under, but a stable wrong value: the
+header's cart count stuck at `(1)` after 86'ing the guacamole on the line in
+it. Git-bisecting the change (stashing `menu.ts`/`actions.ts` back to `HEAD`
+and rerunning the identical test 3x) proved it clean before this item and
+broken 3/3 after, which ruled out "pre-existing flake" outright. Server-side
+timestamps logged around the write settled the mechanism: `/menu`'s second
+render started reading the menu **4ms after the click and 1ms before the
+write committed** — a race that has existed since the button was built
+(`fixtures.ts`'s own header names four earlier defects in this exact class:
+"a spec clicked something that triggers a server action and then navigated
+before the write landed"), on a margin thin enough that the interactive
+transaction's small extra overhead was enough to flip it from "always wins"
+to "always loses." The fix is the one this codebase has already reached for
+four times: not a faster write, but a guarded helper. `eightySix(page, name)`
+— previously a local, unexported helper in `availability.spec.ts` — moved to
+`fixtures.ts` (the shared home `addBurritoToCart`'s own `toHaveURL` guard
+already lives in, for the identical reason) and is now what `cart.spec.ts`'s
+two tests call instead of the raw, unguarded click. Verified 3x repeated in
+isolation, then a full clean e2e sweep (231 passed, 15 skipped, 0 failed,
+246 total, matching `--list`) to close it out.
+
+**Left behind:**
+- **`testlock`** (`~/.claude/bin/testlock`, not part of this repo): built
+  mid-session after the first two e2e attempts came back with cascading
+  timeouts traced to *other projects'* concurrent sweeps on the same machine,
+  not this one's code. A plain mutex (not `devslot`'s LRU-evict — killing a
+  test sweep mid-run produces no result, unlike stopping an idle dev server),
+  wired into this repo's `test:e2e` script guarded the same way `swapcheck`
+  is (`[ -x ... ] && exec testlock ... || exec ...`, a silent no-op anywhere
+  it is not installed, CI included).
+- **No report line for a reversed refund** (carried from C-133) —
+  untouched here.
+- **`e2e/refund.spec.ts:211` and `e2e/last-call.spec.ts:17`** — the other two
+  entries on `NEXT.md`'s pre-existing flaky list, neither touched this
+  session (different code paths, not reproduced).
+- No migration gap: `npm run db:migrate:all` applied the new migration to
+  `countertop_test` and `countertop_dev` before the gate ran.
+
+C-134 committed at

@@ -134,6 +134,23 @@ export async function addBurritoToCart(
 }
 
 /**
+ * 86 an item or option from the availability board, by name.
+ *
+ * The same class of race this file exists for (see the header comment): the
+ * click's form action returns to the browser well before its own write
+ * commits, so a spec that clicks and immediately navigates elsewhere can read
+ * the menu before the 86 has landed — flaky in direction and margin, not in
+ * kind. The guard here is the same one `addBurritoToCart` uses: wait for the
+ * CURRENT page to show the write took effect (the button's own label flips)
+ * before going anywhere else.
+ */
+export async function eightySix(page: Page, name: string): Promise<void> {
+  await page.goto('/kitchen/availability');
+  await page.getByRole('button', { name: `Mark ${name} sold out` }).click();
+  await expect(page.getByRole('button', { name: `Put ${name} back on` })).toBeVisible();
+}
+
+/**
  * A real order, placed through the real screens, returning the customer's
  * tokenized status link.
  *

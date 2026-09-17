@@ -54,8 +54,9 @@ import {
   STATIONS,
 } from '@countertop/core';
 import type { MenuItem } from '@countertop/core';
-import { loadMenu } from '@countertop/db/menu';
+import { loadMenu, loadMenuActivity, loadSettings } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
+import { formatPlacedAt } from '@/lib/format-time';
 import { setBulkAvailable, setItemAvailable, setOptionAvailable } from '../actions';
 
 export const metadata = { title: 'Availability — Firebird Kitchen' };
@@ -69,13 +70,19 @@ export const dynamic = 'force-dynamic';
 // already knows and cannot act on.
 const MAX_NAMED_ITEMS = 4;
 
+/** Shared by `usedOnLine` and the recent-changes report below, so a name list
+ *  never truncates two different ways. */
+function namesLine(names: string[]): string {
+  const named = names.slice(0, MAX_NAMED_ITEMS).join(', ');
+  const rest = names.length - MAX_NAMED_ITEMS;
+  return `${named}${rest > 0 ? ` +${rest} more` : ''}`;
+}
+
 /** The one wording of reach, shared by a single row and by the batch preview.
  *  Two copies would eventually disagree about what a tap costs. */
 function usedOnLine(usedOn: string[]): string {
   if (usedOn.length === 0) return 'Not used on any item.';
-  const named = usedOn.slice(0, MAX_NAMED_ITEMS).join(', ');
-  const rest = usedOn.length - MAX_NAMED_ITEMS;
-  return `Used on: ${named}${rest > 0 ? ` +${rest} more` : ''}`;
+  return `Used on: ${namesLine(usedOn)}`;
 }
 
 /** One row: what it is, what it costs, who it stops, and the tap that flips it. */
@@ -159,7 +166,11 @@ export default async function AvailabilityPage({
     done?: string;
   }>;
 }) {
-  const menu = await loadMenu();
+  const [menu, activity, { timezone }] = await Promise.all([
+    loadMenu(),
+    loadMenuActivity(),
+    loadSettings(),
+  ]);
   const items = Object.values(menu.items);
   const params = await searchParams;
 
@@ -461,6 +472,31 @@ export default async function AvailabilityPage({
           </section>
         );
       })}
+
+      {/* The report a cook's own batches write (C-134): one line per call to
+          `setAvailability`, most recent first — a single tap is a batch of
+          one, so it shows up here too. */}
+      {activity.length > 0 && (
+        <section aria-label="Recent changes" className="mt-10 rounded-lg border border-neutral-300 p-4">
+          <h2 className="text-xl font-semibold">Recent changes</h2>
+          <ol className="mt-3 flex flex-col gap-2" data-testid="menu-activity">
+            {activity.map((entry, index) => (
+              <li
+                key={`${entry.at.toISOString()}-${index}`}
+                className="flex flex-wrap items-baseline gap-x-2 border-b border-neutral-200 pb-2 last:border-b-0"
+              >
+                <span className="text-sm tabular-nums text-neutral-600">
+                  {formatPlacedAt(entry.at, timezone)}
+                </span>
+                <span className="text-lg">
+                  {entry.available ? 'Put back on' : 'Marked sold out'}:{' '}
+                  {namesLine([...entry.items, ...entry.options].map((row) => row.name))}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
     </main>
   );
 }

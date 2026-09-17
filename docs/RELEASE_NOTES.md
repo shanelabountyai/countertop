@@ -3000,3 +3000,39 @@ never did — no money moved in the first place. Taking back a refund is a flag,
 not a wire transfer in reverse: the system says "this needs to be fixed" and
 puts the amount back on the books, but getting the money back from wherever it
 wrongly went is still a phone call, not a button.
+
+## C-134 — A record of what the 86 board did, and a bug caught before it shipped
+
+The 86 board — the screen a cook reaches for mid-rush to say "we're out of
+guacamole" — could flip a menu item or option off in one tap, but it kept no
+record of having done so. Ask "what got 86'd during the lunch rush, and when"
+and the honest answer was: nobody wrote it down.
+
+**What shipped.** Every tap now writes a line to a report on the same screen:
+what was marked sold out or put back, and when — one line for a single item,
+one line for a whole sweep of five, never five lines for the sweep. That
+second part was a real design decision, not an afterthought: a manager
+reading this back during a busy shift wants "the fryer went down at 12:40"
+as one sentence, not five.
+
+**The more interesting part of this update wasn't the feature — it was almost
+shipping a real bug with it.** Building the report meant touching the code
+that flips the menu switch itself, and the full test sweep caught a
+regression: a page that shows how many items are in a customer's cart
+sometimes showed the wrong number for a moment after an item got 86'd out
+from under it. Chasing it down turned up something more interesting than the
+bug itself — a race condition that has quietly existed in this app's test
+suite since early on (documented, even, as having caused trouble four times
+before), just never quite bad enough to reliably fail until this change
+nudged the timing over the edge. The fix wasn't to make the new code faster;
+it was to fix the actual gap — a test that clicked a button and immediately
+checked the result elsewhere, without waiting to confirm the click had
+actually finished. That's now fixed the same way the other four times were:
+wait for confirmation, then check.
+
+**Why it matters for a portfolio reader.** Finding a bug because a test
+sweep failed, then root-causing it with evidence (a controlled before/after
+comparison, timestamps logged on both sides of the race) instead of guessing
+at the first plausible story, is the difference between "the tests are
+flaky, ignore it" and actually fixing something. The flaky-test excuse is
+usually where a real, rare production bug goes to hide.

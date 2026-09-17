@@ -874,8 +874,10 @@ export async function setOrderingPaused(paused: unknown, message?: unknown): Pro
 /**
  * The 86 board's two writes (P0-6). Both grains, one shape.
  *
- * `updateMany`, not `update`: a stale board tapping an id that has since been
- * deleted should change nothing, not throw a 500 at a cook mid-rush.
+ * Both route through `setAvailability` (C-134) — a one-element array is still
+ * a batch, so a single tap gets the same guarded write and the same
+ * `MenuChangeEvent` a bulk 86 gets, rather than a second path the log cannot
+ * see. Unknown ids simply match no rows, and no event is written for them.
  *
  * These flip ONE boolean. Everything an 86 means is already downstream of it —
  * the menu renders "sold out", `validateComposition` refuses the composition,
@@ -884,13 +886,13 @@ export async function setOrderingPaused(paused: unknown, message?: unknown): Pro
  */
 export async function setItemAvailable(itemId: unknown, available: unknown): Promise<void> {
   if (typeof itemId !== 'string' || typeof available !== 'boolean') return;
-  await prisma.menuItem.updateMany({ where: { id: itemId }, data: { available } });
+  await setAvailability([itemId], [], available);
   revalidateMenuSurfaces();
 }
 
 export async function setOptionAvailable(optionId: unknown, available: unknown): Promise<void> {
   if (typeof optionId !== 'string' || typeof available !== 'boolean') return;
-  await prisma.modifierOption.updateMany({ where: { id: optionId }, data: { available } });
+  await setAvailability([], [optionId], available);
   revalidateMenuSurfaces();
 }
 

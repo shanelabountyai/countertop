@@ -177,6 +177,54 @@ describe('setAvailability', () => {
     expect(changed).toEqual({ itemIds: ['taquitos'], optionIds: [] });
     expect(await availability()).toEqual({ items: ['taquitos'], options: [] });
   });
+
+  // C-134: PRD 4's last open question, resolved per-batch. One call is one
+  // row, whatever its size — a five-item, one-option sweep of the fryer is a
+  // single line on the report, not five.
+  describe('the MenuChangeEvent it writes', () => {
+    const AT = new Date(Date.UTC(2026, 8, 16, 20, 40));
+
+    it('writes exactly one event for a batch spanning both grains', async () => {
+      await setAvailability(FRIED, ['guacamole'], false, AT);
+
+      const events = await prisma.menuChangeEvent.findMany();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ at: AT, available: false, actor: 'staff' });
+      expect((events[0]!.items as { id: string; name: string }[]).map((r) => r.id).sort()).toEqual(
+        [...FRIED].sort(),
+      );
+      expect(events[0]!.options).toEqual([{ id: 'guacamole', name: 'Guacamole' }]);
+    });
+
+    it('writes one event for a single-row call too — a batch of one is still a batch', async () => {
+      await setAvailability(['taquitos'], [], false, AT);
+
+      const events = await prisma.menuChangeEvent.findMany();
+      expect(events).toHaveLength(1);
+      expect(events[0]!.items).toEqual([{ id: 'taquitos', name: 'Taquitos' }]);
+      expect(events[0]!.options).toEqual([]);
+    });
+
+    it('writes no event when the call flips nothing', async () => {
+      await setAvailability(FRIED, [], false, AT);
+      await setAvailability(FRIED, [], false, AT); // already off — a no-op repeat
+
+      expect(await prisma.menuChangeEvent.count()).toBe(1);
+    });
+
+    it('is append-only: neither an update nor a delete is permitted', async () => {
+      await setAvailability(['taquitos'], [], false, AT);
+      const [event] = await prisma.menuChangeEvent.findMany();
+      if (!event) throw new Error('no event created');
+
+      await expect(
+        prisma.menuChangeEvent.update({ where: { id: event.id }, data: { available: true } }),
+      ).rejects.toThrow(/append-only/i);
+      await expect(
+        prisma.menuChangeEvent.delete({ where: { id: event.id } }),
+      ).rejects.toThrow(/append-only/i);
+    });
+  });
 });
 
 // C-111 (P1-2): a price you can stage.

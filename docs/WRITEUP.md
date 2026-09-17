@@ -3634,3 +3634,73 @@ ordering deterministic instead of likely.
 Then it was run against the unfixed code, which is the only part that proves
 anything: `Unique constraint failed on the fields: (itemId, effectiveDay)`,
 raw, exactly as a manager would have met it.
+
+### A race that was always there, and a slightly heavier write that finally lost it (C-134)
+
+The full e2e sweep failed `e2e/cart.spec.ts:65` — `NEXT.md` already had this
+spec on a short list of flaky specs, timeouts rather than assertions, "failed
+once on an unrelated change, passed every rerun since." Reading the failure
+closer said otherwise: `expect(locator).toHaveText('View cart')`, received
+`'View cart (1)'`, the same wrong value across all 14 polling attempts inside
+its five-second window. A flake resolves eventually or times out waiting for
+something that never arrives; this resolved instantly to something specific
+and wrong, every time. That distinction — a *stable* wrong answer versus a
+timeout — is what said "look closer" rather than "rerun it."
+
+**Ruling out "pre-existing" took one command, not an argument.** `git stash
+push` on the two files this item had touched (`menu.ts`, `actions.ts`),
+rerun the identical test three times against the untouched `HEAD`: three
+passes, sub-second each. `git stash pop`, rerun again: three failures,
+5.9–6.8 seconds each — Playwright's assertion timeout, reached and lost
+every time. Whatever this was, it was caused by this session's own change,
+not inherited, and it was not intermittent in either direction.
+
+**The mechanism took instrumentation, not more reasoning.** A raw
+DB-level benchmark of the new write path against the old one showed a
+difference of a few milliseconds at most — nowhere near enough, on paper, to
+explain a browser test flipping from "always passes" to "always fails."
+Reasoning about *why* a few milliseconds might matter produced several
+plausible stories (transaction overhead, an extra round trip, Next.js's
+router cache) and no way to tell them apart. What settled it was two
+`console.error(Date.now())` calls, one in the server action and one in the
+page it was suspected of racing against, read back from a single failing
+run:
+
+```
+DIAG setOptionAvailable START       1789659761144
+DIAG /menu render START             1789659761148   (guacamole available: true)
+DIAG setOptionAvailable COMMITTED   1789659761149
+```
+
+The page that was about to render the wrong number started reading the menu
+four milliseconds after the click and **one millisecond before the write it
+was racing against had committed.** Not a timing coincidence to theorize
+about — a photograph of the exact interleaving, off by a single millisecond.
+
+**The race itself was not new.** `apps/web/e2e/fixtures.ts` already opens
+with a paragraph naming this defect class by number — four times before
+(a cart cookie, a price save, a cancel, a checkout) a spec had "clicked
+something that triggers a server action and then navigated before the write
+landed." A button's `<form action={...}>` submission does not block the
+browser's next command on the mutation completing; nothing about that has
+ever been guaranteed, and this spec's two "click, then immediately
+`page.goto` somewhere else" tests were both riding a margin nobody had
+measured. The margin held for as long as the write was a single `UPDATE`.
+Wrapping it in `setAvailability`'s interactive transaction — needed so the
+event log could see the ids and names the update returned, which the
+array-form transaction it replaced could not pass forward — cost just
+enough of that margin to lose it on every attempt instead of none.
+
+**The fix is the same one used the other four times, not a faster write.**
+Optimizing the transaction back under the old margin would have re-hidden the
+bug rather than closed it — the next feature to touch this write path would
+have found the same cliff with no warning it was there. `availability.spec.ts`
+already had the right pattern in a five-line local helper, `eightySix`, that
+clicks and then waits for the button's own label to flip before doing
+anything else — the same guard `addBurritoToCart`'s `toHaveURL` check
+provides for the cart cookie. It had simply never been promoted to
+`fixtures.ts`, so the two `cart.spec.ts` tests hitting the same button had
+each re-implemented the click by hand, without the wait. Moved once, used
+twice, verified three repeats clean in isolation and then a full 246-spec
+sweep at zero failures — the fix is now structural rather than a matter of
+which write happens to be fast enough this month.

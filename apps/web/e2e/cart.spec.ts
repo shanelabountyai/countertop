@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { addBurritoToCart, reseed } from './fixtures';
+import { addBurritoToCart, eightySix, reseed } from './fixtures';
 
 // C-083: P1-2, ordering for a group. The stepper goes through the same
 // server-price-authority path a composer save uses (`updateCartLine`), so
@@ -38,8 +38,7 @@ test('a stepper changes quantity without a trip back into the composer', async (
 
 test('a stepper tap on a flagged line says why the quantity did not change', async ({ page }) => {
   await addBurritoToCart(page, { guacamole: true });
-  await page.goto('/kitchen/availability');
-  await page.getByRole('button', { name: 'Mark Guacamole sold out' }).click();
+  await eightySix(page, 'Guacamole');
 
   await page.goto('/cart');
   await expect(page.getByText('Guacamole is sold out.')).toBeVisible();
@@ -68,8 +67,7 @@ test('the header cart count drops a line that gets 86\'d out from under it (C-08
   await page.goto('/menu');
   await expect(page.getByRole('link', { name: 'View cart (1)' })).toBeVisible();
 
-  await page.goto('/kitchen/availability');
-  await page.getByRole('button', { name: 'Mark Guacamole sold out' }).click();
+  await eightySix(page, 'Guacamole');
 
   // The line is still in the cart (and still counted in cart.lines.length),
   // but it can't be placed — the header count now agrees with the cart page's

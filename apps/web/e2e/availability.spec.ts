@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { addBurritoToCart, menuRow, reseed } from './fixtures';
+import { addBurritoToCart, eightySix, menuRow, reseed } from './fixtures';
 
 // C-012: the 86 board and the three surfaces one 86 has to touch (P0-6).
 //
@@ -13,12 +13,6 @@ import { addBurritoToCart, menuRow, reseed } from './fixtures';
 test.beforeEach(() => {
   reseed();
 });
-
-const eightySix = async (page: Page, name: string) => {
-  await page.goto('/kitchen/availability');
-  await page.getByRole('button', { name: `Mark ${name} sold out` }).click();
-  await expect(page.getByRole('button', { name: `Put ${name} back on` })).toBeVisible();
-};
 
 test('an 86 item is rendered sold out on the menu, not hidden, and cannot be added', async ({
   page,
@@ -387,4 +381,26 @@ test('a station seeds only what the search is showing, and adds to what is picke
   await expect(page.getByRole('heading', { name: '2 selected. This will stop:' })).toBeVisible();
   await stations.getByRole('link', { name: /^Cold line 3 items/ }).click();
   await expect(page.getByRole('heading', { name: '5 selected. This will stop:' })).toBeVisible();
+});
+
+// C-134: PRD 4's last open question, resolved per-batch. A single tap and a
+// bulk sweep both route through `setAvailability`, so both show up here as
+// one line each — most recent first.
+test('a single tap and a bulk sweep both write one line to Recent changes', async ({ page }) => {
+  await eightySix(page, 'Guacamole');
+
+  const activity = page.getByTestId('menu-activity');
+  await expect(activity.getByText('Marked sold out: Guacamole')).toBeVisible();
+
+  const stations = page.getByRole('region', { name: 'Stations' });
+  await stations.getByRole('link', { name: /^Fryer 5 items/ }).click();
+  await page.getByRole('button', { name: 'Mark all 5 sold out' }).click();
+
+  // Most recent first, and the five-row batch is ONE line, not five — the
+  // fifth name is truncated to a count rather than the line growing.
+  const lines = activity.locator('li');
+  await expect(lines).toHaveCount(2);
+  await expect(lines.first()).toContainText('Marked sold out:');
+  await expect(lines.first()).toContainText('+1 more');
+  await expect(lines.last().getByText('Marked sold out: Guacamole')).toBeVisible();
 });
