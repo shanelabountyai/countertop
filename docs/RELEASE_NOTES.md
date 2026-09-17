@@ -3079,3 +3079,22 @@ expected, then the guard was restored and the full suite passed clean.
 check is worth nothing if nobody can tell whether it still works. This
 closes that gap without inventing a feature (a "change the reward value"
 button) just to make a test possible.
+
+## C-137 — Seeing every queued price change in one place
+
+A manager can already queue a price increase ahead of time — type it on a
+Sunday, have it take effect Monday, without touching anything during
+Monday's lunch rush. That part shipped earlier. What was missing: the only
+way to see a queued change was to open the one item it belonged to. Planning
+a batch of changes — a seasonal menu, a round of increases — meant checking
+every item one at a time with no way to see the whole picture.
+
+**What shipped.** A single list at the top of the menu editor showing every
+price change still queued, across every item and option, soonest first —
+with the same one-tap "cancel" control the per-item view already had.
+
+**Why it matters for a portfolio reader.** Small, deliberate follow-through:
+a feature shipped with a known gap, the gap sat on a punch list rather than
+being forgotten, and it got closed with the smallest change that actually
+closes it — reusing the exact data and the exact cancel button already
+built, not a new mechanism alongside them.

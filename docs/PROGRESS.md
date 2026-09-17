@@ -9432,3 +9432,55 @@ outside the test file.
 untouched, and no rush scenario for `refund_reversed`.
 
 C-136 committed at 8e9950f
+
+## C-137 — A consolidated view of every queued price change (first of C-110/C-111's "Left behind" items)
+
+C-110 (dayparts) and C-111 (staged prices) both shipped in an earlier
+session with the same gap on their "Left behind" list: a manager can queue a
+price change on any item or option, one row at a time, but nothing shows
+what is queued ACROSS the whole menu at once — only the per-row "Queued:
+$X from Y" note on the one item being edited. NEXT.md carried this,
+alongside the still-untouched daypart editor and overnight-window items, as
+"no schedule view for staged prices."
+
+**What shipped.** A "Queued changes" section at the top of `/kitchen/menu`,
+visible whenever at least one price is staged, listing every queued row
+chronologically (`loadStagedPrices` already returns them sorted ascending by
+`effectiveDay`) with the item or option's own name resolved against the menu
+already loaded on that page — no new query. Each row reuses
+`cancelStagedPrice` exactly as the per-row control already does; this is a
+second view onto the same data and the same cancel action, not a second
+mechanism. No migration: `StagedPrice`'s CASCADE-on-delete (C-111) means a
+row here can never dangle without a name to show.
+
+**Why the per-row view wasn't enough.** "Burrito shows $12.50 from Monday"
+answers "what changes on this row" — it does not answer "what does the whole
+menu look like a week from now," which is the actual question a manager
+planning ahead (a holiday menu, a batch of seasonal increases) asks. Two
+different questions, same underlying rows, so this is a second READ of
+`loadStagedPrices`'s output rather than a new table or a new write path.
+
+**Left behind:**
+- **Collecting superseded staged rows** (C-111's other "Left behind" note)
+  is still open — decided this session to be a manual "Collect" button
+  rather than an automatic sweep, matching this repo's own precedent for
+  cleanup jobs (C-091, C-105: nothing self-schedules). Not built yet; this
+  item's own schedule view is the natural place to hang that button, and is
+  why it shipped first.
+- **The daypart editor and overnight daypart windows** are both still open,
+  per NEXT.md. Overnight windows are scoped to `MenuItemWindow` only this
+  round — `StoreHours` (C-011) has the identical gap per `docs/WRITEUP.md`,
+  left for a separate session by decision.
+- **A third flaky spec, found this session and unrelated to this item's own
+  code**: `e2e/menu-editing.spec.ts:234` ("the editor is usable one-handed on
+  a phone") failed intermittently when run as part of the full file, on
+  every one of several retries, including against clean `HEAD` before this
+  session's changes existed — bisected the same way C-134's regression was,
+  except this one reproduced identically before and after, which is what
+  rules it out as caused by this item. Passes standalone every time (6/6
+  across two bisection rounds). Not root-caused this session; joins
+  `e2e/refund.spec.ts:211` and `e2e/last-call.spec.ts:17` on the pre-existing
+  flaky list. It did not reproduce in this item's own gate run (232 passed +
+  15 skipped = 247, reconciled, zero failures, first attempt).
+
+C-137 committed at

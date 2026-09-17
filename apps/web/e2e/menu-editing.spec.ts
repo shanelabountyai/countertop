@@ -433,6 +433,29 @@ test('a queued price change can be called off', async ({ page }) => {
   await expect(page.getByText(/Queued: \$12\.50 from/)).toBeHidden();
 });
 
+// The consolidated view: every queued change across the whole menu in one
+// place, not just visible on the one row it will hit. Its own cancel button,
+// not the per-row one — proving the second control actually works rather
+// than assuming it shares a name with the first.
+test('every queued change is listed together, and can be called off from there', async ({
+  page,
+}) => {
+  const tomorrow = await restaurantTomorrow();
+
+  await page.goto('/kitchen/menu');
+  await page.getByRole('textbox', { name: 'Price for Burrito', exact: true }).fill('12.50');
+  await page.getByRole('textbox', { name: 'Start day for the new price of Burrito', exact: true }).fill(tomorrow);
+  await page.getByRole('button', { name: 'Review price for Burrito', exact: true }).click();
+  await page.getByRole('button', { name: 'Queue new price for Burrito', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: 'Queued changes' })).toBeVisible();
+  await expect(page.getByText(/Burrito: \$12\.50 from/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Cancel the queued change for Burrito', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('the queued price change was cancelled');
+  await expect(page.getByRole('heading', { name: 'Queued changes' })).toBeHidden();
+});
+
 test('a start day that is not still to come is refused, not silently applied', async ({ page }) => {
   // A change staged for today or earlier is not staged at all — it is a price
   // change, and it has a field of its own on the same row. Allowing it would

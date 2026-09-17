@@ -78,6 +78,13 @@ export default async function MenuEditorPage({
       .filter((row) => row.itemId === id || row.optionId === id)
       .map((row) => ({ id: row.id, effectiveDay: row.effectiveDay, price: format(row.priceCents) }));
 
+  // A staged row's parent CASCADEs on delete (schema.prisma), so a row here
+  // always names something still on the menu — never a dangling id.
+  const nameFor = (row: (typeof staged)[number]): string =>
+    row.itemId !== null
+      ? menu.items[row.itemId]!.name
+      : groups.flatMap((group) => group.options).find((option) => option.id === row.optionId)!.name;
+
   // "item:<id>" → ["item", "<id>"]. Split on the FIRST colon only; an id is
   // opaque and gets to contain whatever it contains.
   const edit = params.edit ?? '';
@@ -312,6 +319,36 @@ export default async function MenuEditorPage({
             ? 'That change was not saved. Check the value and try again.'
             : params.error}
         </p>
+      )}
+
+      {/* Every queued change, across the whole menu, oldest start day first —
+          the one thing the per-row "Queued: …" note below each price cannot
+          answer: what does the WHOLE menu look like a week from now. Cancel
+          is the same `cancelStagedPrice` the per-row form already uses. */}
+      {staged.length > 0 && (
+        <section className="mt-8 rounded-lg border-2 border-neutral-300 p-3">
+          <h2 className="text-xl font-semibold">Queued changes</h2>
+          <ul className="mt-3 flex flex-col gap-2">
+            {staged.map((row) => (
+              <li
+                key={row.id}
+                className="flex flex-wrap items-center gap-3 rounded-lg border-2 border-dashed border-neutral-400 bg-neutral-50 px-3 py-2"
+              >
+                <span className="flex-1 text-base">
+                  {nameFor(row)}: {formatCents(row.priceCents)} from {formatDayLabel(row.effectiveDay)}
+                </span>
+                <form action={cancelStagedPrice.bind(null, row.id)}>
+                  <button
+                    type="submit"
+                    className="min-h-12 rounded-lg border-2 border-neutral-900 px-4 text-base font-bold"
+                  >
+                    Cancel the queued change for {nameFor(row)}
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {menu.categories.map((category) => (
