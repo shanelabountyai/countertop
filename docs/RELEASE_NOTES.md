@@ -3036,3 +3036,24 @@ comparison, timestamps logged on both sides of the race) instead of guessing
 at the first plausible story, is the difference between "the tests are
 flaky, ignore it" and actually fixing something. The flaky-test excuse is
 usually where a real, rare production bug goes to hide.
+
+## C-135 — Closing the loop on a reversed refund
+
+A staff member can already flag a refund as sent in error — the money didn't
+really leave twice, but the system needed to know the first send shouldn't
+have happened, so it goes back on what the customer owes. That part shipped
+earlier. What was still missing: the sales report had no way to say so. An
+order could show up back on the "still owed" list with no explanation beside
+it — the reason lived on that one order's own history, not anywhere a manager
+scanning the report would see it.
+
+**What shipped.** The report now carries its own figure for reversed refunds,
+shown as its own tile next to Collected/Outstanding/Refunded whenever one
+exists in the window — never a permanent zero cluttering every ordinary day.
+
+**Why it matters for a portfolio reader.** This is the boring, correct kind
+of follow-through: a feature landed, a review caught that its reporting half
+was incomplete, and it got tracked on a punch list rather than either
+forgotten or rushed in alongside the original change. Two sessions later, it
+got its own small, fully-tested slice of work instead of being bundled into
+something unrelated.

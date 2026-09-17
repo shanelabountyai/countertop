@@ -328,6 +328,18 @@ export default async function ReportPage({
                   note="Counted in neither of the other two"
                 />
               )}
+              {/* Shown only when one exists — a reversal is rare, and a $0.00
+                  tile every day would train the eye to skip it the one day it
+                  is not zero. Not a fourth bucket: this money is already
+                  inside `refunded` above AND back on the chase list below,
+                  this tile only says why. */}
+              {report.payment.refundReversedCents > 0 && (
+                <Stat
+                  label="Refund reversed"
+                  value={formatCents(report.payment.refundReversedCents)}
+                  note="Flagged as sent in error — back on the chase list"
+                />
+              )}
             </div>
             {report.payment.outstanding.length === 0 ? (
               <p className="mt-3 text-lg">Everything sold in this window was paid for.</p>

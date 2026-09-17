@@ -9327,3 +9327,67 @@ isolation, then a full clean e2e sweep (231 passed, 15 skipped, 0 failed,
   `countertop_test` and `countertop_dev` before the gate ran.
 
 C-134 committed at 371a98f
+
+## C-135 — A line on the sales report for a reversed refund (carried from C-133)
+
+C-133 gave a reversed refund its own figure in `paymentTotals` —
+`refundReversedCents`, deliberately not netted into `refundedCents` — and its
+own arithmetic in `orderBalance`, putting the reversed amount back on what an
+order owes. What C-133 left undone, and NEXT.md carried for two sessions
+(C-134's own "Still open" list), was the report: `salesReport` summed
+`refundedCents` across the window and never touched
+`paymentTotals(...).refundReversedCents`, so a reversed refund was visible on
+the order's own receipt and invisible on the sales report — the exact gap
+this item closes.
+
+**What shipped.** `PaymentSplit` gained `refundReversedCents`, summed the same
+way `refundedCents` already is: once per sold order, from `paymentTotals`,
+never netted against anything. Not a fourth bucket in the
+`collected + outstanding + refunded = revenue` invariant — the money is
+already inside `refunded` (it left) and back inside `outstanding` (via
+`orderBalance`'s existing `+ refundReversedCents` term, unchanged by this
+item). This field is the report's own record of *why* some of `outstanding`
+showed up again after a refund had already settled it, nothing more. The
+report page shows it as a fourth stat tile beside Collected/Outstanding/
+Refunded, conditional on being non-zero for the same reason the Refunded
+tile already is: a permanent $0.00 tile trains the eye to skip the one day it
+is not.
+
+**Why this was a gap and not a defect.** `orderBalance`'s arithmetic was
+already correct — a reversed refund has counted correctly against
+`outstandingCents` since C-133 shipped. What was missing was a name for it at
+the report grain: an operator seeing an order back on the chase list after
+its receipt says "refunded" had no report-level answer for why, short of
+opening that one order's own event log.
+
+**Tests.** One new case in `report.test.ts`, modeled on the existing
+"keeps a refund in its own bucket" case: a $15.00 capture, a $5.00 refund,
+then a $5.00 reversal of it, asserting `refundedCents` stays 500 (unchanged,
+the honest record that it left), `refundReversedCents` reads 500, and the
+order lands back on the chase list for exactly that 500. The empty-report
+fixture (`toEqual` over the whole `SalesReport` shape) needed the new field
+added or it fails on the new key alone — caught immediately by the suite,
+not discovered later.
+
+**The gate.** All five legs, on the laptop, first attempt.
+
+- **1123 unit** in 45 files (+1, this item's report test).
+- **E2E 231 passed + 15 skipped = 246**, reconciling against `--list`'s 246,
+  zero failures, 7.7m.
+- Lint, typecheck and the production build clean.
+- No migration, so no drift check and `ci:local` was not run.
+- Manually confirmed the report page renders under real staff auth
+  (computed the `ct_staff` cookie from `.env.test`'s `STAFF_PASSCODE` rather
+  than driving the login form) — no runtime error, though the dev database's
+  default report window had no orders in it to show the new tile against.
+  The unit test above is what actually proves the arithmetic; this was only
+  a check that the JSX addition doesn't crash the route.
+
+**Left behind:**
+- **No seeded/rush scenario produces a `refund_reversed` event** — the rush
+  demo prints `refundedCents` when non-zero but has never exercised a
+  reversal, so nothing shows the new tile live outside a unit test or a
+  manually-inserted event.
+- **`e2e/refund.spec.ts:211` and `e2e/last-call.spec.ts:17`** — the two
+  pre-existing flaky specs, untouched again this session (different code
+  paths).

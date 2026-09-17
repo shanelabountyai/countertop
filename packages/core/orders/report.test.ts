@@ -164,6 +164,7 @@ describe('salesReport — what each status counts toward', () => {
         collectedCents: 0,
         outstandingCents: 0,
         refundedCents: 0,
+        refundReversedCents: 0,
         outstanding: [],
         unpaidRate: null,
       },
@@ -466,6 +467,32 @@ describe('salesReport — collected versus charged (defect D2, C-051)', () => {
     expect(report.payment.refundedCents).toBe(495);
     expect(report.payment.outstandingCents).toBe(1430);
     expect(report.payment.outstanding.map((o) => o.owedCents)).toEqual([1430]);
+  });
+
+  it('reports a reversed refund as its own figure, not folded into refunded (C-133)', () => {
+    // Same shape as `payment.ts`'s own doc comment: a refund that should not
+    // have gone back shows up in BOTH `refunded` (it really did leave) and
+    // back on the chase list via `outstandingCents` — and until this line
+    // existed, the report had no way to say WHY that order was back on the
+    // chase list after a refund had already settled it.
+    const report = salesReport(
+      [
+        {
+          ...order(AT, [line('Churros', 1, 1400)], 'picked_up', money(1500), 'paid'),
+          events: [
+            { kind: 'payment' as const, amountCents: 1500 },
+            { kind: 'refund' as const, amountCents: 500 },
+            { kind: 'refund_reversed' as const, amountCents: 500 },
+          ],
+        },
+      ],
+      LA,
+    );
+
+    expect(report.payment.refundedCents).toBe(500);
+    expect(report.payment.refundReversedCents).toBe(500);
+    expect(report.payment.outstandingCents).toBe(500);
+    expect(report.payment.outstanding.map((o) => o.owedCents)).toEqual([500]);
   });
 
   it('splits every window exactly into collected, outstanding and refunded', () => {

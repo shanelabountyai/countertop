@@ -194,6 +194,12 @@ export type PaymentSplit = {
   collectedCents: number;
   outstandingCents: number;
   refundedCents: number;
+  /** The slice of `refundedCents` flagged as sent in error (C-133) — already
+   *  folded back into `outstandingCents` by `orderBalance`, so this is not a
+   *  fourth bucket to sum, only the report's own record that some of what
+   *  shows as "refunded" is also back on the chase list. Zero on every
+   *  window nothing was reversed in. */
+  refundReversedCents: number;
   /** Chronological, like `days` — a chase list is worked oldest first. */
   outstanding: OutstandingOrder[];
   /** Unpaid pickups as a share of orders sold, so "six on a Friday" compares
@@ -299,6 +305,7 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
   let collectedCents = 0;
   let outstandingCents = 0;
   let refundedCents = 0;
+  let refundReversedCents = 0;
 
   for (const order of orders) {
     // BEFORE the status roles, deliberately. A remake is `sold` by every rule
@@ -366,7 +373,9 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     // SETTLED, so it leaves the chase list entirely and the money it sent
     // back is reported here and only here. The restaurant has less in the
     // drawer than it booked; the customer owes nothing for it.
-    refundedCents += paymentTotals(order.events).refundedCents;
+    const orderPayment = paymentTotals(order.events);
+    refundedCents += orderPayment.refundedCents;
+    refundReversedCents += orderPayment.refundReversedCents;
 
     const day = days.get(clock.day) ?? {
       day: clock.day,
@@ -468,6 +477,7 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
       collectedCents,
       outstandingCents,
       refundedCents,
+      refundReversedCents,
       outstanding,
       unpaidRate: sold === 0 ? null : outstanding.length / sold,
     },
