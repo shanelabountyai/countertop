@@ -1219,6 +1219,29 @@ describe('spending a reward at checkout', () => {
     expect(await prisma.order.count()).toBe(0);
   });
 
+  it('refuses under the lock when the reward’s cash value moved after the plan was made', async () => {
+    // Same shape as `serialises two transactions that open at the same
+    // instant` below: driving `confirmCheckoutRedemption` directly against a
+    // plan is what simulates a settings edit landing between plan and
+    // confirm, which nothing in this suite exercised (loyalty.ts:906-912) —
+    // there is no control that edits `rewardValueCents` for a test to race
+    // against `placeOrder` itself with.
+    const memberId = await memberWith(100);
+    const plan = {
+      memberId,
+      pointsSpent: -100,
+      amountCents: 1000,
+      subtotalCents: SUBTOTAL,
+    };
+    // The owner's edit, made while the plan above was already handed out.
+    await seedSettings({ loyaltyEnabled: true, rewardValueCents: 500 });
+
+    const refused = await prisma.$transaction((tx) => confirmCheckoutRedemption(tx, plan, AT));
+    expect(refused).toMatchObject({ ok: false, reason: 'reward_terms_changed' });
+    // Nothing spent — the balance the plan was drawn against is untouched.
+    expect((await memberByPhone(PHONE))?.balance).toBe(100);
+  });
+
   it('refuses a reward worth more than the food, rather than clamping it', async () => {
     // A $3.00 side and a $10 reward. C-117's `discountCents <= subtotalCents`
     // CHECK is what this refusal exists to keep out of reach.

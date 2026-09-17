@@ -3057,3 +3057,25 @@ was incomplete, and it got tracked on a punch list rather than either
 forgotten or rushed in alongside the original change. Two sessions later, it
 got its own small, fully-tested slice of work instead of being bundled into
 something unrelated.
+
+## C-136 — A missing test for a rare checkout refusal
+
+The system already refuses to place an order rather than charge the wrong
+reward amount if the reward's cash value changes in the moments between a
+customer's checkout and the order actually being written. That protection
+shipped earlier, but nothing proved it kept working — there's deliberately no
+staff control that edits the reward's value (an intentional gap: changing it
+would silently reprice everyone's existing punch card, a decision serious
+enough to require its own build), so the exact scenario the protection
+guards against couldn't be produced through the app to test it.
+
+**What shipped.** A test that reaches past the app and drives the guard's own
+mechanism directly, the same technique already used to test a related race
+condition on the same code path. To prove the test would actually catch a
+break, the guard was disabled on purpose first — the test failed as
+expected, then the guard was restored and the full suite passed clean.
+
+**Why it matters for a portfolio reader.** A rare, hard-to-trigger safety
+check is worth nothing if nobody can tell whether it still works. This
+closes that gap without inventing a feature (a "change the reward value"
+button) just to make a test possible.

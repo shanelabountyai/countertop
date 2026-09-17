@@ -9393,3 +9393,42 @@ not discovered later.
   paths).
 
 C-135 committed at 468ed9c
+
+## C-136 — A test for `reward_terms_changed`, the checkout refusal nothing covered
+
+C-118 shipped `confirmCheckoutRedemption`'s re-check under the member lock,
+including a refusal — `reward_terms_changed` — for the one race no other
+refusal names: the owner edits `rewardValueCents` between a checkout reward
+being planned (outside the transaction) and confirmed (inside it), so the
+cash value the customer's token promised no longer matches what the program
+would grant. NEXT.md carried this as a coverage gap since C-118 shipped:
+nothing in `loyalty.test.ts` exercised it, and there is deliberately no
+control that edits `rewardValueCents` (`loyaltyLiability`'s own comment: "the
+switch shipped and the numbers deliberately did not") for a test to race a
+real `placeOrder` call against.
+
+**What shipped.** One test, no code change. `planCheckoutReward` and
+`confirmCheckoutRedemption` both read settings inside the same synchronous
+`placeOrder` call, so seeding a settings change before placement makes both
+reads agree — the mismatch can only be produced by driving
+`confirmCheckoutRedemption` directly against a stale `plan`, the same
+technique the existing `serialises two transactions that open at the same
+instant` test already uses to test the member-lock race apart from
+placement. Built a plan at `amountCents: 1000`, changed `rewardValueCents` to
+500 after it, called `confirmCheckoutRedemption` inside its own transaction,
+and asserted the refusal and an untouched balance.
+
+**Verified it actually catches something.** Temporarily replaced the guard's
+`if` with `if (false)` — the new test failed with `ok: true` instead of the
+expected refusal, confirming it isn't passing by coincidence. Reverted before
+running the gate.
+
+**The gate.** All five legs, first attempt: 1124 unit tests (+1), lint,
+typecheck, the production build, and 231 e2e passed + 15 skipped = 246,
+reconciling against `--list`'s total, 4.2m. No migration, no code changed
+outside the test file.
+
+**Left behind:** unchanged from C-135 — the two pre-existing flaky specs
+untouched, and no rush scenario for `refund_reversed`.
+
+C-136 committed at
