@@ -476,6 +476,7 @@ model MenuChangeEvent {
   options   Json
 
   @@index([at])
+  @@index([staffId])
 }
 
 // ---------------------------------------------------------------------------
