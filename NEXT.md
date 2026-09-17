@@ -20,9 +20,7 @@ typecheck, production build, and 246 e2e specs (231 passed, 15 skipped, 0
 failed, reconciled against `--list`'s total, 7.7m). No migration this
 session, so no drift check and `ci:local` was not run.
 
-**Not yet pushed** — this file, `docs/PROGRESS.md` and `docs/RELEASE_NOTES.md`
-are staged for the commit; do that next, then the SHA-record follow-up
-commit, then one push, then watch CI.
+C-135 committed at 468ed9c. Not yet pushed.
 
 ## Pick this up first
 
