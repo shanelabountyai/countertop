@@ -9755,3 +9755,38 @@ at 01:00 give Saturday #1, #2, #3, and `loadServiceDay` returns Saturday at
 e2e + 15 skipped = 254 (unchanged).
 
 C-142 committed at a2cff65
+
+## C-143 — Scheduling during yesterday's spill (C-141/C-142's "Left behind")
+
+At 00:30 Sunday inside Saturday's 22:00–02:00 shift, with no Sunday row, the
+ASAP gate was open but `availableSlots` returned `outside_hours` / "We are
+closed today." The checkout picker renders nothing for a closed schedule, so
+the sentence only reached a customer through placement's refusal of a
+scheduled submission, where it contradicted the open ASAP gate.
+
+**Built:**
+- `availableSlots`' no-row branch asks `serviceDay`. Inside yesterday's spill
+  it says "Scheduled pickup is not available after midnight. You can still
+  order for pickup now." Otherwise it still says "We are closed today."
+
+**Decided:**
+- **Still no slots in the spill.** C-141's same-day rule stands: an overnight
+  day's slots stop at 24:00, and the hours after it are ASAP-only. Only the
+  wording was wrong.
+- Reason stays `outside_hours`. Nothing branches on it for scheduling.
+
+**Tests:** two schedule cases. Sun 00:30 inside Saturday's overnight shift
+does not say "closed today". The same instant with Saturday closed through
+the override still does, because `currentOpening` skips an overridden shift.
+
+**Left behind:**
+- **A stale slot minute lands on the wrong day.** The client sends only
+  `requestedForMinute`, and placement builds `requestedFor` from `clock.day`.
+  A Friday "24:00" (or 23:45) pick submitted just after midnight is booked
+  for Saturday at that minute if Saturday's own slots include it, which an
+  overnight or 24:00-close Saturday does. The fix is to send the slot's day
+  with the minute and refuse a mismatch as `slot_unavailable`.
+- **The closed-today override is still calendar-dated** (C-141's decision).
+
+**Gate:** green, first attempt. 1157 unit (+2), lint, typecheck, build, 239
+e2e + 15 skipped = 254 (unchanged).

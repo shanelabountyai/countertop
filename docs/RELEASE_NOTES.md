@@ -3181,3 +3181,17 @@ everywhere: the order carries the day it belongs to, and the report reads
 that day instead of working it out again from the timestamp. Scheduled
 pickups are the one deliberate exception, because their pickup time is always
 on the calendar day they were booked for.
+
+## C-143 — No "closed today" while the kitchen is still open
+
+After midnight during a late shift, the scheduling side of checkout could say
+"We are closed today" even though ordering for pickup now was still open. It
+now says that scheduled pickup is not available after midnight and points
+customers to ordering for now.
+
+**Why it matters for a portfolio reader.** Two features answered the same
+question, "is the restaurant open?", from different facts. The fix reuses the
+answer the order screen already gives rather than adding a second one.
+Reading the placement path for this fix turned up a real bug: a pickup time picked just before
+midnight and submitted just after it can be booked for the next night. It is
+logged as the next item to fix.

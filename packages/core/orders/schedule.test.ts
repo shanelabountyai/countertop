@@ -165,4 +165,28 @@ describe('overnight hours (C-141)', () => {
     if (!result.open) throw new Error('unreachable');
     expect(result.slots.at(-1)).toMatchObject({ minuteOfDay: 1440, label: '24:00' });
   });
+
+  // Sat 22:00-02:00, and Sunday has no row: at Sun 00:30 the ASAP gate is open
+  // on Saturday's shift, so the schedule must not say "closed today".
+  const saturdayLate = WEEK.map((day) =>
+    day.dayOfWeek === 6 ? { ...day, openMinute: 22 * 60, closeMinute: 2 * 60 } : day,
+  );
+  const SUNDAY_0030 = at({ d: 5, h: 7, m: 30 });
+
+  it("does not call a day closed while yesterday's shift is still running", () => {
+    const result = availableSlots({ ...gateState(), hours: saturdayLate }, CONFIG, new Map(), restaurantClock(SUNDAY_0030, TZ));
+    expect(result).toMatchObject({ open: false, reason: 'outside_hours' });
+    if (result.open) throw new Error('unreachable');
+    expect(result.message).not.toMatch(/closed today/);
+  });
+
+  it('still says closed today when yesterday was closed with the override', () => {
+    const result = availableSlots(
+      { ...gateState({ closedOnDay: '2026-07-04' }), hours: saturdayLate },
+      CONFIG,
+      new Map(),
+      restaurantClock(SUNDAY_0030, TZ),
+    );
+    expect(result).toMatchObject({ open: false, message: 'We are closed today.' });
+  });
 });

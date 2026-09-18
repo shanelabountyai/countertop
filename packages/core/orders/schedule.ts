@@ -15,7 +15,7 @@
 // Pure, like `checkout-gate.ts`: `clock` and `weightBySlot` are parameters,
 // nothing here reads a database or the system clock.
 import { formatMinuteOfDay, type RestaurantClock } from './business-day';
-import { orderingWindow, type GateReason, type StoreHoursDay } from './checkout-gate';
+import { orderingWindow, serviceDay, type GateReason, type StoreHoursDay } from './checkout-gate';
 
 // `zonedTimeToInstant` — the local -> instant conversion `Order.requestedFor`
 // needs — lives in `business-day.ts`, not here: it is the one exception that
@@ -102,7 +102,17 @@ export function availableSlots(
 
   const today = state.hours.find((day) => day.dayOfWeek === clock.weekday);
   if (!today) {
-    return { open: false, reason: 'outside_hours', message: 'We are closed today.' };
+    // Inside yesterday's overnight shift ASAP is still open (C-141), so
+    // "closed today" would contradict the gate. Its after-midnight hours are
+    // ASAP-only by the same-day rule below, so there is still nothing to book.
+    const inSpill = serviceDay(state, clock) !== clock.day;
+    return {
+      open: false,
+      reason: 'outside_hours',
+      message: inSpill
+        ? 'Scheduled pickup is not available after midnight. You can still order for pickup now.'
+        : 'We are closed today.',
+    };
   }
 
   // Same-day only, so an overnight day's slots stop at midnight (C-141); the
