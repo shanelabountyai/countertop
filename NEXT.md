@@ -1,50 +1,30 @@
 # Next
 
-**C-139 shipped this session** — the daypart editor, C-110's own "Left
-behind" item, carried through C-137/C-138 and picked up first as NEXT.md
-said to.
+**C-140 shipped this session** — overnight daypart windows, the last of
+C-137's four "Left behind" items.
 
-## C-139 — The daypart editor
+## C-140 — Overnight daypart windows
 
-`MenuItemWindow` and the orderability engine (`daypartClosure`, threaded
-into `validateComposition`) shipped at C-110 with no way to add or remove a
-window except writing the row by hand. Added a daypart section under each
-item on `/kitchen/menu` — current windows listed with a remove button each,
-"Served all day, every day." when there are none, and a form (day, start
-time, end time) to add one. No confirm panel: same posture as prep points
-and the description field, because this is not money.
+Migration `20260918090000_overnight_item_windows` swaps
+`menu_item_window_ends_after_start` for `menu_item_window_not_empty`
+(end ≠ start). `daypartClosure` (`packages/core/menu/composition.ts`) reads
+an end at or before the start as wrapping into the next day; the window
+belongs to the day it STARTS (Friday 22:00–02:00 serves Saturday 01:00).
+Editor list/confirmation name the spill day ("(into Saturday)"). Customer
+label unchanged ("Served 22:00–02:00").
 
-Times are typed text ("11:00"), not a native `<input type="time">` — the
-schema's exclusive end legally reaches 1440 ("24:00", "through the last
-minute of the day"), a value the native time input's 00:00–23:59 range
-cannot express at all. `parseTimeOfDay` (new, `packages/core/orders/business-day.ts`)
-is the inverse of the existing `formatMinuteOfDay` plus that one extra
-value. Two new server actions in `apps/web/app/kitchen/menu/actions.ts` —
-`addItemWindow`, `deleteItemWindow` — mirror the migration's own CHECKs and
-catch the `(itemId, dayOfWeek, startMinute)` unique's `P2002` with a named
-message rather than a raw constraint error. `loadItemWindows` in
-`packages/db/menu.ts` is the one new query, deliberately outside `Menu`:
-nothing in packages/core needs a window's own id, only the editor's delete
-button does.
-
-No migration — the table and its CHECKs already existed from C-110.
-
-**Gate:** green, first attempt. 1131 unit (+3), lint, typecheck, build, 237
-e2e + 15 skipped = 252 (+5). Committed at 327e649, SHA recorded at f49f924,
-pushed together. CI green: run 35371814715, watched to completion this
-session.
+**Gate:** green, first attempt. 1137 unit (+6), 238 e2e + 15 skipped = 253
+(+1). Committed at 85057b6, SHA recorded at bb6b666.
 
 ## Pick this up first
 
-**Overnight daypart windows** — decided in the C-137 session:
-`MenuItemWindow` only, not unified with `StoreHours` (C-011 has the
-identical gap per `docs/WRITEUP.md`, left for a separate session). Needs a
-hand-written migration loosening the `menu_item_window_ends_after_start`
-CHECK and a rewrite of `daypartClosure` in
-`packages/core/menu/composition.ts` from "same-day start ≤ now < end" to
-"does any window, possibly wrapping, contain now." Largest and riskiest of
-the four recent items — do last, on its own session. This is the last of
-C-137's four "Left behind" items.
+**Overnight store hours (C-011's gap)** — the natural follow-up. `StoreHours`
+still has `store_hours_closes_after_opening`, so the checkout gate closes at
+midnight and C-140's spill past midnight is unreachable by checkout. Same
+shape of work: hand-written migration loosening the CHECK, and the gate's
+"open now" + next-opening walk taught to wrap (`docs/WRITEUP.md`, C-011
+bullet names the upgrade). Riskier than C-140 — the gate reads it on every
+checkout and the next-opening walk spans midnight. Opus-grade.
 
 ## Read this before the next push
 
