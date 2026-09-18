@@ -1,26 +1,21 @@
 # Next
 
-**C-142 shipped this session**: service-day order numbers (C-141's gap).
-
-## C-142: Service-day order numbers
-
-`placeOrder` stamps an ASAP order's `businessDay` with `serviceDay`, so a 00:30
-order inside Friday's overnight shift is Friday's next number. A scheduled
-order keeps its slot's calendar day (the slot weight and `requestedFor` both
-key on it). New `loadServiceDay(now)` in `packages/db/gate.ts` feeds remake,
-the report's "Today" and the CSV export. `salesReport` buckets days by the
-stamped column; hours stay wall-clock. PRD Open Question marked resolved.
-No migration.
-
-**Gate:** green, first attempt. 1155 unit (+2), 239 e2e + 15 skipped = 254.
-Committed at a2cff65.
+**C-143 shipped this session**: scheduling during yesterday's spill. Inside
+an overnight shift's after-midnight hours, on a day with no row,
+`availableSlots` now says scheduled pickup is not available after midnight
+instead of "We are closed today". Still no slots there. Gate green, first
+attempt: 1157 unit (+2), 239 e2e + 15 skipped = 254. Committed at 775e190.
 
 ## Pick this up first
 
-Nothing is queued. The overnight thread's last loose end is **scheduling
-during yesterday's spill**: `availableSlots` says "closed today" on a day with
-no row while ASAP is open (C-141/C-142 "Left behind"). Otherwise pick from
-"Still open" below or the PRD's P2 list.
+**A stale slot minute is booked on the wrong day** (found in C-143, in
+WRITEUP's caveats). The checkout form submits `requestedForMinute` only;
+`placeOrder` (packages/db/placement.ts, around the `zonedTimeToInstant`
+call) pairs it with `clock.day`. A Friday 24:00/23:45 pick submitted after
+midnight is booked for Saturday at that minute if Saturday offers it
+(overnight or 24:00-close day). Fix: submit the slot's day with the minute
+(the page already has the clock), and refuse a mismatch as
+`slot_unavailable`. Needs a placement db test at a midnight boundary.
 
 ## Read this before the next push
 
