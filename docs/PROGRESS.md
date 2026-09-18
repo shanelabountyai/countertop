@@ -9647,3 +9647,5 @@ listed with its spill day, and start = end refused by sentence.
 
 **Gate:** green, first attempt. 1137 unit (+6), lint, typecheck, build, 238
 e2e + 15 skipped = 253 (+1).
+
+C-140 committed at 85057b6
