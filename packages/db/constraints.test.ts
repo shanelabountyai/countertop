@@ -769,13 +769,19 @@ describe('item daypart windows', () => {
     ).resolves.toMatchObject({ endMinute: 1440 });
   });
 
-  it('refuses an overnight window', async () => {
-    // 22:00–02:00 is a real thing for a late-night kitchen and NOT what this
-    // schema models — the same line `store_hours_closes_after_opening` draws.
-    // Two rows on two days is how you say it; the write-up records the ceiling.
+  it('accepts an overnight window (C-140)', async () => {
+    // 22:00–02:00 runs into the next day; `daypartClosure` reads an end before
+    // the start as wrapping past midnight.
     await expect(
       prisma.menuItemWindow.create({ data: window({ startMinute: 22 * 60, endMinute: 2 * 60 }) }),
-    ).rejects.toThrow(/menu_item_window_ends_after_start/i);
+    ).resolves.toMatchObject({ endMinute: 120 });
+  });
+
+  it('refuses a window that ends on the minute it starts', async () => {
+    // Empty or all 24 hours — ambiguous either way. [0, 1440) is a whole day.
+    await expect(
+      prisma.menuItemWindow.create({ data: window({ startMinute: 22 * 60, endMinute: 22 * 60 }) }),
+    ).rejects.toThrow(/menu_item_window_not_empty/i);
   });
 
   it('goes away with its item, unlike a snapshot row', async () => {

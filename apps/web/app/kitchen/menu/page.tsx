@@ -684,7 +684,7 @@ function WindowsForm({ item, windows }: { item: MenuItem; windows: ItemWindow[] 
       ) : (
         <ul className="flex flex-col gap-2">
           {windows.map((window) => {
-            const label = `${WEEKDAY_NAMES[window.dayOfWeek]} ${formatMinuteOfDay(window.startMinute)}–${formatMinuteOfDay(window.endMinute)}`;
+            const label = `${WEEKDAY_NAMES[window.dayOfWeek]} ${formatMinuteOfDay(window.startMinute)}–${formatMinuteOfDay(window.endMinute)}${window.endMinute < window.startMinute ? ` (into ${WEEKDAY_NAMES[(window.dayOfWeek + 1) % 7]})` : ''}`;
             return (
               <li
                 key={window.id}

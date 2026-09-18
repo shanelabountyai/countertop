@@ -445,6 +445,53 @@ describe('dayparts (P1-1)', () => {
     });
   });
 
+  describe('overnight windows (C-140)', () => {
+    /** Friday 22:00–02:00: Friday from 22:00, Saturday until 02:00. */
+    const lateNight = (): Menu =>
+      menuWith((m) => {
+        m.items['taco-plate']!.windows = [{ dayOfWeek: 5, startMinute: 22 * 60, endMinute: 2 * 60 }];
+      });
+    const at = (weekday: number, minuteOfDay: number): RestaurantClock => ({
+      day: weekday === 5 ? '2026-09-11' : weekday === 6 ? '2026-09-12' : '2026-09-10',
+      weekday,
+      minuteOfDay,
+    });
+
+    it('is served from its start through midnight on its own day', () => {
+      expect(check(tacos, lateNight(), at(5, 22 * 60))).toEqual({ ok: true });
+      expect(check(tacos, lateNight(), at(5, 1439))).toEqual({ ok: true });
+      expect(violation(tacos, lateNight(), at(5, 21 * 60 + 59))).toMatchObject({
+        message: 'Taco plate is served 22:00–02:00.',
+      });
+    });
+
+    it("spills into the NEXT day until its half-open end", () => {
+      expect(check(tacos, lateNight(), at(6, 0))).toEqual({ ok: true });
+      expect(check(tacos, lateNight(), at(6, 2 * 60 - 1))).toEqual({ ok: true });
+      // Past the spill, Saturday has no row of its own: not on today's menu.
+      expect(violation(tacos, lateNight(), at(6, 2 * 60))).toMatchObject({
+        message: "Taco plate is not on today's menu.",
+      });
+    });
+
+    it('does not spill BACKWARDS into the morning of its own day', () => {
+      // Friday 01:00 belongs to Thursday's night, which has no row.
+      expect(kinds(tacos, lateNight(), at(5, 60))).toEqual(['item_outside_daypart']);
+    });
+
+    it('does not spill into any day but the next', () => {
+      expect(kinds(tacos, lateNight(), at(4, 60))).toEqual(['item_outside_daypart']);
+    });
+
+    it('wraps Saturday night into Sunday across the week boundary', () => {
+      const saturdayNight = menuWith((m) => {
+        m.items['taco-plate']!.windows = [{ dayOfWeek: 6, startMinute: 23 * 60, endMinute: 60 }];
+      });
+      const sunday: RestaurantClock = { day: '2026-09-13', weekday: 0, minuteOfDay: 30 };
+      expect(check(tacos, saturdayNight, sunday)).toEqual({ ok: true });
+    });
+  });
+
   // The Open Question this item turned on, answered in code: dayparts and 86s
   // are separate facts and only one of them is ever the reason.
   it('says "sold out", not the schedule, when the item is BOTH', () => {

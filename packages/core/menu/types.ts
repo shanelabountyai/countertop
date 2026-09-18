@@ -80,7 +80,8 @@ export type DaypartWindow = {
   /** Local wall-clock minutes since midnight, 0–1439. Inclusive. */
   startMinute: number;
   /** Local wall-clock minutes since midnight, 1–1440. EXCLUSIVE — an item
-   *  served until 1440 is served through the last minute of the day. */
+   *  served until 1440 is served through the last minute of the day. At or
+   *  before `startMinute` means the window runs past midnight (C-140). */
   endMinute: number;
 };
 

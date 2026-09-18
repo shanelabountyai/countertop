@@ -413,8 +413,9 @@ export async function addItemWindow(formData: FormData): Promise<void> {
   const dayOfWeek = Number(dayText);
   const startMinute = parseTimeOfDay(startText);
   const endMinute = parseTimeOfDay(endText);
-  // Mirrors the CHECKs in the hand-written migration (menu_item_window_*):
-  // day 0–6, start a minute IN the day, end after start.
+  // Mirrors the CHECKs in the hand-written migrations (menu_item_window_*):
+  // day 0–6, start a minute IN the day, end anywhere but the start — an end
+  // before the start runs past midnight (C-140).
   if (
     !Number.isInteger(dayOfWeek) ||
     dayOfWeek < 0 ||
@@ -423,10 +424,10 @@ export async function addItemWindow(formData: FormData): Promise<void> {
     endMinute === null ||
     startMinute > 1439 ||
     endMinute < 1 ||
-    endMinute <= startMinute
+    endMinute === startMinute
   ) {
     rejected(
-      'That is not a window. Pick a day, and a start time before the end time — type times like 11:00, or 24:00 for midnight.',
+      'That is not a window. Pick a day, and a start and end time that differ — type times like 11:00, or 24:00 for midnight. An end before the start runs past midnight.',
     );
   }
 
@@ -446,7 +447,7 @@ export async function addItemWindow(formData: FormData): Promise<void> {
     throw error;
   }
   done(
-    `${item.name} is now served ${formatMinuteOfDay(startMinute)}–${formatMinuteOfDay(endMinute)} on ${WEEKDAY_NAMES[dayOfWeek]}`,
+    `${item.name} is now served ${formatMinuteOfDay(startMinute)}–${formatMinuteOfDay(endMinute)} on ${WEEKDAY_NAMES[dayOfWeek]}${endMinute < startMinute ? ` into ${WEEKDAY_NAMES[(dayOfWeek + 1) % 7]}` : ''}`,
   );
 }
 

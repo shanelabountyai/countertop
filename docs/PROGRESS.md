@@ -9607,3 +9607,43 @@ already existed from C-110.
   already works around.
 
 C-139 committed at 327e649
+
+## C-140 — Overnight daypart windows (C-137's last "Left behind" item)
+
+C-110 foreclosed 22:00–02:00 with `menu_item_window_ends_after_start`,
+because the old `daypartClosure` read an inverted row as "never served" — an
+item that silently leaves the menu. This makes the row mean what a manager
+typing it means instead.
+
+**Built.** A hand-written migration
+(`20260918090000_overnight_item_windows`) drops the old CHECK and adds
+`menu_item_window_not_empty` (`endMinute <> startMinute`): start = end is the
+one row left that is ambiguous (empty, or all 24 hours), and `[0, 1440)` is
+already how a whole day is written. `daypartClosure`
+(`packages/core/menu/composition.ts`) now asks "does any window contain now"
+across today's rows and yesterday's wrapping rows. **Decided:** a wrapping
+window belongs to the day it STARTS — Friday 22:00–02:00 is a Friday row
+and serves Saturday until 02:00 — because that is how a late-night menu is
+read aloud. Once yesterday's spill is over, a day with no row of its own is
+still "Not on today's menu". `addItemWindow` mirrors the new CHECK, and the
+editor's list and confirmation name the day the window runs into ("Friday
+22:00–02:00 (into Saturday)"). No schema change beyond the CHECK, so no
+`@@index` drift to mirror.
+
+**Tests.** Five engine cases (own-day through 23:59, spill until the
+half-open end, no backwards spill into its own morning, no spill past the
+next day, Saturday → Sunday across the week boundary), the constraint test
+flipped to accept overnight plus one refusing start = end, and the e2e that
+asserted the old refusal replaced by two: an overnight window added and
+listed with its spill day, and start = end refused by sentence.
+
+**Left behind:**
+- **`StoreHours` still forecloses overnight service** (C-011, unchanged by
+  decision). The checkout gate closes at midnight, so an overnight item
+  window's spill is unreachable by checkout until that is fixed — the
+  engine is right and currently unexercised past midnight end to end.
+- **The customer label does not name the spill day** — "Served 22:00–02:00"
+  is conventional on a menu; only the manager's editor spells it out.
+
+**Gate:** green, first attempt. 1137 unit (+6), lint, typecheck, build, 238
+e2e + 15 skipped = 253 (+1).

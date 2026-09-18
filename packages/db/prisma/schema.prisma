@@ -347,7 +347,8 @@ model MenuItemWindow {
   /// Local wall-clock minutes since midnight, 0–1439. Inclusive.
   startMinute Int
   /// Local wall-clock minutes since midnight, 1–1440. Exclusive, so abutting
-  /// windows do not both own the changeover minute.
+  /// windows do not both own the changeover minute. Before `startMinute`
+  /// means overnight into the next day (C-140); equal is refused.
   endMinute   Int
 
   /// Two windows on the same day may not start at the same minute — that is

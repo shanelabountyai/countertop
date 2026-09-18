@@ -3136,3 +3136,18 @@ showing an empty space where the feature might be.
 can operate isn't finished — it's a demo. This is the same appliance-grade
 bar the rest of the menu editor already holds itself to: type something
 wrong and get told why, in a sentence, before it reaches the database.
+
+## C-140 — Late-night menus that run past midnight
+
+A serving window like "Fridays 10pm–2am" used to be refused outright: the
+system could only understand windows that start and end on the same day, and
+a manager had to split it into two entries on two days. Now it can be typed
+the way it is said, and the menu serves it from Friday night into early
+Saturday.
+
+**Why it matters for a portfolio reader.** The original refusal was the
+right call at the time — a window the system misread would have made an
+item quietly vanish from the menu with no error. This change replaced a
+safe refusal with the correct behaviour, rather than just deleting the
+guard: the rule about which day a late-night window belongs to was decided,
+written down, and tested at the week's own wrap from Saturday into Sunday.

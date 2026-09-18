@@ -393,8 +393,8 @@ export async function failRefundFor(customerName: string): Promise<void> {
  * what time the sweep happens to run, which is the defect `seedSettings`'
  * round-the-clock hours exist to avoid — a suite that passes all day and fails
  * for one hour is a suite nobody trusts again. Offsets ("an hour ago") have
- * the same problem in a smaller window: the schema forecloses overnight
- * windows, so "an hour ago" is unwritable for the first hour of a local day.
+ * the same problem in a smaller window: in the first hour of a local day,
+ * "an hour ago" is yesterday's overnight window, a different code path.
  *
  * Chosen so a window exists at every minute of the day:
  *   served     → the whole day, `[0, 1440)`

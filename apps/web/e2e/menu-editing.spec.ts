@@ -515,16 +515,27 @@ test('a window can be removed, and the item returns to served all day', async ({
   await expect(page.getByText('Served Tuesday 07:00–10:00')).toHaveCount(0);
 });
 
-test('an end before its start is refused, not stored as a window nobody can ever be served in', async ({
+test('an end before its start is an overnight window, and names the day it runs into', async ({
   page,
 }) => {
   await page.goto('/kitchen/menu');
-  await page.getByRole('combobox', { name: 'Day for a new window on Burrito', exact: true }).selectOption('3');
-  await page.getByRole('textbox', { name: 'Start time for a new window on Burrito', exact: true }).fill('14:00');
-  await page.getByRole('textbox', { name: 'End time for a new window on Burrito', exact: true }).fill('11:00');
+  await page.getByRole('combobox', { name: 'Day for a new window on Burrito', exact: true }).selectOption('5');
+  await page.getByRole('textbox', { name: 'Start time for a new window on Burrito', exact: true }).fill('22:00');
+  await page.getByRole('textbox', { name: 'End time for a new window on Burrito', exact: true }).fill('02:00');
   await page.getByRole('button', { name: 'Add a serving window for Burrito', exact: true }).click();
 
-  await expect(page.getByTestId('menu-error')).toContainText('a start time before the end time');
+  await expect(page.getByRole('status')).toContainText('Burrito is now served 22:00–02:00 on Friday into Saturday');
+  await expect(page.getByText('Served Friday 22:00–02:00 (into Saturday)')).toBeVisible();
+});
+
+test('an end equal to its start is refused, not stored as an ambiguous window', async ({ page }) => {
+  await page.goto('/kitchen/menu');
+  await page.getByRole('combobox', { name: 'Day for a new window on Burrito', exact: true }).selectOption('3');
+  await page.getByRole('textbox', { name: 'Start time for a new window on Burrito', exact: true }).fill('14:00');
+  await page.getByRole('textbox', { name: 'End time for a new window on Burrito', exact: true }).fill('14:00');
+  await page.getByRole('button', { name: 'Add a serving window for Burrito', exact: true }).click();
+
+  await expect(page.getByTestId('menu-error')).toContainText('a start and end time that differ');
   await page.goto('/kitchen/menu');
   await expect(page.getByText('Served all day, every day.').first()).toBeVisible();
 });

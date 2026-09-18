@@ -75,9 +75,25 @@ export type DaypartClosure = {
  * 16:00–21:00 abut without the 16:00 minute belonging to both. That is the 4pm
  * changeover this feature exists for, and an inclusive end would make it the
  * one minute of the day when lunch and dinner are both on.
+ *
+ * A window whose end is at or before its start runs past midnight (C-140):
+ * Friday 22:00–02:00 is Friday from 22:00 and Saturday until 02:00. It belongs
+ * to the day it STARTS, which is how a late-night menu is read aloud, so
+ * Saturday at 01:00 is served by Friday's row.
  */
 export function daypartClosure(item: MenuItem, clock: RestaurantClock): DaypartClosure | null {
   if (!item.windows || item.windows.length === 0) return null;
+
+  const now = clock.minuteOfDay;
+  const yesterday = (clock.weekday + 6) % 7;
+  const served = item.windows.some((window) => {
+    const wraps = window.endMinute <= window.startMinute;
+    if (window.dayOfWeek === clock.weekday) {
+      return now >= window.startMinute && (wraps || now < window.endMinute);
+    }
+    return wraps && window.dayOfWeek === yesterday && now < window.endMinute;
+  });
+  if (served) return null;
 
   const today = item.windows
     .filter((window) => window.dayOfWeek === clock.weekday)
@@ -86,17 +102,13 @@ export function daypartClosure(item: MenuItem, clock: RestaurantClock): DaypartC
   // A day with no window is a day the item is not served — absence as the
   // closed signal, the same rule `checkoutGate` applies to a missing
   // `StoreHours` row, so a deleted row cannot leave an item on the menu.
+  // Yesterday's spill past midnight, once over, does not count as today's.
   if (today.length === 0) {
     return {
       label: "Not on today's menu",
       message: `${item.name} is not on today's menu.`,
     };
   }
-
-  const served = today.some(
-    (window) => clock.minuteOfDay >= window.startMinute && clock.minuteOfDay < window.endMinute,
-  );
-  if (served) return null;
 
   // The windows themselves, not "come back later": a customer told the actual
   // hours can plan, and a published range is a fact rather than the kind of
