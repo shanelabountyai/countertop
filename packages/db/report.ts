@@ -46,7 +46,7 @@ export type ReportWindow = Date | { from: string; to: string };
  *
  * The business-day arm compares the `businessDay` COLUMN as a string — no
  * parsing, no local -> instant conversion, the same trick `historyWhere` uses.
- * The column was written by `restaurantClock` at placement, so "today" on this
+ * The column is the service day placement stamped (C-142), so "today" on this
  * screen is the same day the order number came from, by construction rather
  * than by two computations agreeing. `gte`/`lte` on that string is a real
  * range only because the format is "YYYY-MM-DD", where lexicographic order IS
@@ -66,7 +66,7 @@ const windowWhere = (window: ReportWindow): Prisma.OrderWhereInput =>
  * deliberately: turning "the last 30 days in Los Angeles" into a pair of
  * instants is the local -> instant direction that `business-day.ts` refuses to
  * do, because a DST boundary makes it ambiguous. So the query is generous and
- * the ENGINE is exact — it buckets each order by the restaurant's calendar and
+ * the ENGINE is exact — it buckets each order by its stamped `businessDay` and
  * the days fall out of that.
  *
  * The cost is that the oldest day in such a window can be partial. The screen
@@ -84,6 +84,7 @@ export function loadReportOrders(window: ReportWindow): Promise<ReportableOrder[
     select: {
       status: true,
       placedAt: true,
+      businessDay: true,
       seq: true,
       customerName: true,
       paymentState: true,

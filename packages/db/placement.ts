@@ -11,7 +11,6 @@ import { createHash, randomBytes } from 'node:crypto';
 import {
   availableSlots,
   buildOrderSnapshot,
-  businessDayOf,
   canBookSlot,
   cartPrepWeight,
   checkClientTotal,
@@ -27,6 +26,7 @@ import {
   type CartError,
   checkoutGate,
   restaurantClock,
+  serviceDay,
   type CartReview,
   type GateReason,
   type IdentityViolation,
@@ -469,7 +469,14 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
   // asked about the same instant. Two readings could refuse a line for being
   // past 16:00 and open the door for being before it.
   const clock = restaurantClock(now, settings.timezone);
-  const businessDay = businessDayOf(now, settings.timezone);
+  // The day the ticket is NUMBERED under (C-142). An ASAP order is served in
+  // the shift running now, so a 00:30 order inside Friday's overnight shift is
+  // Friday's #047, not Saturday's #001. A scheduled order is served at its slot,
+  // and slots are always today's own opening (`availableSlots`), so it keeps
+  // the calendar day — the day its `requestedFor` minute is read against, and
+  // the day `loadGateState` counts slot weight under.
+  const businessDay =
+    input.requestedForMinute === undefined ? serviceDay(settings, clock) : clock.day;
   const review = reviewCart(menu, cart, settings.taxRatePpm, clock);
   const identity = normalizeIdentity(input);
   const errors: PlacementError[] = identity.ok ? [] : [...identity.violations];

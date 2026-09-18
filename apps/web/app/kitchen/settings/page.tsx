@@ -424,8 +424,8 @@ export default async function SettingsPage({
           </div>
         </dl>
         <p className="mt-2 text-base text-neutral-600">
-          Changing the timezone moves the day order numbers reset on and re-buckets every past
-          report; changing the tax rate changes what the next order is charged, and never what a
+          Changing the timezone moves the day order numbers reset on and the hour every past
+          order is reported under; changing the tax rate changes what the next order is charged, and never what a
           placed one was — every order carries the rate it was placed under. Both are deliberate
           decisions rather than form fields. An order at {formatCents(1000)} is taxed{' '}
           {formatCents(Math.round((1000 * state.taxRatePpm) / 1_000_000))} today.

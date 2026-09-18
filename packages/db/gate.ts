@@ -140,6 +140,28 @@ export async function loadGateState(
   };
 }
 
+/**
+ * The service day `now` falls in (C-142): the `businessDay` a new ticket is
+ * numbered under, and the day the report calls "Today". Friday's shift running
+ * to 02:00 is still Friday at 00:30 — on the ticket, the report and the queue.
+ *
+ * For callers that do not already hold a `loadGateState` result; placement
+ * does, and asks `serviceDay` of that instead of a second read.
+ */
+export async function loadServiceDay(now: Date): Promise<{ timezone: string; day: string }> {
+  const [settings, hours] = await Promise.all([
+    prisma.restaurantSettings.findUniqueOrThrow({ where: { id: 'singleton' } }),
+    prisma.storeHours.findMany(),
+  ]);
+  return {
+    timezone: settings.timezone,
+    day: serviceDay(
+      { hours, closedOnDay: settings.closedOnDay },
+      restaurantClock(now, settings.timezone),
+    ),
+  };
+}
+
 /** Everything the customer footer renders (PRD 5 P0-1, C-077). */
 export type RestaurantContact = {
   /** All three null until an operator fills them in — see the schema. */

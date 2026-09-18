@@ -3167,3 +3167,17 @@ at 11:55pm would have stopped alerting the cooks five minutes later. That was
 found by tracing every reader of the hours before changing any of them, and
 fixed with one idea — the "service day" is the day the running shift opened —
 used everywhere that question is asked.
+
+## C-142 — Order numbers that follow the shift, not the clock
+
+A restaurant open until 2am no longer restarts its order numbers at
+midnight. An order placed at 12:30am during Friday night's shift is Friday's
+next number and appears on Friday's line in the sales report, which matches
+how the kitchen already treats it. Restaurants that close by midnight see no
+change.
+
+**Why it matters for a portfolio reader.** The fix is one decision applied
+everywhere: the order carries the day it belongs to, and the report reads
+that day instead of working it out again from the timestamp. Scheduled
+pickups are the one deliberate exception, because their pickup time is always
+on the calendar day they were booked for.

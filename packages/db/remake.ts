@@ -20,14 +20,13 @@
 // for.
 import {
   adjustmentEvent,
-  businessDayOf,
   MAX_ORDER_NOTE_LENGTH,
   type AdjustmentReason,
   type AdjustmentRefusalReason,
   remakeEvent,
 } from '@countertop/core';
 import { prisma } from './index';
-import { loadSettings } from './menu';
+import { loadServiceDay } from './gate';
 import { eventRow } from './event-row';
 import {
   derivedIdempotencyKey,
@@ -52,9 +51,10 @@ export type RemakeResult =
  * charged. A menu repriced since 6:00pm must not change what a 6:52pm remake
  * is worth.
  *
- * `businessDay` is TODAY's, not the original's. A remake cooked tonight is
- * tonight's ticket and takes tonight's number; an order placed before midnight
- * and remade after it is two days' work, honestly recorded as such.
+ * `businessDay` is TODAY's service day, not the original's. A remake cooked
+ * tonight is tonight's ticket and takes tonight's number; an order remade the
+ * next day is two days' work, honestly recorded as such. Inside an overnight
+ * shift, 00:30 is still tonight (C-142).
  */
 export async function remakeOrder(
   originalId: string,
@@ -100,8 +100,7 @@ export async function remakeOrder(
   );
   if (!comp.ok) return comp;
 
-  const { timezone } = await loadSettings();
-  const businessDay = businessDayOf(now, timezone);
+  const { day: businessDay } = await loadServiceDay(now);
 
   // Derived, not random: a double-tapped Remake button derives the SAME key
   // and loses on the unique constraint, exactly as a double-submitted checkout

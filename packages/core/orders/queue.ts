@@ -371,7 +371,8 @@ export type CloseableOrder = { status: OrderStatus; businessDay: string };
  *
  * `today` is the SERVICE day (`serviceDay`, C-141), not the calendar one: after
  * midnight inside an overnight shift it is yesterday, so last night's tickets
- * keep chiming and counting until the shift closes.
+ * keep chiming and counting until the shift closes. Since C-142 placement
+ * stamps the same service day, so the two boundaries are one again.
  */
 export function isLeftOver(order: CloseableOrder, today: string): boolean {
   // Queue statuses only: a terminal order from last week is history, not a

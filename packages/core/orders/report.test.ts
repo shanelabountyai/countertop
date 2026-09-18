@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { businessDayOf } from './business-day';
 import { salesReport, type ReportableOrder, type ReportableLine } from './report';
 
 // C-016. Every number below is hand-counted from the fixtures in this file.
@@ -42,6 +43,9 @@ const order = (
 ): ReportableOrder => ({
   status,
   placedAt: at,
+  // What placement stamps outside an overnight shift. The overnight case,
+  // where the two differ, overrides it (C-142).
+  businessDay: businessDayOf(at, LA),
   // A running number, so the fixtures that do not care about the chase list
   // still produce distinguishable rows in it. `paid` is the default for the
   // same reason: every test written before C-051 is about revenue, and an
@@ -81,9 +85,26 @@ describe('salesReport — buckets in the restaurant calendar, never UTC', () => 
     // The function takes the zone as a parameter and reads no clock, so this
     // holds by construction — and CI runs the whole suite twice to prove the
     // construction was not quietly abandoned.
+    // The day is the stamped column (C-142); the hour is read in the zone
+    // passed, and only in it.
     const orders = [order(utc(2026, 7, 14, 2, 30), [line('Burrito', 1, 1095)])];
-    expect(salesReport(orders, 'UTC').days[0]?.day).toBe('2026-07-14');
-    expect(salesReport(orders, LA).days[0]?.day).toBe('2026-07-13');
+    expect(salesReport(orders, 'UTC').hours[0]?.hour).toBe(2);
+    expect(salesReport(orders, LA).hours[0]?.hour).toBe(19);
+  });
+
+  it('books an overnight-shift order on the day its number belongs to (C-142)', () => {
+    // 00:30 on the 14th, inside the 13th's shift: placement stamped the 13th,
+    // so the day row is the 13th's — hour 0 all the same — and the chase list
+    // names it by the day its seq belongs to.
+    const late = {
+      ...order(utc(2026, 7, 14, 7, 30), [line('Burrito', 1, 1095)], 'picked_up', { subtotalCents: 1095, discountCents: 0, taxCents: 0, totalCents: 1095 }, 'unpaid'),
+      businessDay: '2026-07-13',
+    };
+    const report = salesReport([late], LA);
+
+    expect(report.days.map((d) => d.day)).toEqual(['2026-07-13']);
+    expect(report.hours.map((h) => h.hour)).toEqual([0]);
+    expect(report.payment.outstanding.map((o) => o.day)).toEqual(['2026-07-13']);
   });
 
   it('splits two orders 40 minutes apart across a local midnight', () => {

@@ -25,6 +25,10 @@ import {
 export type ReportableOrder = {
   status: OrderStatus;
   placedAt: Date;
+  /** The service day placement stamped (C-142) — the day bucket. Not
+   *  re-derived from `placedAt`: a 00:30 order inside Friday's overnight shift
+   *  is Friday's #047 and must land on Friday's row beside its number. */
+  businessDay: string;
   /** The human-callable number. Only ever read for the outstanding list — a
    *  chase list is useless without something to say at the counter. */
   seq: number;
@@ -155,8 +159,8 @@ export type AttachRate = {
 
 /** One line of the chase list. Enough to walk to the till and ask. */
 export type OutstandingOrder = {
-  /** "YYYY-MM-DD" in the restaurant's calendar — the same clock reading the
-   *  day bucket used, never the `businessDay` column read a second way. */
+  /** The order's `businessDay` — the day its `seq` belongs to, and the same
+   *  value the day bucket used. */
   day: string;
   seq: number;
   customerName: string;
@@ -343,11 +347,9 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     }
     sold += 1;
 
-    // ONE clock reading per order, answering both buckets. Reading the day and
-    // the hour separately would be two Intl calls a DST boundary could put on
-    // opposite sides of a change.
-    const clock = restaurantClock(order.placedAt, timezone);
-    const hour = Math.floor(clock.minuteOfDay / 60);
+    // The hour is the wall clock's; the day is the stamped service day (C-142),
+    // so a 00:30 order in Friday's overnight shift is Friday's row, hour 0.
+    const hour = Math.floor(restaurantClock(order.placedAt, timezone).minuteOfDay / 60);
     const units = order.lines.reduce((sum, line) => sum + line.quantity, 0);
 
     // Booked as revenue above; here is how much of it arrived. Asked of
@@ -361,7 +363,7 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     if (balance.outstandingCents > 0) {
       outstandingCents += balance.outstandingCents;
       outstanding.push({
-        day: clock.day,
+        day: order.businessDay,
         seq: order.seq,
         customerName: order.customerName,
         owedCents: balance.outstandingCents,
@@ -377,8 +379,8 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     refundedCents += orderPayment.refundedCents;
     refundReversedCents += orderPayment.refundReversedCents;
 
-    const day = days.get(clock.day) ?? {
-      day: clock.day,
+    const day = days.get(order.businessDay) ?? {
+      day: order.businessDay,
       orders: 0,
       items: 0,
       subtotalCents: 0,
@@ -392,7 +394,7 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     day.discountCents += order.discountCents;
     day.taxCents += order.taxCents;
     day.totalCents += order.totalCents;
-    days.set(clock.day, day);
+    days.set(order.businessDay, day);
 
     const bucket = hours.get(hour) ?? {
       hour,

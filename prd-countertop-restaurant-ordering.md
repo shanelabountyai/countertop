@@ -187,7 +187,7 @@ Measurement method: seed script builds a ~25-item menu with 8 modifier groups (i
 - **(Product)** Should customers cancel after `accepted`? V1: no — call the restaurant; log how often the cancel button is hit post-acceptance in seed sims. *(non-blocking)*
 - **(Product)** Does "pay at pickup" coexist with mock-pay in v1? **V2 decision: yes, both** — the order carries a payment-state field (P1-8); it costs little and exercises the payment interface. *(resolved in v2)*
 - **(Product)** `accepted` mechanics: separate accept tap or merged with the alert acknowledgment? **V2 decision: merged** (P0-12) — a state customers can stall in while staff ignore it is worse than not having the state. *(resolved in v2)*
-- **(Builder)** Daily order-number reset: midnight restaurant-time or a configurable "business day" boundary (e.g., 4 AM) for late-night service? V1: midnight restaurant-time; note the business-day boundary as a known simplification. *(non-blocking)*
+- **(Builder)** Daily order-number reset: midnight restaurant-time or a configurable "business day" boundary (e.g., 4 AM) for late-night service? V1: midnight restaurant-time; note the business-day boundary as a known simplification. *(non-blocking)* **Resolved 2026-09-18 (C-142):** the boundary is the end of the running shift, not a configured hour. An ASAP order is numbered under the service day (the day the running opening started, C-141's `serviceDay`), so an overnight shift keeps one run of numbers, and the report buckets by that stamped day. Without overnight hours, this is still midnight restaurant time.
 - **(Product)** Should the status page show queue position ("3 orders ahead of you") alongside the estimate? Derivable from P0-4 data and sets expectations better than a raw ETA — but leaks pace information some operators dislike. *(non-blocking)*
 - **(Product)** Store hours were a PO-vs-operator split: the PO would defer hours entirely; the operator calls the 2am orphan order a week-one kill. **V2 decision: minimal hours ship in P0-6** (weekly hours + closed-today override through the pause code path) — the gate exists anyway, hours are one more trigger. *(resolved in v2)*
 
@@ -257,4 +257,4 @@ Two persona reviews were run against Draft v1 on 2026-08-25. Their full findings
 
 - **Breaking any v1 non-goal** (real payments, delivery, loyalty, POS hardware, multi-location) — both reviewers respected the learning scope; their cases for these live in P2 with rationale.
 - **Full prep-weight model in P0** (OPS wanted it) — count-based throttling ships in P0-6; weight is P1-7. The estimate is honest about being rough (P0-7's range rule) until then.
-- **Order-level "business day" boundary for number resets** — midnight restaurant-time is the v1 simplification, recorded in Open Questions.
+- ~~**Order-level "business day" boundary for number resets**~~ — shipped at C-142 as the service day (end of the running shift), not a configured hour.

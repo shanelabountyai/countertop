@@ -9707,3 +9707,49 @@ that asserted the old refusal replaced by two.
 e2e + 15 skipped = 254 (+1).
 
 C-141 committed at fa863ad
+
+---
+
+## C-142 — Service-day order numbers (C-141's "Left behind")
+
+C-141 made the kitchen treat a 00:30 order inside Friday's overnight shift as
+Friday's work, but placement still numbered it Saturday's #001, and the
+report put it on Saturday's row. This change stamps the same service day on
+the ticket.
+
+**Built:**
+- `placeOrder` stamps an ASAP order's `businessDay` with
+  `serviceDay(settings, clock)`. It uses the gate state placement already
+  loads, so there is no second read.
+- New `loadServiceDay(now)` in `packages/db/gate.ts` for callers without a
+  gate state: `remakeOrder`, the report page's "Today" and the CSV export.
+- `ReportableOrder` gains `businessDay`, and `salesReport` buckets days and
+  the chase list's `day` by it. Hours are still the wall clock of `placedAt`.
+
+**Decided:**
+- **A scheduled order keeps the calendar day.** `availableSlots` only offers
+  today's own opening, `requestedFor` is built from `(day, minute)`, and
+  `loadGateState` counts slot weight by `businessDay = clock.day`. Stamping
+  the service day there would book Saturday noon under Friday and hide it
+  from Saturday's slot capacity.
+- **The report reads the column instead of re-deriving the day.** That makes
+  the day an order is numbered under and the row it is reported on the same
+  value, not two computations that happen to agree.
+- No migration. Existing rows keep the calendar day they were stamped with.
+  The seed and the rush are open all day, where the two days are identical.
+
+**Tests:** a report case (00:30 order stamped the 13th lands on the 13th's
+row, hour 0, and the chase list names the 13th). The UTC-vs-LA case now
+asserts the hour instead of the day, because the day comes from the column.
+A db case: Saturday 17:00–02:00, then orders at 20:00 and 01:00 plus a remake
+at 01:00 give Saturday #1, #2, #3, and `loadServiceDay` returns Saturday at
+01:00 and Sunday at 03:00.
+
+**Left behind:**
+- **Scheduling during yesterday's spill** still says "closed today" on a day
+  with no row of its own (C-141's note, unchanged).
+- **The closed-today override is still calendar-dated.** Pressing it at 01:00
+  inside Friday's shift closes Saturday, as C-141 decided.
+
+**Gate:** green, first attempt. 1155 unit (+2), lint, typecheck, build, 239
+e2e + 15 skipped = 254 (unchanged).

@@ -88,8 +88,9 @@ function currentOpening(
  *
  * The boundary `isLeftOver` and the open-weight sum draw at: Friday's 23:55
  * ticket is still Friday's service at 00:30 Saturday, so it must keep chiming
- * and keep counting toward the throttle. Order NUMBERS still reset at calendar
- * midnight (`businessDay`), which is a different question.
+ * and keep counting toward the throttle. It is also the `businessDay` an ASAP
+ * order is stamped with (C-142), so a 00:30 order inside that shift is
+ * Friday's next number and sits on Friday's report row.
  */
 export function serviceDay(
   state: Pick<GateState, 'hours' | 'closedOnDay'>,

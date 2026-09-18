@@ -1,9 +1,10 @@
 import { isLeftOver, type Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { loadGateState } from './gate';
+import { loadGateState, loadServiceDay } from './gate';
 import { prisma } from './index';
 import { placeOrder, type PlacementResult } from './placement';
 import { loadQueue } from './queue';
+import { remakeOrder } from './remake';
 import { applyOrderAction } from './transitions';
 import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
 
@@ -155,6 +156,35 @@ describe('loadGateState (P0-6)', () => {
     const sundayThreeAm = new Date(Date.UTC(2026, 6, 5, 10, 0, 0));
     expect((await loadGateState(sundayOneAm)).openWeight).toBe(2);
     expect((await loadGateState(sundayThreeAm)).openWeight).toBe(0);
+  });
+});
+
+describe('order numbers follow the service day (C-142)', () => {
+  it("numbers a 01:00 order and remake inside Saturday's overnight shift as Saturday's", async () => {
+    await seedStoreHours([{ dayOfWeek: 6, openMinute: 17 * 60, closeMinute: 2 * 60 }]);
+    const sundayOneAm = new Date(Date.UTC(2026, 6, 5, 8, 0, 0));
+    const sundayThreeAm = new Date(Date.UTC(2026, 6, 5, 10, 0, 0));
+
+    const first = await place();
+    const late = await placeOrder({
+      cart: CART,
+      customerName: 'Dana',
+      idempotencyKey: 'overnight-late',
+      now: sundayOneAm,
+    });
+    if (!first.ok || !late.ok) throw new Error('setup placement refused');
+    const remake = await remakeOrder(late.order.id, 'wrong_item', sundayOneAm);
+    if (!remake.ok) throw new Error('remake refused');
+
+    // One shift, one run of numbers — not Saturday #1 then Sunday #1 and #2.
+    expect([first.order, late.order, remake.order].map((o) => [o.businessDay, o.seq])).toEqual([
+      ['2026-07-04', 1],
+      ['2026-07-04', 2],
+      ['2026-07-04', 3],
+    ]);
+    // And "Today" on the report is the same day, until the shift closes.
+    expect((await loadServiceDay(sundayOneAm)).day).toBe('2026-07-04');
+    expect((await loadServiceDay(sundayThreeAm)).day).toBe('2026-07-05');
   });
 });
 

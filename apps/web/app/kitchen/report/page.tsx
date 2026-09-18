@@ -10,7 +10,6 @@
 // appears in the history it earned.
 import Link from 'next/link';
 import {
-  businessDayOf,
   estimateAccuracy,
   formatOrderNumber,
   isTerminal,
@@ -21,7 +20,7 @@ import {
   type AttachRate,
   type QuoteAdjustment,
 } from '@countertop/core';
-import { loadSettings } from '@countertop/db/menu';
+import { loadServiceDay } from '@countertop/db/gate';
 import {
   loadQuoteSamples,
   loadReportOrders,
@@ -67,8 +66,9 @@ export default async function ReportPage({
   const now = new Date();
   const params = await searchParams;
 
-  const { timezone } = await loadSettings();
-  const today = businessDayOf(now, timezone);
+  // The SERVICE day (C-142): at 00:30 inside Friday's overnight shift, "Today"
+  // is Friday, the day those tickets are numbered under.
+  const { timezone, day: today } = await loadServiceDay(now);
   // Resolved in one place shared with the CSV route, so the file a bookkeeper
   // downloads covers the days they are looking at (P1-1, P1-2).
   const view = resolveWindow(params, now, today);
