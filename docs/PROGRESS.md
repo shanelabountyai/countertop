@@ -9605,3 +9605,5 @@ already existed from C-110.
   unchanged) — a seeded schedule would make the suite time-of-day
   dependent, the C-011 seeding rule `menu.spec.ts`'s `setDaypart` fixture
   already works around.
+
+C-139 committed at 327e649
