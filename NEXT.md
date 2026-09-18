@@ -1,52 +1,50 @@
 # Next
 
-**C-138 shipped this session** — the second of C-137's "Left behind" items,
-closing the gap C-111 carried.
+**C-139 shipped this session** — the daypart editor, C-110's own "Left
+behind" item, carried through C-137/C-138 and picked up first as NEXT.md
+said to.
 
-## C-138 — Collecting superseded staged rows
+## C-139 — The daypart editor
 
-`effectivePrices` already resolves two arrived `StagedPrice` rows for the
-same item/option by taking the latest `effectiveDay`, but nothing deleted
-the earlier one — only a live edit spent a staged row, and two future rows
-that both arrived with no live edit in between just piled up. Added
-`collectSupersededPrices(now)` in `packages/db/menu.ts` (same fold
-`effectivePrices` already uses, ascending by day — the second arrived row
-for a target proves the first superseded), a server action
-`collectSupersededStagedPrices`, and a "Collect superseded queued changes"
-button on `/kitchen/menu` — placed after the "Queued changes" section but
-NOT gated on `staged.length > 0` (that condition is about future rows; this
-button only ever finds past ones, so the two conditions are independent).
-Manual button, not a sweep — matches this repo's own precedent (C-091,
-C-105: nothing here self-schedules), decided in the C-137 session.
+`MenuItemWindow` and the orderability engine (`daypartClosure`, threaded
+into `validateComposition`) shipped at C-110 with no way to add or remove a
+window except writing the row by hand. Added a daypart section under each
+item on `/kitchen/menu` — current windows listed with a remove button each,
+"Served all day, every day." when there are none, and a form (day, start
+time, end time) to add one. No confirm panel: same posture as prep points
+and the description field, because this is not money.
 
-Four new unit tests in `packages/db/menu.test.ts`'s `collectSupersededPrices`
-describe. No migration, no e2e (staff-only cleanup button, no acceptance
-criterion calling for a browser test).
+Times are typed text ("11:00"), not a native `<input type="time">` — the
+schema's exclusive end legally reaches 1440 ("24:00", "through the last
+minute of the day"), a value the native time input's 00:00–23:59 range
+cannot express at all. `parseTimeOfDay` (new, `packages/core/orders/business-day.ts`)
+is the inverse of the existing `formatMinuteOfDay` plus that one extra
+value. Two new server actions in `apps/web/app/kitchen/menu/actions.ts` —
+`addItemWindow`, `deleteItemWindow` — mirror the migration's own CHECKs and
+catch the `(itemId, dayOfWeek, startMinute)` unique's `P2002` with a named
+message rather than a raw constraint error. `loadItemWindows` in
+`packages/db/menu.ts` is the one new query, deliberately outside `Menu`:
+nothing in packages/core needs a window's own id, only the editor's delete
+button does.
 
-**Gate:** green, first attempt. 1128 unit (+4), lint, typecheck, build, 232
-e2e + 15 skipped = 247 (unchanged). Committed at 525b09b, SHA recorded at
-b3c6c2b, pushed together. CI: watch `gh run list --branch main --limit 1`
-for run 35369065311 if this session cleared before it finished — it was
-in progress at handoff time.
+No migration — the table and its CHECKs already existed from C-110.
+
+**Gate:** green, first attempt. 1131 unit (+3), lint, typecheck, build, 237
+e2e + 15 skipped = 252 (+5). Committed at 327e649, SHA recorded at f49f924,
+pushed together. CI green: run 35371814715, watched to completion this
+session.
 
 ## Pick this up first
 
-**The daypart editor UI** — bolts onto `/kitchen/menu` +
-`apps/web/app/kitchen/menu/actions.ts`. Table and CHECKs
-(`MenuItemWindow`) already exist, no migration needed. `loadMenu` already
-includes `windows`; the page currently doesn't render them at all. Medium
-size. This is the last of C-137's four "Left behind" items except the one
-below.
-
-After that:
-2. **Overnight daypart windows** — decided in the C-137 session:
-   `MenuItemWindow` only, not unified with `StoreHours` (C-011 has the
-   identical gap per `docs/WRITEUP.md`, left for a separate session).
-   Needs a hand-written migration loosening the
-   `menu_item_window_ends_after_start` CHECK and a rewrite of
-   `daypartClosure` in `packages/core/menu/composition.ts` from "same-day
-   start ≤ now < end" to "does any window, possibly wrapping, contain now."
-   Largest and riskiest of the recent items — do last, on its own session.
+**Overnight daypart windows** — decided in the C-137 session:
+`MenuItemWindow` only, not unified with `StoreHours` (C-011 has the
+identical gap per `docs/WRITEUP.md`, left for a separate session). Needs a
+hand-written migration loosening the `menu_item_window_ends_after_start`
+CHECK and a rewrite of `daypartClosure` in
+`packages/core/menu/composition.ts` from "same-day start ≤ now < end" to
+"does any window, possibly wrapping, contain now." Largest and riskiest of
+the four recent items — do last, on its own session. This is the last of
+C-137's four "Left behind" items.
 
 ## Read this before the next push
 
@@ -93,8 +91,8 @@ After that:
 - **A third flaky spec**: `e2e/menu-editing.spec.ts:234` ("the editor is
   usable one-handed on a phone"), intermittent when run as part of the full
   file, reproduces identically on clean `HEAD` — not caused by any recent
-  session's changes. Did not reproduce in C-137's or C-138's own gate runs.
-  Not root-caused. Joins `e2e/refund.spec.ts:211` and
+  session's changes. Did not reproduce in C-137's, C-138's or C-139's own
+  gate runs. Not root-caused. Joins `e2e/refund.spec.ts:211` and
   `e2e/last-call.spec.ts:17` on the pre-existing flaky list.
 - **`NotificationKind` has one value** (C-121).
 - **Nothing reads `queueReadyNotification`'s return value** (C-121).
