@@ -1,28 +1,26 @@
 # Next
 
-**C-141 shipped this session**: overnight store hours (C-011's gap).
+**C-142 shipped this session**: service-day order numbers (C-141's gap).
 
-## C-141: Overnight store hours
+## C-142: Service-day order numbers
 
-Migration `20260918120000_overnight_store_hours` swaps
-`store_hours_closes_after_opening` for `store_hours_not_empty` (close ≠ open).
-`checkoutGate`/`todaysHours` judge against one `currentOpening`
-(`packages/core/orders/checkout-gate.ts`): today's if running, else
-yesterday's still running past midnight. New `serviceDay` is the left-over /
-open-weight boundary (kitchen page, `loadGateState`), so a 23:55 order keeps
-chiming at 00:30. Slots stop at midnight. `setLastOrderIn` now works at every
-minute of the day.
+`placeOrder` stamps an ASAP order's `businessDay` with `serviceDay`, so a 00:30
+order inside Friday's overnight shift is Friday's next number. A scheduled
+order keeps its slot's calendar day (the slot weight and `requestedFor` both
+key on it). New `loadServiceDay(now)` in `packages/db/gate.ts` feeds remake,
+the report's "Today" and the CSV export. `salesReport` buckets days by the
+stamped column; hours stay wall-clock. PRD Open Question marked resolved.
+No migration.
 
-**Gate:** green, first attempt. 1153 unit (+16), 239 e2e + 15 skipped = 254
-(+1). Committed at fa863ad, SHA recorded at 83f38cf.
+**Gate:** green, first attempt. 1155 unit (+2), 239 e2e + 15 skipped = 254.
+Committed at a2cff65.
 
 ## Pick this up first
 
-No item is queued as the obvious follow-up. Candidates from C-141's own
-"Left behind": **report day buckets and the order-number reset are still
-calendar midnight inside an overnight shift** (a 00:30 order is Saturday's
-#001 on Saturday's report row). Otherwise pick from "Still open" below or the
-PRD's P2 list.
+Nothing is queued. The overnight thread's last loose end is **scheduling
+during yesterday's spill**: `availableSlots` says "closed today" on a day with
+no row while ASAP is open (C-141/C-142 "Left behind"). Otherwise pick from
+"Still open" below or the PRD's P2 list.
 
 ## Read this before the next push
 
