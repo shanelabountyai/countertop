@@ -9537,3 +9537,5 @@ migration.
   option they were for — acceptable because every row it can find is
   already overridden and invisible to the menu, so there is nothing left to
   double-check against a live price.
+
+C-138 committed at 525b09b
