@@ -21,13 +21,22 @@
 // render, so a confirm screen left open through someone else's edit shows the
 // real old value rather than a stale one captured at click time.
 import Link from 'next/link';
-import { formatDayLabel, itemsUsingGroup, parsePriceInput, type MenuItem } from '@countertop/core';
-import { earliestStagedDay, loadMenu, loadStagedPrices } from '@countertop/db/menu';
+import {
+  formatDayLabel,
+  formatMinuteOfDay,
+  itemsUsingGroup,
+  parsePriceInput,
+  WEEKDAY_NAMES,
+  type MenuItem,
+} from '@countertop/core';
+import { earliestStagedDay, loadItemWindows, loadMenu, loadStagedPrices } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
 import {
+  addItemWindow,
   cancelStagedPrice,
   collectSupersededStagedPrices,
   deleteGroup,
+  deleteItemWindow,
   saveExtraSurcharge,
   saveGroup,
   saveItemDescription,
@@ -65,13 +74,18 @@ export default async function MenuEditorPage({
   // The menu here already carries any staged change that has LANDED — the
   // editor edits the effective price, the same number the customer is being
   // charged. `staged` is only what is still to come (P1-2).
-  const [menu, staged, earliest] = await Promise.all([
+  const [menu, staged, earliest, windowRows] = await Promise.all([
     loadMenu(),
     loadStagedPrices(),
     earliestStagedDay(),
+    loadItemWindows(),
   ]);
   const items = Object.values(menu.items);
   const groups = Object.values(menu.groups);
+
+  /** Every window a given item has, oldest weekday and earliest start first
+   *  (the query's own order — grouping here does not re-sort it). */
+  const windowsFor = (itemId: string) => windowRows.filter((window) => window.itemId === itemId);
 
   /** What is queued for one row, newest change last, ready to render. */
   const queuedFor = (id: string, format: (cents: number) => string): Queued[] =>
@@ -380,6 +394,7 @@ export default async function MenuEditorPage({
                   />
                   <WeightForm item={item} />
                   <DescriptionForm item={item} />
+                  <WindowsForm item={item} windows={windowsFor(item.id)} />
                 </li>
               ))}
           </ul>
@@ -652,6 +667,92 @@ function DescriptionForm({ item }: { item: MenuItem }) {
     </form>
   );
 }
+
+/** One item's daypart schedule (P1-1) — when it is on the menu at all, not
+ *  whether it is 86'd. No rows means all day, every day, which is what
+ *  almost every item is; that absence is said out loud rather than left as a
+ *  blank space, so it reads as "nothing to add" and not as "this is broken".
+ *
+ *  Times are typed as clock strings ("11:00", "24:00"), not a native time
+ *  input — see `addItemWindow`'s own comment for why 24:00 has to stay
+ *  reachable. */
+function WindowsForm({ item, windows }: { item: MenuItem; windows: ItemWindow[] }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {windows.length === 0 ? (
+        <p className="text-base text-neutral-700">Served all day, every day.</p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {windows.map((window) => {
+            const label = `${WEEKDAY_NAMES[window.dayOfWeek]} ${formatMinuteOfDay(window.startMinute)}–${formatMinuteOfDay(window.endMinute)}`;
+            return (
+              <li
+                key={window.id}
+                className="flex flex-wrap items-center gap-3 rounded-lg border-2 border-dashed border-neutral-400 bg-neutral-50 px-3 py-2"
+              >
+                <span className="flex-1 text-base">Served {label}</span>
+                <form action={deleteItemWindow.bind(null, window.id)}>
+                  <button
+                    type="submit"
+                    className="min-h-12 rounded-lg border-2 border-neutral-900 px-4 text-base font-bold"
+                  >
+                    Remove {label} for {item.name}
+                  </button>
+                </form>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <form action={addItemWindow} className="flex flex-wrap items-end gap-3">
+        <input type="hidden" name="itemId" value={item.id} />
+        <Field label={`Day for a new window on ${item.name}`} visible="Day">
+          <select
+            name="dayOfWeek"
+            defaultValue=""
+            required
+            className="min-h-12 rounded-lg border-2 border-neutral-400 px-3 text-lg"
+          >
+            <option value="" disabled>
+              Day…
+            </option>
+            {WEEKDAY_NAMES.map((day, index) => (
+              <option key={day} value={index}>
+                {day}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label={`Start time for a new window on ${item.name}`} visible="from">
+          <input
+            name="start"
+            placeholder="11:00"
+            className="min-h-12 w-24 rounded-lg border-2 border-neutral-400 px-3 text-lg tabular-nums"
+          />
+        </Field>
+        <Field label={`End time for a new window on ${item.name}`} visible="to">
+          <input
+            name="end"
+            placeholder="16:00"
+            className="min-h-12 w-24 rounded-lg border-2 border-neutral-400 px-3 text-lg tabular-nums"
+          />
+        </Field>
+        <button
+          type="submit"
+          className="min-h-12 rounded-lg border-2 border-neutral-900 px-5 text-lg font-bold"
+        >
+          Add a serving window for {item.name}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/** One row of `loadItemWindows` — a window with the id `WindowsForm` needs to
+ *  build its delete button, which `DaypartWindow` deliberately does not
+ *  carry. */
+type ItemWindow = { id: string; dayOfWeek: number; startMinute: number; endMinute: number };
 
 /** A labelled input. The visible text is short enough for a phone; the
  *  accessible name is the one that says which row it belongs to. */

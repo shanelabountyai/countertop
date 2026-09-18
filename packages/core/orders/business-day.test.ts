@@ -7,6 +7,7 @@ import {
   nextDay,
   instantDaysBefore,
   instantMinutesAfter,
+  parseTimeOfDay,
   restaurantClock,
   zonedTimeToInstant,
 } from './business-day';
@@ -92,6 +93,26 @@ describe('formatting a minute of the day', () => {
     expect(formatMinuteOfDay(9 * 60 + 5)).toBe('09:05');
     expect(formatMinuteOfDay(21 * 60)).toBe('21:00');
     expect(formatMinuteOfDay(23 * 60 + 59)).toBe('23:59');
+  });
+});
+
+describe('parsing a minute of the day', () => {
+  it('is the inverse of formatMinuteOfDay', () => {
+    expect(parseTimeOfDay('00:00')).toBe(0);
+    expect(parseTimeOfDay('09:05')).toBe(9 * 60 + 5);
+    expect(parseTimeOfDay('23:59')).toBe(23 * 60 + 59);
+  });
+
+  it('accepts 24:00, the one value formatMinuteOfDay never produces', () => {
+    expect(parseTimeOfDay('24:00')).toBe(1440);
+  });
+
+  it('rejects everything that is not a clock time', () => {
+    expect(parseTimeOfDay('24:01')).toBeNull();
+    expect(parseTimeOfDay('25:00')).toBeNull();
+    expect(parseTimeOfDay('12:60')).toBeNull();
+    expect(parseTimeOfDay('noon')).toBeNull();
+    expect(parseTimeOfDay('')).toBeNull();
   });
 });
 

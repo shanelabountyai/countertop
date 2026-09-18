@@ -3118,3 +3118,21 @@ staff member reaches for occasionally, rather than an automatic job running
 on a schedule for a problem with zero customer impact. Matches how this
 project already handles similar cleanup elsewhere — nothing runs
 unattended that doesn't need to.
+
+## C-139 — A screen for the 4pm changeover, instead of a database console
+
+The engine behind "this item is only served 11am–2pm" shipped earlier and
+worked end to end — the menu, the cart, and checkout all agreed on it. What
+didn't exist was a way for a manager to actually set one: every serving
+window on the menu had to be written by hand, directly into the database.
+
+**What shipped.** A section under each item on the menu editor showing its
+current serving windows, each removable with one tap, and a small form to
+add a new one — pick a day, type a start time and an end time. An item with
+no schedule says so plainly ("Served all day, every day") instead of just
+showing an empty space where the feature might be.
+
+**Why it matters for a portfolio reader.** A feature that only a developer
+can operate isn't finished — it's a demo. This is the same appliance-grade
+bar the rest of the menu editor already holds itself to: type something
+wrong and get told why, in a sentence, before it reaches the database.

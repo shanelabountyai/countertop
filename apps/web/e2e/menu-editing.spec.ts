@@ -472,3 +472,78 @@ test('a start day that is not still to come is refused, not silently applied', a
   await page.goto('/menu');
   await expect(menuRow(page, 'Burrito', '$10.95')).toBeVisible();
 });
+
+// P1-1's editor: daypart windows. No seeded item carries one (docs/WRITEUP.md
+// — `menu.spec.ts` writes its own directly for the customer-facing gate), so
+// every test here starts from "served all day" and adds or removes through
+// the same form a manager would use. No confirm panel — same posture as prep
+// points and the description above — so there is no old → new to assert.
+test('an item with no window says so, and adding one lists it', async ({ page }) => {
+  await page.goto('/kitchen/menu');
+  await expect(page.getByText('Served all day, every day.').first()).toBeVisible();
+
+  await page.getByRole('combobox', { name: 'Day for a new window on Burrito', exact: true }).selectOption('1');
+  await page.getByRole('textbox', { name: 'Start time for a new window on Burrito', exact: true }).fill('11:00');
+  await page.getByRole('textbox', { name: 'End time for a new window on Burrito', exact: true }).fill('14:00');
+  await page.getByRole('button', { name: 'Add a serving window for Burrito', exact: true }).click();
+
+  await expect(page.getByRole('status')).toContainText('Burrito is now served 11:00–14:00 on Monday');
+  await expect(page.getByText('Served Monday 11:00–14:00')).toBeVisible();
+});
+
+test('24:00 is accepted — the exclusive end an <input type="time"> cannot express', async ({
+  page,
+}) => {
+  await page.goto('/kitchen/menu');
+  await page.getByRole('combobox', { name: 'Day for a new window on Burrito', exact: true }).selectOption('5');
+  await page.getByRole('textbox', { name: 'Start time for a new window on Burrito', exact: true }).fill('16:00');
+  await page.getByRole('textbox', { name: 'End time for a new window on Burrito', exact: true }).fill('24:00');
+  await page.getByRole('button', { name: 'Add a serving window for Burrito', exact: true }).click();
+
+  await expect(page.getByRole('status')).toContainText('Burrito is now served 16:00–24:00 on Friday');
+});
+
+test('a window can be removed, and the item returns to served all day', async ({ page }) => {
+  await page.goto('/kitchen/menu');
+  await page.getByRole('combobox', { name: 'Day for a new window on Burrito', exact: true }).selectOption('2');
+  await page.getByRole('textbox', { name: 'Start time for a new window on Burrito', exact: true }).fill('07:00');
+  await page.getByRole('textbox', { name: 'End time for a new window on Burrito', exact: true }).fill('10:00');
+  await page.getByRole('button', { name: 'Add a serving window for Burrito', exact: true }).click();
+
+  await page.getByRole('button', { name: 'Remove Tuesday 07:00–10:00 for Burrito', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Burrito no longer has that serving window');
+  await expect(page.getByText('Served Tuesday 07:00–10:00')).toHaveCount(0);
+});
+
+test('an end before its start is refused, not stored as a window nobody can ever be served in', async ({
+  page,
+}) => {
+  await page.goto('/kitchen/menu');
+  await page.getByRole('combobox', { name: 'Day for a new window on Burrito', exact: true }).selectOption('3');
+  await page.getByRole('textbox', { name: 'Start time for a new window on Burrito', exact: true }).fill('14:00');
+  await page.getByRole('textbox', { name: 'End time for a new window on Burrito', exact: true }).fill('11:00');
+  await page.getByRole('button', { name: 'Add a serving window for Burrito', exact: true }).click();
+
+  await expect(page.getByTestId('menu-error')).toContainText('a start time before the end time');
+  await page.goto('/kitchen/menu');
+  await expect(page.getByText('Served all day, every day.').first()).toBeVisible();
+});
+
+test('a second window at the same day and start minute is refused as a duplicate', async ({
+  page,
+}) => {
+  const addBurritoWindow = async () => {
+    await page.getByRole('combobox', { name: 'Day for a new window on Burrito', exact: true }).selectOption('4');
+    await page.getByRole('textbox', { name: 'Start time for a new window on Burrito', exact: true }).fill('11:00');
+    await page.getByRole('textbox', { name: 'End time for a new window on Burrito', exact: true }).fill('14:00');
+    await page.getByRole('button', { name: 'Add a serving window for Burrito', exact: true }).click();
+  };
+
+  await page.goto('/kitchen/menu');
+  await addBurritoWindow();
+  await expect(page.getByRole('status')).toContainText('Burrito is now served 11:00–14:00 on Thursday');
+
+  await page.goto('/kitchen/menu');
+  await addBurritoWindow();
+  await expect(page.getByTestId('menu-error')).toContainText('already has a window starting at 11:00 on Thursday');
+});

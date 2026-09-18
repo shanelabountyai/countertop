@@ -10,8 +10,8 @@
 // reprice or a deleted group is invisible to every order already in the queue
 // — the regression test in packages/db/snapshot.test.ts is what keeps that
 // true rather than merely intended.
-import { formatDayLabel, parsePriceInput } from '@countertop/core';
-import { prisma } from '@countertop/db';
+import { formatDayLabel, formatMinuteOfDay, parsePriceInput, parseTimeOfDay, WEEKDAY_NAMES } from '@countertop/core';
+import { Prisma, prisma } from '@countertop/db';
 import { collectSupersededPrices, effectivePrices, writePrice } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
 import { revalidateMenuSurfaces } from '@/lib/revalidate-menu';
@@ -381,6 +381,88 @@ export async function deleteGroup(groupId: unknown): Promise<void> {
     prisma.modifierGroup.delete({ where: { id: groupId } }),
   ]);
   done(`${group.name} deleted`);
+}
+
+/**
+ * A daypart window (P1-1) — one span an item is served in, on one day of the
+ * week.
+ *
+ * No confirm panel, the same reasoning `saveItemPrepWeight` and
+ * `saveItemDescription` give: no money changes hands, and a wrong window is
+ * fixed by editing it again, not charged to a customer.
+ *
+ * `start`/`end` are typed as clock times ("11:00", "24:00") and parsed with
+ * `parseTimeOfDay` rather than read from a native time input, because the
+ * schema's END is EXCLUSIVE and legally reaches 1440 — "through the last
+ * minute of the day" — a value `<input type="time">` cannot express at all.
+ */
+export async function addItemWindow(formData: FormData): Promise<void> {
+  const itemId = formData.get('itemId');
+  const dayText = formData.get('dayOfWeek');
+  const startText = formData.get('start');
+  const endText = formData.get('end');
+  if (
+    typeof itemId !== 'string' ||
+    typeof dayText !== 'string' ||
+    typeof startText !== 'string' ||
+    typeof endText !== 'string'
+  ) {
+    rejected();
+  }
+
+  const dayOfWeek = Number(dayText);
+  const startMinute = parseTimeOfDay(startText);
+  const endMinute = parseTimeOfDay(endText);
+  // Mirrors the CHECKs in the hand-written migration (menu_item_window_*):
+  // day 0–6, start a minute IN the day, end after start.
+  if (
+    !Number.isInteger(dayOfWeek) ||
+    dayOfWeek < 0 ||
+    dayOfWeek > 6 ||
+    startMinute === null ||
+    endMinute === null ||
+    startMinute > 1439 ||
+    endMinute < 1 ||
+    endMinute <= startMinute
+  ) {
+    rejected(
+      'That is not a window. Pick a day, and a start time before the end time — type times like 11:00, or 24:00 for midnight.',
+    );
+  }
+
+  const item = await prisma.menuItem.findUnique({ where: { id: itemId } });
+  if (!item) rejected();
+
+  try {
+    await prisma.menuItemWindow.create({ data: { itemId, dayOfWeek, startMinute, endMinute } });
+  } catch (error) {
+    // The unique index is two windows on the same item, day and start minute
+    // — a duplicate or a contradiction either way (schema.prisma).
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      rejected(
+        `${item.name} already has a window starting at ${formatMinuteOfDay(startMinute)} on ${WEEKDAY_NAMES[dayOfWeek]}.`,
+      );
+    }
+    throw error;
+  }
+  done(
+    `${item.name} is now served ${formatMinuteOfDay(startMinute)}–${formatMinuteOfDay(endMinute)} on ${WEEKDAY_NAMES[dayOfWeek]}`,
+  );
+}
+
+/**
+ * Drop a daypart window (P1-1). No confirm panel, the same reasoning as
+ * adding one above.
+ */
+export async function deleteItemWindow(windowId: unknown): Promise<void> {
+  if (typeof windowId !== 'string') rejected();
+  const window = await prisma.menuItemWindow.findUnique({
+    where: { id: windowId },
+    include: { item: true },
+  });
+  if (!window) rejected();
+  await prisma.menuItemWindow.delete({ where: { id: windowId } });
+  done(`${window.item.name} no longer has that serving window`);
 }
 
 /** "0"/"3" → bounds, or null. A max below the min is the one pair that makes

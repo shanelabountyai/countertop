@@ -117,6 +117,23 @@ export function formatMinuteOfDay(minuteOfDay: number): string {
 }
 
 /**
+ * "13:05" → 785, or null if it is not a clock time at all (P1-1's editor).
+ *
+ * The inverse of `formatMinuteOfDay`, plus one value that function's own
+ * output an `<input type="time">` cannot express: "24:00", a daypart
+ * window's exclusive end at midnight — `MenuItemWindow.endMinute` legally
+ * reaches 1440 (schema.prisma), so the parser has to as well.
+ */
+export function parseTimeOfDay(text: string): number | null {
+  const match = /^([01]?\d|2[0-4]):([0-5]\d)$/.exec(text.trim());
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours === 24 && minutes !== 0) return null;
+  return hours * 60 + minutes;
+}
+
+/**
  * `now` minus a whole number of 24-hour days, as an instant (P1-1).
  *
  * INSTANT arithmetic, not calendar arithmetic, and deliberately so: "30 days

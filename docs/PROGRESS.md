@@ -9539,3 +9539,69 @@ migration.
   double-check against a live price.
 
 C-138 committed at 525b09b
+
+## C-139 — The daypart editor (C-110's "Left behind" item, carried through C-137)
+
+C-110 shipped the daypart engine — `MenuItemWindow`, the third input to
+`validateComposition`, all three call sites tested — with "no editor" on its
+own Left behind list from day one. Every window on the menu since then has
+been written by hand: directly by the database, or by `menu.spec.ts`'s own
+`setDaypart` fixture, which exists specifically because "no seeded item
+carries one" (docs/WRITEUP.md). A manager had no screen to add or remove a
+window at all.
+
+**What shipped.** A daypart section under each item on `/kitchen/menu`, next
+to the existing weight and description rows: the item's current windows
+("Served Monday 11:00–14:00", one per row) each with its own remove button,
+an item with none reading "Served all day, every day." rather than looking
+broken, and a form to add one — a day, a start time, an end time. No
+confirm panel, the same posture `saveItemPrepWeight` and
+`saveItemDescription` already have: this is not money, and a wrong window is
+fixed by editing it again, not charged to a customer.
+
+**Times are typed text ("11:00"), not a native `<input type="time">`.**
+`MenuItemWindow.endMinute` is EXCLUSIVE and legally reaches 1440 —
+"through the last minute of the day," the value `daypartClosure` already
+special-cases to the word "midnight" — and the native time input's range
+stops at 23:59. `parseTimeOfDay`, the inverse of the existing
+`formatMinuteOfDay` (`packages/core/orders/business-day.ts`), accepts
+"24:00" as the one value past the normal range and rejects everything else a
+clock time cannot be. Two new server actions, `addItemWindow` and
+`deleteItemWindow`, mirror the CHECKs the hand-written migration already
+enforces (day 0–6, start a minute in the day, end after start) so a bad
+value is refused with a sentence before it reaches Postgres; a `P2002` on
+the `(itemId, dayOfWeek, startMinute)` unique is caught and named rather
+than shown as a raw constraint violation. `loadItemWindows` in
+`packages/db/menu.ts` is the one new query — a raw row list with its own
+id, deliberately not part of `Menu`/`DaypartWindow`, because nothing in
+packages/core ever needs to name one window over another and only the
+editor's delete button does.
+
+**Tests.** Five new cases in `packages/core/orders/business-day.test.ts` for
+`parseTimeOfDay` (inverse of `formatMinuteOfDay`, accepts "24:00", rejects
+everything else). Five new e2e in `menu-editing.spec.ts`: adding a window
+and seeing it listed, "24:00" accepted end to end, removing one returns the
+item to "served all day", an end-before-start submission refused with the
+sentence naming why, and a duplicate day/start-minute submission refused by
+name rather than as a raw Prisma error.
+
+**Gate:** green, first attempt. 1131 unit (+3), lint, typecheck, build, 237
+e2e + 15 skipped = 252 (+5). No migration — `MenuItemWindow` and its CHECKs
+already existed from C-110.
+
+**Left behind:**
+- **Overnight daypart windows** are still open, per NEXT.md — the last of
+  C-137's four items. Decided in the C-137 session to stay scoped to
+  `MenuItemWindow` only, needing a hand-written migration loosening
+  `menu_item_window_ends_after_start` and a rewrite of `daypartClosure`
+  from same-day containment to "does any window, possibly wrapping, contain
+  now." Largest and riskiest of the four — deliberately last, on its own
+  session.
+- **The third flaky spec**, `e2e/menu-editing.spec.ts:234`, did not
+  reproduce in this item's own gate run either. Still on the pre-existing
+  flaky list with `e2e/refund.spec.ts:211` and `e2e/last-call.spec.ts:17`,
+  still not root-caused.
+- **No seeded item carries a window still** (C-110's own left-behind note,
+  unchanged) — a seeded schedule would make the suite time-of-day
+  dependent, the C-011 seeding rule `menu.spec.ts`'s `setDaypart` fixture
+  already works around.

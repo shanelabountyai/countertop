@@ -242,6 +242,23 @@ export async function collectSupersededPrices(now: Date = new Date()): Promise<n
 }
 
 /**
+ * Every daypart window with its own row id, for the editor to list and let a
+ * manager delete (P1-1's UI).
+ *
+ * Deliberately NOT part of `Menu`: `DaypartWindow` is what `daypartClosure`
+ * reasons about, and it carries no id because nothing in packages/core ever
+ * names one window over another — only the editor does, to build a delete
+ * button.
+ */
+export async function loadItemWindows(): Promise<
+  { id: string; itemId: string; dayOfWeek: number; startMinute: number; endMinute: number }[]
+> {
+  return prisma.menuItemWindow.findMany({
+    orderBy: [{ itemId: 'asc' }, { dayOfWeek: 'asc' }, { startMinute: 'asc' }],
+  });
+}
+
+/**
  * The earliest day a price change may be staged for: the restaurant's
  * tomorrow (P1-2).
  *
