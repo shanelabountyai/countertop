@@ -1,30 +1,28 @@
 # Next
 
-**C-140 shipped this session** — overnight daypart windows, the last of
-C-137's four "Left behind" items.
+**C-141 shipped this session**: overnight store hours (C-011's gap).
 
-## C-140 — Overnight daypart windows
+## C-141: Overnight store hours
 
-Migration `20260918090000_overnight_item_windows` swaps
-`menu_item_window_ends_after_start` for `menu_item_window_not_empty`
-(end ≠ start). `daypartClosure` (`packages/core/menu/composition.ts`) reads
-an end at or before the start as wrapping into the next day; the window
-belongs to the day it STARTS (Friday 22:00–02:00 serves Saturday 01:00).
-Editor list/confirmation name the spill day ("(into Saturday)"). Customer
-label unchanged ("Served 22:00–02:00").
+Migration `20260918120000_overnight_store_hours` swaps
+`store_hours_closes_after_opening` for `store_hours_not_empty` (close ≠ open).
+`checkoutGate`/`todaysHours` judge against one `currentOpening`
+(`packages/core/orders/checkout-gate.ts`): today's if running, else
+yesterday's still running past midnight. New `serviceDay` is the left-over /
+open-weight boundary (kitchen page, `loadGateState`), so a 23:55 order keeps
+chiming at 00:30. Slots stop at midnight. `setLastOrderIn` now works at every
+minute of the day.
 
-**Gate:** green, first attempt. 1137 unit (+6), 238 e2e + 15 skipped = 253
-(+1). Committed at 85057b6, SHA recorded at bb6b666.
+**Gate:** green, first attempt. 1153 unit (+16), 239 e2e + 15 skipped = 254
+(+1). Committed at fa863ad, SHA recorded at 83f38cf.
 
 ## Pick this up first
 
-**Overnight store hours (C-011's gap)** — the natural follow-up. `StoreHours`
-still has `store_hours_closes_after_opening`, so the checkout gate closes at
-midnight and C-140's spill past midnight is unreachable by checkout. Same
-shape of work: hand-written migration loosening the CHECK, and the gate's
-"open now" + next-opening walk taught to wrap (`docs/WRITEUP.md`, C-011
-bullet names the upgrade). Riskier than C-140 — the gate reads it on every
-checkout and the next-opening walk spans midnight. Opus-grade.
+No item is queued as the obvious follow-up. Candidates from C-141's own
+"Left behind": **report day buckets and the order-number reset are still
+calendar midnight inside an overnight shift** (a 00:30 order is Saturday's
+#001 on Saturday's report row). Otherwise pick from "Still open" below or the
+PRD's P2 list.
 
 ## Read this before the next push
 
@@ -45,8 +43,7 @@ checkout and the next-opening walk spans midnight. Opus-grade.
   script — do not prefix it yourself. Silent no-op anywhere not installed,
   CI included.
 - **A hand-written migration's index needs a matching `@@index` in
-  `schema.prisma`, or CI's drift check fails** (C-134's incident). Directly
-  relevant to the overnight-windows item above.
+  `schema.prisma`, or CI's drift check fails** (C-134's incident).
 - **A server action's click does not block on its own mutation.** Check
   `fixtures.ts` for an existing guarded helper before writing a raw click.
 - **Run `npm run db:migrate:all` after adding a migration**, before tests.
@@ -95,8 +92,6 @@ checkout and the next-opening walk spans midnight. Opus-grade.
 - **The status page's estimate line is outside the `role="status"` region**
   (C-078).
 - **The last-call warning does not tick** (C-079).
-- **`setLastOrderIn` cannot express the last `minutesOut` minutes of the
-  local day** (C-079).
 - **Twenty-two of twenty-five items have no description** (C-080).
 - **`e2e/refund.spec.ts:211` and `e2e/last-call.spec.ts:17`** — the other
   two pre-existing flaky specs, untouched again this session.
