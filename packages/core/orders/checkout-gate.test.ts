@@ -3,6 +3,7 @@ import { restaurantClock } from './business-day';
 import {
   checkoutGate,
   orderingWindow,
+  serviceDay,
   todaysHours,
   type GateState,
   type StoreHoursDay,
@@ -298,5 +299,111 @@ describe('the checkout gate (P0-6)', () => {
     // Either side, "what time is it at the restaurant" has one answer.
     const springForwardDay = restaurantClock(new Date(Date.UTC(2026, 2, 8, 18, 0, 0)), TZ);
     expect(springForwardDay.minuteOfDay).toBe(11 * 60); // 11:00 PDT, not 10:00
+  });
+});
+
+describe('overnight hours (C-141)', () => {
+  // Friday 17:00–02:00 runs into Saturday; the rest of the week is the usual
+  // 11:00–21:00. 2026-07-10 is a Friday. PDT is UTC-7.
+  const local = (d: number, h: number, m = 0) => new Date(Date.UTC(2026, 6, d, h + 7, m, 0));
+  const FRI_22 = local(10, 22);
+  const SAT_0100 = local(10, 25); // Sat 01:00
+  const SAT_0150 = local(10, 25, 50); // Sat 01:50
+  const SAT_0230 = local(10, 26, 30); // Sat 02:30
+  const FRIDAY = '2026-07-10';
+  const SATURDAY = '2026-07-11';
+  const LATE_WEEK = WEEK.map((day) =>
+    day.dayOfWeek === 5 ? { ...day, openMinute: 17 * 60, closeMinute: 2 * 60 } : day,
+  );
+  const late = (overrides: Partial<GateState> = {}) => ({ hours: LATE_WEEK, ...overrides });
+
+  it('is open before midnight, counting down to a last order after it', () => {
+    // Last order is 01:45 Saturday: 1545 minutes from Friday's midnight.
+    expect(gate(FRI_22, late())).toEqual({
+      open: true,
+      lastOrderMinute: 105,
+      minutesUntilLastOrder: 1545 - 22 * 60,
+    });
+  });
+
+  it("is open after midnight on the day it opened's hours", () => {
+    expect(gate(SAT_0100, late())).toEqual({
+      open: true,
+      lastOrderMinute: 105,
+      minutesUntilLastOrder: 45,
+    });
+  });
+
+  it('stops at the cutoff after midnight, with the wall-clock time', () => {
+    const result = gate(SAT_0150, late());
+    expect(result).toMatchObject({ open: false, reason: 'closing_soon' });
+    if (result.open) throw new Error('unreachable');
+    expect(result.message).toContain('at 01:45, 15 minutes before we close');
+  });
+
+  it('is closed once the spill ends, and points at today’s own opening', () => {
+    expect(gate(SAT_0230, late())).toMatchObject({
+      open: false,
+      reason: 'outside_hours',
+      message: 'We open at 11:00 today.',
+    });
+  });
+
+  it('spills into a day with no hours row of its own', () => {
+    const noSaturday = LATE_WEEK.filter((day) => day.dayOfWeek !== 6);
+    expect(gate(SAT_0100, late({ hours: noSaturday }))).toMatchObject({ open: true });
+    expect(gate(SAT_0230, late({ hours: noSaturday }))).toMatchObject({
+      open: false,
+      reason: 'outside_hours',
+      message: 'We are closed right now. We open on Monday at 11:00.',
+    });
+  });
+
+  it("does not reopen at midnight for a day closed with the override", () => {
+    expect(gate(SAT_0100, late({ closedOnDay: FRIDAY }))).toMatchObject({
+      open: false,
+      reason: 'outside_hours',
+    });
+  });
+
+  it('closes the running shift when "closed today" is pressed after midnight', () => {
+    expect(gate(SAT_0100, late({ closedOnDay: SATURDAY }))).toMatchObject({
+      open: false,
+      reason: 'closed_today',
+    });
+  });
+
+  it("prefers today's own opening where yesterday's spill overlaps it", () => {
+    // Saturday opens at 00:30: its 20:45 cutoff governs, not Friday's 01:45.
+    const hours = LATE_WEEK.map((day) => (day.dayOfWeek === 6 ? { ...day, openMinute: 30 } : day));
+    expect(gate(SAT_0150, late({ hours }))).toMatchObject({
+      open: true,
+      lastOrderMinute: 20 * 60 + 45,
+    });
+  });
+
+  it("reads a midnight close as 24:00, never as an overnight close", () => {
+    const hours = WEEK.map((day) => ({ ...day, closeMinute: 1440 }));
+    expect(gate(SAT_0100, { hours })).toMatchObject({ open: false, reason: 'outside_hours' });
+  });
+
+  it('words the footer from the shift that is running', () => {
+    const hoursAt = (now: Date) => todaysHours(state(late()), restaurantClock(now, TZ));
+    expect(hoursAt(FRI_22)).toBe('17:00–02:00');
+    expect(hoursAt(SAT_0100)).toBe('17:00–02:00');
+    expect(hoursAt(SAT_0230)).toBe('11:00–21:00');
+  });
+
+  it("names the service day as the day the running shift opened", () => {
+    const dayAt = (now: Date, overrides: Partial<GateState> = {}) =>
+      serviceDay(state(late(overrides)), restaurantClock(now, TZ));
+    expect(dayAt(FRI_22)).toBe(FRIDAY);
+    expect(dayAt(SAT_0100)).toBe(FRIDAY);
+    expect(dayAt(SAT_0230)).toBe(SATURDAY);
+    expect(dayAt(SAT_0100, { closedOnDay: FRIDAY })).toBe(SATURDAY);
+  });
+
+  it("puts an overnight day's last order past 1440 in `orderingWindow`", () => {
+    expect(orderingWindow(LATE_WEEK[4]!, 15)).toEqual({ openMinute: 17 * 60, lastOrderMinute: 1545 });
   });
 });

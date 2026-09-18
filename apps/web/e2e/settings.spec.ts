@@ -52,18 +52,30 @@ test('unticking a day closes the restaurant on it, and the week saves as a week'
   await expect(page.getByText('Online ordering is closed right now.')).toBeVisible();
 });
 
-test('a closing time that is not after its opening is refused, by name', async ({ page }) => {
+test('a close before the open runs overnight and names the day it runs into (C-141)', async ({
+  page,
+}) => {
   await page.goto('/kitchen/settings');
-  await page.getByRole('checkbox', { name: 'Wednesday' }).check();
   await page.getByRole('textbox', { name: 'Wednesday opens' }).fill('18:00');
-  await page.getByRole('textbox', { name: 'Wednesday closes' }).fill('11:00');
+  await page.getByRole('textbox', { name: 'Wednesday closes' }).fill('02:00');
+  await page.getByRole('button', { name: 'Review hours' }).click();
+  await expect(page.getByText('18:00–02:00 (into Thursday)')).toBeVisible();
+  await page.getByRole('button', { name: 'Save these hours' }).click();
+  await expect(page.getByTestId('settings-saved')).toContainText('Hours saved');
+});
+
+test('a day that opens and closes on the same minute is refused, by name', async ({ page }) => {
+  await page.goto('/kitchen/settings');
+  await page.getByRole('textbox', { name: 'Wednesday opens' }).fill('18:00');
+  await page.getByRole('textbox', { name: 'Wednesday closes' }).fill('18:00');
   await page.getByRole('button', { name: 'Review hours' }).click();
   await page.getByRole('button', { name: 'Save these hours' }).click();
 
-  // The message names the DAY and both times — a generic "invalid hours" makes
+  // The message names the DAY and the time — a generic "invalid hours" makes
   // a manager check all seven rows.
-  await expect(page.getByTestId('settings-error')).toContainText('Wednesday closes at 11:00');
-  await expect(page.getByTestId('settings-error')).toContainText('opens at 18:00');
+  await expect(page.getByTestId('settings-error')).toContainText(
+    'Wednesday opens and closes at 18:00',
+  );
 });
 
 test('the service numbers reach the estimate a customer is quoted', async ({ page }) => {

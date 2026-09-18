@@ -5,6 +5,7 @@ import {
   formatDayLabel,
   formatMinuteOfDay,
   nextDay,
+  previousDay,
   instantDaysBefore,
   instantMinutesAfter,
   parseTimeOfDay,
@@ -228,6 +229,14 @@ describe('formatDayLabel', () => {
     // It renders a caption. A throw here would take a whole screen down.
     expect(formatDayLabel('soon')).toBe('soon');
     expect(formatDayLabel('')).toBe('');
+  });
+});
+
+describe('previousDay (C-141)', () => {
+  it('crosses a month, a year and a leap day backwards', () => {
+    expect(previousDay('2026-10-01')).toBe('2026-09-30');
+    expect(previousDay('2027-01-01')).toBe('2026-12-31');
+    expect(previousDay('2028-03-01')).toBe('2028-02-29');
   });
 });
 

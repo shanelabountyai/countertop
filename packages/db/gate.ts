@@ -13,9 +13,9 @@
 // order was snapshotted as, so this sum is arithmetic on the orders' own
 // copied numbers and never joins back to a menu row.
 import {
-  businessDayOf,
   OPEN_STATUSES,
   restaurantClock,
+  serviceDay,
   sumWeightBySlot,
   todaysHours,
   type EstimateState,
@@ -63,7 +63,8 @@ export async function loadGateState(
   // which orders are today's. The warning in this file's header is about two
   // separate READS — the gate and the estimate still share exactly one, which
   // is the property that matters.
-  const today = businessDayOf(now, settings.timezone);
+  const clock = restaurantClock(now, settings.timezone);
+  const today = clock.day;
   const [open, scheduled] = await Promise.all([
     prisma.order.aggregate({
       _sum: { prepWeight: true },
@@ -74,7 +75,9 @@ export async function loadGateState(
         // kitchen owes: summed in, it inflates every quoted wait and can hold the
         // P0-6 auto-pause closed forever. The kitchen queue still shows it,
         // flagged, which is where it gets closed out.
-        businessDay: { gte: today },
+        // The SERVICE day, not the calendar one: Friday's 23:55 ticket is still
+        // work at 00:30 inside Friday's overnight shift (C-141).
+        businessDay: { gte: serviceDay({ hours, closedOnDay: settings.closedOnDay }, clock) },
       },
     }),
     // Exact match on `today`, unlike the aggregate above: a scheduled order is

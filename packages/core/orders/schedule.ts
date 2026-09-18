@@ -105,7 +105,10 @@ export function availableSlots(
     return { open: false, reason: 'outside_hours', message: 'We are closed today.' };
   }
 
-  const { lastOrderMinute } = orderingWindow(today, state.cutoffMinutes);
+  // Same-day only, so an overnight day's slots stop at midnight (C-141); the
+  // hours after it are ASAP-only. 1440 is the "24:00" slot a midnight close
+  // has always offered.
+  const lastOrderMinute = Math.min(1440, orderingWindow(today, state.cutoffMinutes).lastOrderMinute);
   const earliest = roundUpToInterval(
     Math.max(today.openMinute, clock.minuteOfDay + config.leadMinutes),
     config.intervalMinutes,

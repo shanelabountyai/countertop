@@ -462,13 +462,19 @@ describe('store hours', () => {
     ).resolves.toMatchObject({ closeMinute: 1440 });
   });
 
-  it('refuses a window that closes before it opens', async () => {
-    // This is what forecloses overnight service (17:00–02:00). Refusing it
-    // loudly beats a gate that silently reads every minute of such a day as
-    // closed — recorded as a ceiling in docs/WRITEUP.md.
+  it('accepts an overnight window (C-141)', async () => {
+    // 17:00–02:00 runs into the next day; `checkoutGate` reads a close before
+    // the open as wrapping past midnight.
     await expect(
       prisma.storeHours.create({ data: hours({ openMinute: 17 * 60, closeMinute: 2 * 60 }) }),
-    ).rejects.toThrow(/store_hours_closes_after_opening/i);
+    ).resolves.toMatchObject({ closeMinute: 120 });
+  });
+
+  it('refuses a window that closes on the minute it opens', async () => {
+    // Empty or all 24 hours — ambiguous either way. [0, 1440) is a whole day.
+    await expect(
+      prisma.storeHours.create({ data: hours({ openMinute: 17 * 60, closeMinute: 17 * 60 }) }),
+    ).rejects.toThrow(/store_hours_not_empty/i);
   });
 
   it('refuses a second window for the same day', async () => {

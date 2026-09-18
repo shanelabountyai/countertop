@@ -72,9 +72,14 @@ export default async function SettingsPage({
       const wanted = params[`open-${dayOfWeek}`] === 'on';
       const from = params[`from-${dayOfWeek}`] ?? '';
       const to = params[`to-${dayOfWeek}`] ?? '';
-      const after = wanted ? `${from}–${to === '00:00' ? '24:00' : to}` : null;
+      // An overnight day names the day it runs into (C-141), as the daypart
+      // editor does (C-140). "HH:MM" strings sort as times.
+      const into = ` (into ${WEEKDAY_NAMES[(dayOfWeek + 1) % 7]})`;
+      const after = wanted
+        ? `${from}–${to === '00:00' ? '24:00' : to}${to !== '00:00' && to < from ? into : ''}`
+        : null;
       const wasText = before
-        ? `${timeValue(before.openMinute)}–${before.closeMinute === 1440 ? '24:00' : timeValue(before.closeMinute)}`
+        ? `${timeValue(before.openMinute)}–${before.closeMinute === 1440 ? '24:00' : timeValue(before.closeMinute)}${before.closeMinute < before.openMinute ? into : ''}`
         : null;
       return { name, wasText, after, closing: wasText !== null && after === null };
     }).filter((change) => change.wasText !== change.after);

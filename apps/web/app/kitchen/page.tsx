@@ -20,6 +20,7 @@ import {
   orderBalance,
   restaurantClock,
   queueAging,
+  serviceDay,
   STATUS_FACTS,
   undoRemainingMs,
 } from '@countertop/core';
@@ -94,6 +95,9 @@ export default async function KitchenPage({
   const gateState = await loadGateState(now);
   const clock = restaurantClock(now, gateState.timezone);
   const gate = checkoutGate(gateState, clock);
+  // The day the running opening started — yesterday, after midnight in an
+  // overnight shift — so last night's tickets are not "left over" at 00:00 (C-141).
+  const shiftDay = serviceDay(gateState, clock);
   // Handoff P0-2: the lookup MARKS, it does not filter. Danny answers Cass at
   // the front while Ada waits behind her; a Find box that empties the board
   // means the second question costs a re-type, and for the length of the first
@@ -108,7 +112,7 @@ export default async function KitchenPage({
   const groups = groupQueue(orders, justFinished);
   // P1-6, off the UNFILTERED list for the same reason the alert count is: a
   // chore a search can hide is a chore nobody does.
-  const leftOver = orders.filter((order) => isLeftOver(order, clock.day));
+  const leftOver = orders.filter((order) => isLeftOver(order, shiftDay));
   // Counted off the UNFILTERED list, deliberately. A cook who has typed a name
   // into the lookup box is still the person who has to hear the next order
   // arrive — an alert that a search can silence is an alert that will be
@@ -119,7 +123,7 @@ export default async function KitchenPage({
   // alarm staff learn to ignore, and then the alert is worth nothing during
   // the rush it exists for. The banner below is how that order gets seen.
   const unacknowledged = orders.filter(
-    (order) => needsAcknowledgment(order.status) && !isLeftOver(order, clock.day),
+    (order) => needsAcknowledgment(order.status) && !isLeftOver(order, shiftDay),
   ).length;
 
   return (
@@ -339,7 +343,7 @@ export default async function KitchenPage({
 
                 const aging = queueAging(order, now, DEFAULT_AGING);
                 const undoMs = undoRemainingMs(order.status, lastMovement(order.events), now);
-                const leftOverCard = isLeftOver(order, clock.day);
+                const leftOverCard = isLeftOver(order, shiftDay);
                 const matched = searching && matchesLookup(order, query);
 
                 return (

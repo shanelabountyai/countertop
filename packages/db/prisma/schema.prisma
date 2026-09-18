@@ -1252,6 +1252,7 @@ model StoreHours {
   dayOfWeek   Int @id
   /// Local wall-clock minutes since midnight, 0–1439.
   openMinute  Int
-  /// Local wall-clock minutes since midnight. Must be after `openMinute`.
+  /// Local wall-clock minutes since midnight, 1–1440. At or before `openMinute`
+  /// runs past midnight into the next day (C-141); never equal to it.
   closeMinute Int
 }

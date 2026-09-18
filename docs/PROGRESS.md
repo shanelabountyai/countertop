@@ -9649,3 +9649,59 @@ listed with its spill day, and start = end refused by sentence.
 e2e + 15 skipped = 253 (+1).
 
 C-140 committed at 85057b6
+
+## C-141 — Overnight store hours (C-011's gap, C-140's follow-up)
+
+C-011 foreclosed 17:00–02:00 with `store_hours_closes_after_opening`, so the
+checkout gate closed at midnight and C-140's overnight dayparts were
+unreachable past it. This makes a close before the open mean "runs into the
+next day", on the rule C-140 already set: the opening belongs to the day it
+OPENS.
+
+**Built.** Migration `20260918120000_overnight_store_hours` swaps the CHECK
+for `store_hours_not_empty` (close ≠ open). `checkoutGate`
+(`packages/core/orders/checkout-gate.ts`) now judges against one
+`currentOpening` — today's opening if it is running, else yesterday's still
+running past midnight, else today's — measured in minutes from today's
+midnight, so both ends of a shift compare against `minuteOfDay` directly.
+`todaysHours` (the footer) reads the same opening, so at 01:00 inside
+Friday's shift it says "17:00–02:00", not Saturday's "Closed today".
+`lastOrderMinute` goes back onto the wall clock for display (1440 stays
+"24:00"). `saveHours` refuses only close = open; the hours confirm panel
+names the day an overnight day runs into, as the daypart editor does.
+
+**Decided — found while tracing, not in the ticket.** `isLeftOver` and the
+open-weight sum drew their boundary at calendar midnight (its own
+`ponytail:` said "not reachable today"). With overnight hours it became
+reachable: a 23:55 order would stop chiming and stop counting toward the
+throttle at 00:00. New `serviceDay` — the day the running opening started —
+is now the boundary the kitchen page and `loadGateState` use. **The
+closed-today override** closes today's CALENDAR date (the only one the button
+can write), including yesterday's shift still running, because staff who
+press it at 01:00 mean now; and a day closed with the override does not
+reopen at 00:00 through its own spill. **Order numbers still reset at
+calendar midnight** (`businessDay`) — deliberately a different question.
+**Scheduled slots stop at midnight** (same-day only, capped at the "24:00"
+slot a midnight close already offered); the hours past it are ASAP-only.
+`setLastOrderIn` (e2e fixture) now writes an overnight row where the target
+lands past midnight, closing C-079's "cannot express the last minutes of the
+day" note.
+
+**Tests.** Twelve gate cases (open before and after midnight, cutoff after
+midnight with the wall-clock time, spill end, spill into a day with no row,
+override on the opening day vs. on the calendar day, overlap preference,
+24:00 is not overnight, footer, `serviceDay`, `orderingWindow`), one slot
+case, `previousDay`, a db test that last night's order is still weighed at
+01:00 and not at 03:00, the constraint test flipped, and the settings e2e
+that asserted the old refusal replaced by two.
+
+**Left behind:**
+- **The report buckets by calendar day** — an order at 00:30 in Friday's
+  shift lands on Saturday's report row.
+- **Order numbers restart at 00:00 mid-shift** — Friday's #047 and
+  Saturday's #001 can share the queue.
+- **Scheduling during yesterday's spill** says "closed today" on a day with
+  no row of its own while ASAP is open.
+
+**Gate:** green, first attempt. 1153 unit (+16), lint, typecheck, build, 239
+e2e + 15 skipped = 254 (+1).

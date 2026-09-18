@@ -559,36 +559,28 @@ export async function ageOrder(
  * `setDaypart`'s reason: fixed hours would make the spec's outcome depend on
  * what time the sweep happens to run.
  *
- * Both knobs move together because only their difference matters. The close
- * stays inside the day (`closeMinute` is capped at 1440 by a CHECK), and the
- * cutoff absorbs whatever is left — so this works at every minute of the local
- * day except the last `minutesOut` of it, where the target minute is tomorrow
- * and the schema has no way to say so. That window throws rather than quietly
- * setting something else: a fixture that half-worked would surface as an
- * assertion failure about the warning, three files away from the cause.
+ * The cutoff is 15 minutes and the close sits 15 past the target. Where that
+ * lands past midnight, today's row opens NOW and closes overnight (C-141), so
+ * every minute of the local day can say it.
  */
 export async function setLastOrderIn(minutesOut: number): Promise<void> {
   const { prisma } = await import('@countertop/db');
   const { loadClock } = await import('@countertop/db/menu');
   try {
     const clock = await loadClock();
-    const target = clock.minuteOfDay + minutesOut;
-    if (target > 1440) {
-      throw new Error(
-        `last call ${minutesOut} min out lands past midnight (local ${clock.minuteOfDay}); no hours row can say that`,
-      );
-    }
-    // 15 minutes of kitchen time after the door shuts, where the day has room
-    // for it — the seeded default is 0, and a cutoff of 0 would make this
-    // fixture indistinguishable from "we close now".
-    const closeMinute = Math.min(1440, target + 15);
+    // Minutes from today's midnight; past 1440 is tomorrow.
+    const close = clock.minuteOfDay + minutesOut + 15;
+    const overnight = close > 1440;
     await prisma.storeHours.update({
       where: { dayOfWeek: clock.weekday },
-      data: { openMinute: 0, closeMinute },
+      data: {
+        openMinute: overnight ? clock.minuteOfDay : 0,
+        closeMinute: overnight ? close - 1440 : close,
+      },
     });
     await prisma.restaurantSettings.update({
       where: { id: 'singleton' },
-      data: { cutoffMinutes: closeMinute - target },
+      data: { cutoffMinutes: 15 },
     });
   } finally {
     await prisma.$disconnect();

@@ -78,9 +78,9 @@ function parseBounded(value: unknown, low: number, high: number): number | null 
  * a deleted row can never leave a door open by accident.
  *
  * Closing time 00:00 means midnight at the END of the day, stored as 1440.
- * `<input type="time">` cannot express 24:00, and the constraint that a close
- * must be after its open makes the reading unambiguous: nothing can close at
- * the start of its own day.
+ * `<input type="time">` cannot express 24:00. Any other close before the open
+ * runs past midnight into the next day (C-141); a close equal to the open is
+ * refused, as its CHECK does.
  */
 export async function saveHours(formData: FormData): Promise<void> {
   const rows: { dayOfWeek: number; openMinute: number; closeMinute: number }[] = [];
@@ -94,9 +94,10 @@ export async function saveHours(formData: FormData): Promise<void> {
       rejected(`${name} needs an opening and a closing time.`);
     }
     const closeMinute = parsedClose === 0 ? 1440 : parsedClose;
-    if (closeMinute <= openMinute) {
+    // CHECK store_hours_not_empty.
+    if (closeMinute === openMinute) {
       rejected(
-        `${name} closes at ${formatMinuteOfDay(closeMinute)}, which is not after it opens at ${formatMinuteOfDay(openMinute)}. Overnight service is not supported.`,
+        `${name} opens and closes at ${formatMinuteOfDay(openMinute)}. Pick two different times — 00:00 to 00:00 is open all day, and a close before the open runs past midnight.`,
       );
     }
     rows.push({ dayOfWeek, openMinute, closeMinute });

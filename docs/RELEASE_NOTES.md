@@ -3151,3 +3151,19 @@ item quietly vanish from the menu with no error. This change replaced a
 safe refusal with the correct behaviour, rather than just deleting the
 guard: the rule about which day a late-night window belongs to was decided,
 written down, and tested at the week's own wrap from Saturday into Sunday.
+
+## C-141 — Opening hours that run past midnight
+
+A restaurant open "5pm to 2am" can now say so. Until now the hours screen
+refused any closing time earlier than the opening time, so online ordering
+always stopped at midnight. Now a late shift is typed the way it is said,
+ordering stays open until the last-order time after midnight, and the
+website's "today's hours" line shows the shift that is actually running.
+
+**Why it matters for a portfolio reader.** The obvious change — let the hours
+through — would have shipped a quieter bug: the kitchen screen decided
+which orders were "left over from yesterday" at midnight, so an order placed
+at 11:55pm would have stopped alerting the cooks five minutes later. That was
+found by tracing every reader of the hours before changing any of them, and
+fixed with one idea — the "service day" is the day the running shift opened —
+used everywhere that question is asked.

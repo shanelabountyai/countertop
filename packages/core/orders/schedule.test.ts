@@ -148,3 +148,21 @@ describe('sumWeightBySlot (P1-2)', () => {
 // `zonedTimeToInstant` is tested in business-day.test.ts, where the function
 // now lives (P1-2 moved it there — it is the one local -> instant exception
 // that module's header carves out, and this file does not call it at all).
+
+describe('overnight hours (C-141)', () => {
+  it("stops an overnight day's slots at midnight — same-day only", () => {
+    const hours = WEEK.map((day) =>
+      day.dayOfWeek === 5 ? { ...day, openMinute: 17 * 60, closeMinute: 2 * 60 } : day,
+    );
+    // Fri 22:00 local.
+    const result = availableSlots(
+      { ...gateState(), hours },
+      CONFIG,
+      new Map(),
+      restaurantClock(at({ d: 11, h: 5 }), TZ),
+    );
+    expect(result.open).toBe(true);
+    if (!result.open) throw new Error('unreachable');
+    expect(result.slots.at(-1)).toMatchObject({ minuteOfDay: 1440, label: '24:00' });
+  });
+});

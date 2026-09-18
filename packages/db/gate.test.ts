@@ -144,6 +144,18 @@ describe('loadGateState (P0-6)', () => {
     expect(await loadQueue()).toHaveLength(1);
     expect(isLeftOver({ status: 'placed', businessDay: '2026-07-03' }, '2026-07-04')).toBe(true);
   });
+
+  it("keeps weighing last night's order after midnight inside an overnight shift (C-141)", async () => {
+    // Saturday 17:00–02:00. Placed at 20:00 Saturday, it is still Saturday's
+    // service at 01:00 Sunday — and left over only once the shift has closed.
+    await seedStoreHours([{ dayOfWeek: 6, openMinute: 17 * 60, closeMinute: 2 * 60 }]);
+    expect((await place()).ok).toBe(true);
+
+    const sundayOneAm = new Date(Date.UTC(2026, 6, 5, 8, 0, 0));
+    const sundayThreeAm = new Date(Date.UTC(2026, 6, 5, 10, 0, 0));
+    expect((await loadGateState(sundayOneAm)).openWeight).toBe(2);
+    expect((await loadGateState(sundayThreeAm)).openWeight).toBe(0);
+  });
 });
 
 describe('placement obeys the gate (P0-6)', () => {

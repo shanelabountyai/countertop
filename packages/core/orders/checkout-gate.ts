@@ -14,7 +14,12 @@
 //
 // Pure: `now` is a parameter, and the wall-clock reading it needs is computed
 // by `restaurantClock` and handed in. Nothing here reads a database or a clock.
-import { formatMinuteOfDay, WEEKDAY_NAMES, type RestaurantClock } from './business-day';
+import {
+  formatMinuteOfDay,
+  previousDay,
+  WEEKDAY_NAMES,
+  type RestaurantClock,
+} from './business-day';
 
 /** Why ordering is off. Ordered by precedence — see `checkoutGate`. */
 export type GateReason =
@@ -24,13 +29,82 @@ export type GateReason =
   | 'closing_soon'
   | 'too_busy';
 
-/** One day's opening window, local wall-clock minutes since midnight. */
+/** One day's opening window, local wall-clock minutes since midnight. A close
+ *  at or before the open runs past midnight into the next day (C-141), and
+ *  the window belongs to the day it OPENS — the rule C-140 set for dayparts. */
 export type StoreHoursDay = {
   /** 0 = Sunday. */
   dayOfWeek: number;
   openMinute: number;
   closeMinute: number;
 };
+
+/** The opening `clock` is in or waiting on, measured from TODAY's midnight: an
+ *  overnight close lands past 1440, and yesterday's opening, still running
+ *  after midnight, opens below 0. `day` is the calendar day it opened on. */
+type Opening = { row: StoreHoursDay; day: string; openMinute: number; closeMinute: number };
+
+function currentOpening(
+  state: Pick<GateState, 'hours' | 'closedOnDay'>,
+  clock: RestaurantClock,
+): Opening | null {
+  const now = clock.minuteOfDay;
+  const today = state.hours.find((day) => day.dayOfWeek === clock.weekday);
+  const todays = today && {
+    row: today,
+    day: clock.day,
+    openMinute: today.openMinute,
+    closeMinute: today.closeMinute + (today.closeMinute <= today.openMinute ? 1440 : 0),
+  };
+  // Today's own opening first, if it is running: where yesterday's spill and
+  // today's opening overlap, the later one is the one whose cutoff matters.
+  if (todays && now >= todays.openMinute && now < todays.closeMinute) return todays;
+
+  // Yesterday's, still running past midnight — unless yesterday was closed with
+  // the override, which must not reopen the door at 00:00 for a shift nobody
+  // is working.
+  const yesterday = state.hours.find((day) => day.dayOfWeek === (clock.weekday + 6) % 7);
+  const yesterdayDay = previousDay(clock.day);
+  if (
+    yesterday &&
+    yesterday.closeMinute <= yesterday.openMinute &&
+    now < yesterday.closeMinute &&
+    state.closedOnDay !== yesterdayDay
+  ) {
+    return {
+      row: yesterday,
+      day: yesterdayDay,
+      openMinute: yesterday.openMinute - 1440,
+      closeMinute: yesterday.closeMinute,
+    };
+  }
+
+  return todays ?? null;
+}
+
+/**
+ * The calendar day the opening now running started on (C-141) — today, except
+ * after midnight in an overnight shift, when it is yesterday.
+ *
+ * The boundary `isLeftOver` and the open-weight sum draw at: Friday's 23:55
+ * ticket is still Friday's service at 00:30 Saturday, so it must keep chiming
+ * and keep counting toward the throttle. Order NUMBERS still reset at calendar
+ * midnight (`businessDay`), which is a different question.
+ */
+export function serviceDay(
+  state: Pick<GateState, 'hours' | 'closedOnDay'>,
+  clock: RestaurantClock,
+): string {
+  return currentOpening(state, clock)?.day ?? clock.day;
+}
+
+/** A minute measured from today's midnight, back on the wall clock. 1440 stays
+ *  "24:00" — the end of the day, as a close has always been written. */
+function wallMinute(minute: number): number {
+  if (minute < 0) return minute + 1440;
+  if (minute > 1440) return minute - 1440;
+  return minute;
+}
 
 /**
  * Everything the gate reads, gathered by the caller in one query.
@@ -86,12 +160,15 @@ const DEFAULT_PAUSE_MESSAGE =
   'We have paused new online orders for a few minutes. Please try again shortly.';
 
 /** The window a customer can actually order in: the door closes `cutoffMinutes`
- *  before the kitchen does, so the last ticket has time to be cooked. */
+ *  before the kitchen does, so the last ticket has time to be cooked. Measured
+ *  from the opening day's midnight, so an overnight day's last order is past
+ *  1440 (C-141). */
 export function orderingWindow(
   day: StoreHoursDay,
   cutoffMinutes: number,
 ): { openMinute: number; lastOrderMinute: number } {
-  return { openMinute: day.openMinute, lastOrderMinute: day.closeMinute - cutoffMinutes };
+  const close = day.closeMinute + (day.closeMinute <= day.openMinute ? 1440 : 0);
+  return { openMinute: day.openMinute, lastOrderMinute: close - cutoffMinutes };
 }
 
 /**
@@ -117,11 +194,12 @@ export function todaysHours(
   // mean nobody is opening the door, and a footer is the wrong place to
   // explain which kind of closed it is.
   if (state.closedOnDay === clock.day) return 'Closed today';
-  const today = state.hours.find((day) => day.dayOfWeek === clock.weekday);
-  if (!today) return 'Closed today';
-  // 1440 formats as "24:00" — midnight at the END of the day, which is the
-  // only reading a closing time can have (see `saveHours`).
-  return `${formatMinuteOfDay(today.openMinute)}–${formatMinuteOfDay(today.closeMinute)}`;
+  // The opening the gate is judging against — so at 01:00 inside Friday's
+  // 22:00–02:00, the footer says that, not Saturday's "Closed today" (C-141).
+  const opening = currentOpening(state, clock);
+  if (!opening) return 'Closed today';
+  // 1440 formats as "24:00" — midnight at the END of the day (see `saveHours`).
+  return `${formatMinuteOfDay(opening.row.openMinute)}–${formatMinuteOfDay(opening.row.closeMinute)}`;
 }
 
 /**
@@ -152,8 +230,9 @@ export function checkoutGate(state: GateState, clock: RestaurantClock): GateResu
     };
   }
 
-  const today = state.hours.find((day) => day.dayOfWeek === clock.weekday);
-
+  // The override closes TODAY's calendar date — the one the button can write —
+  // including yesterday's shift still running past midnight: staff who press
+  // "closed today" at 01:00 mean now.
   if (state.closedOnDay === clock.day) {
     return {
       open: false,
@@ -166,7 +245,8 @@ export function checkoutGate(state: GateState, clock: RestaurantClock): GateResu
   // A day with no row is a day the restaurant is shut. Absence as the closed
   // signal means a week is configured by listing the days it opens, and a
   // deleted row cannot leave a door open.
-  if (!today) {
+  const opening = currentOpening(state, clock);
+  if (!opening) {
     return {
       open: false,
       reason: 'outside_hours',
@@ -175,7 +255,10 @@ export function checkoutGate(state: GateState, clock: RestaurantClock): GateResu
     };
   }
 
-  const { openMinute, lastOrderMinute } = orderingWindow(today, state.cutoffMinutes);
+  // Minutes from today's midnight, so both ends of an overnight shift compare
+  // against `minuteOfDay` directly; `wallMinute` puts them back for display.
+  const { openMinute, closeMinute } = opening;
+  const lastOrderMinute = closeMinute - state.cutoffMinutes;
 
   if (clock.minuteOfDay < openMinute) {
     return {
@@ -191,12 +274,12 @@ export function checkoutGate(state: GateState, clock: RestaurantClock): GateResu
     // kitchen still has the lights on in the first, and does not in the
     // second. A customer told "come back tomorrow" while staff are visibly
     // inside is a customer who walks up and knocks.
-    const stillOpen = clock.minuteOfDay < today.closeMinute;
+    const stillOpen = clock.minuteOfDay < closeMinute;
     return {
       open: false,
       reason: 'closing_soon',
       message: stillOpen
-        ? `We stop taking online orders at ${formatMinuteOfDay(lastOrderMinute)}, ${state.cutoffMinutes} minutes before we close. Come by the counter.`
+        ? `We stop taking online orders at ${formatMinuteOfDay(wallMinute(lastOrderMinute))}, ${state.cutoffMinutes} minutes before we close. Come by the counter.`
         : nextOpeningMessage(state.hours, clock),
       transient: false,
     };
@@ -214,7 +297,7 @@ export function checkoutGate(state: GateState, clock: RestaurantClock): GateResu
 
   return {
     open: true,
-    lastOrderMinute,
+    lastOrderMinute: wallMinute(lastOrderMinute),
     minutesUntilLastOrder: lastOrderMinute - clock.minuteOfDay,
   };
 }

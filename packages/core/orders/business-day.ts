@@ -263,10 +263,20 @@ export function formatDayLabel(day: string): string {
  * three lines above it already does.
  */
 export function nextDay(day: string): string {
+  return shiftDay(day, 1);
+}
+
+/** The day before `day` — the day an overnight opening that is still running
+ *  past midnight started on (C-141). Same arithmetic as `nextDay`. */
+export function previousDay(day: string): string {
+  return shiftDay(day, -1);
+}
+
+function shiftDay(day: string, by: number): string {
   const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
   if (!parts) return day;
   return restaurantClock(
-    new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]) + 1)),
+    new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]) + by)),
     'UTC',
   ).day;
 }

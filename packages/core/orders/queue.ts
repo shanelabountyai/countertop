@@ -369,10 +369,9 @@ export type CloseableOrder = { status: OrderStatus; businessDay: string };
  * sorts lexicographically exactly as it sorts chronologically, zero-padded, so
  * no date is parsed to compare two days (CLAUDE.md's `new Date(string)` ban).
  *
- * ponytail: local midnight is the boundary, so a venue whose service runs past
- * it would see every live ticket flag at 00:00. Not reachable today — the
- * store-hours CHECK constraints refuse a `closeMinute` past 1440 — and the
- * upgrade is a service-day offset in settings that `businessDayOf` subtracts.
+ * `today` is the SERVICE day (`serviceDay`, C-141), not the calendar one: after
+ * midnight inside an overnight shift it is yesterday, so last night's tickets
+ * keep chiming and counting until the shift closes.
  */
 export function isLeftOver(order: CloseableOrder, today: string): boolean {
   // Queue statuses only: a terminal order from last week is history, not a
