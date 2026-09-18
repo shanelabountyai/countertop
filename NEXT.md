@@ -1,71 +1,52 @@
 # Next
 
-**C-136 and C-137 shipped this session**, both closing coverage/UX gaps
-NEXT.md had carried, not new PRD requirements.
+**C-138 shipped this session** — the second of C-137's "Left behind" items,
+closing the gap C-111 carried.
 
-## C-136 — a test for `reward_terms_changed`
+## C-138 — Collecting superseded staged rows
 
-The one checkout refusal reason nothing exercised: the owner edits the
-reward's cash value between a checkout redemption being planned and being
-confirmed under the member lock. No control ships to edit
-`rewardValueCents` from the UI (deliberate — see `loyaltyLiability`'s own
-comment), so the test drives `confirmCheckoutRedemption` directly against a
-stale `plan`, the same technique `serialises two transactions that open at
-the same instant` already uses. Verified the test actually catches a break
-by disabling the guard first (`if (false)`), watching it fail, then
-restoring. No code change outside the test file. Committed at 8e9950f.
+`effectivePrices` already resolves two arrived `StagedPrice` rows for the
+same item/option by taking the latest `effectiveDay`, but nothing deleted
+the earlier one — only a live edit spent a staged row, and two future rows
+that both arrived with no live edit in between just piled up. Added
+`collectSupersededPrices(now)` in `packages/db/menu.ts` (same fold
+`effectivePrices` already uses, ascending by day — the second arrived row
+for a target proves the first superseded), a server action
+`collectSupersededStagedPrices`, and a "Collect superseded queued changes"
+button on `/kitchen/menu` — placed after the "Queued changes" section but
+NOT gated on `staged.length > 0` (that condition is about future rows; this
+button only ever finds past ones, so the two conditions are independent).
+Manual button, not a sweep — matches this repo's own precedent (C-091,
+C-105: nothing here self-schedules), decided in the C-137 session.
 
-## C-137 — a consolidated view of every queued price change
+Four new unit tests in `packages/db/menu.test.ts`'s `collectSupersededPrices`
+describe. No migration, no e2e (staff-only cleanup button, no acceptance
+criterion calling for a browser test).
 
-First of the two items C-110/C-111 left behind (see "Still open" below for
-the rest of that backlog item). A "Queued changes" section now sits at the
-top of `/kitchen/menu`, listing every staged price across the whole menu —
-not just the per-row note on the item being edited — reusing
-`loadStagedPrices` and `cancelStagedPrice` as-is. No migration, no new
-query. Committed at abbd6a3.
-
-**A new pre-existing flaky spec was found and bisected, not fixed**:
-`e2e/menu-editing.spec.ts:234` ("the editor is usable one-handed on a
-phone") fails intermittently when run as part of the full file — reproduced
-identically against clean `HEAD` before this session's changes existed (6/6
-clean standalone across two rounds, fails ~50% of the time as part of the
-full file, both before and after). Ruled out as caused by this session's
-diff by the same bisection method C-134 used for a real regression; this one
-came back clean on both sides. Not root-caused. Joins `e2e/refund.spec.ts:211`
-and `e2e/last-call.spec.ts:17` on the pre-existing flaky list — three now.
-Did not reproduce in either item's own final gate run (both green, first
-attempt, 247 total reconciled both times).
-
-**Gate:** both items green, first attempt, on the laptop. C-136: 1124 unit
-(+1), lint, typecheck, build, 231 e2e + 15 skipped = 246. C-137: 1124 unit
-(unchanged), lint, typecheck, build, 232 e2e + 15 skipped = 247 (+1, the new
-consolidated-view test). No migrations either item. CI green for both
-pushes (`gh run watch`, ~10min each).
+**Gate:** green, first attempt. 1128 unit (+4), lint, typecheck, build, 232
+e2e + 15 skipped = 247 (unchanged). Committed at 525b09b, SHA recorded at
+b3c6c2b, pushed together. CI: watch `gh run list --branch main --limit 1`
+for run 35369065311 if this session cleared before it finished — it was
+in progress at handoff time.
 
 ## Pick this up first
 
-**Piece 2 of the daypart/schedule backlog item — collecting superseded
-staged rows.** Decided this session (asked and answered): a manual
-"Collect" button, not an automatic sweep — matches this repo's own
-precedent for cleanup jobs (C-091, C-105: nothing self-schedules). The new
-C-137 schedule view is where that button belongs. No migration needed (a
-pure delete over the existing `StagedPrice` table); mirror
-`packages/db/retention.ts`'s `sweepRetention` shape for the query, wire a
-button into the "Queued changes" section.
+**The daypart editor UI** — bolts onto `/kitchen/menu` +
+`apps/web/app/kitchen/menu/actions.ts`. Table and CHECKs
+(`MenuItemWindow`) already exist, no migration needed. `loadMenu` already
+includes `windows`; the page currently doesn't render them at all. Medium
+size. This is the last of C-137's four "Left behind" items except the one
+below.
 
-After that, in order (per the scoping done this session):
-3. **The daypart editor UI** — bolts onto `/kitchen/menu` +
-   `apps/web/app/kitchen/menu/actions.ts`. Table and CHECKs
-   (`MenuItemWindow`) already exist, no migration. `loadMenu` already
-   includes `windows`; the page currently doesn't render them at all.
-   Medium size.
-4. **Overnight daypart windows** — decided this session: `MenuItemWindow`
-   only, not unified with `StoreHours` (C-011 has the identical gap per
-   `docs/WRITEUP.md`, left for a separate session). Needs a hand-written
-   migration loosening the `menu_item_window_ends_after_start` CHECK and a
-   rewrite of `daypartClosure` in `packages/core/menu/composition.ts` from
-   "same-day start ≤ now < end" to "does any window, possibly wrapping,
-   contain now." Largest and riskiest of the four — do last.
+After that:
+2. **Overnight daypart windows** — decided in the C-137 session:
+   `MenuItemWindow` only, not unified with `StoreHours` (C-011 has the
+   identical gap per `docs/WRITEUP.md`, left for a separate session).
+   Needs a hand-written migration loosening the
+   `menu_item_window_ends_after_start` CHECK and a rewrite of
+   `daypartClosure` in `packages/core/menu/composition.ts` from "same-day
+   start ≤ now < end" to "does any window, possibly wrapping, contain now."
+   Largest and riskiest of the recent items — do last, on its own session.
 
 ## Read this before the next push
 
@@ -80,19 +61,14 @@ After that, in order (per the scoping done this session):
   **And check for OTHER projects' sweeps too**: `ps aux | grep -iE
   "vitest|playwright test"` and `sysctl -n kern.memorystatus_level` — a wall
   of unrelated timeout failures with memory below ~40% and other projects'
-  processes in that list means contention, not a regression. This session
-  hit exactly that twice (other projects' `vitest`/`playwright` processes at
-  200%+ CPU each) before finding the real, separate flaky spec above — the
-  contention pattern and a genuine pre-existing flake are BOTH real and
-  distinguishable: contention produces a wide, unrelated wall of timeouts
-  across many spec files; the flake above is one specific test, in one
-  specific file, reproducing with or without other load.
+  processes in that list means contention, not a regression.
 - **`npm run test:e2e` already wires in `testlock`**
   (`~/.claude/bin/testlock`, outside this repo) via the root `package.json`
   script — do not prefix it yourself. Silent no-op anywhere not installed,
   CI included.
 - **A hand-written migration's index needs a matching `@@index` in
-  `schema.prisma`, or CI's drift check fails** (C-134's incident).
+  `schema.prisma`, or CI's drift check fails** (C-134's incident). Directly
+  relevant to the overnight-windows item above.
 - **A server action's click does not block on its own mutation.** Check
   `fixtures.ts` for an existing guarded helper before writing a raw click.
 - **Run `npm run db:migrate:all` after adding a migration**, before tests.
@@ -103,24 +79,23 @@ After that, in order (per the scoping done this session):
 
 ## Still open
 
-- **Nothing bounds a staff `adjust` below zero** — investigated this
-  session, not fixed. There is currently NO write path anywhere in
-  `apps/web` that lets a staff member write an arbitrary loyalty `adjust`
-  row (grepped every write site: only `settleRedemptionForOrder`'s system
-  compensating rows and an e2e fixture write raw `adjust` rows today). The
-  gap is real in `packages/core/loyalty/ledger.ts`'s `loyaltyBalance` (a
-  plain unbounded sum) and is explicitly anticipated by comments in both
-  `ledger.ts` and `loyalty.ts` ("a staff `adjust` is the one row a person
-  types"), but building a guard function with no caller would be dead code.
-  **Decide when a real staff-adjust write path is scoped**: this repo's own
-  "refused, never clamped" convention (`planRedemption`, `planCheckoutRedemption`)
-  argues for a `planStaffAdjustment`-style refusal, not a `Math.max(0, …)`
-  clamp like `loyaltyLiability`'s (that one floors a report figure, not a
-  write). Revisit together with whatever session finally builds the staff
-  correction UI the loyalty PRD describes but nothing has built yet.
-- **A third flaky spec**: `e2e/menu-editing.spec.ts:234`, see above. Not
-  reproduced/investigated beyond the bisection that rules out this
-  session's changes.
+- **Nothing bounds a staff `adjust` below zero** — investigated, not fixed.
+  There is currently NO write path anywhere in `apps/web` that lets a staff
+  member write an arbitrary loyalty `adjust` row. The gap is real in
+  `packages/core/loyalty/ledger.ts`'s `loyaltyBalance` (a plain unbounded
+  sum) and is explicitly anticipated by comments in both `ledger.ts` and
+  `loyalty.ts`. **Decide when a real staff-adjust write path is scoped**:
+  this repo's "refused, never clamped" convention (`planRedemption`,
+  `planCheckoutRedemption`) argues for a `planStaffAdjustment`-style
+  refusal, not a `Math.max(0, …)` clamp. Revisit together with whatever
+  session finally builds the staff correction UI the loyalty PRD describes
+  but nothing has built yet.
+- **A third flaky spec**: `e2e/menu-editing.spec.ts:234` ("the editor is
+  usable one-handed on a phone"), intermittent when run as part of the full
+  file, reproduces identically on clean `HEAD` — not caused by any recent
+  session's changes. Did not reproduce in C-137's or C-138's own gate runs.
+  Not root-caused. Joins `e2e/refund.spec.ts:211` and
+  `e2e/last-call.spec.ts:17` on the pre-existing flaky list.
 - **`NotificationKind` has one value** (C-121).
 - **Nothing reads `queueReadyNotification`'s return value** (C-121).
 - **No append-only trigger on `NotificationOutbox`** (the model's own
