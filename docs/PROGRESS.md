@@ -9790,3 +9790,5 @@ the override still does, because `currentOpening` skips an overridden shift.
 
 **Gate:** green, first attempt. 1157 unit (+2), lint, typecheck, build, 239
 e2e + 15 skipped = 254 (unchanged).
+
+C-143 committed at 775e190
