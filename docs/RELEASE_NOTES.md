@@ -3098,3 +3098,23 @@ a feature shipped with a known gap, the gap sat on a punch list rather than
 being forgotten, and it got closed with the smallest change that actually
 closes it — reusing the exact data and the exact cancel button already
 built, not a new mechanism alongside them.
+
+## C-138 — Tidying up price changes nobody needs to see any more
+
+Queuing two price changes for the same item — a Monday bump, then a
+different number for the following week — works correctly: the later one
+always wins once its day arrives. What wasn't happening was any cleanup of
+the earlier, now-irrelevant change. It never affected a customer's price,
+but it sat in the database indefinitely with nothing to remove it.
+
+**What shipped.** A "Collect superseded queued changes" button next to the
+list of queued changes added last release. One tap finds every price change
+that has already been overridden by a later one and clears it out, and
+reports how many it removed.
+
+**Why it matters for a portfolio reader.** This was left on the punch list
+as a deliberate choice rather than an oversight: a manual button that a
+staff member reaches for occasionally, rather than an automatic job running
+on a schedule for a problem with zero customer impact. Matches how this
+project already handles similar cleanup elsewhere — nothing runs
+unattended that doesn't need to.

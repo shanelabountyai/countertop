@@ -8,6 +8,7 @@ import {
   reviewCart,
 } from '@countertop/core';
 import {
+  collectSupersededPrices,
   effectivePrices,
   loadMenu,
   loadSettings,
@@ -476,6 +477,53 @@ describe('staged prices', () => {
     const confirmed = confirmPrices(monday, added.cart, mondayClock);
     expect(confirmed.lines[0]?.unitPriceAtAddCents).toBe(450);
     expect(reviewCart(monday, confirmed, 82_500, mondayClock).placeable).toBe(true);
+  });
+
+  // Piece 2 of the daypart/schedule backlog item: a row `writePrice` had no
+  // reason to delete, because nothing typed a live price — a LATER staged
+  // row for the same target simply arrived and outranked it.
+  describe('collectSupersededPrices', () => {
+    it('deletes an arrived row overridden by a later arrived row for the same target', async () => {
+      await stage('2026-09-13', 1150);
+      await stage('2026-09-14', 1250);
+      const removed = await collectSupersededPrices(MONDAY_NOON);
+      expect(removed).toBe(1);
+      expect((await prisma.stagedPrice.findMany()).map((r) => r.effectiveDay)).toEqual([
+        '2026-09-14',
+      ]);
+      // The survivor is still the price a customer is charged.
+      expect((await loadMenu(MONDAY_NOON)).items.burrito?.basePriceCents).toBe(1250);
+    });
+
+    it('leaves a row still in the future alone', async () => {
+      await stage('2026-09-13', 1150);
+      await stage('2026-09-14', 1250);
+      await stage('2026-09-28', 1400);
+      const removed = await collectSupersededPrices(MONDAY_NOON);
+      expect(removed).toBe(1);
+      expect((await loadStagedPrices(MONDAY_NOON)).map((r) => r.effectiveDay)).toEqual([
+        '2026-09-28',
+      ]);
+    });
+
+    it('does not touch a single arrived row with nothing superseding it', async () => {
+      await stage('2026-09-14', 1250);
+      expect(await collectSupersededPrices(MONDAY_NOON)).toBe(0);
+      expect(await prisma.stagedPrice.count()).toBe(1);
+    });
+
+    it('keeps two targets’ chains independent', async () => {
+      await stage('2026-09-13', 1150, 'burrito');
+      await stage('2026-09-14', 1250, 'burrito');
+      await stage('2026-09-13', 950, 'bowl');
+      await stage('2026-09-14', 1050, 'bowl');
+      const removed = await collectSupersededPrices(MONDAY_NOON);
+      expect(removed).toBe(2);
+      expect((await prisma.stagedPrice.findMany()).map((r) => `${r.itemId}:${r.effectiveDay}`).sort()).toEqual([
+        'bowl:2026-09-14',
+        'burrito:2026-09-14',
+      ]);
+    });
   });
 });
 

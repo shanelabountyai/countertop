@@ -26,6 +26,7 @@ import { earliestStagedDay, loadMenu, loadStagedPrices } from '@countertop/db/me
 import { formatCents, formatDeltaCents } from '@/lib/money';
 import {
   cancelStagedPrice,
+  collectSupersededStagedPrices,
   deleteGroup,
   saveExtraSurcharge,
   saveGroup,
@@ -350,6 +351,17 @@ export default async function MenuEditorPage({
           </ul>
         </section>
       )}
+
+      {/* Rows that already landed and were then overridden by a LATER staged
+          row for the same target — invisible to `staged` above, which only
+          holds rows still to come, so this button does not live inside that
+          section's `staged.length > 0` gate. Manual, not a sweep (C-091,
+          C-105): nothing here self-schedules. */}
+      <form action={collectSupersededStagedPrices} className="mt-4">
+        <button type="submit" className="min-h-12 rounded-lg border-2 border-neutral-400 px-4 text-base font-semibold">
+          Collect superseded queued changes
+        </button>
+      </form>
 
       {menu.categories.map((category) => (
         <section key={category.id} className="mt-8">

@@ -205,6 +205,43 @@ export async function loadStagedPrices(
 }
 
 /**
+ * Delete every arrived staged row a later arrived row already overrides
+ * (C-111's "left behind" item, C-137's schedule view is where the button
+ * that calls this lives).
+ *
+ * `effectivePrices` already explains why these rows exist: a row that is
+ * merely SUPERSEDED — not spent by a live edit — stays, because deleting it
+ * is a batch operation with no urgency (the menu is already reading the
+ * right price) and this repo's own precedent for that shape of cleanup is a
+ * manual button, not a sweep (C-091, C-105 — nothing here self-schedules).
+ *
+ * Same fold `effectivePrices` uses, ascending by `effectiveDay`: the second
+ * arrived row seen for a target is what makes the first one superseded, so
+ * walking forward and remembering only the latest id per target finds
+ * exactly the rows the resolution rule already ignores.
+ */
+export async function collectSupersededPrices(now: Date = new Date()): Promise<number> {
+  const { today } = await effectivePrices(now);
+  const rows = await prisma.stagedPrice.findMany({
+    where: { effectiveDay: { lte: today } },
+    orderBy: { effectiveDay: 'asc' },
+    select: { id: true, itemId: true, optionId: true },
+  });
+
+  const latestForTarget = new Map<string, string>();
+  const superseded: string[] = [];
+  for (const row of rows) {
+    const target = row.itemId ? `item:${row.itemId}` : `option:${row.optionId}`;
+    const previous = latestForTarget.get(target);
+    if (previous !== undefined) superseded.push(previous);
+    latestForTarget.set(target, row.id);
+  }
+
+  const { count } = await prisma.stagedPrice.deleteMany({ where: { id: { in: superseded } } });
+  return count;
+}
+
+/**
  * The earliest day a price change may be staged for: the restaurant's
  * tomorrow (P1-2).
  *

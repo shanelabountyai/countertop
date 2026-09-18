@@ -12,7 +12,7 @@
 // true rather than merely intended.
 import { formatDayLabel, parsePriceInput } from '@countertop/core';
 import { prisma } from '@countertop/db';
-import { effectivePrices, writePrice } from '@countertop/db/menu';
+import { collectSupersededPrices, effectivePrices, writePrice } from '@countertop/db/menu';
 import { formatCents, formatDeltaCents } from '@/lib/money';
 import { revalidateMenuSurfaces } from '@/lib/revalidate-menu';
 import { redirect } from 'next/navigation';
@@ -249,6 +249,20 @@ export async function cancelStagedPrice(stagedId: unknown): Promise<void> {
   });
   if (count === 0) rejected('That change is not queued any more — it has already taken effect.');
   done('the queued price change was cancelled');
+}
+
+/**
+ * The manual cleanup for rows `writePrice` had no reason to delete: a
+ * staged row that arrived and was then overridden by a LATER staged row for
+ * the same target, rather than by a live edit (P1-2's "left behind" note).
+ *
+ * No confirm panel, same reasoning as `cancelStagedPrice`: every row this
+ * touches has already stopped affecting a price, so there is nothing here a
+ * customer could be charged for getting wrong.
+ */
+export async function collectSupersededStagedPrices(): Promise<void> {
+  const count = await collectSupersededPrices();
+  done(count === 0 ? 'nothing to collect' : `${count} superseded queued change${count === 1 ? '' : 's'} removed`);
 }
 
 /**

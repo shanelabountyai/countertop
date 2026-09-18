@@ -9484,3 +9484,56 @@ different questions, same underlying rows, so this is a second READ of
   15 skipped = 247, reconciled, zero failures, first attempt).
 
 C-137 committed at abbd6a3
+
+## C-138 — Collecting superseded staged rows (second of C-110/C-111's "Left behind" items)
+
+C-111's own gap, carried through C-137: `effectivePrices` resolves TWO or
+more arrived `StagedPrice` rows for the same item or option by taking the
+latest `effectiveDay`, but nothing ever deletes the earlier one — only a
+LIVE edit (`writePrice`'s `effectiveDay: { lte: today }` delete) spends a
+staged row. Two future rows that both arrive with no live edit in between
+just accumulate, one silently overridden by the other forever.
+
+**What shipped.** `collectSupersededPrices(now)` in `packages/db/menu.ts`:
+reads every arrived row (`effectiveDay <= today`, same as `effectivePrices`),
+folds them ascending by day exactly like the resolution rule already does,
+and deletes every row that fold's `Map` overwrites — the second arrived row
+seen for a target is what proves the first one superseded. One query to
+read, one `deleteMany` to act; no new table, no migration. A server action,
+`collectSupersededStagedPrices`, and a "Collect superseded queued changes"
+button on `/kitchen/menu`, placed after the "Queued changes" section per
+C-137's own note but NOT gated on `staged.length > 0` — that condition is
+about rows still in the FUTURE, and every row this button can find is
+already in the past, so the two are independent and a shared gate would
+have hidden the button exactly when there was cleanup to do.
+
+**Decided (already, last session):** a manual button, not a sweep. This
+repo's own precedent for a cleanup job (C-091's retention sweep, C-105's
+inactive-member delete) is that nothing here self-schedules; this is the
+same shape at a much smaller blast radius (a stale row cannot mis-price
+anything — the live column and the winning staged row already control what
+`effectivePrices` returns) so it did not get a stronger argument for
+automation than the two ahead of it got.
+
+**Tests.** Four in `packages/db/menu.test.ts`'s new `collectSupersededPrices`
+describe: deletes the superseded row and leaves the winner as the effective
+price; leaves a row still in the future alone; a no-op when there is exactly
+one arrived row; two targets' chains resolved independently in one call.
+
+**Gate:** green, first attempt. 1128 unit (+4), lint, typecheck, build, 232
+e2e + 15 skipped = 247 (unchanged — no e2e added; this is a staff-only
+cleanup button with no acceptance criterion calling for a browser test). No
+migration.
+
+**Left behind:**
+- **The daypart editor and overnight daypart windows** are still open — the
+  last two items on C-137's list, unaffected by this one.
+- **The third flaky spec**, `e2e/menu-editing.spec.ts:234`, did not reproduce
+  in this item's own gate run either. Still on the pre-existing flaky list
+  with `e2e/refund.spec.ts:211` and `e2e/last-call.spec.ts:17`, still not
+  root-caused.
+- **The button reports a count but not which rows.** A manager who taps
+  Collect learns "2 superseded queued changes removed", not which item or
+  option they were for — acceptable because every row it can find is
+  already overridden and invisible to the menu, so there is nothing left to
+  double-check against a live price.
