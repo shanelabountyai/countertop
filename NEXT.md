@@ -1,14 +1,14 @@
 # Next
 
-**C-144 shipped this session**: a slot is a day and a minute.
-`availableSlots` returns the `day` its slots belong to, checkout sends it
-with `requestedForMinute`, and `placeOrder` refuses a missing or mismatched
-day as `slot_unavailable`. Gate green, first attempt: 1159 unit (+2), 239 e2e
-+ 15 skipped = 254. Committed at 24a3ecd.
+**C-145 shipped this session**: a refused void is chased. A finished order
+still reading `authorized` is listed on `/kitchen/orders` ("Holds not
+settled") and its receipt offers "Settle the hold again" (`retryHold` →
+`settleAuthorization`, same key, staff-stamped). Gate green, first attempt:
+1161 unit (+2), 240 e2e + 15 skipped = 255. Committed at 30a8ed6.
 
 ## Pick this up first
 
-No item was queued by C-144. Choose from "Still open" below or the PRD's P2
+No item was queued by C-145. Choose from "Still open" below or the PRD's P2
 list (`docs/backlog.md`).
 
 ## Read this before the next push
