@@ -9823,3 +9823,5 @@ A minute without a day is refused. Both fail on the pre-fix placement.
 
 **Gate:** green, first attempt. 1159 unit (+2), lint, typecheck, build, 239
 e2e + 15 skipped = 254 (unchanged).
+
+C-144 committed at 24a3ecd
