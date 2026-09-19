@@ -9792,3 +9792,34 @@ the override still does, because `currentOpening` skips an overridden shift.
 e2e + 15 skipped = 254 (unchanged).
 
 C-143 committed at 775e190
+
+## C-144 — A slot is a day and a minute (C-143's "Left behind")
+
+Checkout sent only `requestedForMinute`, and `placeOrder` paired it with the
+calendar day of the request. A Friday 20:30 pick submitted after midnight was
+booked for Saturday 20:30 whenever Saturday offered that minute.
+
+**Built:**
+- `availableSlots`' open result carries `day`, the calendar day its minutes
+  belong to.
+- The checkout page passes it to the form, the form sends `requestedForDay`
+  with the minute, and the action shape-checks it.
+- `placeOrder` refuses a scheduled request whose day is missing or is not the
+  fresh schedule's day, as `slot_unavailable` — the same refusal as a slot
+  that filled.
+- The rush books with the day `availableSlots` offered, like the browser.
+
+**Decided:**
+- **Refuse, never re-target.** Placement does not book the submitted day's
+  minute. Slots are same-day only, so a past day's slot is gone.
+- **The day is required with a minute.** A client that omits it is refused,
+  so a stale bundle cannot fall back to the old pairing.
+
+**Tests:** two placement db cases. At 00:05 on the 5th, a 20:30 pick from the
+4th's list is refused, and the same minute from the 5th's list books the 5th.
+A minute without a day is refused. Both fail on the pre-fix placement.
+
+**Left behind:** nothing new.
+
+**Gate:** green, first attempt. 1159 unit (+2), lint, typecheck, build, 239
+e2e + 15 skipped = 254 (unchanged).

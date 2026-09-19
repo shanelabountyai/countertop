@@ -176,6 +176,10 @@ export type PlacementInput = {
    *  fresh `availableSlots` read, the same discipline `reviewCart` applies to
    *  a cart. */
   requestedForMinute?: number;
+  /** The `day` of the `availableSlots` list that minute was picked from
+   *  (C-144). Required alongside it: a minute re-checked against the wrong
+   *  day's list books a Friday 23:45 pick as Saturday 23:45. */
+  requestedForDay?: string;
   /**
    * The bearer string a confirmed phone verification minted for THIS checkout
    * attempt (C-116), spent here (C-118).
@@ -511,11 +515,14 @@ export async function placeOrder(input: PlacementInput): Promise<PlacementResult
     const schedule = availableSlots(settings, settings.scheduleConfig, settings.weightBySlot, clock);
     if (!schedule.open) {
       errors.push({ kind: 'ordering_closed', reason: schedule.reason, message: schedule.message });
-    } else if (!canBookSlot(schedule.slots, input.requestedForMinute, cartPrepWeight(menu, cart))) {
+    } else if (
+      input.requestedForDay !== schedule.day ||
+      !canBookSlot(schedule.slots, input.requestedForMinute, cartPrepWeight(menu, cart))
+    ) {
       // A stale list, not a customer's typo: the picker only ever renders
       // minutes `availableSlots` itself generated, so this means the slot
-      // filled — or the clock moved past the lead time — in the gap between
-      // that render and this request.
+      // filled — or the clock moved past the lead time, or past midnight
+      // (C-144) — in the gap between that render and this request.
       errors.push({
         kind: 'slot_unavailable',
         message: 'That pickup time is no longer available. Pick another.',

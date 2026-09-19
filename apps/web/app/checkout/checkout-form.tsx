@@ -35,6 +35,7 @@ export function CheckoutForm({
   reviewOk,
   asapOpen,
   slots,
+  slotDay,
   subtotalCents,
   taxRatePpm,
   clientTotalCents,
@@ -56,6 +57,9 @@ export function CheckoutForm({
    *  (paused, closed today) — never filtered down to only the OPEN ones, so a
    *  full slot still renders, greyed, rather than quietly vanishing. */
   slots: Slot[];
+  /** The calendar day `slots` are minutes of (C-144), sent back with the
+   *  pick. Null exactly when `slots` is empty. */
+  slotDay: string | null;
   /** The server's sum of the priced lines. What a reward comes off, and what
    *  the reward is bounded by — both decided again on the server at
    *  placement; these two are display-only, like every price a client holds. */
@@ -130,7 +134,7 @@ export function CheckoutForm({
         // The radio is the customer's INTENT; the server decides the state.
         payNow: formData.get('payment') === 'now',
         clientTotalCents: dueCents,
-        ...(requestedForMinute === null ? {} : { requestedForMinute }),
+        ...(requestedForMinute === null ? {} : { requestedForMinute, requestedForDay: slotDay }),
         // C-118. The server re-derives the amount from its own settings row —
         // this proves a phone and nothing else.
         verifiedPhoneToken: rewardToken,

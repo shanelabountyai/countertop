@@ -262,13 +262,16 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
   // against a fresh read rather than trusting this number at all. Shape only,
   // here: an out-of-range or non-integer value fails that re-check the same
   // way a full slot does, so there is nothing more specific to reject with.
-  const { requestedForMinute } = raw;
+  const { requestedForMinute, requestedForDay } = raw;
   if (
     requestedForMinute !== undefined &&
     (typeof requestedForMinute !== 'number' || !Number.isInteger(requestedForMinute))
   ) {
     return MALFORMED;
   }
+  // C-144. The day the slot list was for; a missing or mismatched one fails
+  // `placeOrder`'s re-check as `slot_unavailable`, so shape only here too.
+  if (requestedForDay !== undefined && typeof requestedForDay !== 'string') return MALFORMED;
 
   const customerName = optionalString(raw.customerName);
   const customerPhone = optionalString(raw.customerPhone);
@@ -300,6 +303,7 @@ export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
       ...(clientTotalCents === undefined ? {} : { clientTotalCents }),
       ...(payNow === undefined ? {} : { paidNow: payNow }),
       ...(requestedForMinute === undefined ? {} : { requestedForMinute }),
+      ...(requestedForDay === undefined ? {} : { requestedForDay }),
       // C-118. Present only when the customer verified a phone for THIS
       // attempt; `placeOrder` is what reads it, prices the reward off the
       // settings row and refuses the placement if it cannot be granted.

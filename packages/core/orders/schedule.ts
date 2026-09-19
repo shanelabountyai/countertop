@@ -52,7 +52,9 @@ export type Slot = {
 };
 
 export type ScheduleResult =
-  | { open: true; slots: Slot[] }
+  /** `day` is the calendar day the slots' minutes belong to. A minute alone
+   *  is ambiguous across midnight (C-144), so checkout hands both back. */
+  | { open: true; day: string; slots: Slot[] }
   | { open: false; reason: GateReason; message: string };
 
 /** The bit of `GateState` this file reads, named separately so `schedule.ts`
@@ -134,7 +136,7 @@ export function availableSlots(
     });
   }
 
-  return { open: true, slots };
+  return { open: true, day: clock.day, slots };
 }
 
 /**

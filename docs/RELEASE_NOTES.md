@@ -3195,3 +3195,15 @@ answer the order screen already gives rather than adding a second one.
 Reading the placement path for this fix turned up a real bug: a pickup time picked just before
 midnight and submitted just after it can be booked for the next night. It is
 logged as the next item to fix.
+
+## C-144 — A late-night pickup time can no longer land on the wrong night
+
+A customer who picked a pickup time before midnight and pressed "Place order"
+just after it could be booked for the same time the next night. Checkout now
+sends the day along with the time, and the server refuses a pick from a day
+that has already ended, asking the customer to choose again.
+
+**Why it matters for a portfolio reader.** This is the bug the previous item
+found and logged instead of fixing in passing. The fix has the server
+reject a time that is no longer valid, the way it already rejects a slot that
+filled up. It does not trust the browser to guess the day.

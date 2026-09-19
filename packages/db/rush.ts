@@ -853,7 +853,9 @@ async function verifiedTokenFor(order: RushOrder, now: Date): Promise<string> {
  * — noon exactly — it is 30, which is why the numbers in `rush.test.ts` can be
  * hand-tallied at all.
  */
-async function resolveScheduledSlot(anchor: Date): Promise<{ minuteOfDay: number; rushMinute: number }> {
+async function resolveScheduledSlot(
+  anchor: Date,
+): Promise<{ day: string; minuteOfDay: number; rushMinute: number }> {
   const bookedAt = at(anchor, SCHEDULED_BOOKED_AT_MINUTE);
   const clock = await loadClock(bookedAt);
   const state = await loadGateState(bookedAt);
@@ -876,7 +878,7 @@ async function resolveScheduledSlot(anchor: Date): Promise<{ minuteOfDay: number
   // the script is. One business day is assumed here and everywhere else in
   // this file — see `RUSH_ANCHOR`.
   const openedAt = await loadClock(anchor);
-  return { minuteOfDay: slot.minuteOfDay, rushMinute: slot.minuteOfDay - openedAt.minuteOfDay };
+  return { day: schedule.day, minuteOfDay: slot.minuteOfDay, rushMinute: slot.minuteOfDay - openedAt.minuteOfDay };
 }
 
 async function buildCart(order: RushOrder, anchor: Date): Promise<Cart> {
@@ -906,7 +908,7 @@ async function submit(
   order: RushOrder,
   anchor: Date,
   cart: Cart,
-  slotMinuteOfDay: number,
+  slot: { day: string; minuteOfDay: number },
 ): Promise<RushAttempt> {
   const now = at(anchor, order.minute);
   const input = {
@@ -927,7 +929,7 @@ async function submit(
     ...(order.redeemsReward ? { verifiedPhoneToken: await verifiedTokenFor(order, now) } : {}),
     // Order ahead (P1-2, C-124). The slot the server itself offered, handed
     // straight back — never a minute this script worked out on its own.
-    ...(order.ordersAhead ? { requestedForMinute: slotMinuteOfDay } : {}),
+    ...(order.ordersAhead ? { requestedForMinute: slot.minuteOfDay, requestedForDay: slot.day } : {}),
     // P1-8. Roughly a third of the rush pays at the counter, so the queue on
     // screen holds both kinds — a badge that is on every card is not a signal,
     // and one that is on none is not a demo. Derived from the arrival minute
@@ -1139,7 +1141,7 @@ export async function runRush(
     //    thing under test, not the awaits.
     const arriving = RUSH_ORDERS.filter((order) => order.minute === minute);
     const placed = await Promise.all(
-      arriving.map((order) => submit(order, anchor, carts.get(order)!, slot.minuteOfDay)),
+      arriving.map((order) => submit(order, anchor, carts.get(order)!, slot)),
     );
     for (const [index, attempt] of placed.entries()) {
       attempts.push(attempt);

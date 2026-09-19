@@ -133,6 +133,7 @@ export default async function CheckoutPage() {
           // kitchen at capacity right now can still take a promise for later
           // today, which is exactly the case this list exists to surface.
           slots={schedule && schedule.open ? schedule.slots : []}
+          slotDay={schedule && schedule.open ? schedule.day : null}
           subtotalCents={review.totals.subtotalCents}
           taxRatePpm={taxRatePpm}
           clientTotalCents={review.totals.totalCents}

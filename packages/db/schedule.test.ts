@@ -12,6 +12,8 @@ const DINNER = new Date(Date.UTC(2026, 6, 5, 3, 0, 0));
 // clock.minuteOfDay = 20:00 = 1200. +20 lead = 1220, rounded up to the next
 // 15-minute mark = 1230 = 20:30 — the first bookable slot.
 const FIRST_SLOT = 20 * 60 + 30;
+// The day `availableSlots` offers FIRST_SLOT on at DINNER — Los Angeles' 4th.
+const DINNER_DAY = '2026-07-04';
 
 const CART: Cart = {
   lines: [
@@ -34,6 +36,7 @@ const place = (overrides: Partial<PlacementInput> = {}): Promise<PlacementResult
     customerName: 'Dana',
     idempotencyKey: `key-${(keyCounter += 1)}`,
     now: DINNER,
+    requestedForDay: DINNER_DAY,
     ...overrides,
   });
 
@@ -111,6 +114,39 @@ describe('order-ahead scheduling (P1-2)', () => {
     placed(await place({ requestedForMinute: FIRST_SLOT }));
     const second = placed(await place({ requestedForMinute: FIRST_SLOT + 15 }));
     expect(second.requestedFor).not.toBeNull();
+  });
+
+  it('refuses a slot picked on yesterday\'s list and submitted after midnight (C-144)', async () => {
+    await seedSettings({ scheduledOrdersEnabled: true, maxSlotWeight: 20 });
+    // 00:05 on the 5th in Los Angeles. The 5th offers 20:30 too, so a bare
+    // minute used to be booked a day late instead of refused.
+    const afterMidnight = new Date(Date.UTC(2026, 6, 5, 7, 5, 0));
+
+    const stale = await place({ now: afterMidnight, requestedForMinute: FIRST_SLOT });
+    expect(stale.ok).toBe(false);
+    if (stale.ok) throw new Error('unreachable');
+    expect(stale.errors).toContainEqual(expect.objectContaining({ kind: 'slot_unavailable' }));
+
+    // Picked off the 5th's own list, the same minute books the 5th.
+    const fresh = placed(
+      await place({ now: afterMidnight, requestedForMinute: FIRST_SLOT, requestedForDay: '2026-07-05' }),
+    );
+    expect(fresh.requestedFor).toEqual(new Date(Date.UTC(2026, 6, 6, 3, 30, 0)));
+  });
+
+  it('refuses a slot minute sent without its day', async () => {
+    await seedSettings({ scheduledOrdersEnabled: true, maxSlotWeight: 20 });
+    // Not through `place`, which supplies the day.
+    const result = await placeOrder({
+      cart: CART,
+      customerName: 'Dana',
+      idempotencyKey: 'no-day',
+      now: DINNER,
+      requestedForMinute: FIRST_SLOT,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.errors).toContainEqual(expect.objectContaining({ kind: 'slot_unavailable' }));
   });
 
   it('loadGateState buckets booked weight by slot, for the NEXT read to see', async () => {
