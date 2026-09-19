@@ -6,6 +6,7 @@
 // second screen can be opened on.
 import Link from 'next/link';
 import { formatOrderNumber, orderBalance } from '@countertop/core';
+import { loadStuckHolds } from '@countertop/db/authorization';
 import { loadGateState } from '@countertop/db/gate';
 import { searchOrderHistory } from '@countertop/db/history';
 import { loadRefundExceptions } from '@countertop/db/refund';
@@ -26,10 +27,11 @@ export default async function OrderHistoryPage({
   const { q, day: dayParam } = await searchParams;
   const query = q ?? '';
   const day = dayParam ?? '';
-  const [gateState, orders, refundExceptions] = await Promise.all([
+  const [gateState, orders, refundExceptions, stuckHolds] = await Promise.all([
     loadGateState(new Date()),
     searchOrderHistory(query, day),
     loadRefundExceptions(),
+    loadStuckHolds(),
   ]);
 
   // `seq` recurs every business day, so a bare number legitimately matches
@@ -99,6 +101,46 @@ export default async function OrderHistoryPage({
                         numbers, and this list is about the money. */}
                     <span className="font-semibold tabular-nums text-red-900">
                       {formatCents(orderBalance(order).collectedCents)} owed
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* Holds the provider would not settle (C-145) — above the search for
+          the refund list's reason: a card held for food that never sold is in
+          no other list either. */}
+      {stuckHolds.length > 0 && (
+        <section
+          data-testid="stuck-holds"
+          className="mt-6 rounded-lg border-2 border-red-700 bg-red-50 p-4"
+        >
+          <h2 className="font-semibold text-red-900">Holds not settled ({stuckHolds.length})</h2>
+          <p className="mt-1 text-sm text-red-900">
+            Finished orders whose card is still held. Open the order and settle it again.
+          </p>
+          <ul className="mt-3 flex flex-col gap-2">
+            {stuckHolds.map((order) => (
+              <li key={order.id}>
+                <Link
+                  href={`/kitchen/orders/${order.id}`}
+                  className="flex min-h-14 flex-wrap items-center justify-between gap-2 rounded-lg border border-red-700 bg-white px-4 py-2 hover:border-red-900"
+                >
+                  <span className="flex items-baseline gap-3">
+                    <span className="font-semibold tabular-nums">
+                      {formatOrderNumber(order.seq)}
+                    </span>
+                    <span>{order.customerName}</span>
+                  </span>
+                  <span className="flex items-baseline gap-3 text-sm">
+                    <span className="text-neutral-600">
+                      {formatPlacedAt(order.placedAt, gateState.timezone)}
+                    </span>
+                    <span className="font-semibold tabular-nums text-red-900">
+                      {formatCents(order.totalCents)} held
                     </span>
                   </span>
                 </Link>

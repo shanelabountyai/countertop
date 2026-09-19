@@ -3207,3 +3207,16 @@ that has already ended, asking the customer to choose again.
 found and logged instead of fixing in passing. The fix has the server
 reject a time that is no longer valid, the way it already rejects a slot that
 filled up. It does not trust the browser to guess the day.
+
+## C-145 — A card hold that would not release is no longer forgotten
+
+When an online-paid order was cancelled or never picked up, the product asks
+the card processor to let the hold go. If the processor refused, nothing
+recorded it anywhere and the customer's card simply stayed held. Now the order
+shows up on the staff history page under "Holds not settled", and the receipt
+has a button to try again.
+
+**Why it matters for a portfolio reader.** An earlier item left this gap on
+purpose and wrote it down. Closing it took no new database table: the list is
+a question asked of the order itself ("finished, but money still on hold"), so
+it cannot disagree with what actually happened.

@@ -384,6 +384,35 @@ export async function failRefundFor(customerName: string): Promise<void> {
 }
 
 /**
+ * Cancel a PREPAID order with a provider that refuses the void (C-145). The
+ * real path, like `failRefundFor`: only the far side of the network boundary is
+ * substituted, so the order is left `cancelled` and still `authorized`.
+ */
+export async function failVoidFor(customerName: string): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  const { applyOrderAction } = await import('@countertop/db/transitions');
+  try {
+    const order = await prisma.order.findFirstOrThrow({
+      where: { customerName },
+      orderBy: { placedAt: 'desc' },
+      select: { id: true },
+    });
+    const result = await applyOrderAction(
+      order.id,
+      { kind: 'cancel', actor: 'staff', reason: 'out_of_item' },
+      new Date(),
+      null,
+      async () => {
+        throw new Error('gateway timeout');
+      },
+    );
+    if (!result.ok) throw new Error(`cancel refused: ${result.failure.message}`);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/**
  * Put an item on a daypart window that is open, or closed, RIGHT NOW
  * (P1-1, C-110).
  *

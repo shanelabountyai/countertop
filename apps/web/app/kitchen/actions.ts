@@ -32,6 +32,7 @@ import { appendOrderNote } from '@countertop/db/history';
 import { forgetOrderCustomer } from '@countertop/db/retention';
 import { remakeOrder } from '@countertop/db/remake';
 import { collectOrderPayment } from '@countertop/db/payment';
+import { retryHold } from '@countertop/db/authorization';
 import {
   requestRefund,
   reverseRefund,
@@ -471,6 +472,27 @@ export async function retryRefundForm(formData: FormData): Promise<void> {
 
   // The subtree: a settled refund takes the order off the exceptions list on
   // the history page as well as changing this receipt's own payment line.
+  revalidatePath('/kitchen', 'layout');
+  redirect(back);
+}
+
+/**
+ * Release a hold the provider refused to let go (C-145). The order id is the
+ * only input — `retryHold` reads the status itself — and the tapper's name goes
+ * on the row, exactly as `retryRefundForm`'s does.
+ */
+export async function retryHoldForm(formData: FormData): Promise<void> {
+  const orderId = formData.get('orderId');
+  if (typeof orderId !== 'string' || orderId === '') {
+    return redirect('/kitchen/orders');
+  }
+  const back = `/kitchen/orders/${encodeURIComponent(orderId)}`;
+
+  const result = await retryHold(orderId, new Date(), await currentShiftId());
+  if (!result.ok) {
+    return redirect(`${back}?holdError=${encodeURIComponent(result.message)}`);
+  }
+  // The subtree: a released hold leaves the history page's list too.
   revalidatePath('/kitchen', 'layout');
   redirect(back);
 }

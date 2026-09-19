@@ -35,6 +35,7 @@ import {
   REVERT_REASONS,
   UNDOABLE_EXIT_STATUSES,
 } from '@countertop/core';
+import { holdIsStuck } from '@countertop/db/authorization';
 import { loadGateState } from '@countertop/db/gate';
 import { findOrderByIdForStaff, loadOrderActivity, loadRemakesOf } from '@countertop/db/history';
 import { memberByPhone, orderHasRedemption } from '@countertop/db/loyalty';
@@ -59,6 +60,7 @@ import {
   collectPayment,
   forgetCustomerForm,
   redeemRewardForm,
+  retryHoldForm,
   retryRefundForm,
   remakeOrderForm,
   revertOrderForm,
@@ -78,6 +80,7 @@ export default async function OrderHistoryDetailPage({
     revertError?: string;
     refundError?: string;
     refundReversalError?: string;
+    holdError?: string;
     noteError?: string;
     forget?: string;
   }>;
@@ -90,6 +93,7 @@ export default async function OrderHistoryDetailPage({
     revertError,
     refundError,
     refundReversalError,
+    holdError,
     noteError,
     forget,
   } = await searchParams;
@@ -467,6 +471,44 @@ export default async function OrderHistoryDetailPage({
               Collected — mark paid
             </button>
           </form>
+        )}
+
+        {/* A hold the order should no longer have (C-145) — the provider
+            refused the release, so the customer's card is still held for food
+            that never sold (or, if the process died mid-pickup, never taken).
+            Same question the history page's list asks. */}
+        {holdIsStuck(order) && (
+          <div
+            data-testid="stuck-hold-panel"
+            className="mt-3 rounded-lg border-2 border-red-700 bg-red-50 p-3"
+          >
+            <p className="font-semibold text-red-900">
+              Card still held — {formatCents(order.totalCents)}
+            </p>
+            <p className="mt-1 text-sm text-red-900">
+              The order is finished but the hold was never settled. Try again — the same key goes
+              to the provider, so this cannot charge or release twice.
+            </p>
+            {holdError && (
+              <p
+                role="status"
+                data-testid="hold-error"
+                className="mt-3 rounded-lg border border-red-700 bg-white p-3 text-sm font-semibold text-red-900"
+              >
+                {holdError}
+              </p>
+            )}
+            <form action={retryHoldForm} className="mt-3">
+              <input type="hidden" name="orderId" value={order.id} />
+              <button
+                type="submit"
+                data-testid="retry-hold"
+                className="min-h-12 w-full rounded-lg border-2 border-red-700 bg-red-700 px-4 text-lg font-bold text-white"
+              >
+                Settle the hold again
+              </button>
+            </form>
+          </div>
         )}
 
         {/* Refunds the restaurant owes and has not sent (PRD 3 P0-4).

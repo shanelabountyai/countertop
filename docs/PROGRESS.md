@@ -9825,3 +9825,40 @@ A minute without a day is refused. Both fail on the pre-fix placement.
 e2e + 15 skipped = 254 (unchanged).
 
 C-144 committed at 24a3ecd
+
+## C-145 — A refused void is chased (C-069's "Left behind")
+
+When the provider refused to release a hold on a cancelled or no-show order,
+`settleAuthorization` wrote nothing (correctly: the hold is still live) and
+returned the wrong reason, `raced`. The order stayed `authorized` and no screen
+listed it, so the customer's card stayed held with nobody chasing it.
+
+**Built:**
+- `settleAuthorization` refuses a refused void as `void_refused`, with the
+  provider's words in the message.
+- `holdIsStuck` / `loadStuckHolds` in `packages/db/authorization.ts`: a status
+  whose hold should already be spent (derived from `authorizationOutcome`, so
+  from the status module) that still reads `authorized`.
+- History page: "Holds not settled (N)" above the search, next to the refund
+  exceptions. Receipt: a "Card still held" panel with a "Settle the hold again"
+  button (`retryHoldForm` → `retryHold`).
+- `retryHold` reads the status itself (the order id is the only input) and
+  calls the same `settleAuthorization`. The same hold id goes to the provider
+  as the key. A person's retry is stamped `staff` with their id, as the refund
+  retry is.
+
+**Decided:**
+- **No failure row.** The order's own state (`finished` + `authorized`) is the
+  exceptions list. A `void_failed` kind would be a second fact that could
+  disagree with the log.
+- **It also catches a capture that never came back** (process died
+  mid-pickup): a sold order still `authorized` is stuck too, and the retry
+  captures it.
+
+**Tests:** db: the refused void's reason and message; the list holds the stuck
+order and not a live or released one; the retry releases it with the same key
+and a staff name, and a second tap never reaches the provider. e2e
+(`refund.spec.ts`): fixture `failVoidFor` on the real path, list + axe, 48px
+retry, panel gone, activity and customer status read "released".
+
+**Left behind:** still not scheduled. A person has to open the history page.

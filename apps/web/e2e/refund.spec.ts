@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { card, failRefundFor, placeOrderFor, reseed } from './fixtures';
+import { card, failRefundFor, failVoidFor, placeOrderFor, reseed } from './fixtures';
 
 // A refund that can fail (PRD 3 P0-4, C-067).
 //
@@ -135,6 +135,39 @@ test('cancelling a prepaid order releases the hold instead of refunding it', asy
   await openReceipt(page);
   await expect(page.getByTestId('order-activity')).toContainText('Card hold released');
   await expect(page.getByTestId('order-activity')).not.toContainText('Refund');
+});
+
+// C-145. A release the provider refused used to leave the card held with
+// nothing anywhere saying so.
+test('a hold the provider would not release is listed, and settled from the receipt', async ({
+  page,
+}) => {
+  const link = await placeOrderFor(page, 'Wren Alvarez');
+  await failVoidFor('Wren Alvarez');
+
+  await page.goto('/kitchen/orders');
+  const stuck = page.getByTestId('stuck-holds');
+  await expect(stuck).toContainText('Holds not settled (1)');
+  await expect(stuck).toContainText('$11.85 held');
+  expect(
+    (await new AxeBuilder({ page }).include('[data-testid="stuck-holds"]').analyze()).violations,
+  ).toEqual([]);
+
+  await openReceipt(page);
+  const retry = page.getByTestId('retry-hold');
+  await expect(page.getByTestId('stuck-hold-panel')).toContainText('Card still held — $11.85');
+  expect((await retry.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
+  await retry.click();
+  // The redirect's own receipt: the panel goes once the write has landed.
+  await expect(page.getByTestId('stuck-hold-panel')).toHaveCount(0);
+  await expect(page.getByTestId('order-activity')).toContainText('Card hold released');
+
+  await page.goto('/kitchen/orders');
+  await expect(page.getByTestId('stuck-holds')).toHaveCount(0);
+  await page.goto(link);
+  await expect(page.getByTestId('status-payment')).toHaveText(
+    'Card hold released — you were not charged',
+  );
 });
 
 test('the exceptions list is readable to a screen reader too', async ({ page }) => {

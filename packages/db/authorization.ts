@@ -26,12 +26,14 @@ import {
   captureEvent,
   derivePaymentState,
   heldAuthorization,
+  ORDER_STATUSES,
   salesRoleOf,
   type OrderStatus,
   type VoidReason,
 } from '@countertop/core';
 import { Prisma, prisma } from './index';
 import { eventRow } from './event-row';
+import { ORDER_RECEIPT, type OrderReceipt } from './placement';
 import { mockPaymentProvider, type PaymentProvider } from './provider';
 
 export type SettleAuthorizationReason =
@@ -41,7 +43,10 @@ export type SettleAuthorizationReason =
   | 'nothing_held'
   /** Somebody else settled this hold between the read and the write. The
    *  unique index said so; their row is the one that counts. */
-  | 'raced';
+  | 'raced'
+  /** The provider would not let the hold go (C-145). Nothing is written, so
+   *  the order keeps reading `authorized` and lands on `loadStuckHolds`. */
+  | 'void_refused';
 
 export type SettleAuthorizationResult =
   | { ok: true; kind: 'capture' | 'void'; amountCents: number }
@@ -115,6 +120,7 @@ export async function settleAuthorization(
   status: OrderStatus,
   now: Date,
   provider: PaymentProvider = mockPaymentProvider,
+  staffId: string | null = null,
 ): Promise<SettleAuthorizationResult> {
   const outcome = authorizationOutcome(status);
   if (outcome === null) return refuse('nothing_held', 'This order is still in flight.');
@@ -151,11 +157,13 @@ export async function settleAuthorization(
       // to write: the hold is still live on the customer's card, and a
       // `authorization_voided` row would say it is not. Left standing, so the
       // order keeps reading `authorized` and the log keeps telling the truth.
-      // ponytail: nothing chases a stuck void — no screen lists it. A real
-      // processor expires holds on its own within days, and building an
-      // exceptions list for a mock that never fails would be machinery for a
-      // failure this product cannot have. WRITEUP records it.
-      return refuse('raced', 'The hold could not be released. It will expire on its own.');
+      // What chases it is the order's own state (C-145): a settled status still
+      // `authorized` is exactly `loadStuckHolds`' question, so the history
+      // page lists it and the receipt offers the retry — no failure row needed.
+      return refuse(
+        'void_refused',
+        `The hold could not be released: ${describeFailure(error)}`,
+      );
     }
     failure = describeFailure(error);
   }
@@ -177,7 +185,10 @@ export async function settleAuthorization(
 
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.orderEvent.create({ data: { orderId, ...eventRow(draft, null) } });
+      // A person's retry is a person's row (C-145), the same rule `settleRefund`
+      // follows: the automatic attempt stays `system`.
+      const row = staffId ? { ...draft, actor: 'staff' as const } : draft;
+      await tx.orderEvent.create({ data: { orderId, ...eventRow(row, staffId) } });
       // The column written FROM THE LOG rather than to a literal, exactly as
       // `settleRefund` writes it and for the same reason: `paid`, `unpaid` and
       // `authorized` are all answers `derivePaymentState` already knows how to
@@ -206,6 +217,49 @@ export async function settleAuthorization(
   return failure === null && outcome === 'capture'
     ? { ok: true, kind: 'capture', amountCents: held.amountCents }
     : { ok: true, kind: 'void', amountCents: held.amountCents };
+}
+
+/** Every status whose hold should already be spent — derived, so a new sold or
+ *  not-sold status joins the stuck-hold list without anybody editing it. */
+const SETTLED_HOLD_STATUSES = ORDER_STATUSES.filter((s) => authorizationOutcome(s) !== null);
+
+/**
+ * A hold the order should no longer have (C-145): the order has finished, one
+ * way or the other, and its money still reads `authorized`. A void the provider
+ * refused leaves exactly this, and so does a process that died mid-call. The
+ * receipt's retry button and the history page's list both ask this one
+ * question, the second one as a query.
+ */
+export const holdIsStuck = (order: { status: OrderStatus; paymentState: string }): boolean =>
+  order.paymentState === 'authorized' && SETTLED_HOLD_STATUSES.includes(order.status);
+
+/** Same cap as the refund list, for the same reason. */
+const STUCK_HOLD_LIMIT = 50;
+
+export function loadStuckHolds(): Promise<OrderReceipt[]> {
+  return prisma.order.findMany({
+    where: { paymentState: 'authorized', status: { in: SETTLED_HOLD_STATUSES } },
+    orderBy: { placedAt: 'desc' },
+    take: STUCK_HOLD_LIMIT,
+    ...ORDER_RECEIPT,
+  });
+}
+
+/**
+ * The receipt's retry (C-145). THE ORDER ID IS THE ONLY INPUT: the status is
+ * read here, never taken from the form, so a stale screen cannot ask for a
+ * capture on an order that was cancelled. Same function as the automatic
+ * attempt, and the same key goes to the provider, so it cannot release twice.
+ */
+export async function retryHold(
+  orderId: string,
+  now: Date,
+  staffId: string | null,
+  provider: PaymentProvider = mockPaymentProvider,
+): Promise<SettleAuthorizationResult> {
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { status: true } });
+  if (!order) return refuse('order_not_found', 'That order could not be found.');
+  return settleAuthorization(orderId, order.status, now, provider, staffId);
 }
 
 /** A message from something thrown across a boundary this code does not own —

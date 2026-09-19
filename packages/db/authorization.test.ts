@@ -8,13 +8,19 @@
 // the counter can still take money for.
 import { orderBalance, paymentTotals, type Cart } from '@countertop/core';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { settleAuthorization } from './authorization';
+import { holdIsStuck, loadStuckHolds, retryHold, settleAuthorization } from './authorization';
 import { prisma } from './index';
 import { collectOrderPayment } from './payment';
 import { placeOrder, type PlacementInput } from './placement';
 import { type PaymentProvider } from './provider';
 import { applyOrderAction } from './transitions';
-import { resetDatabase, seedSampleMenu, seedSettings, seedStoreHours } from './testing/index';
+import {
+  resetDatabase,
+  seedSampleMenu,
+  seedSettings,
+  seedStaff,
+  seedStoreHours,
+} from './testing/index';
 
 const DINNER = new Date(Date.UTC(2026, 6, 5, 3, 0, 0));
 
@@ -380,8 +386,74 @@ describe('settleAuthorization on its own', () => {
       stubProvider('gateway timeout').call,
     );
 
-    expect(result).toMatchObject({ ok: false, reason: 'raced' });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'void_refused',
+      message: 'The hold could not be released: gateway timeout',
+    });
     expect(await kindsOn(order.id)).not.toContain('authorization_voided');
     expect((await reload(order.id)).paymentState).toBe('authorized');
+  });
+});
+
+// C-145: what chases a refused void is the order's own state, not a new row.
+describe('a hold the provider would not release', () => {
+  async function stuckNoShow() {
+    const order = await place();
+    await toReady(order.id);
+    await applyOrderAction(
+      order.id,
+      { kind: 'abandon', actor: 'staff' },
+      DINNER,
+      null,
+      stubProvider('gateway timeout').call,
+    );
+    return order;
+  }
+
+  it('is listed, and only it — a live hold and a settled one are not', async () => {
+    const stuck = await stuckNoShow();
+    const inFlight = await place();
+    const released = await place();
+    await toReady(released.id);
+    await applyOrderAction(released.id, { kind: 'abandon', actor: 'staff' }, DINNER);
+
+    expect((await loadStuckHolds()).map((o) => o.id)).toEqual([stuck.id]);
+    expect(holdIsStuck(await reload(stuck.id))).toBe(true);
+    expect(holdIsStuck(await reload(inFlight.id))).toBe(false);
+    expect(holdIsStuck(await reload(released.id))).toBe(false);
+  });
+
+  it('is released by the retry, with the same key and a name on it, and leaves the list', async () => {
+    const order = await stuckNoShow();
+    await seedStaff();
+    const staff = await prisma.staffMember.findFirstOrThrow();
+
+    const provider = stubProvider();
+    expect(await retryHold(order.id, DINNER, staff.id, provider.call)).toEqual({
+      ok: true,
+      kind: 'void',
+      amountCents: order.totalCents,
+    });
+
+    const hold = await prisma.orderEvent.findFirstOrThrow({
+      where: { orderId: order.id, kind: 'authorization' },
+    });
+    expect(provider.calls).toEqual([
+      { operation: 'void', key: hold.id, amountCents: order.totalCents },
+    ]);
+    const voided = await prisma.orderEvent.findFirstOrThrow({
+      where: { orderId: order.id, kind: 'authorization_voided' },
+    });
+    expect(voided).toMatchObject({ reason: 'no_show', staffId: staff.id, actor: 'staff' });
+    expect((await reload(order.id)).paymentState).toBe('unpaid');
+    expect(await loadStuckHolds()).toEqual([]);
+
+    // A second tap finds nothing held and never reaches the provider.
+    const again = stubProvider();
+    expect(await retryHold(order.id, DINNER, staff.id, again.call)).toMatchObject({
+      reason: 'nothing_held',
+    });
+    expect(again.calls).toEqual([]);
   });
 });

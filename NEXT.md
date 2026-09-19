@@ -86,7 +86,6 @@ list (`docs/backlog.md`).
 - **A fully-booked day degrades silently to ASAP-only** (C-114).
 - **No fixture pinned to an actual DST-transition date** (C-114).
 - **No e2e drives a scheduled order PAST its slot** (C-123).
-- **A void the provider refuses is chased by nothing.**
 - **The staff receipt's payment line still reads "Pay at pickup" on a
   released hold.**
 - **`refund_failed` rows accumulate uncapped on a stuck provider.**
