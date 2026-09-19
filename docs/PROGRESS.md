@@ -9862,3 +9862,8 @@ and a staff name, and a second tap never reaches the provider. e2e
 retry, panel gone, activity and customer status read "released".
 
 **Left behind:** still not scheduled. A person has to open the history page.
+
+**Gate:** green, first attempt. 1161 unit (+2), lint, typecheck, build, 240
+e2e + 15 skipped = 255 (+1).
+
+C-145 committed at 30a8ed6
