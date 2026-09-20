@@ -1,15 +1,25 @@
 # Next
 
-**C-145 shipped this session**: a refused void is chased. A finished order
-still reading `authorized` is listed on `/kitchen/orders` ("Holds not
-settled") and its receipt offers "Settle the hold again" (`retryHold` →
-`settleAuthorization`, same key, staff-stamped). Gate green, first attempt:
-1161 unit (+2), 240 e2e + 15 skipped = 255. Committed at 30a8ed6.
+**C-146 shipped this session**: the staff receipt reads a released hold. A
+successful void re-derives `paymentState` to `unpaid`, so a no-show or
+cancelled prepaid order's receipt read "Pay at pickup" — on an order nobody
+may charge. The line now checks `releasedWithoutCapture` before the enum (as
+the customer's status page already did), and splits on `canCollectPayment` so
+a `capture_failed` release still says money is owed. Gate green, first
+attempt: 1161 unit, 240 e2e + 15 skipped = 255. Committed at 1a1345d.
 
 ## Pick this up first
 
-No item was queued by C-145. Choose from "Still open" below or the PRD's P2
-list (`docs/backlog.md`).
+No item was queued by C-146. `docs/backlog.md` has nothing unchecked — the
+pick comes from "Still open" below or the PRD's P2 list.
+
+Two of C-146's own leftovers are the cheapest next step, and they are the same
+item: **the `capture_failed` release is under-served on both sides.** No test
+covers that branch (the e2e drives the no-show path; provoking a failed
+capture wants a `failVoidFor`-style fixture pointed at `capture`), and the
+CUSTOMER's status page says "Card hold released — you were not charged" on it,
+which is true about the card and silent about the money now owed at the
+counter. One item closes both.
 
 ## Read this before the next push
 
@@ -24,7 +34,11 @@ list (`docs/backlog.md`).
   **And check for OTHER projects' sweeps too**: `ps aux | grep -iE
   "vitest|playwright test"` and `sysctl -n kern.memorystatus_level` — a wall
   of unrelated timeout failures with memory below ~40% and other projects'
-  processes in that list means contention, not a regression.
+  processes in that list means contention, not a regression. (C-146 found an
+  `apptbasedservice` runner in that list that had burned 1.9s of CPU in eight
+  minutes — idle, not sweeping. Check CPU time and RSS before waiting on one;
+  a different project on a different port is not a `reuseExistingServer`
+  collision.)
 - **`npm run test:e2e` already wires in `testlock`**
   (`~/.claude/bin/testlock`, outside this repo) via the root `package.json`
   script — do not prefix it yourself. Silent no-op anywhere not installed,
@@ -38,9 +52,15 @@ list (`docs/backlog.md`).
   `npx dotenv -e .env.test -e .env.local --`.
 - **Never run `prettier --write`** — no config, no dependency, fights this
   codebase's style.
+- **`payment.spec.ts` reseeds in `beforeEach`**, so `?q=<name>` on
+  `/kitchen/orders` matches exactly the order the test placed. "Iris
+  Lindqvist" appears nowhere but that spec — a single-link click is safe
+  there and is not a pattern to copy blind into a spec that does not reseed.
 
 ## Still open
 
+- **No test for the `capture_failed` release, and the customer's page is
+  silent about the money it owes** (C-146) — see "Pick this up first".
 - **Nothing bounds a staff `adjust` below zero** — investigated, not fixed.
   There is currently NO write path anywhere in `apps/web` that lets a staff
   member write an arbitrary loyalty `adjust` row. The gap is real in
@@ -55,8 +75,8 @@ list (`docs/backlog.md`).
 - **A third flaky spec**: `e2e/menu-editing.spec.ts:234` ("the editor is
   usable one-handed on a phone"), intermittent when run as part of the full
   file, reproduces identically on clean `HEAD` — not caused by any recent
-  session's changes. Did not reproduce in C-137's, C-138's or C-139's own
-  gate runs. Not root-caused. Joins `e2e/refund.spec.ts:211` and
+  session's changes. Did not reproduce in C-137's, C-138's, C-139's or
+  C-146's own gate runs. Not root-caused. Joins `e2e/refund.spec.ts:211` and
   `e2e/last-call.spec.ts:17` on the pre-existing flaky list.
 - **`NotificationKind` has one value** (C-121).
 - **Nothing reads `queueReadyNotification`'s return value** (C-121).
@@ -86,7 +106,5 @@ list (`docs/backlog.md`).
 - **A fully-booked day degrades silently to ASAP-only** (C-114).
 - **No fixture pinned to an actual DST-transition date** (C-114).
 - **No e2e drives a scheduled order PAST its slot** (C-123).
-- **The staff receipt's payment line still reads "Pay at pickup" on a
-  released hold.**
 - **`refund_failed` rows accumulate uncapped on a stuck provider.**
 - **No seeded/rush scenario produces a `refund_reversed` event.**
