@@ -9867,3 +9867,52 @@ retry, panel gone, activity and customer status read "released".
 e2e + 15 skipped = 255 (+1).
 
 C-145 committed at 30a8ed6
+
+## C-146 — The staff receipt reads a released hold (C-069's "Left behind")
+
+A void succeeds, `derivePaymentState` re-derives from the log, and with nothing
+captured and nothing held the answer is `unpaid`. The staff receipt rendered
+`PAYMENT_LABEL[order.paymentState]` raw, so a no-show or cancelled prepaid
+order read **"Pay at pickup"** — on an order nobody may be charged for. The
+customer's own status page has had the released-hold sentence since C-069; the
+counter's copy of the same fact was the half left behind.
+
+**Built:**
+- The receipt's payment line checks `releasedWithoutCapture(order.events)`
+  before the enum, the same order and for the same reason the status page
+  checks it first.
+- Two sentences, not one, split by `canCollectPayment`: "Card hold released —
+  nothing was charged" when nothing may be collected, and "Card hold released —
+  $X owed at the counter" when something may be.
+
+**Decided:**
+- **Split on `canCollectPayment`, not on the void's reason.** A
+  `capture_failed` release is a picked-up order that genuinely owes money, and
+  "nothing was charged" would be a lie on it. The status module already answers
+  "may this be collected", and the collect control right below obeys that same
+  answer — reading `reason: 'capture_failed'` here would be a second way to
+  answer a settled question, and the two could drift apart.
+- **One call site, verified rather than assumed.** The queue card also renders
+  `PAYMENT_LABEL.unpaid`, but all three void reasons leave an order off the
+  queue (`cancelled`, `abandoned`, and `capture_failed`'s `picked_up`), so it
+  cannot reach a released hold. The checkout confirmation cannot either — no
+  void exists that early. The history list renders no payment label at all.
+- **No new string in `PAYMENT_LABEL`.** A released hold is a compound fact
+  about the log, not a name for a `PaymentState`; the status page's own bespoke
+  sentence is the precedent.
+
+**Tests:** e2e (`payment.spec.ts`), extended onto the existing prepaid-no-show
+test rather than added beside it — the fixture that produces a released hold is
+already there, and the defect is one more assertion on the same order. Asserts
+the receipt's line, that "Pay at pickup" is gone from the whole page, and that
+no collect control renders (the line and the button must agree).
+
+**Left behind:** the `capture_failed` branch has no test — the e2e covers the
+no-show path, and provoking a failed capture needs the `failVoidFor`-style
+fixture pointed at `capture`. The customer's status page says "you were not
+charged" on a `capture_failed` release too, which is true about the card and
+silent about the money now owed at the counter.
+
+**Gate:** green, first attempt. 1161 unit (+0 — the check is e2e), lint,
+typecheck, build, 240 e2e + 15 skipped = 255 (+0: the assertions land on an
+existing test). No flaky retries, including `menu-editing.spec.ts:234`.

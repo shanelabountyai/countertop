@@ -89,6 +89,23 @@ test('a prepaid no-show releases the hold instead of refunding it', async ({ pag
   // list of refunds the restaurant has not sent.
   await page.goto('/kitchen/orders');
   await expect(page.getByTestId('refund-exceptions')).toHaveCount(0);
+
+  // THE STAFF HALF OF THE SAME SENTENCE (C-069's left-behind item). The void
+  // leaves `paymentState` at `unpaid` with the whole total outstanding, so the
+  // receipt used to read "Pay at pickup" on a no-show nobody may be charged
+  // for — the customer-facing defect above, pointed at the counter, on the one
+  // page whose job is reconciling the till with the system.
+  await page.goto('/kitchen/orders?q=Iris');
+  await page.getByRole('link', { name: /Iris Lindqvist/ }).click();
+  await expect(page.getByTestId('staff-payment-state')).toHaveText(
+    'Card hold released — nothing was charged',
+  );
+  // Belt and braces: the old copy must be gone from the page, not merely
+  // absent from the line this test reads.
+  await expect(page.getByText(/Pay at pickup/)).toHaveCount(0);
+  // And no collect control, because `canCollectPayment` refuses an abandoned
+  // order however much it outstandingly owes — the line and the button agree.
+  await expect(page.getByRole('button', { name: 'Collected — mark paid' })).toHaveCount(0);
 });
 
 test('the kitchen card flags the unpaid order, and collecting clears it', async ({ page }) => {

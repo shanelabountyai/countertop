@@ -3220,3 +3220,19 @@ has a button to try again.
 purpose and wrote it down. Closing it took no new database table: the list is
 a question asked of the order itself ("finished, but money still on hold"), so
 it cannot disagree with what actually happened.
+
+## C-146 — Staff no longer see "Pay at pickup" on an order nobody may charge
+
+When an online-paid order was cancelled or never collected, the hold on the
+customer's card is released and nothing is taken. The customer's own page has
+said so for a while. The staff receipt did not: it still read "Pay at pickup",
+which is the one sentence that could put a counter person in the position of
+asking for money on an order that must not be charged. It now says the hold was
+released and nothing was charged.
+
+**Why it matters for a portfolio reader.** The interesting part is what the fix
+does *not* do. There is a third way a hold gets released — the charge itself
+fails after the food has gone out — and on that one the customer really does owe
+money at the counter. So the line asks the same question the "Collected" button
+asks, rather than a second question of its own, which is what keeps the words on
+the screen and the button beside them from ever disagreeing.

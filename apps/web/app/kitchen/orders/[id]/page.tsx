@@ -30,6 +30,7 @@ import {
   pointsToNextReward,
   pendingRefunds,
   previousStatus,
+  releasedWithoutCapture,
   reversibleAdjustments,
   reversibleRefunds,
   REVERT_REASONS,
@@ -456,9 +457,29 @@ export default async function OrderHistoryDetailPage({
         {/* The enum's word for what the till did. It stays "Paid" through a
             partial refund, correctly and on purpose — `refunded` means every
             captured cent went back, and the panels above are where the fact it
-            cannot hold is said. */}
+            cannot hold is said.
+
+            A RELEASED HOLD IS CHECKED FIRST (C-069's left-behind item), for the
+            reason the customer's status page checks it first: a void leaves
+            `paymentState` at `unpaid` with the whole total outstanding — both
+            true, and together they render as "Pay at pickup" on an order whose
+            card was held and let go. Staff-facing, so the harm is the mirror of
+            the customer's: a counter person reads "Pay at pickup" on a no-show
+            nobody may be charged for, and the till and the system disagree in
+            the one direction this page exists to reconcile.
+
+            `canCollectPayment` splits the two voids apart, and it is the right
+            question rather than the void's reason: a `capture_failed` release
+            is a picked-up order that genuinely owes money at the counter, which
+            is exactly what the collect control below asks. Reading the reason
+            would be a second way to answer a question the status module already
+            answers — and the one the control itself obeys. */}
         <p data-testid="staff-payment-state" className="mt-3 font-semibold">
-          {PAYMENT_LABEL[order.paymentState]}
+          {releasedWithoutCapture(order.events)
+            ? canCollectPayment(order.status, balance.outstandingCents)
+              ? `Card hold released — ${formatCents(balance.outstandingCents)} owed at the counter`
+              : 'Card hold released — nothing was charged'
+            : PAYMENT_LABEL[order.paymentState]}
         </p>
 
         {canCollectPayment(order.status, balance.outstandingCents) && (
