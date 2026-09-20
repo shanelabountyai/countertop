@@ -9916,3 +9916,5 @@ silent about the money now owed at the counter.
 **Gate:** green, first attempt. 1161 unit (+0 — the check is e2e), lint,
 typecheck, build, 240 e2e + 15 skipped = 255 (+0: the assertions land on an
 existing test). No flaky retries, including `menu-editing.spec.ts:234`.
+
+C-146 committed at 1a1345d
