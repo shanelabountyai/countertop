@@ -10191,6 +10191,8 @@ the split identity); +1 e2e step in `schedule.spec.ts`.
 
 **Gate:** run once over C-152 and C-153. The first attempt failed in the unit leg (the P0-6 static scan, above); the rerun was green. 1167 unit (+3), lint, typecheck, build, 246 e2e + 15 skipped = 261 (+1). No flaky retries.
 
+C-152 committed at f839e5e
+
 ## C-153 — A comps line on the sales report (PRD 3 P1-3)
 
 **Built:** `PaymentSplit.compedCents`, the sum of each sold order's net
@@ -10217,3 +10219,5 @@ finished rush shows Comps $10.00).
   remake orders entirely, so the comp on a remade ticket is not in this line.
 
 **Gate:** run once over C-152 and C-153. The first attempt failed in the unit leg (the P0-6 static scan, above); the rerun was green. 1167 unit (+3), lint, typecheck, build, 246 e2e + 15 skipped = 261 (+1). No flaky retries.
+
+C-153 committed at dda578b

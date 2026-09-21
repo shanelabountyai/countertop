@@ -275,6 +275,22 @@ one-project-at-a-time convention.
 
 - [x] **C-153** — *(PRD 3 P1-3, found unbuilt while C-152's rush invariant failed)* A comps line on the sales report. `PaymentSplit.compedCents` sums each sold order's net adjustments; the split's identity is now `collected + outstanding + refunded + comped − refundReversed = revenue`, asserted over the rush. Labelled "Comps", never anything loyalty-shaped (PRD 7 P0-6).
 
+### The unphased PRD P1s — queued 2026-09-21 by owner decision
+
+A sweep of every PRD's P1 list against the backlog found nine requirements
+that were never given a C-number (the same way PRD 2 P0-7 and PRD 3 P1-3 fell
+out). The owner chose to build all nine, one commit each, cheapest first:
+
+- [ ] **C-154** — *(PRD 7 P1-3)* A member chip on the queue card.
+- [ ] **C-155** — *(PRD 2 P1-2)* The shelf on the walk-up lookup.
+- [ ] **C-156** — *(PRD 6 P1-3)* The multi-location widening plan, written down.
+- [ ] **C-157** — *(PRD 1 P1-3)* A no-show and ran-late trend line.
+- [ ] **C-158** — *(PRD 6 P1-4)* Passcode rotation that does not sign out every tablet.
+- [ ] **C-159** — *(PRD 6 P1-2)* Read-only export as a boundary.
+- [ ] **C-160** — *(PRD 2 P1-1)* "Waiting at counter".
+- [ ] **C-161** — *(PRD 6 P1-1)* An ordered, replayable event feed.
+- [ ] **C-162** — *(PRD 5 P1-3)* Photos.
+
 Everything in the PRD's P2 list is what remains open on the master PRD. (P1-2,
 P1-3, P1-4 and P1-7 were on this line until they shipped as C-114, C-113,
 C-042 and C-041 — this list is the one that goes stale, so check it against
