@@ -10421,3 +10421,12 @@ photo on the item page.
 and the item page (the host is intercepted); an http link is refused).
 
 **Gate (C-160 to C-162, run once):** green, first attempt. 1180 unit (+9), lint, typecheck, build, 254 e2e + 15 skipped = 269 (+5). Three migrations applied to `countertop_test` and `countertop_dev` with `db:migrate:all`; no drift against a scratch shadow database.
+
+C-160 committed at 41868cf
+C-161 committed at 6fa18fc
+C-162 committed at c67eaf1
+
+(The split is not exact: `schema.prisma`'s enum value for C-160 and column
+for C-161 went in with C-162, and C-160's e2e went in with C-161, because all
+three touched the same two files. The three were gated together and are
+pushed together, so only the HEAD state was ever tested or deployed.)
