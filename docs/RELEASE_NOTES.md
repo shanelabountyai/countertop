@@ -3393,4 +3393,36 @@ database the demo uses, and `npm run smoke:demo` checks it before you present.
 - Executive brief, *Countertop in Brief*: https://claude.ai/artifact/MaBNCdTXGPBiRZPRjjij2r
 - LinkedIn drafts, posts 20–24 in the Lab Intelligence Ledger: https://claude.ai/artifact/Ai5xKScgT2sWtqXRQ1ZA8i
 - Build log: https://claude.ai/artifact/28KeGV3xfBwcBuoMEQjFMj
-- Live demo: https://countertop-mu.vercel.app
+- Live demo: https://ordering.labintelligence.co
+
+---
+
+## Post-close — the live URL moved to a labintelligence.co subdomain (2026-09-21)
+
+**https://ordering.labintelligence.co** is now the canonical URL. Every sibling
+project already sat on that domain — `storage`, `clinic`, `reserve`,
+`talk4me`, `eventoolkit` — and Countertop was the one still on a generated
+`*.vercel.app` name, which reads as unfinished next to them.
+
+`countertop-mu.vercel.app` still resolves and still works: Vercel keeps it as
+an alias, so no old link breaks. The three references to it left in this file,
+`PROGRESS.md` and `backlog.md` are **deliberately not rewritten** — they are
+dated records of what was deployed at the time, and editing them would make
+the history lie about itself. The forward-facing references (`DEMO.md`, the
+portfolio body, the deploy smoke test's default `BASE`) now name the new URL.
+
+DNS is Cloudflare, not Vercel nameservers, so this took a `CNAME` record
+(`ordering` → `cname.vercel-dns.com`, unproxied — the grey cloud, because
+proxying breaks Vercel's certificate issuance). Worth knowing for the next
+one: between the record being published and public resolvers serving it,
+`dig` returns the CNAME on a direct authoritative query while an `A` lookup
+still answers `NXDOMAIN`. That pair looks like a broken record and is not —
+it is negative caching from lookups made before the record existed, and the
+cure is to wait rather than to re-edit a record that is already correct.
+
+Rotated the Neon password in the same session (it had been exposed in a
+session transcript and committed to a sibling repo's `NEXT.md`). Both are now
+dead. The rotation recipe this project shares with Countertop Reserve had two
+defects that each cost an irreversible Neon reset to find; both are written up
+in that project's `WRITEUP.md`, and the corrected recipe is in its
+`docs/DEPLOYMENT.md`.

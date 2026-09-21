@@ -5,7 +5,7 @@ exact commands, the accounts, and what to say at each stop.
 
 **There are two ways to demo this.**
 
-**Hosted:** <https://countertop-mu.vercel.app>. The customer side is open to
+**Hosted:** <https://ordering.labintelligence.co>. The customer side is open to
 anyone. The kitchen is behind the staff passcode
 (`grep STAFF_PASSCODE .env.production.local`). Send the link when you can't be
 there. **Its data is the rush that was loaded at deploy time.** The reset that

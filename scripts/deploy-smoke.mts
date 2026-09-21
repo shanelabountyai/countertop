@@ -10,7 +10,7 @@
 // advances or cancels an order, because it runs against live data.
 import { chromium } from '@playwright/test';
 
-const BASE = process.env.SMOKE_URL ?? 'https://countertop-mu.vercel.app';
+const BASE = process.env.SMOKE_URL ?? 'https://ordering.labintelligence.co';
 const PASSCODE = process.env.STAFF_PASSCODE ?? '';
 const checks: Array<[string, boolean, string]> = [];
 const check = (name: string, ok: boolean, detail = '') => checks.push([name, ok, detail]);
