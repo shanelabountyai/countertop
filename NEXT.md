@@ -1,17 +1,13 @@
 # Next
 
-**C-148 shipped this session**: the status page's late flip is now announced.
-A visually-hidden copy of "Running a bit behind" sits inside the existing
-`role="status"` panel, and the visible estimate line is `aria-hidden` while
-late. Not a second live region: the range ticks every minute and would be
-spoken every minute. Gate green, first attempt: 1161 unit, 241 e2e + 15
-skipped = 256. Committed at 9acc317.
+**C-149 shipped this session**: the last-call warning counts down from the
+gate's figure using elapsed monotonic time, and refreshes at zero so the gate
+says "closed". Gate green, first attempt: 1161 unit, 243 e2e + 15 skipped =
+258.
 
 ## Pick this up first
 
-Nothing queued. Pick from "Still open" below. Cheap candidates: **the
-last-call warning does not tick** (C-079), or **`/menu/[itemId]` can forget the
-footer**.
+Nothing queued. Pick from "Still open" below. Cheap candidate: **`/menu/[itemId]` can forget the footer**.
 
 ## Read this before the next push
 
@@ -92,7 +88,6 @@ footer**.
 - **`done=off` survives a page reload.**
 - **A sixth customer route can forget the footer** — `/menu/[itemId]`.
 - **The status page reads the contact columns twice.**
-- **The last-call warning does not tick** (C-079).
 - **Twenty-two of twenty-five items have no description** (C-080).
 - **`e2e/refund.spec.ts:211` and `e2e/last-call.spec.ts:17`** — the other
   two pre-existing flaky specs, untouched again this session.

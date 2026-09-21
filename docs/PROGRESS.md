@@ -10012,3 +10012,47 @@ the structure a reload produces rather than waiting it out.
 flaky retries.
 
 C-148 committed at 9acc317
+
+## C-149 — The last-call warning counts down (C-079's "Left behind")
+
+C-079 put one last-call warning on the menu, cart and checkout, and left behind
+that it was a server render with no poll: sit on `/menu` for twelve minutes and
+it still said "in 12 min", and a screen opened at 31 minutes out never warned
+at all.
+
+**Built:**
+- `LastCall` is a client component. It starts from the gate's
+  `minutesUntilLastOrder` and subtracts elapsed `performance.now()` minutes,
+  re-checked every second, so a throttled background tab still lands on the
+  right minute when its interval fires.
+- The pages now mount it whenever the gate is open, not only inside the
+  30-minute window, so it can appear when the window opens.
+- At zero it calls `router.refresh()`: the server re-asks the gate, and the
+  gate's own closed notice replaces the page.
+
+**Decided:**
+- **Elapsed monotonic time, never the client's wall clock.** The gate's comment
+  forbids a screen computing its own `now`; subtracting a duration from the
+  server's figure is not a second answer to "what minute is it", and clock
+  skew cannot move it.
+- **The screen never declares the gate closed.** At zero it hides the warning
+  and asks the server. The server's minute is floored, so the display lags the
+  truth by under two minutes and never leads it — at zero the cutoff has
+  really passed.
+- **No poll, no cursor.** A refresh only at the one moment the answer changes.
+- **Still not a live region** — a sentence that changes every minute would be
+  spoken every minute (C-148's reasoning).
+
+**Tests:** e2e (`last-call.spec.ts`), two new specs on a faked page clock: the
+count goes 10 → 7 after three minutes, and a screen opened at 31 minutes shows
+the warning at 30. Both fail on the old component.
+
+**Left behind:**
+- **The zero-crossing refresh is untested.** Driving it needs the server's
+  clock to move, and the fixture sets hours relative to the real clock.
+- **Up to two minutes of lag**, from the floored server minute plus the
+  elapsed floor. Passing seconds out of the gate would close it; not worth a
+  core change for a hint.
+
+**Gate:** green, first attempt. 1161 unit (+0), lint, typecheck, build,
+243 e2e + 15 skipped = 258 (+2). No flaky retries.

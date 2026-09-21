@@ -47,3 +47,29 @@ test('forty minutes from the cutoff, none of them does', async ({ page }) => {
     await expect(page.getByTestId('last-call')).toHaveCount(0);
   }
 });
+
+// C-149: sitting on a screen, the number counts down — and the warning appears
+// when the window opens, not only on a reload. The page clock is faked; the
+// server's is not, so these assert the screen's own arithmetic from the
+// server's starting figure.
+test('the countdown ticks down without a reload', async ({ page }) => {
+  await setLastOrderIn(10);
+  await page.clock.install();
+  await page.goto('/menu');
+
+  const warning = page.getByTestId('last-call');
+  await expect(warning).toHaveAttribute('data-minutes', '10');
+  await page.clock.runFor(3 * 60_000);
+  await expect(warning).toHaveAttribute('data-minutes', '7');
+  await expect(warning).toContainText('Last online orders in 7 min');
+});
+
+test('the warning appears when the window opens on a screen already up', async ({ page }) => {
+  await setLastOrderIn(31);
+  await page.clock.install();
+  await page.goto('/menu');
+
+  await expect(page.getByTestId('last-call')).toHaveCount(0);
+  await page.clock.runFor(60_000);
+  await expect(page.getByTestId('last-call')).toHaveAttribute('data-minutes', '30');
+});

@@ -3263,3 +3263,16 @@ estimate sat outside it. The late notice is now announced from that panel.
 line announce itself, would have made the screen reader speak every minute,
 because the estimated range updates every minute. The page announces only the
 change a customer needs to hear.
+
+## C-149 — The "last online orders" warning counts down while you browse
+
+The menu, cart and checkout warn customers when online ordering is about to
+close. That warning used to be fixed when the page loaded, so a customer
+browsing for ten minutes still saw "in 12 min". It now counts down, appears if
+the cutoff comes closer while the page is open, and at the cutoff the page
+asks the server whether ordering is still open.
+
+**Why it matters for a portfolio reader.** The countdown never trusts the
+customer's device clock, which can be wrong. It starts from the server's
+figure and counts the time since then, and the server still decides when
+ordering closes.
