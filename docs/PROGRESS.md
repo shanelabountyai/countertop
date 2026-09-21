@@ -10105,6 +10105,8 @@ card still offers "Picked up".
 
 **Gate:** green, first attempt, run once over C-150 and C-151 together. 1164 unit (+3), lint, typecheck, build, 245 e2e + 15 skipped = 260 on `--list` (+2). No flaky retries.
 
+C-150 committed at 666e27c
+
 ## C-151 — Four loose ends from NEXT.md's "Still open"
 
 **Built:**
@@ -10139,3 +10141,5 @@ fully-booked copy: filling every remaining slot depends on the time of day the
 spec runs.
 
 **Gate:** green, first attempt, run once over C-150 and C-151 together. 1164 unit (+3), lint, typecheck, build, 245 e2e + 15 skipped = 260 on `--list` (+2). No flaky retries.
+
+C-151 committed at deffb17
