@@ -170,6 +170,8 @@ export function describeEvent(entry: {
       // refund above this row is still there, still says who sent it, and
       // this is a second decision — the money owed again — beside it.
       return 'Refund put back';
+    case 'customer_waiting':
+      return 'Customer waiting at the counter';
   }
 }
 

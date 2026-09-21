@@ -206,6 +206,28 @@ export function queueAging(
   };
 }
 
+/**
+ * The customer is standing at the counter for this order (PRD 2 P1-1, C-160).
+ *
+ * Derived, never stored: `ready`, with a `customer_waiting` event at or after
+ * the moment it became ready. Picking it up ends the mark with no write of its
+ * own, and so does a revert out of Ready — a card sent back to the grill is
+ * not a bag somebody is waiting for.
+ */
+export function isWaitingAtCounter(order: {
+  status: OrderStatus;
+  statusChangedAt: Date;
+  events: readonly { kind: OrderEventKind | string; at: Date }[];
+}): boolean {
+  return (
+    order.status === 'ready' &&
+    order.events.some(
+      (event) =>
+        event.kind === 'customer_waiting' && event.at.getTime() >= order.statusChangedAt.getTime(),
+    )
+  );
+}
+
 export type QueueGroup<T> = { status: OrderStatus; orders: T[] };
 
 /**
@@ -231,13 +253,19 @@ export type QueueGroup<T> = { status: OrderStatus; orders: T[] };
 export function groupQueue<T extends { status: OrderStatus; placedAt: Date }>(
   orders: readonly T[],
   holdingSlots: readonly T[] = [],
+  /** Cards pinned to the top of their section (PRD 2 P1-1: waiting at the
+   *  counter), oldest first among themselves. */
+  pinned: (order: T) => boolean = () => false,
 ): QueueGroup<T>[] {
   return QUEUE_SECTION_ORDER.map((status) => ({
     status,
     orders: [
       ...orders.filter((order) => order.status === status),
       ...holdingSlots.filter((order) => previousStatus(order.status) === status),
-    ].sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime()),
+    ].sort(
+      (a, b) =>
+        Number(pinned(b)) - Number(pinned(a)) || a.placedAt.getTime() - b.placedAt.getTime(),
+    ),
   }));
 }
 

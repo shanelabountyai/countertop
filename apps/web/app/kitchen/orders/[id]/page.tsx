@@ -22,6 +22,7 @@ import {
   adjustableRemainingCents,
   canCollectPayment,
   formatOrderNumber,
+  isWaitingAtCounter,
   hasReward,
   orderBalance,
   paymentTotals,
@@ -183,6 +184,12 @@ export default async function OrderHistoryDetailPage({
         </h1>
         <span className="text-lg font-medium">{STATUS_LABEL[order.status]}</span>
       </div>
+      {/* PRD 2 P1-1: the same mark the queue card carries. */}
+      {isWaitingAtCounter({ ...order, events: activity }) && (
+        <p className="mt-2 w-fit rounded bg-neutral-900 px-2 py-1 text-lg font-bold uppercase text-white">
+          Waiting at counter
+        </p>
+      )}
       <p className="text-lg">
         {order.customerName}
         {order.customerPhone && <span className="text-neutral-600"> · {order.customerPhone}</span>}

@@ -1,0 +1,15 @@
+-- ---------------------------------------------------------------------------
+-- PRD 2 P1-1 (C-160): "waiting at counter" — the `customer_waiting` kind.
+--
+-- A tap on a Ready card that says the customer is standing there. An EVENT,
+-- not a column, for the reason the staff note is one: it is a fact about a
+-- moment, with who saw it, and the log is where moments go.
+--
+-- Nothing clears it. Whether an order is waiting is DERIVED: it is `ready` and
+-- this event is newer than the moment it became ready. The pickup transition
+-- ends the first half, so it clears the mark without a second write.
+--
+-- One statement. It moves no money, so it lands on the "no amount" side of
+-- `order_event_amount_matches_kind` without touching that CHECK.
+-- ---------------------------------------------------------------------------
+ALTER TYPE "OrderEventKind" ADD VALUE 'customer_waiting';

@@ -10,6 +10,7 @@ import { formatOrderNumber } from './placement';
 import {
   DEFAULT_AGING,
   PAST_AN_HOUR,
+  isWaitingAtCounter,
   elapsedMinutes,
   groupQueue,
   isLeftOver,
@@ -243,6 +244,13 @@ describe('grouping (P0-4)', () => {
     expect(groups.find((group) => group.status === 'placed')?.orders).toEqual([old, recent]);
   });
 
+  it('pins a customer waiting at the counter to the top of Ready (handoff P1-1)', () => {
+    const old = order({ status: 'ready', placedAt: minutesBefore(30) });
+    const waiting = order({ status: 'ready', placedAt: minutesBefore(2) });
+    const groups = groupQueue([old, waiting], [], (o) => o === waiting);
+    expect(groups.find((group) => group.status === 'ready')?.orders).toEqual([waiting, old]);
+  });
+
   it('leaves terminal orders off the screen entirely', () => {
     const groups = groupQueue([order({ status: 'picked_up' }), order({ status: 'cancelled' })]);
     expect(groups.every((group) => group.orders.length === 0)).toBe(true);
@@ -425,5 +433,31 @@ describe('left over from an earlier service (P1-6)', () => {
 
   it('does not flag a day in the future — a clock that went backwards is not a chore', () => {
     expect(isLeftOver(left({ businessDay: '2026-07-05' }), TODAY)).toBe(false);
+  });
+});
+
+describe('isWaitingAtCounter (handoff P1-1, C-160)', () => {
+  const readySince = minutesBefore(10);
+  const tap = (at: Date) => ({ kind: 'customer_waiting', at });
+
+  it('is true for a Ready order tapped after it became ready', () => {
+    expect(
+      isWaitingAtCounter({ status: 'ready', statusChangedAt: readySince, events: [tap(minutesBefore(2))] }),
+    ).toBe(true);
+  });
+
+  it('clears on pickup and on a revert, with no write of its own', () => {
+    // Picked up: no longer ready.
+    expect(
+      isWaitingAtCounter({ status: 'picked_up', statusChangedAt: NOON, events: [tap(minutesBefore(2))] }),
+    ).toBe(false);
+    // Sent back and made ready again: the old tap predates this Ready.
+    expect(
+      isWaitingAtCounter({ status: 'ready', statusChangedAt: NOON, events: [tap(minutesBefore(2))] }),
+    ).toBe(false);
+  });
+
+  it('is false with no tap at all', () => {
+    expect(isWaitingAtCounter({ status: 'ready', statusChangedAt: readySince, events: [] })).toBe(false);
   });
 });

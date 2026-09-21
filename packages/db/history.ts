@@ -209,6 +209,38 @@ export async function loadRemakesOf(orderId: string): Promise<{ id: string; seq:
  * arrives from a form on a screen that may be minutes stale, and "that order is
  * gone" is an answer, not a 500.
  */
+/**
+ * The customer is at the counter (PRD 2 P1-1, C-160). Refused on anything but
+ * a Ready order: the mark means "their bag is on the shelf and they are
+ * here", and on any other card it would be a claim the queue cannot act on.
+ */
+export async function markCustomerWaiting(
+  orderId: string,
+  now: Date,
+  staffId?: string | null,
+): Promise<boolean> {
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { status: true } });
+  if (order?.status !== 'ready') return false;
+
+  await prisma.orderEvent.create({
+    data: {
+      orderId,
+      ...eventRow(
+        {
+          at: now,
+          kind: 'customer_waiting',
+          fromStatus: null,
+          toStatus: null,
+          actor: 'staff',
+          reason: null,
+        },
+        staffId,
+      ),
+    },
+  });
+  return true;
+}
+
 export async function appendOrderNote(
   orderId: string,
   note: string,

@@ -28,7 +28,7 @@ import {
 import { prisma } from '@countertop/db';
 import { adjustOrder } from '@countertop/db/adjustment';
 import { redeemReward } from '@countertop/db/loyalty';
-import { appendOrderNote } from '@countertop/db/history';
+import { appendOrderNote, markCustomerWaiting } from '@countertop/db/history';
 import { forgetOrderCustomer } from '@countertop/db/retention';
 import { remakeOrder } from '@countertop/db/remake';
 import { collectOrderPayment } from '@countertop/db/payment';
@@ -155,6 +155,18 @@ export async function saveShelfLocation(
   await setShelfLocation(orderId, shelfLocation);
   revalidatePath('/kitchen');
   return { ok: true };
+}
+
+/**
+ * The customer is at the counter (PRD 2 P1-1, C-160). A plain form post from
+ * the Ready card; the mark is derived from the event, so this is the only
+ * write it ever needs.
+ */
+export async function markCustomerWaitingForm(formData: FormData): Promise<void> {
+  const orderId = formData.get('orderId');
+  if (typeof orderId !== 'string' || orderId === '') return;
+  await markCustomerWaiting(orderId, new Date(), await currentShiftId());
+  revalidatePath('/kitchen');
 }
 
 /**

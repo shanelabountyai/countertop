@@ -76,7 +76,7 @@ The product is excellent up to the moment the food is cooked and completely abse
 
 ### Nice-to-Have (P1)
 
-- **P1-1: "Waiting at counter"** *(OPS 5)* — a tap that pins a card to the top of Ready and marks it on every screen, cleared by the pickup transition. Needs an event kind; the operator wants it, and it is the half of Finding 5 that is not layout.
+- **P1-1: "Waiting at counter"** ✅ *(C-160)* *(OPS 5)* — a tap that pins a card to the top of Ready and marks it on every screen, cleared by the pickup transition. Needs an event kind; the operator wants it, and it is the half of Finding 5 that is not layout.
 - **P1-2: The shelf field on the walk-up lookup keyboard path** ✅ *(C-155)* *(OPS 6)* — search by shelf as well as by name and number, for the reverse lookup ("whose is the bag on shelf 3?").
 
 ## Non-Goals

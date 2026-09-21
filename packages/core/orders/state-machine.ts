@@ -178,6 +178,10 @@ export const ORDER_EVENT_KINDS = [
    *  honest record that the money left, and the reversal's job is to say it
    *  needs to be chased again, not to pretend it never went. */
   'refund_reversed',
+  /** The customer is at the counter for a Ready order (PRD 2 P1-1, C-160).
+   *  Moves nothing; `isWaitingAtCounter` derives the mark from it, so the
+   *  pickup that follows clears it without a second write. */
+  'customer_waiting',
 ] as const;
 export type OrderEventKind = (typeof ORDER_EVENT_KINDS)[number];
 

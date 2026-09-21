@@ -21,6 +21,7 @@ import {
   planRedemption,
   restaurantClock,
   PAST_AN_HOUR,
+  isWaitingAtCounter,
   queueAging,
   serviceDay,
   STATUS_FACTS,
@@ -40,6 +41,7 @@ import { describeSelection } from '@/lib/menu-labels';
 import { PAYMENT_LABEL, STATUS_LABEL } from '@/lib/status-labels';
 import { formatCents } from '@/lib/money';
 import { signOut } from './login/actions';
+import { markCustomerWaitingForm } from './actions';
 import { NewOrderAlert } from './new-order-alert';
 import { currentShift } from '@/lib/shift';
 import { PauseSwitch } from './pause-switch';
@@ -130,7 +132,8 @@ export default async function KitchenPage({
   // the card that was tapped is replaced in place by a tile carrying its undo
   // rather than vanishing from under the hand that tapped it. They are not
   // queue orders and nothing else on this page counts them.
-  const groups = groupQueue(orders, justFinished);
+  // PRD 2 P1-1: a customer at the counter pins their card to the top of Ready.
+  const groups = groupQueue(orders, justFinished, isWaitingAtCounter);
   // P1-6, off the UNFILTERED list for the same reason the alert count is: a
   // chore a search can hide is a chore nobody does.
   const leftOver = orders.filter((order) => isLeftOver(order, shiftDay));
@@ -440,6 +443,16 @@ export default async function KitchenPage({
                         Match
                       </p>
                     )}
+                    {/* PRD 2 P1-1. Words, not a colour: somebody is standing
+                        at the counter for this bag, and the card says so. */}
+                    {isWaitingAtCounter(order) && (
+                      <p
+                        data-testid="waiting-badge"
+                        className="mb-2 w-fit rounded bg-neutral-900 px-2 py-1 text-lg font-bold uppercase text-white"
+                      >
+                        Waiting at counter
+                      </p>
+                    )}
                     {/* P1-6. Above the new-order badge and never instead of
                         it: a leftover in `placed` is BOTH, and the older fact
                         is the one that explains why nothing chimed. */}
@@ -506,6 +519,22 @@ export default async function KitchenPage({
                       >
                         {order.shelfLocation}
                       </p>
+                    )}
+
+                    {/* PRD 2 P1-1. Offered only on a Ready card not already
+                        marked; a plain form, so it works before hydration.
+                        Smaller than the advance button, which stays the
+                        biggest control on the card. */}
+                    {order.status === 'ready' && !isWaitingAtCounter(order) && (
+                      <form action={markCustomerWaitingForm} className="mt-2">
+                        <input type="hidden" name="orderId" value={order.id} />
+                        <button
+                          type="submit"
+                          className="min-h-12 rounded-lg border-2 border-neutral-500 px-4 font-semibold"
+                        >
+                          Customer is here
+                        </button>
+                      </form>
                     )}
 
                     {/* P1-8. The counter has to collect before the bag leaves,
