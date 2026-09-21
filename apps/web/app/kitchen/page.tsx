@@ -18,6 +18,7 @@ import {
   matchesLookup,
   needsAcknowledgment,
   orderBalance,
+  planRedemption,
   restaurantClock,
   PAST_AN_HOUR,
   queueAging,
@@ -26,6 +27,7 @@ import {
   undoRemainingMs,
 } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
+import { queueMembers } from '@countertop/db/loyalty';
 import {
   loadQueue,
   loadRecentlyFinished,
@@ -99,6 +101,24 @@ export default async function KitchenPage({
   // The day the running opening started — yesterday, after midnight in an
   // overnight shift — so last night's tickets are not "left over" at 00:00 (C-141).
   const shiftDay = serviceDay(gateState, clock);
+  // PRD 7 P1-3: which cards carry a member whose reward the counter can spend
+  // right now. Skipped entirely with the program off (P0-6 invisibility), and
+  // asked of `planRedemption` — the receipt's own question — so a chip that
+  // renders is a redeem button that works.
+  const members = gateState.loyalty.offered ? await queueMembers(orders) : new Map();
+  const rewardReady = (order: (typeof orders)[number]): boolean => {
+    const member = members.get(order.id);
+    return (
+      member !== undefined &&
+      planRedemption({
+        enabled: true,
+        balance: member.balance,
+        outstandingCents: orderBalance(order).outstandingCents,
+        alreadyRedeemed: member.alreadyRedeemed,
+        terms: gateState.loyalty.terms,
+      }).ok
+    );
+  };
   // Handoff P0-2: the lookup MARKS, it does not filter. Danny answers Cass at
   // the front while Ada waits behind her; a Find box that empties the board
   // means the second question costs a re-type, and for the length of the first
@@ -244,12 +264,12 @@ export default async function KitchenPage({
           result is a URL a second screen can be opened on (P0-11). */}
       <form className="mt-4 flex flex-wrap gap-2">
         <label className="flex flex-1 flex-col gap-1">
-          <span className="text-sm font-medium">Find an order by name or number</span>
+          <span className="text-sm font-medium">Find an order by name, number or shelf</span>
           <input
             type="search"
             name="q"
             defaultValue={query}
-            placeholder="Dana, or 047"
+            placeholder="Dana, 047, or shelf 3"
             className="min-h-12 rounded-lg border border-neutral-400 px-3 text-lg"
           />
         </label>
@@ -454,6 +474,18 @@ export default async function KitchenPage({
                       </h3>
                       <p className="text-2xl font-semibold">{order.customerName}</p>
                     </div>
+
+                    {/* PRD 7 P1-3. Bordered and neutral, not filled: it must
+                        not compete with a "NO onions" line for the eye, and it
+                        is an offer to make, not an alarm. */}
+                    {rewardReady(order) && (
+                      <p
+                        data-testid="member-chip"
+                        className="mt-1 w-fit rounded border-2 border-neutral-500 px-2 py-0.5 text-lg font-semibold"
+                      >
+                        Member — reward available
+                      </p>
+                    )}
 
                     {/* WHERE THE BAG IS (PRD 2 P0-5), directly under the name
                         because the number, the name and the shelf are the

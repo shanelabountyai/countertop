@@ -976,6 +976,45 @@ export async function writeCheckoutRedemption(
 export const orderHasRedemption = async (orderId: string): Promise<boolean> =>
   (await prisma.loyaltyEvent.count({ where: { orderId, kind: 'redeem' } })) > 0;
 
+/**
+ * The queue's member chip (PRD 7 P1-3, C-154): for a page of orders, each
+ * member's balance keyed by ORDER id, and whether a reward is already on that
+ * order. Two queries for the whole queue, not two per card. Hashes each phone
+ * like `memberByPhone`, so no plaintext reaches a `where`.
+ */
+export async function queueMembers(
+  orders: readonly { id: string; customerPhone: string | null }[],
+): Promise<Map<string, { balance: number; alreadyRedeemed: boolean }>> {
+  const result = new Map<string, { balance: number; alreadyRedeemed: boolean }>();
+  if (!hasLoyaltyPepper()) return result;
+  const digestByOrder = new Map<string, string>();
+  for (const order of orders) {
+    const normalized = order.customerPhone ? normalizePhone(order.customerPhone) : null;
+    if (normalized) digestByOrder.set(order.id, phoneDigest(normalized.digits));
+  }
+  if (digestByOrder.size === 0) return result;
+
+  const [members, redeemed] = await Promise.all([
+    prisma.loyaltyMember.findMany({
+      where: { phoneDigest: { in: [...new Set(digestByOrder.values())] } },
+      select: { phoneDigest: true, events: { select: { kind: true, points: true } } },
+    }),
+    prisma.loyaltyEvent.findMany({
+      where: { kind: 'redeem', orderId: { in: [...digestByOrder.keys()] } },
+      select: { orderId: true },
+    }),
+  ]);
+  const balanceByDigest = new Map(members.map((m) => [m.phoneDigest, loyaltyBalance(m.events)]));
+  const redeemedOrders = new Set(redeemed.map((row) => row.orderId));
+  for (const [orderId, digest] of digestByOrder) {
+    const balance = balanceByDigest.get(digest);
+    if (balance !== undefined) {
+      result.set(orderId, { balance, alreadyRedeemed: redeemedOrders.has(orderId) });
+    }
+  }
+  return result;
+}
+
 /** What a settlement did, for the caller's log line. */
 export type RedemptionSettlement = 'no_redemption' | 'unchanged' | 'returned' | 'respent';
 

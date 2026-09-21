@@ -633,3 +633,37 @@ test('the reward control is reachable, labelled, and free of axe violations', as
   const results = await new AxeBuilder({ page }).include('main').analyze();
   expect(results.violations).toEqual([]);
 });
+
+// --- C-154: the member chip on the queue card (P1-3) -----------------------
+
+test('the queue card offers a member their reward, and stops once it is spent', async ({ page }) => {
+  await setLoyaltyEnabled(true);
+  await placeAsMember(page, 'Ivy Castellanos');
+
+  // A member with no whole reward yet: nothing to offer.
+  await page.goto('/kitchen');
+  await expect(card(page, 'Ivy Castellanos')).toBeVisible();
+  await expect(page.getByTestId('member-chip')).toHaveCount(0);
+
+  // A whole reward on the card: the counter is told to offer it.
+  await adjustLoyaltyPoints(100);
+  await page.goto('/kitchen');
+  await expect(card(page, 'Ivy Castellanos').getByTestId('member-chip')).toHaveText(
+    'Member — reward available',
+  );
+
+  // The program switched off: nothing loyalty-shaped on the queue (P0-6).
+  await setLoyaltyEnabled(false);
+  await page.goto('/kitchen');
+  await expect(card(page, 'Ivy Castellanos')).toBeVisible();
+  await expect(page.getByTestId('member-chip')).toHaveCount(0);
+
+  // Spent from the receipt: the same question now says no, so the chip goes.
+  await setLoyaltyEnabled(true);
+  await openReceipt(page, 'Ivy Castellanos');
+  await page.getByTestId('redeem-reward').click();
+  await expect(page.getByTestId('redeem-reward')).toHaveCount(0);
+  await page.goto('/kitchen');
+  await expect(card(page, 'Ivy Castellanos')).toBeVisible();
+  await expect(page.getByTestId('member-chip')).toHaveCount(0);
+});
