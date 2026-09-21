@@ -17,6 +17,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
+  canCollectPayment,
   elapsedMinutes,
   formatMinuteOfDay,
   formatOrderNumber,
@@ -379,7 +380,21 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
                   // total outstanding — both true, and together they read as "Pay
                   // at pickup — $11.85 due" to somebody who paid twenty minutes
                   // ago. That is the sentence that makes them phone.
-                  'Card hold released — you were not charged'
+                  //
+                  // SPLIT ON THE SAME QUESTION THE STAFF RECEIPT ASKS (C-147),
+                  // for the mirror-image reason: the third void reason is
+                  // `capture_failed`, where the hold was released because the
+                  // card said NO and the food went out anyway. "You were not
+                  // charged" is true about the card and silent about the money,
+                  // so the one customer who owes the counter is the one told
+                  // nothing is owed. `canCollectPayment` is the question rather
+                  // than the void's reason — the same reader the counter's own
+                  // collect control obeys, so the two cannot disagree.
+                  canCollectPayment(order.status, balance.outstandingCents)
+                  ? `Card hold released — your card was not charged. ${formatCents(
+                      balance.outstandingCents,
+                    )} due at the counter`
+                  : 'Card hold released — you were not charged'
                 : order.paymentState === 'unpaid'
                   ? balance.outstandingCents > 0
                     ? `${PAYMENT_LABEL.unpaid} — ${formatCents(balance.outstandingCents)} due`

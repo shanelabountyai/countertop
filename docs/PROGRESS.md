@@ -9918,3 +9918,49 @@ typecheck, build, 240 e2e + 15 skipped = 255 (+0: the assertions land on an
 existing test). No flaky retries, including `menu-editing.spec.ts:234`.
 
 C-146 committed at 1a1345d
+
+## C-147 — A refused capture is money owed, on both pages (C-146's "Left behind")
+
+C-146 split the staff receipt's released-hold line on `canCollectPayment` and
+left two things behind, which were one thing: the `capture_failed` side of that
+split had no test, and the customer's status page did not split at all. On a
+capture the provider refused, the customer read **"Card hold released — you
+were not charged"** — true about the card, and silent about the whole total now
+owed at the counter. The one customer who owes money was the one told nothing
+was owed.
+
+**Built:**
+- The status page's released-hold sentence splits on `canCollectPayment`, the
+  same question the staff receipt and the collect control ask. Collectable:
+  "Card hold released — your card was not charged. $X due at the counter".
+  Otherwise the existing "you were not charged".
+- `failCaptureFor(customerName)` in `e2e/fixtures.ts`: advances a prepaid order
+  from wherever it is to `picked_up` through `applyOrderAction`, with a provider
+  that throws. Same shape as `failVoidFor` — the real transition and settlement
+  code, only the far side of the network boundary substituted.
+
+**Decided:**
+- **Both halves on the customer's line, not just the amount.** "$X due at the
+  counter" alone reads as a double charge to somebody who paid at checkout; "you
+  were not charged" alone sends them home owing. The card being clear is the
+  reason the money is due, so the sentence carries both.
+- **The fixture advances all four steps with the throwing stub.** The provider
+  is only reached at pickup (`authorizationOutcome` is `null` for every
+  in-flight status), so the earlier transitions never call it — no need to drive
+  three UI clicks the spec is not about.
+- **No shared helper for the two pages' ternaries.** Same condition, different
+  sentences for different readers ("owed" to staff, "due" to the customer), and
+  the condition is already two named functions in `packages/core`.
+
+**Tests:** e2e (`payment.spec.ts`), a new test: a prepaid order whose capture is
+refused shows the customer's two-part sentence, the staff receipt's
+"$11.85 owed at the counter", and the "Collected — mark paid" control. The db
+layer's behaviour (release, `unpaid`, collectable) was already unit-tested in
+`packages/db/authorization.test.ts`; this is the rendering over it.
+
+**Left behind:** nothing new. The `P2025` on `restaurantSettings` in the
+WebServer log mid-sweep is a request landing during a `reseed()` TRUNCATE — no
+test failed on it.
+
+**Gate:** green, first attempt. 1161 unit (+0), lint, typecheck, build,
+241 e2e + 15 skipped = 256 (+1). No flaky retries.

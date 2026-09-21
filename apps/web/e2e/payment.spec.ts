@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { card, pickUp, placeOrderFor, reseed } from './fixtures';
+import { card, failCaptureFor, pickUp, placeOrderFor, reseed } from './fixtures';
 
 // C-038: payment-state visibility (P1-8).
 //
@@ -106,6 +106,38 @@ test('a prepaid no-show releases the hold instead of refunding it', async ({ pag
   // And no collect control, because `canCollectPayment` refuses an abandoned
   // order however much it outstandingly owes — the line and the button agree.
   await expect(page.getByRole('button', { name: 'Collected — mark paid' })).toHaveCount(0);
+});
+
+// The THIRD void reason, and the only one where anybody owes anything (C-147).
+// Both released-hold lines shipped with one branch untested: the no-show path
+// above drives them, and a capture the provider refuses takes the other side of
+// the same ternary on both pages. A released hold reads "nothing was charged"
+// on a no-show and has to read the opposite here, on an order whose food is
+// already in the customer's hands.
+test('a capture the card refuses is money owed at the counter, on both pages', async ({
+  page,
+}) => {
+  const link = await placeOrderFor(page, 'Iris Lindqvist');
+  await failCaptureFor('Iris Lindqvist');
+
+  // THE CUSTOMER IS NOT TOLD THEY OWE NOTHING. Both halves are on the line:
+  // the card is clear — which is why the hold vanished from their statement —
+  // AND the money is still owed. Either one alone is a sentence that sends
+  // somebody home without paying, or back to the bank to dispute a charge that
+  // never landed.
+  await page.goto(link);
+  await expect(page.getByTestId('status-payment')).toHaveText(
+    'Card hold released — your card was not charged. $11.85 due at the counter',
+  );
+
+  await page.goto('/kitchen/orders?q=Iris');
+  await page.getByRole('link', { name: /Iris Lindqvist/ }).click();
+  await expect(page.getByTestId('staff-payment-state')).toHaveText(
+    'Card hold released — $11.85 owed at the counter',
+  );
+  // And the line agrees with the control beside it, which is the whole reason
+  // both pages ask `canCollectPayment` rather than reading the void's reason.
+  await expect(page.getByRole('button', { name: 'Collected — mark paid' })).toBeVisible();
 });
 
 test('the kitchen card flags the unpaid order, and collecting clears it', async ({ page }) => {

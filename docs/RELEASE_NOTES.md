@@ -3236,3 +3236,18 @@ fails after the food has gone out — and on that one the customer really does o
 money at the counter. So the line asks the same question the "Collected" button
 asks, rather than a second question of its own, which is what keeps the words on
 the screen and the button beside them from ever disagreeing.
+
+## C-147 — A customer whose card is declined at pickup is told they still owe
+
+If an online-paid order's card is declined at the moment the food is handed
+over, the hold on the card is released and the order goes back to owing money
+at the counter. Staff already saw that. The customer's own page said "you were
+not charged" — true, and exactly the sentence that sends somebody home without
+paying. It now says both: the card was not charged, and the amount is due at
+the counter.
+
+**Why it matters for a portfolio reader.** The two pages and the counter's
+"Collected" button all ask one shared question — may money be collected on this
+order? — rather than each deciding for itself. That is why this fix was one
+condition on one page, and why the customer's words, the staff's words and the
+button can't drift apart.

@@ -413,6 +413,46 @@ export async function failVoidFor(customerName: string): Promise<void> {
 }
 
 /**
+ * Hand a PREPAID order over with a provider that refuses the capture (C-147).
+ *
+ * The third void reason, and the only one where anybody owes anything: the card
+ * said no at the moment the bag left, so the hold is released as worthless and
+ * the order goes back to owing the whole total at the counter. Same shape as
+ * `failVoidFor` — the real transition code, with only the far side of the
+ * network boundary substituted.
+ *
+ * Advances all the way from wherever the order is, because the provider is only
+ * reached at the pickup: the earlier transitions settle nothing, so handing them
+ * the same throwing stub is harmless and saves the spec four UI clicks it is
+ * not about.
+ */
+export async function failCaptureFor(customerName: string): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  const { applyOrderAction } = await import('@countertop/db/transitions');
+  try {
+    const order = await prisma.order.findFirstOrThrow({
+      where: { customerName },
+      orderBy: { placedAt: 'desc' },
+      select: { id: true },
+    });
+    for (let step = 0; step < 4; step += 1) {
+      const result = await applyOrderAction(
+        order.id,
+        { kind: 'advance', actor: 'staff' },
+        new Date(),
+        null,
+        async () => {
+          throw new Error('card network declined');
+        },
+      );
+      if (!result.ok) throw new Error(`advance refused: ${result.failure.message}`);
+    }
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/**
  * Put an item on a daypart window that is open, or closed, RIGHT NOW
  * (P1-1, C-110).
  *

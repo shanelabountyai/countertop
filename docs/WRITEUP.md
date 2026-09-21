@@ -3706,3 +3706,21 @@ each re-implemented the click by hand, without the wait. Moved once, used
 twice, verified three repeats clean in isolation and then a full 246-spec
 sweep at zero failures — the fix is now structural rather than a matter of
 which write happens to be fast enough this month.
+
+### A reassuring sentence on the one order that owed money (C-147)
+
+C-069 gave the customer's status page "Card hold released — you were not
+charged", written for the no-show and the cancelled prepaid order, where it is
+the whole truth. There is a third way a hold is released: the capture itself is
+refused as the bag leaves, and the order goes back to owing its full total at
+the counter. The same sentence rendered there too — still true about the card,
+and now the exact message that lets somebody walk out without paying.
+
+It surfaced one item late, from the staff side. C-146 fixed the receipt's copy
+of the same line and split it on `canCollectPayment` precisely because of the
+`capture_failed` case, then noted the customer's page had never made that split.
+The lesson is the one the status module keeps teaching: a sentence written for
+"a released hold" was really written for "a released hold with nothing owed",
+and the condition that tells those apart already existed — the counter's own
+collect button was reading it. Both pages now ask it, and one e2e drives the
+refused capture end to end so the branch is no longer only argued for.
