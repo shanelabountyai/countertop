@@ -19,6 +19,7 @@ import {
   needsAcknowledgment,
   orderBalance,
   restaurantClock,
+  PAST_AN_HOUR,
   queueAging,
   serviceDay,
   STATUS_FACTS,
@@ -122,6 +123,20 @@ export default async function KitchenPage({
   // now". A `placed` ticket from Tuesday that chimes on every page load is an
   // alarm staff learn to ignore, and then the alert is worth nothing during
   // the rush it exists for. The banner below is how that order gets seen.
+  // Handoff P0-7: once the door has shut for the night, the orders that have
+  // sat ready past an hour are a closeout chore, sized. Asked of the gate
+  // with the pause switch ignored, because a paused kitchen past its cutoff is
+  // still past its cutoff; too_busy is the one closed answer that is not
+  // about the clock. Leftovers are excluded — they have their own banner.
+  const doorGate = checkoutGate({ ...gateState, paused: false }, clock);
+  const pastCutoff = !doorGate.open && doorGate.reason !== 'too_busy';
+  const pastAnHour = pastCutoff
+    ? orders.filter(
+        (order) =>
+          !isLeftOver(order, shiftDay) &&
+          queueAging(order, now, DEFAULT_AGING).noShowLevel === PAST_AN_HOUR,
+      ).length
+    : 0;
   const unacknowledged = orders.filter(
     (order) => needsAcknowledgment(order.status) && !isLeftOver(order, shiftDay),
   ).length;
@@ -210,6 +225,18 @@ export default async function KitchenPage({
           an earlier day, the oldest from {leftOver[0]?.businessDay}. Close{' '}
           {leftOver.length === 1 ? 'it' : 'them'} out — marked below — so today&rsquo;s queue is
           today&rsquo;s work.
+        </p>
+      )}
+
+      {/* Flagged, never swept: nothing here transitions an order. Whether it
+          is a no-show or a customer on their way is the counter's call. */}
+      {pastAnHour > 0 && (
+        <p
+          data-testid="closeout-banner"
+          className="mt-4 rounded-lg border-2 border-red-800 bg-red-100 p-4 text-lg font-semibold text-red-900"
+        >
+          {pastAnHour === 1 ? '1 order has' : `${pastAnHour} orders have`} been ready over an
+          hour; close {pastAnHour === 1 ? 'it' : 'them'} out before you cash up.
         </p>
       )}
 
@@ -366,6 +393,8 @@ export default async function KitchenPage({
                       // not also address.
                       leftOverCard
                         ? 'border-red-600 bg-red-50'
+                        : aging.noShowLevel === PAST_AN_HOUR
+                          ? 'border-red-900 bg-red-100 outline outline-4 outline-red-900'
                         : needsAcknowledgment(order.status)
                           ? 'alert-pulse border-sky-700 bg-sky-50'
                           : aging.noShowLevel >= 2 || aging.overdue
@@ -494,8 +523,9 @@ export default async function KitchenPage({
                             right number — the food may have been bagged long
                             before the customer was due. */}
                         {aging.dueInMinutes === null
-                          ? `On the shelf ${aging.readyMinutes} min — no-show?`
-                          : `${aging.readyMinutes} min past pickup — no-show?`}
+                          ? `On the shelf ${aging.readyMinutes} min`
+                          : `${aging.readyMinutes} min past pickup`}
+                        {aging.noShowLevel === PAST_AN_HOUR ? ' — over an hour' : ' — no-show?'}
                       </p>
                     )}
 

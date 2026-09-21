@@ -3724,3 +3724,14 @@ The lesson is the one the status module keeps teaching: a sentence written for
 and the condition that tells those apart already existed — the counter's own
 collect button was reading it. Both pages now ask it, and one e2e drives the
 refused capture end to end so the branch is no longer only argued for.
+
+### A P0 that the phasing never numbered (C-150)
+
+Every backlog item was ticked, so the build looked finished. PRD 2's P0-7
+(ready past an hour, and a closeout prompt at close) had never been given a
+C-number. When the PRD was phased into items, P0-1 through P0-6 got numbers
+and P0-7 did not, so from then on it could not appear as open anywhere the
+project looked. It turned up only when the PRDs' own unticked boxes were
+checked against the code one at a time. Every other unticked box had shipped.
+This one was the only real gap. The lesson: a backlog is an index of the
+requirements, and an index can drop an entry without any sign that it did.

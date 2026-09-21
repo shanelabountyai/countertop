@@ -553,6 +553,22 @@ export async function closeRestaurantToday(): Promise<void> {
   }
 }
 
+/**
+ * Put every `ready` order on the shelf `minutes` ago (handoff P0-7).
+ * `backdateQueue`'s reason: nobody waits an hour in a spec. Only
+ * `statusChangedAt` moves — the status itself is reached through the screens.
+ */
+export async function ageShelf(minutes: number): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  try {
+    const statusChangedAt = new Date();
+    statusChangedAt.setTime(statusChangedAt.getTime() - minutes * 60_000);
+    await prisma.order.updateMany({ where: { status: 'ready' }, data: { statusChangedAt } });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 /** Blank out the three C-077 contact columns — the state every database was in
  *  before that migration, and the one the footer has to render without a hole
  *  in it. */

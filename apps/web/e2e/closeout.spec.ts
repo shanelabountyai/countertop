@@ -1,6 +1,13 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { backdateQueue, card, placeOrderFor, reseed } from './fixtures';
+import {
+  ageShelf,
+  backdateQueue,
+  card,
+  closeRestaurantToday,
+  placeOrderFor,
+  reseed,
+} from './fixtures';
 
 // C-039: the end-of-day sweep (P1-6).
 //
@@ -95,4 +102,38 @@ test('the flagged queue has no accessibility violations', async ({ page }) => {
 
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
+});
+
+// Handoff P0-7: past an hour is its own level, and at close it is a chore
+// with a size. Flagged, never swept — the spec asserts nothing moved.
+test('ready past an hour is marked apart, and at close the queue says how many', async ({ page }) => {
+  await page.goto('/kitchen');
+  // Priya is seeded ready; the other three are walked there through the buttons.
+  const names = ['Dana Reyes', 'Morgan Ellis', 'Priya Shah', 'Sam Okafor'];
+  for (const name of names) {
+    for (const label of ['Accept', 'Start cooking', 'Food is ready']) {
+      const button = card(page, name).getByRole('button', { name: label, exact: true });
+      if ((await button.count()) === 0) continue;
+      await button.click();
+      await expect(button).toHaveCount(0);
+    }
+  }
+  await ageShelf(61);
+
+  // Open for business: the cards escalate, the banner waits for close.
+  await page.goto('/kitchen');
+  for (const name of names) {
+    await expect(card(page, name).getByText('On the shelf 61 min — over an hour')).toBeVisible();
+  }
+  await expect(page.getByTestId('closeout-banner')).toHaveCount(0);
+
+  await closeRestaurantToday();
+  await page.goto('/kitchen');
+  await expect(page.getByTestId('closeout-banner')).toHaveText(
+    '4 orders have been ready over an hour; close them out before you cash up.',
+  );
+  // Nothing transitioned without a tap: all four are still Ready.
+  for (const name of names) {
+    await expect(card(page, name).getByRole('button', { name: 'Picked up', exact: true })).toBeVisible();
+  }
 });

@@ -21,7 +21,9 @@ import {
  *     reset because a cook tapped "preparing".
  *   - `readyFlagMinutes` runs from the moment the food became READY. Cooked
  *     food going cold on a shelf is a different problem from a slow ticket,
- *     and it escalates: 10, 20, 30 minutes is a no-show taking shape.
+ *     and it escalates: 10, 20, 30 minutes is a no-show taking shape, and 60
+ *     (handoff P0-7) is one that happened — the fourth mark exists so an
+ *     order bagged at lunch stops looking like one bagged half an hour ago.
  *
  * NEITHER applies as written to a SCHEDULED order (P1-2). Both are durations
  * measured from something the order did, and a customer who asked for 17:00
@@ -32,12 +34,12 @@ import {
  */
 export type AgingThresholds = {
   queueFlagMinutes: number;
-  readyFlagMinutes: readonly [number, number, number];
+  readyFlagMinutes: readonly [number, number, number, number];
 };
 
 export const DEFAULT_AGING: AgingThresholds = {
   queueFlagMinutes: 15,
-  readyFlagMinutes: [10, 20, 30],
+  readyFlagMinutes: [10, 20, 30, 60],
 };
 
 /** Whole minutes, floored, never negative. A clock skewed a second into the
@@ -126,6 +128,11 @@ export function isPastDue(
   return isOverdue(elapsedMinutes(order.placedAt, at), thresholds);
 }
 
+export type NoShowLevel = 0 | 1 | 2 | 3 | 4;
+
+/** The top no-show mark: ready past an hour (handoff P0-7). */
+export const PAST_AN_HOUR: NoShowLevel = 4;
+
 export type QueueAging = {
   /**
    * Since placement, always — a scheduled order included, where it is true and
@@ -142,8 +149,8 @@ export type QueueAging = {
    * Null in every status but `ready`.
    */
   readyMinutes: number | null;
-  /** 0 = fresh; 1, 2, 3 as it passes the three no-show marks. */
-  noShowLevel: 0 | 1 | 2 | 3;
+  /** 0 = fresh; 1-4 as it passes the four no-show marks. 4 is "past an hour". */
+  noShowLevel: NoShowLevel;
   /**
    * Whole minutes until the promised pickup: positive before, 0 during that
    * minute, negative after. Null for an ASAP order.
@@ -181,7 +188,7 @@ export function queueAging(
   const noShowLevel =
     readyMinutes === null
       ? 0
-      : (thresholds.readyFlagMinutes.filter((mark) => readyMinutes >= mark).length as 0 | 1 | 2 | 3);
+      : (thresholds.readyFlagMinutes.filter((mark) => readyMinutes >= mark).length as NoShowLevel);
 
   return {
     waitingMinutes,

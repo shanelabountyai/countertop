@@ -69,10 +69,10 @@ The product is excellent up to the moment the food is cooked and completely abse
 - [x] Test: write "customer called, arriving 7:40" on a ready order, reload the queue, assert it renders on the card, is attributed as staff, and appears in the event log with its instant
 
 **P0-7: A ready order past an hour stops looking like one past thirty minutes** *(OPS 11)*
-- [ ] A fourth escalation level past a configurable threshold (default 60 min) visually separates "past an hour" from the existing 10/20/30 flags
-- [ ] At the pre-close cutoff the queue shows a sized closeout prompt in the same idiom as the C-039 leftover banner — "3 orders have been ready over an hour; close them out before you cash up" — flagged, never auto-swept
-- [ ] Nothing auto-abandons. Both evaluators name the refusal to auto-close as correct and it does not change here
-- [ ] Test: an order ready 61 minutes renders the level-4 treatment; three such orders produce a banner naming the count; no order transitions without a tap
+- [x] A fourth escalation level past a configurable threshold (default 60 min) visually separates "past an hour" from the existing 10/20/30 flags
+- [x] At the pre-close cutoff the queue shows a sized closeout prompt in the same idiom as the C-039 leftover banner — "3 orders have been ready over an hour; close them out before you cash up" — flagged, never auto-swept
+- [x] Nothing auto-abandons. Both evaluators name the refusal to auto-close as correct and it does not change here
+- [x] Test: an order ready 61 minutes renders the level-4 treatment; three such orders produce a banner naming the count; no order transitions without a tap
 
 ### Nice-to-Have (P1)
 

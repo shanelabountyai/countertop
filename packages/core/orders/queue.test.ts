@@ -9,6 +9,7 @@ import {
 import { formatOrderNumber } from './placement';
 import {
   DEFAULT_AGING,
+  PAST_AN_HOUR,
   elapsedMinutes,
   groupQueue,
   isLeftOver,
@@ -83,7 +84,7 @@ describe('queue aging (P0-4)', () => {
     expect(queueAging(order({ placedAt: minutesBefore(6) }), NOON, strict).overdue).toBe(true);
   });
 
-  it('escalates a ready order through the three no-show marks', () => {
+  it('escalates a ready order through the four no-show marks', () => {
     const ready = (minutes: number) =>
       queueAging(order({ status: 'ready', placedAt: minutesBefore(60), statusChangedAt: minutesBefore(minutes) }), NOON);
 
@@ -91,6 +92,10 @@ describe('queue aging (P0-4)', () => {
     expect(ready(10).noShowLevel).toBe(1);
     expect(ready(20).noShowLevel).toBe(2);
     expect(ready(45).noShowLevel).toBe(3);
+    // Handoff P0-7: an hour on the shelf is its own level, not a louder 30.
+    expect(ready(59).noShowLevel).toBe(3);
+    expect(ready(60).noShowLevel).toBe(PAST_AN_HOUR);
+    expect(ready(61).noShowLevel).toBe(4);
     expect(ready(12).readyMinutes).toBe(12);
   });
 
