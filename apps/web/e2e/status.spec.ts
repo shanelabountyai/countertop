@@ -137,6 +137,10 @@ test('an order past the range it was quoted says so, instead of "any minute now"
   await expect(estimate).toContainText('Running a bit behind');
   // The whole point: the false sentence is gone, not merely joined.
   await expect(estimate).not.toContainText('any minute now');
+  // And a screen reader is told: the flip is said inside the announcing
+  // region, once — the visible copy is out of the accessibility tree.
+  await expect(page.getByRole('status').filter({ hasText: 'Running a bit behind' })).toHaveCount(1);
+  await expect(estimate).toHaveAttribute('aria-hidden', 'true');
 });
 
 test('the status page has no detectable accessibility violations', async ({ page }) => {

@@ -3251,3 +3251,15 @@ the counter.
 order? — rather than each deciding for itself. That is why this fix was one
 condition on one page, and why the customer's words, the staff's words and the
 button can't drift apart.
+
+## C-148 — A customer using a screen reader hears when their order is running late
+
+The order status page already turned its estimate red and said "running a bit
+behind" once an order passed the time it was promised. That change was only
+visible: screen readers announce updates from the page's status panel, and the
+estimate sat outside it. The late notice is now announced from that panel.
+
+**Why it matters for a portfolio reader.** The simple fix, making the estimate
+line announce itself, would have made the screen reader speak every minute,
+because the estimated range updates every minute. The page announces only the
+change a customer needs to hear.

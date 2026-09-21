@@ -9966,3 +9966,47 @@ test failed on it.
 241 e2e + 15 skipped = 256 (+1). No flaky retries.
 
 C-147 committed at d70687b
+
+## C-148 — A screen reader is told when the order is running late (C-078's "Left behind")
+
+C-078 made the status page stop saying "any minute now" once an order passed
+its quoted high end, and left one thing behind: the estimate line sits outside
+the `role="status"` region, so the flip to "running a bit behind" repainted in
+silence. A sighted customer saw red; a screen-reader user heard nothing.
+
+**Built:**
+- A visually-hidden copy of the late sentence inside the existing
+  `role="status"` panel, rendered only while the order is open and `late`.
+- The visible estimate line carries `aria-hidden` while late, so browse mode
+  reads the sentence once, not twice.
+
+**Decided:**
+- **Not a second live region on the estimate line** — the "one attribute" fix
+  C-078 named. `remainingEstimate` shifts the range down by the minutes waited,
+  and `LiveUpdates` re-renders every minute idle, so an atomic `role="status"`
+  on that line would speak the new range every minute for the whole wait. The
+  flip past the promise is the news; the countdown is not.
+- **One region, so "which one wins" does not arise.** The panel is already
+  atomic; when the flip lands it is re-read with the late sentence in it.
+- **No `requestedFor` check on the announcement.** A scheduled order has no
+  quote, so `isPastQuote` is never true for it.
+
+**Tests:** e2e (`status.spec.ts`), the existing C-078 test gains two
+assertions: exactly one `role="status"` region contains "Running a bit behind",
+and the visible estimate line is `aria-hidden`. The live flip itself (without a
+navigation) takes up to a minute of idle polling to arrive, so the spec asserts
+the structure a reload produces rather than waiting it out.
+
+**Left behind:**
+- **The range countdown is not announced at all**, deliberately. A screen-reader
+  user who wants the current range reads the line on demand.
+- **NEXT.md's vitest kill line is not project-scoped.** `pkill -9 -f 'node
+  \(vitest'` matches every project's vitest workers (vitest renames its
+  processes, so `$PWD` is not in the command line to scope on). This session's
+  gate run probably killed live unit runs in `storage business` and
+  `apptbasedservice`. The line is now "only if `ps` shows this project's
+  runner is stale".
+
+**Gate:** green, first attempt. 1161 unit (+0), lint, typecheck, build,
+241 e2e + 15 skipped = 256 (+0, two assertions added to an existing test). No
+flaky retries.

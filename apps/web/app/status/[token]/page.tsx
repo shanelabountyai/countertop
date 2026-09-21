@@ -213,6 +213,19 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
             </p>
           )}
 
+          {/* The estimate line below is not a live region on purpose: its range
+              counts down every minute, and an atomic region would speak each
+              tick. What IS news is the flip past the promise, so that one
+              sentence is said here, inside the region that already announces,
+              and the visible copy below is hidden from the accessibility tree
+              so browse mode does not read it twice. A scheduled order is never
+              `late` (no quote), so no `requestedFor` check is needed. */}
+          {isOpen(order.status) && late && (
+            <p className="sr-only" data-testid="status-late-announcement">
+              Running a bit behind — the kitchen still has your order.
+            </p>
+          )}
+
           {/* Inside the coloured panel, not down in the footer: this is the
               screen where the answer IS a phone call, and a number six
               scroll-lengths below the apology is a number nobody finds. Absent
@@ -243,6 +256,7 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
             <p
               className={`mt-6 text-lg ${late ? 'font-bold text-red-700' : ''}`}
               data-testid="status-estimate"
+              aria-hidden={late || undefined}
             >
               {/* Late is asked FIRST, and that ordering is the requirement rather
                   than a preference: "any minute now" past the promised high end
