@@ -3372,3 +3372,25 @@ Two automated checks could fail by chance: one when a minute ticked over
 mid-test, one when the page re-rendered while it was being measured. Both now
 give the same answer every time. A third failed once and never again; it was
 investigated and left unchanged.
+
+## C-164 — Project closure: a demo script, a brief, and the posts
+
+Countertop is finished. Three pieces now sit alongside the code, so someone
+who isn't an engineer can see what it does.
+
+**A demo script** (`docs/DEMO.md`) walks through the product screen by
+screen: which commands to run, where each password lives, which customer to
+point at, and what to say. It also lists what to admit before anyone asks.
+Every command in it was run before it was written down. Running them found two
+things that were wrong. The command for regenerating the screenshots had been
+quietly running the entire test suite. And the usual way to start the app
+opens on an empty kitchen, because it reads the test database. Two new
+commands fix the second one: `npm run dev:demo` starts the app on the
+database the demo uses, and `npm run smoke:demo` checks it before you present.
+
+**Links:**
+
+- Executive brief, *Countertop in Brief*: https://claude.ai/artifact/MaBNCdTXGPBiRZPRjjij2r
+- LinkedIn drafts, posts 20–24 in the Lab Intelligence Ledger: https://claude.ai/artifact/Ai5xKScgT2sWtqXRQ1ZA8i
+- Build log: https://claude.ai/artifact/28KeGV3xfBwcBuoMEQjFMj
+- Live demo: https://countertop-mu.vercel.app

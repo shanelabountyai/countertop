@@ -10462,3 +10462,50 @@ assertion failure to read. With no mechanism, there is nothing to fix.
 **Gate:** green, first attempt. 1180 unit, lint, typecheck, build, 254 e2e + 15 skipped = 269. No flaky retries.
 
 C-163 committed at 8bc6839
+
+---
+
+## C-164 — Closure deliverables
+
+The global *Definition of done*: demo script, exec brief, LinkedIn drafts.
+
+**`docs/DEMO.md`** follows the sibling repo's shape. Every shell command in it
+was run this session: `db:status:dev`, both rush modes (their output is quoted
+from this run), `dev:demo`, `smoke:demo` (8/8), `smoke:prod` (8/8), the token
+query, `npm test -- rush` (47), `npm test -- snapshot` (15), and the screenshot
+command's `--list` (15 tests in 1 file). The screenshot spec itself was not
+re-run, because that would rewrite 15 PNGs. `npm run gate` is the gate below.
+
+**Decided:**
+- **Two new scripts, `dev:demo` and `smoke:demo`.** `npm run dev` is
+  `dev:test` and reads the test DB, but the rush writes the dev DB. It's the
+  same trap the reservations repo documents. `smoke:demo` is `deploy-smoke.mts`
+  with `SMOKE_URL` pointed at localhost, so there's no second script.
+- **The screenshot command was wrong in two places.** The spec's header and
+  WRITEUP's *The Screens* both said `npm run test:e2e -- screenshots.spec.ts`.
+  The root script's `sh -c` drops the argument (C-147), so it runs the whole
+  suite. Running it with `dev:demo` up made Playwright reuse that server on the
+  **dev** DB, and 9 specs failed in the first 26. The sweep was killed and the
+  dev DB reseeded. Both places now give the direct Playwright call.
+- **Stop 1 of the first draft was wrong.** I assumed `/menu` would show
+  guacamole items as sold out. Guacamole is an option, so "Sold out" appears in
+  the burrito composer instead. Checked against the running app and rewritten.
+- **Wes Toma's PIN (9012) is the deactivated one.** The draft had listed it as
+  a working PIN. The doc now uses it as the refusal to demo.
+- **Hosted data is frozen at deploy time.** `resetDatabase` asserts a local
+  DB, so the rush can't be reseeded on Neon. That's stated in the doc, not
+  worked around.
+
+**Artifacts:** brief updated in place (numbers re-counted from this gate and
+the migrations folder: 1,180 unit + 254 e2e, 57 CHECK + 3 triggers across 42
+migrations, 147 C-items with commits; a capabilities block added, which the
+skill requires and the old version lacked). Five posts (20–24) added to the
+Ledger, appended after #11 in an order where no two neighbours share a pillar.
+The build log marks Countertop shipped. URLs are in RELEASE_NOTES → C-164.
+
+**Left behind:**
+- The 2026-08-26 *Countertop* artifact (`8zMNnHFqoNAR4KDn3Vv2Ck`, built from
+  `docs/portfolio/`) predates C-030 and was not refreshed. The build log's
+  write-up link points at `docs/WRITEUP.md` on GitHub instead.
+- WRITEUP's *By the Numbers* is still dated C-132.
+- Checking the prod schema after a migration push is still a manual step.

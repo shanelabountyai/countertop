@@ -61,8 +61,8 @@ and a test in the same file.
 ## The Screens
 
 Every image below is a real screenshot of the running application, captured by
-Playwright against the seeded database — `SCREENSHOTS=1 npm run test:e2e --
-screenshots.spec.ts` regenerates them. Nothing here is a mockup, and the
+Playwright against the seeded database. The command that regenerates them is
+in `apps/web/e2e/screenshots.spec.ts` and in `docs/DEMO.md`. Nothing here is a mockup, and the
 numbers on them are the numbers the tests assert.
 
 **The kitchen queue, twelve minutes into the seeded rush.** Twenty-two live

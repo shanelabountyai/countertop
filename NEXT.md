@@ -8,6 +8,17 @@ Every PRD requirement is now either shipped or a named P2.
 
 ## Pick this up first
 
+**Closure is done (C-164, 2026-09-21).** `docs/DEMO.md`, the refreshed
+*Countertop in Brief*, Ledger posts 20–24, and the build log marked shipped.
+URLs are in `docs/RELEASE_NOTES.md` → C-164. The project is complete. The next
+session is a **choice, not a task**: pick one P2 below and scope it, or move to
+another project.
+
+**Before any demo:** `npm run demo:rush:live`, then `npm run dev:demo` (NOT
+`npm run dev`, which reads the test DB), then `npm run smoke:demo`. Never run
+e2e while `dev:demo` is up: Playwright reuses the server on 3400 and tests the
+dev DB.
+
 **Production is migrated and live (2026-09-21).** It had been serving 500s on
 `/` and `/menu`: auto-deployed code was running against a schema 36 migrations
 behind. `db:migrate:prod` applied all 36, `db:status:prod` reports up to date,

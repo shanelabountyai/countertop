@@ -15,7 +15,11 @@ import {
 // `--list` total, which is why the convention reconciles `passed + skipped +
 // flaky` rather than reading the tail.
 //
-//   SCREENSHOTS=1 PORT=3400 npm run test:e2e -- screenshots.spec.ts
+//   cd apps/web && SCREENSHOTS=1 npx dotenv -e ../../.env.test -e ../../.env.local -- \
+//     npx playwright test screenshots.spec.ts
+//
+// Not `npm run test:e2e -- screenshots.spec.ts`: the root script's `sh -c`
+// drops trailing arguments, so that form runs the WHOLE suite (C-147).
 //
 // They are e2e specs rather than a standalone Playwright script for one
 // reason: `webServer` already knows how to build the app and start it on the
