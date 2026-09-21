@@ -1,5 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-import { STAFF_AUTH_FILE } from './e2e/auth-file';
+import { ROTATED_OUT_PASSCODE, STAFF_AUTH_FILE } from './e2e/auth-file';
 
 // e2e runs against a PRODUCTION build (CLAUDE.md "The gate") — a dev server is
 // not the artifact that ships. E2E_DEV=1 restores the dev server for stack
@@ -43,5 +43,9 @@ export default defineConfig({
     // line per checkout attempt is a cheap price for a sweep that shows what
     // the server actually recorded.
     stdout: 'pipe',
+    // A passcode mid-rotation (C-158), so auth.spec can present a cookie
+    // issued under it. Only ever widens who is let in by this one known test
+    // value; the sign-in form still checks STAFF_PASSCODE alone.
+    env: { ...process.env, STAFF_PASSCODE_PREVIOUS: ROTATED_OUT_PASSCODE } as Record<string, string>,
   },
 });

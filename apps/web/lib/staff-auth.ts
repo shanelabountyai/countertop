@@ -7,8 +7,15 @@
 //
 // The cookie carries no authority of its own — it is a digest of the passcode.
 // Rotating STAFF_PASSCODE therefore invalidates every session ever issued, and
-// there is no session table, no expiry sweep, and no second secret to keep in
-// step with the first.
+// there is no session table and no expiry sweep.
+//
+// ROTATION WITHOUT A MASS SIGN-OUT (PRD 6 P1-4, C-158). Set the new value in
+// STAFF_PASSCODE and the old one in STAFF_PASSCODE_PREVIOUS. A tablet still
+// holding the old digest is let in and its cookie is re-issued under the new
+// one by the middleware, so each device moves over on its next request. Unset
+// STAFF_PASSCODE_PREVIOUS once the tablets have been used (a shift is plenty),
+// and anything that did not come back is signed out — which is the point of
+// rotating.
 //
 // `crypto.subtle` rather than `node:crypto` because this module is imported by
 // BOTH the edge middleware and a Node server action; only one of them has the
@@ -37,6 +44,11 @@ export const STAFF_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
  */
 export const staffPasscode = (): string => process.env.STAFF_PASSCODE ?? '';
 
+/** The passcode being rotated away from, honoured only while it is set and
+ *  only alongside a current one. Empty means no rotation in progress. */
+export const previousStaffPasscode = (): string =>
+  staffPasscode() === '' ? '' : (process.env.STAFF_PASSCODE_PREVIOUS ?? '');
+
 /** The cookie's value, and the comparand for a typed passcode. Salted, so the
  *  stored token is not a bare SHA-256 of a six-character word. */
 export async function staffToken(passcode: string): Promise<string> {
@@ -55,12 +67,19 @@ export function sameToken(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** The one question the middleware asks. */
-export async function isStaff(cookieValue: string | undefined): Promise<boolean> {
+/** The one question the middleware asks: which passcode a cookie was issued
+ *  under — the current one, the one being rotated away from, or neither. */
+export async function staffCookieGeneration(
+  cookieValue: string | undefined,
+): Promise<'current' | 'previous' | null> {
   const passcode = staffPasscode();
-  if (passcode === '' || cookieValue === undefined) return false;
-  return sameToken(cookieValue, await staffToken(passcode));
+  if (passcode === '' || cookieValue === undefined) return null;
+  if (sameToken(cookieValue, await staffToken(passcode))) return 'current';
+  const previous = previousStaffPasscode();
+  if (previous !== '' && sameToken(cookieValue, await staffToken(previous))) return 'previous';
+  return null;
 }
+
 
 /**
  * Where a login may send someone afterwards.

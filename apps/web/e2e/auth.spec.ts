@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
+import { ROTATED_OUT_PASSCODE } from './auth-file';
 
 // The staff boundary (C-037).
 //
@@ -65,6 +67,25 @@ test.describe('signing in', () => {
     await page.goto('/kitchen');
     await expect(page).toHaveURL(/\/kitchen\/login/);
   });
+});
+
+// PRD 6 P1-4 (C-158): a tablet signed in under the passcode being rotated away
+// from stays signed in, and walks away holding a cookie for the new one.
+test('a tablet signed in under the old passcode is moved to the new one, not signed out', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const token = (passcode: string) =>
+    createHash('sha256').update(`countertop-staff:${passcode}`).digest('hex');
+  await context.addCookies([
+    { name: 'ct_staff', value: token(ROTATED_OUT_PASSCODE), url: `${baseURL}/kitchen` },
+  ]);
+
+  await page.goto('/kitchen');
+  await expect(page).toHaveURL('/kitchen');
+  const cookie = (await context.cookies()).find((c) => c.name === 'ct_staff');
+  expect(cookie?.value).toBe(token(PASSCODE));
 });
 
 /** The passcode comes from the environment the app was started with — a

@@ -14,7 +14,7 @@
 // anybody can type.
 import { cookies } from 'next/headers';
 import { shiftStamp, staffById, staffIdFromStamp, type StaffIdentity } from '@countertop/db/staff';
-import { staffPasscode } from './staff-auth';
+import { previousStaffPasscode, staffPasscode } from './staff-auth';
 
 export const ON_SHIFT_COOKIE = 'ct_shift';
 
@@ -44,7 +44,12 @@ export const shiftCookieValue = (staffId: string): string =>
  */
 export async function currentShiftId(): Promise<string | null> {
   const cookie = (await cookies()).get(ON_SHIFT_COOKIE)?.value;
-  return staffIdFromStamp(cookie, staffPasscode());
+  // Mid-rotation (C-158) a shift stamped under the old passcode still names
+  // its cook; it is not re-issued, and ends when the old passcode is retired.
+  return (
+    staffIdFromStamp(cookie, staffPasscode()) ??
+    staffIdFromStamp(cookie, previousStaffPasscode())
+  );
 }
 
 /** The same person, with their name, for the header that shows who is on. One

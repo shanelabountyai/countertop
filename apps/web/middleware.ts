@@ -12,14 +12,34 @@
 // ever needs to be called from a customer surface, the upgrade is a
 // requireStaff() at the top of that action — not a second matcher.
 import { NextResponse, type NextRequest } from 'next/server';
-import { isStaff, STAFF_COOKIE } from '@/lib/staff-auth';
+import {
+  STAFF_COOKIE,
+  STAFF_COOKIE_MAX_AGE,
+  staffCookieGeneration,
+  staffPasscode,
+  staffToken,
+} from '@/lib/staff-auth';
 
 const LOGIN = '/kitchen/login';
 
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname, search } = request.nextUrl;
   if (pathname === LOGIN) return NextResponse.next();
-  if (await isStaff(request.cookies.get(STAFF_COOKIE)?.value)) return NextResponse.next();
+  const generation = await staffCookieGeneration(request.cookies.get(STAFF_COOKIE)?.value);
+  if (generation === 'current') return NextResponse.next();
+  if (generation === 'previous') {
+    // Mid-rotation (C-158): let this tablet in and move its cookie to the new
+    // passcode, so it is still signed in after the old one is retired.
+    const response = NextResponse.next();
+    response.cookies.set(STAFF_COOKIE, await staffToken(staffPasscode()), {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/kitchen',
+      maxAge: STAFF_COOKIE_MAX_AGE,
+      secure: process.env.NODE_ENV === 'production',
+    });
+    return response;
+  }
 
   // A GET is a person who navigated: send them somewhere they can do something
   // about it. Anything else is a server action, and a 307 would make the
