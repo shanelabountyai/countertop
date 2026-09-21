@@ -7,6 +7,7 @@ import {
   MAX_SHELF_LOCATION_LENGTH,
   QUEUE_STATUSES,
   UNDOABLE_EXIT_STATUSES,
+  feedPage,
 } from '@countertop/core';
 import { Prisma, prisma } from './index';
 import { readNote } from './history';
@@ -170,4 +171,43 @@ export async function setShelfLocation(orderId: string, input: string): Promise<
     where: { id: orderId },
     data: { shelfLocation: trimmed === '' ? null : trimmed.slice(0, MAX_SHELF_LOCATION_LENGTH) },
   });
+}
+
+/**
+ * One page of the ordered event feed (PRD 6 P1-1, C-161), for a printer or KDS
+ * bridge reading forward from the last `seq` it handled.
+ *
+ * What an event IS, and nothing a person wrote: no `detail` (a staff note can
+ * name a customer), no customer fields. A consumer that needs the ticket asks
+ * for the order by id, behind the same staff boundary.
+ */
+export async function loadFeed(
+  after: number,
+  now: Date,
+  limit = 200,
+): Promise<{
+  events: {
+    seq: number;
+    orderId: string;
+    at: Date;
+    kind: string;
+    fromStatus: string | null;
+    toStatus: string | null;
+    actor: string;
+  }[];
+  next: number;
+}> {
+  const rows = await prisma.orderEvent.findMany({
+    where: { seq: { gt: BigInt(after) } },
+    orderBy: { seq: 'asc' },
+    take: limit,
+    select: { seq: true, orderId: true, at: true, kind: true, fromStatus: true, toStatus: true, actor: true },
+  });
+  // Number, not BigInt: JSON has no BigInt, and 2^53 events is not a ceiling
+  // one restaurant reaches.
+  return feedPage(
+    rows.map((row) => ({ ...row, seq: Number(row.seq) })),
+    after,
+    now,
+  );
 }

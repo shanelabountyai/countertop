@@ -20,6 +20,11 @@ test.describe('signed out', () => {
   // The one that matters. A redirect on the GET is cosmetic if the writes are
   // still reachable — a server action is a POST to the page's own path, and
   // this asserts the boundary catches it as such.
+  test('the event feed is behind the same door (C-161)', async ({ request }) => {
+    const response = await request.get('/kitchen/events?after=0', { maxRedirects: 0 });
+    expect(response.status()).toBe(307);
+  });
+
   test('a POST to a kitchen route is refused outright', async ({ request }) => {
     for (const path of ['/kitchen', '/kitchen/menu', '/kitchen/settings']) {
       const response = await request.post(path, { data: {} });

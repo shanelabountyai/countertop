@@ -676,3 +676,56 @@ test.describe('the SMS stub', () => {
     await expect(page.getByTestId('notification-outbox')).toHaveCount(0);
   });
 });
+
+// PRD 2 P1-1 (C-160): "waiting at counter". A tap pins the card to the top of
+// Ready and marks it; the pickup clears it without a second tap.
+test('a customer at the counter is pinned to the top of Ready until picked up', async ({ page }) => {
+  reseed();
+  await page.goto('/kitchen');
+  // Priya is seeded ready and is older; Dana is walked to ready.
+  for (const label of ['Accept', 'Start cooking', 'Food is ready']) {
+    const button = card(page, 'Dana Reyes').getByRole('button', { name: label, exact: true });
+    await button.click();
+    await expect(button).toHaveCount(0);
+  }
+  const ready = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Ready/ }) });
+  await expect(ready.getByRole('listitem').filter({ hasText: /#\d{3}/ }).first()).toContainText('Priya Shah');
+
+  await card(page, 'Dana Reyes').getByRole('button', { name: 'Customer is here' }).click();
+  await expect(card(page, 'Dana Reyes').getByTestId('waiting-badge')).toHaveText('Waiting at counter');
+  await expect(ready.getByRole('listitem').filter({ hasText: /#\d{3}/ }).first()).toContainText('Dana Reyes');
+
+  await card(page, 'Dana Reyes').getByRole('button', { name: 'Picked up', exact: true }).click();
+  await expect(page.getByTestId('waiting-badge')).toHaveCount(0);
+});
+
+// PRD 6 P1-1 (C-161): the ordered event feed a printer bridge reads forward.
+test('the event feed reads forward in order, and a new event appears after the cursor', async ({
+  page,
+}) => {
+  reseed();
+  const first = await (await page.request.get('/kitchen/events?after=0')).json();
+  const seqs = first.events.map((e: { seq: number }) => e.seq);
+  expect(seqs.length).toBeGreaterThan(0);
+  expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+  expect(first.next).toBe(seqs.at(-1));
+  // No customer and no free text on the wire: an event, not a ticket.
+  expect(Object.keys(first.events[0]).sort()).toEqual(
+    ['actor', 'at', 'fromStatus', 'kind', 'orderId', 'seq', 'toStatus'],
+  );
+
+  // Caught up: nothing after the cursor, and the cursor echoed.
+  const idle = await (await page.request.get(`/kitchen/events?after=${first.next}`)).json();
+  expect(idle).toEqual({ events: [], next: first.next });
+
+  // One tap on the queue is one event past the cursor.
+  await page.goto('/kitchen');
+  const accept = card(page, 'Dana Reyes').getByRole('button', { name: 'Accept', exact: true });
+  await accept.click();
+  await expect(accept).toHaveCount(0);
+  const after = await (await page.request.get(`/kitchen/events?after=${first.next}`)).json();
+  expect(after.events).toHaveLength(1);
+  expect(after.events[0]).toMatchObject({ kind: 'transition', toStatus: 'accepted' });
+
+  expect((await page.request.get('/kitchen/events?after=-1')).status()).toBe(400);
+});

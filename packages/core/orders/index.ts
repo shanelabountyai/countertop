@@ -13,3 +13,4 @@ export * from './adjustment';
 export * from './refund';
 export * from './authorization';
 export * from './retention';
+export * from './feed';
