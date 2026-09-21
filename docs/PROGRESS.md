@@ -10056,3 +10056,5 @@ the warning at 30. Both fail on the old component.
 
 **Gate:** green, first attempt. 1161 unit (+0), lint, typecheck, build,
 243 e2e + 15 skipped = 258 (+2). No flaky retries.
+
+C-149 committed at 9a411b7
