@@ -288,6 +288,34 @@ describe('zonedTimeToInstant (P1-2) — the one local -> instant conversion', ()
     expect(restaurantClock(summer, 'UTC').minuteOfDay).toBe(19 * 60);
   });
 
+  // Pinned to 2026's two actual transition dates in Los Angeles: clocks jump
+  // 02:00 PST -> 03:00 PDT at 10:00Z on 8 March, and fall 02:00 PDT -> 01:00
+  // PST at 09:00Z on 1 November.
+  it('round-trips every minute that exists on the spring-forward day', () => {
+    for (let minute = 0; minute < 24 * 60; minute += 1) {
+      if (minute >= 2 * 60 && minute < 3 * 60) continue; // 02:00-02:59 never happens
+      const instant = zonedTimeToInstant('2026-03-08', minute, TZ);
+      expect(restaurantClock(instant, TZ)).toMatchObject({ day: '2026-03-08', minuteOfDay: minute });
+    }
+  });
+
+  it('resolves a skipped minute to a real instant, never a throw', () => {
+    // 02:30 does not exist. The refinement pass lands it on 01:30 PST — an
+    // hour off, on the same day, which is what "a real instant near that
+    // minute" means here. Pinned, so a change to it is a decision.
+    const instant = zonedTimeToInstant('2026-03-08', 2 * 60 + 30, TZ);
+    expect(instant.getTime()).toBe(Date.UTC(2026, 2, 8, 9, 30));
+  });
+
+  it('round-trips every minute of the fall-back day, the doubled hour as its FIRST occurrence', () => {
+    for (let minute = 0; minute < 24 * 60; minute += 1) {
+      const instant = zonedTimeToInstant('2026-11-01', minute, TZ);
+      expect(restaurantClock(instant, TZ)).toMatchObject({ day: '2026-11-01', minuteOfDay: minute });
+    }
+    // 01:30 happens twice; the one returned is 01:30 PDT (08:30Z), not PST.
+    expect(zonedTimeToInstant('2026-11-01', 90, TZ).getTime()).toBe(Date.UTC(2026, 10, 1, 8, 30));
+  });
+
   it('throws on a malformed day rather than guessing', () => {
     expect(() => zonedTimeToInstant('07/07/2026', 780, TZ)).toThrow();
   });

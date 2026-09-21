@@ -169,10 +169,10 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
   // is recalculated on every render, and this page re-renders on every poll
   // (P0-7).
   const { estimate, timezone } = await currentCheckout();
-  // The phone, for the two views whose copy asks the customer to use it. A
-  // separate read from the footer's own, which is a query rather than a prop
-  // threaded down so that a page can never render the footer and forget it.
-  const { phone } = await loadRestaurantContact(now);
+  // The phone, for the two views whose copy asks the customer to use it. Read
+  // once and handed to the footer too, so the page reads the columns once.
+  const contact = await loadRestaurantContact(now);
+  const { phone } = contact;
   const waited = elapsedMinutes(order.placedAt, now);
   const remaining = remainingEstimate(estimate, waited);
   // PRD 5 P0-2. Asked of the range SNAPSHOTTED on this order, so the page
@@ -425,7 +425,7 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
           Order something else
         </Link>
       </main>
-      <RestaurantFooter />
+      <RestaurantFooter contact={contact} />
     </>
   );
 }

@@ -10058,3 +10058,84 @@ the warning at 30. Both fail on the old component.
 243 e2e + 15 skipped = 258 (+2). No flaky retries.
 
 C-149 committed at 9a411b7
+
+---
+
+## C-150 — A ready order past an hour (PRD 2 P0-7)
+
+Found while working NEXT.md's list: `docs/backlog.md` had every item ticked,
+but PRD 2's P0-7 had four unticked boxes and no C-number. PRD 2's phasing
+(C-059–C-062, then C-092 for P0-6) never numbered P0-7, so it fell out.
+Every other unticked box in the PRDs was checked against the code and has
+shipped under a C-number; those PRDs track completion in the backlog, not in
+their own checkboxes.
+
+**Built:**
+- `readyFlagMinutes` is a four-tuple, `[10, 20, 30, 60]`. `noShowLevel` is
+  `NoShowLevel` (0-4) and `PAST_AN_HOUR` names the top mark.
+- A level-4 card gets a heavier outline and darker surface than a level-2/3
+  red card, and its shelf line ends "— over an hour" rather than
+  "— no-show?".
+- `closeout-banner` on `/kitchen`: the count of ready-past-an-hour orders,
+  shown only once the door has shut for the night.
+
+**Decided:**
+- **"At the pre-close cutoff" is the gate, asked with `paused: false`.** Any
+  closed answer except `too_busy` means the clock has shut the door. A paused
+  kitchen past its cutoff is still past its cutoff, so the pause is ignored
+  for this question. `too_busy` is excluded because it is about load, not time.
+- **Leftovers are not counted.** They already have their own banner, and one
+  order in two counts is a chore counted twice.
+- **The threshold is the `DEFAULT_AGING` constant**, like the other three
+  marks, not a settings column. "Configurable" means the same thing it meant
+  for 10/20/30.
+- **Outline, not `border-4`.** The card's base class is `border-2`, and two
+  border widths on one element is a stylesheet-order coin toss.
+
+**Tests:** unit (`queue.test.ts`: 59 → level 3, 60 and 61 → level 4); e2e
+(`closeout.spec.ts`): four orders walked to ready through the buttons, shelf
+aged 61 minutes by the new `ageShelf` fixture, each card reads "over an hour",
+no banner while open, the banner counts 4 once closed for the day, and every
+card still offers "Picked up".
+
+**Left behind:**
+- **The banner fires on a closed-today override too**, which is correct (the
+  door is shut) but means a restaurant that closes mid-day for an emergency
+  sees a closeout prompt at 1pm.
+
+**Gate:** green, first attempt, run once over C-150 and C-151 together. 1164 unit (+3), lint, typecheck, build, 245 e2e + 15 skipped = 260 on `--list` (+2). No flaky retries.
+
+## C-151 — Four loose ends from NEXT.md's "Still open"
+
+**Built:**
+- **`/menu/[itemId]` renders `RestaurantFooter`.** It was the sixth customer
+  route and the one C-077 left out. `contact.spec.ts` now loops over it too.
+- **The status page reads the contact columns once.** `RestaurantFooter`
+  takes an optional `contact`; leaving it off still reads its own, so a page
+  cannot forget the footer by forgetting the prop.
+- **`zonedTimeToInstant` pinned to real DST dates.** Every minute of
+  2026-03-08 and 2026-11-01 in Los Angeles round-trips except the skipped
+  hour. A skipped 02:30 lands on 01:30 PST, and the doubled 01:30 is its
+  first (PDT) occurrence. Both are pinned, so changing either is a decision.
+  The function's `ponytail:` note is gone.
+- **A fully-booked day says so.** When every slot is full, "Pick a pickup
+  time" is disabled and reads "every pickup time left today is full". Before
+  this, choosing it selected a disabled `<option>`.
+
+**Closed without code, with the reason:**
+- **`refund_failed` rows accumulate uncapped.** Each row is a real attempt in
+  an append-only log, so capping it would throw away evidence. If a long
+  receipt ever matters, the fix is to collapse repeated rows in the display.
+- **`done=off` survives a reload.** Already decided at C-109: it reports the
+  URL, not an action, and the line is true either way.
+- **`NotificationKind` has one value / nothing reads
+  `queueReadyNotification`'s return / no append-only trigger on
+  `NotificationOutbox`.** Recorded seams that wait on a product decision
+  (a second notification kind, a real provider). Building them now is
+  speculative.
+
+**Tests:** 3 unit (DST), 1 e2e route added to the footer loop. No e2e for the
+fully-booked copy: filling every remaining slot depends on the time of day the
+spec runs.
+
+**Gate:** green, first attempt, run once over C-150 and C-151 together. 1164 unit (+3), lint, typecheck, build, 245 e2e + 15 skipped = 260 on `--list` (+2). No flaky retries.

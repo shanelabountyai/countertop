@@ -29,9 +29,9 @@ test.beforeEach(() => {
   reseed();
 });
 
-/** The four customer routes reachable without placing an order. The status
- *  page is the fifth and needs a token, so it gets its own test below. */
-const ROUTES = ['/', '/menu', '/cart', '/checkout'];
+/** The five customer routes reachable without placing an order. The status
+ *  page is the sixth and needs a token, so it gets its own test below. */
+const ROUTES = ['/', '/menu', '/menu/burrito', '/cart', '/checkout'];
 
 for (const route of ROUTES) {
   test(`${route} tells a first-time customer where the restaurant is`, async ({ page }) => {

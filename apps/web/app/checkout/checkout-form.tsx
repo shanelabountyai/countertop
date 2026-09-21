@@ -83,6 +83,7 @@ export function CheckoutForm({
   // makes a scheduled submission valid — a slot list with nothing selected
   // yet is not a request the button should accept.
   const [requestedForMinute, setRequestedForMinute] = useState<number | null>(null);
+  const firstOpenSlot = slots.find((slot) => slot.remainingWeight > 0);
   // The bearer token a confirmed code minted for THIS attempt (C-116), held
   // only in this component's state — no cookie, no session; PRD 7's resolved
   // Non-Goal rules out a remembered device and there is nothing to hang one on.
@@ -237,14 +238,22 @@ export function CheckoutForm({
               <span className="text-sm text-red-700">— not taking ASAP orders right now</span>
             )}
           </label>
+          {/* A fully-booked day says so, rather than offering a list of
+              nothing but disabled times (C-114's "degrades silently"). */}
           <label className="flex min-h-12 items-center gap-2">
             <input
               type="radio"
               checked={requestedForMinute !== null}
-              onChange={() => setRequestedForMinute(slots.find((slot) => slot.remainingWeight > 0)?.minuteOfDay ?? slots[0]!.minuteOfDay)}
+              disabled={firstOpenSlot === undefined}
+              onChange={() => firstOpenSlot && setRequestedForMinute(firstOpenSlot.minuteOfDay)}
               className="size-5"
             />
             Pick a pickup time
+            {firstOpenSlot === undefined && (
+              <span className="text-sm text-red-700" data-testid="slots-full">
+                — every pickup time left today is full
+              </span>
+            )}
           </label>
           {requestedForMinute !== null && (
             <select

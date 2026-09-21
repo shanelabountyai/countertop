@@ -310,11 +310,9 @@ function offsetMinutesAt(instant: Date, timezone: string): number {
  * thrown, because a customer booking a slot `packages/core/orders/schedule.ts`
  * just generated must never see an exception.
  *
- * ponytail: no fixture pinned to an actual DST-transition date. A slot booked
- * inside a restaurant's one skipped or doubled local hour a year picks A real
- * instant near that minute rather than the mathematically "correct" one
- * (there isn't one), and is untested. Upgrade path: a fixture on the
- * transition date, if a restaurant ever runs a rush across one.
+ * A slot inside the skipped hour lands an hour early (02:30 -> 01:30 standard
+ * time); one inside the doubled hour is its first occurrence. Both are pinned
+ * against 2026's real Los Angeles transition dates in business-day.test.ts.
  */
 export function zonedTimeToInstant(day: string, minuteOfDay: number, timezone: string): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);

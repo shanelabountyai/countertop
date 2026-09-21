@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import type { Menu } from '@countertop/core/menu';
 import { loadClock, loadMenu } from '@countertop/db/menu';
 import { readCart } from '@/lib/cart-session';
+import { RestaurantFooter } from '@/lib/restaurant-footer';
 import { Composer } from './composer';
 
 export default async function ItemPage({
@@ -50,5 +51,10 @@ export default async function ItemPage({
       ? { lineId: line.id, composition: line.composition }
       : undefined;
 
-  return <Composer menu={scoped} itemId={item.id} clock={clock} {...(editing && { editing })} />;
+  return (
+    <>
+      <Composer menu={scoped} itemId={item.id} clock={clock} {...(editing && { editing })} />
+      <RestaurantFooter />
+    </>
+  );
 }

@@ -3276,3 +3276,23 @@ asks the server whether ordering is still open.
 customer's device clock, which can be wrong. It starts from the server's
 figure and counts the time since then, and the server still decides when
 ordering closes.
+
+## C-150 — An order left on the shelf for over an hour stands out, and the kitchen is told at close
+
+Ready orders on the kitchen screen already escalated at 10, 20 and 30
+minutes. After that, an order bagged at lunch looked the same as one bagged
+half an hour ago. Past an hour a card now gets its own heavier marking. Once
+the restaurant stops taking orders for the night, the screen says how many are
+left: "4 orders have been ready over an hour; close them out before you cash
+up." The screen only flags them. Staff still close each one.
+
+**Why it matters for a portfolio reader.** This requirement was in a PRD and
+had been missed by the build plan. It was found by checking the PRDs against
+the code instead of trusting the backlog's ticks.
+
+## C-151 — Small fixes: the footer on the item page, daylight-saving dates, and a full day of pickup times
+
+The restaurant's address, phone and hours now also appear on the item page,
+the one customer screen that lacked them. Scheduled pickup times are now tested
+on the two days a year the clocks change. When every pickup time left today is
+full, checkout now says so.

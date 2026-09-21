@@ -11,12 +11,11 @@
 // five pages: the alternative is five pages each remembering to fetch and
 // pass the same three columns, which is five places to forget it.
 //
-// ponytail: added by hand to each of the five customer routes rather than by
-// a `(customer)` route group with a layout. A sixth customer route can forget
-// it — the composer at /menu/[itemId] is exactly that route today, left out
-// because P0-1 names five. Moving six directories to make it structural is
-// the change to make when a second thing belongs on every customer screen.
-import { loadRestaurantContact } from '@countertop/db/gate';
+// ponytail: added by hand to each of the six customer routes rather than by
+// a `(customer)` route group with a layout, so a seventh can forget it.
+// Moving six directories to make it structural is the change to make when a
+// second thing belongs on every customer screen.
+import { loadRestaurantContact, type RestaurantContact } from '@countertop/db/gate';
 
 /**
  * A dialable href. Everything but digits and a leading `+` comes out, because
@@ -46,8 +45,13 @@ export function CallLink({ phone, className = '' }: { phone: string; className?:
   );
 }
 
-export async function RestaurantFooter() {
-  const { name, addressLine, phone, hoursToday } = await loadRestaurantContact();
+/**
+ * `contact` is for a page that has already read it (the status page, for its
+ * call panel) — optional, so leaving it off still renders a footer rather
+ * than a page that forgot one.
+ */
+export async function RestaurantFooter({ contact }: { contact?: RestaurantContact } = {}) {
+  const { name, addressLine, phone, hoursToday } = contact ?? (await loadRestaurantContact());
 
   return (
     <footer
