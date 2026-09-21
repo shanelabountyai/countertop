@@ -1,25 +1,19 @@
 # Next
 
-**C-146 shipped this session**: the staff receipt reads a released hold. A
-successful void re-derives `paymentState` to `unpaid`, so a no-show or
-cancelled prepaid order's receipt read "Pay at pickup" — on an order nobody
-may charge. The line now checks `releasedWithoutCapture` before the enum (as
-the customer's status page already did), and splits on `canCollectPayment` so
-a `capture_failed` release still says money is owed. Gate green, first
-attempt: 1161 unit, 240 e2e + 15 skipped = 255. Committed at 1a1345d.
+**C-147 shipped this session**: a refused capture is money owed, on both
+pages. The customer's status page now splits its released-hold sentence on
+`canCollectPayment` like the staff receipt — a `capture_failed` release reads
+"your card was not charged. $X due at the counter". New `failCaptureFor`
+fixture + one e2e covering both pages and the collect control. Gate green,
+first attempt: 1161 unit, 241 e2e + 15 skipped = 256. Committed at d70687b.
 
 ## Pick this up first
 
-No item was queued by C-146. `docs/backlog.md` has nothing unchecked — the
-pick comes from "Still open" below or the PRD's P2 list.
-
-Two of C-146's own leftovers are the cheapest next step, and they are the same
-item: **the `capture_failed` release is under-served on both sides.** No test
-covers that branch (the e2e drives the no-show path; provoking a failed
-capture wants a `failVoidFor`-style fixture pointed at `capture`), and the
-CUSTOMER's status page says "Card hold released — you were not charged" on it,
-which is true about the card and silent about the money now owed at the
-counter. One item closes both.
+No item was queued by C-147, and `docs/backlog.md` has nothing unchecked — the
+pick comes from "Still open" below or the PRD's P2 list. Cheapest candidate:
+**the status page's estimate line sits outside the `role="status"` region**
+(C-078) — a screen reader is not told when the estimate changes. Small,
+customer-facing, a11y.
 
 ## Read this before the next push
 
@@ -39,6 +33,10 @@ counter. One item closes both.
   minutes — idle, not sweeping. Check CPU time and RSS before waiting on one;
   a different project on a different port is not a `reuseExistingServer`
   collision.)
+- **`npm run test:e2e -- --grep X` does NOT filter** (C-147): the root
+  script's `sh -c '...'` swallows trailing args, so it silently runs the full
+  sweep. To run one spec, `cd apps/web` and call its own script, with the
+  `dotenv -e ../../.env.test -e ../../.env.local --` prefix.
 - **`npm run test:e2e` already wires in `testlock`**
   (`~/.claude/bin/testlock`, outside this repo) via the root `package.json`
   script — do not prefix it yourself. Silent no-op anywhere not installed,
@@ -59,8 +57,6 @@ counter. One item closes both.
 
 ## Still open
 
-- **No test for the `capture_failed` release, and the customer's page is
-  silent about the money it owes** (C-146) — see "Pick this up first".
 - **Nothing bounds a staff `adjust` below zero** — investigated, not fixed.
   There is currently NO write path anywhere in `apps/web` that lets a staff
   member write an arbitrary loyalty `adjust` row. The gap is real in
