@@ -9964,3 +9964,5 @@ test failed on it.
 
 **Gate:** green, first attempt. 1161 unit (+0), lint, typecheck, build,
 241 e2e + 15 skipped = 256 (+1). No flaky retries.
+
+C-147 committed at d70687b
