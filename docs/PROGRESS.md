@@ -10430,3 +10430,33 @@ C-162 committed at c67eaf1
 for C-161 went in with C-162, and C-160's e2e went in with C-161, because all
 three touched the same two files. The three were gated together and are
 pushed together, so only the HEAD state was ever tested or deployed.)
+
+---
+
+## C-163 — The three flaky specs
+
+**`last-call.spec.ts` — a race in the test, fixed.** `setLastOrderIn(n)`
+places the cutoff `n` whole minutes past the server's current minute. If the
+clock rolls over before a page renders, the server correctly says `n − 1`, so
+an assertion of exactly `n` fails about once per 60 seconds of test time. The
+recorded failure was a `Killed: 9`, which is environmental, but the race is
+real either way. The first test and the "window opens" test re-set the fixture
+inside `toPass`; the countdown test asserts relative to the minute it started
+on (9 or 10). 12/12 over three repeats.
+
+**`menu-editing.spec.ts` "usable one-handed" — hardened, not root-caused.**
+140 runs of the whole file against the production build (`--repeat-each=4`),
+zero failures. One mechanism was found in the test: `page.getByRole(...).all()`
+returns index-based locators that re-resolve on every later call, so a
+re-render between listing and measuring could shift an index onto a hidden
+element, and `boundingBox() ?? 0` then fails with a height of 0. The test now
+measures every visible button and text field in one in-page pass and reports
+the short ones by label.
+
+**`refund.spec.ts` "a no-show is offered a refund" — closed, no change.** One
+8-second timeout in one sweep (C-107's entry), never reproduced since, and no
+assertion failure to read. With no mechanism, there is nothing to fix.
+
+**Tests:** the specs themselves; the gate below.
+
+**Gate:** green, first attempt. 1180 unit, lint, typecheck, build, 254 e2e + 15 skipped = 269. No flaky retries.

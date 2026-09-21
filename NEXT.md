@@ -1,99 +1,76 @@
 # Next
 
-**C-149 shipped this session**: the last-call warning counts down from the
-gate's figure using elapsed monotonic time, and refreshes at zero so the gate
-says "closed". Gate green, first attempt: 1161 unit, 243 e2e + 15 skipped =
-258.
+**This session (2026-09-21) shipped C-150 → C-163.** NEXT.md's whole
+"Still open" list is now either built or closed with a reason (below). Checking
+the PRDs against the backlog turned up eleven requirements that had never been
+given a C-number (PRD 2 P0-7, PRD 3 P1-3, and nine P1s). All eleven are built.
+Every PRD requirement is now either shipped or a named P2.
 
 ## Pick this up first
 
-Nothing queued. Pick from "Still open" below. Cheap candidate: **`/menu/[itemId]` can forget the footer**.
+🟢 **Production is 36 migrations behind.** `npm run db:status:prod` lists
+everything from `20260901224630_payment_event` onward as unapplied, so the
+live deployment's code and database have been out of step since early
+September. Not touched this session: migrating production is a deliberate,
+separate command (`npm run db:migrate:prod`), and it needs a decision about
+whether the live demo should run today's code. Decide that first.
+
+After that, nothing is queued. The only remaining product work is the master
+PRD's P2 list (WebSocket transport, a real payment provider, combos/nested
+modifiers, reorder, tips, station routing, printer/KDS, real SMS, multi-location).
+Each is its own session and needs a scoping decision before it starts.
 
 ## Read this before the next push
 
 - **`npm run gate` is a manual discipline** (C-125). Anything touching code
   needs the full gate run before push.
+- **Run `npm test` (the WHOLE unit suite), not only `packages/core`, before
+  the gate.** C-157 broke a `packages/db` `toEqual` that the core run cannot
+  see (C-154–159's first gate).
 - **Before any e2e sweep, both kill lines** (C-128's incident):
   ```sh
   pkill -9 -f "$PWD.*playwright"
-  # NOT `pkill -f 'node \(vitest'` — vitest renames its workers, so that
-  # pattern matches EVERY project's unit runs (C-148 killed two). Only kill a
-  # stale vitest after `ps` shows its parent is this repo's.
   lsof -ti :3400 | xargs -r kill -9
   ```
-  **And check for OTHER projects' sweeps too**: `ps aux | grep -iE
-  "vitest|playwright test"` and `sysctl -n kern.memorystatus_level` — a wall
-  of unrelated timeout failures with memory below ~40% and other projects'
-  processes in that list means contention, not a regression. (C-146 found an
-  `apptbasedservice` runner in that list that had burned 1.9s of CPU in eight
-  minutes — idle, not sweeping. Check CPU time and RSS before waiting on one;
-  a different project on a different port is not a `reuseExistingServer`
-  collision.)
-- **`npm run test:e2e -- --grep X` does NOT filter** (C-147): the root
-  script's `sh -c '...'` swallows trailing args, so it silently runs the full
-  sweep. To run one spec, `cd apps/web` and call its own script, with the
+  Never `pkill -f 'node \(vitest'`: it matches every project's unit runs.
+- **A local drift check needs a SCRATCH shadow database.**
+  `prisma migrate diff --shadow-database-url` DROPS that database; pointed at
+  `countertop_test` it wiped it (C-156). `createdb countertop_shadow`, use
+  it, `dropdb` it.
+- **The report page's source is scanned for `loyalt`** by P0-6's static test
+  (`packages/db/report.test.ts`). A comment counts (C-153).
+- **The Playwright web server runs with `STAFF_PASSCODE_PREVIOUS`** set to
+  `ROTATED_OUT_PASSCODE` (C-158). A dev server you started yourself does not,
+  so `auth.spec`'s rotation test fails against it. Let Playwright start it.
+- **`npm run test:e2e -- --grep X` does NOT filter** (C-147). To run one spec,
+  `cd apps/web` and call Playwright with the
   `dotenv -e ../../.env.test -e ../../.env.local --` prefix.
-- **`npm run test:e2e` already wires in `testlock`**
-  (`~/.claude/bin/testlock`, outside this repo) via the root `package.json`
-  script — do not prefix it yourself. Silent no-op anywhere not installed,
-  CI included.
-- **A hand-written migration's index needs a matching `@@index` in
-  `schema.prisma`, or CI's drift check fails** (C-134's incident).
-- **A server action's click does not block on its own mutation.** Check
-  `fixtures.ts` for an existing guarded helper before writing a raw click.
+- **A hand-written migration's index needs a matching `@@index`/`@unique` in
+  `schema.prisma`**, or CI's drift check fails.
 - **Run `npm run db:migrate:all` after adding a migration**, before tests.
-- **Anything run outside `npm test`** gets no `DATABASE_URL`. Prefix with
-  `npx dotenv -e .env.test -e .env.local --`.
-- **Never run `prettier --write`** — no config, no dependency, fights this
-  codebase's style.
-- **`payment.spec.ts` reseeds in `beforeEach`**, so `?q=<name>` on
-  `/kitchen/orders` matches exactly the order the test placed. "Iris
-  Lindqvist" appears nowhere but that spec — a single-link click is safe
-  there and is not a pattern to copy blind into a spec that does not reseed.
+- **Never run `prettier --write`.**
 
-## Still open
+## Closed this session without code, with the reason
 
-- **Nothing bounds a staff `adjust` below zero** — investigated, not fixed.
-  There is currently NO write path anywhere in `apps/web` that lets a staff
-  member write an arbitrary loyalty `adjust` row. The gap is real in
-  `packages/core/loyalty/ledger.ts`'s `loyaltyBalance` (a plain unbounded
-  sum) and is explicitly anticipated by comments in both `ledger.ts` and
-  `loyalty.ts`. **Decide when a real staff-adjust write path is scoped**:
-  this repo's "refused, never clamped" convention (`planRedemption`,
-  `planCheckoutRedemption`) argues for a `planStaffAdjustment`-style
-  refusal, not a `Math.max(0, …)` clamp. Revisit together with whatever
-  session finally builds the staff correction UI the loyalty PRD describes
-  but nothing has built yet.
-- **A third flaky spec**: `e2e/menu-editing.spec.ts:234` ("the editor is
-  usable one-handed on a phone"), intermittent when run as part of the full
-  file, reproduces identically on clean `HEAD` — not caused by any recent
-  session's changes. Did not reproduce in C-137's, C-138's, C-139's or
-  C-146's own gate runs. Not root-caused. Joins `e2e/refund.spec.ts:211` and
-  `e2e/last-call.spec.ts:17` on the pre-existing flaky list.
-- **`NotificationKind` has one value** (C-121).
-- **Nothing reads `queueReadyNotification`'s return value** (C-121).
-- **No append-only trigger on `NotificationOutbox`** (the model's own
-  `ponytail:`).
-- **Nothing in the rush redeems at the COUNTER** — both redemptions are
-  self-serve.
-- **No member in the rush has a balance that expires**.
-- **A customer who abandons a checkout and comes back verifies again**.
-- **`Order.discountCents` has exactly one producer**.
-- **No deadlock is constructible on the member lock** — an argument, not a
-  test.
-- **`MAX_STAGE_ATTEMPTS` exhausted still throws a raw `P2002`** (C-129,
-  deliberate).
-- **The staged-price retry is not observable** (C-129).
-- **The `PhoneVerification` sweep is not observable** (C-130).
-- **`done=off` survives a page reload.**
-- **A sixth customer route can forget the footer** — `/menu/[itemId]`.
-- **The status page reads the contact columns twice.**
-- **Twenty-two of twenty-five items have no description** (C-080).
-- **`e2e/refund.spec.ts:211` and `e2e/last-call.spec.ts:17`** — the other
-  two pre-existing flaky specs, untouched again this session.
-- **Same-day only for order-ahead** (C-114) — P2 item.
-- **A fully-booked day degrades silently to ASAP-only** (C-114).
-- **No fixture pinned to an actual DST-transition date** (C-114).
-- **No e2e drives a scheduled order PAST its slot** (C-123).
-- **`refund_failed` rows accumulate uncapped on a stuck provider.**
-- **No seeded/rush scenario produces a `refund_reversed` event.**
+- **Nothing bounds a staff `adjust` below zero.** Still no write path for an
+  arbitrary `adjust`, and none was built. When the staff correction UI is
+  scoped, use a `planStaffAdjustment` refusal, not a clamp.
+- **`NotificationKind` has one value / nothing reads `queueReadyNotification`'s
+  return / no append-only trigger on `NotificationOutbox`.** Seams waiting on
+  a product decision (a second kind, a real SMS provider).
+- **A customer who abandons a checkout and comes back verifies again.** C-116's
+  binding working as designed: the token belongs to one attempt.
+- **`Order.discountCents` has exactly one producer.** Still true, and C-152
+  showed it is correct: a counter redemption is an `adjustment` beside the
+  order, never a snapshot column.
+- **No deadlock is constructible on the member lock.** The argument stands,
+  and the rush now takes that lock three ways.
+- **`MAX_STAGE_ATTEMPTS` exhausted throws a raw `P2002`; the staged-price retry
+  and the `PhoneVerification` sweep are not observable.** Deliberate, the same
+  ceiling as the retention sweep (`docs/RETENTION.md`).
+- **`done=off` survives a reload** — decided at C-109.
+- **Twenty-two of twenty-five items have no description** — the restaurant's
+  copy to write (C-080). The same goes for photos (C-162).
+- **`refund_failed` rows accumulate uncapped** — each is a real attempt in an
+  append-only log.
+- **Same-day only for order-ahead** — a P2.

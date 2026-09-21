@@ -291,6 +291,8 @@ out). The owner chose to build all nine, one commit each, cheapest first:
 - [x] **C-161** — *(PRD 6 P1-1)* An ordered, replayable event feed.
 - [x] **C-162** — *(PRD 5 P1-3)* Photos.
 
+- [x] **C-163** — *(NEXT.md's three pre-existing flaky specs)* `last-call.spec.ts`: a real race: the fixture sets the cutoff in whole minutes off the server's clock, so a minute rollover mid-test made the server honestly say 9. Wrapped in `toPass` (re-set and retry) or asserted relative to the starting minute. `menu-editing.spec.ts`'s one-handed test: not reproduced in 140 runs; the one mechanism found (index-based `.all()` locators re-resolving after a re-render) removed by measuring in one in-page pass. `refund.spec.ts`: one timeout, once, months ago, never reproduced; closed with no change.
+
 Everything in the PRD's P2 list is what remains open on the master PRD. (P1-2,
 P1-3, P1-4 and P1-7 were on this line until they shipped as C-114, C-113,
 C-042 and C-041 — this list is the one that goes stale, so check it against

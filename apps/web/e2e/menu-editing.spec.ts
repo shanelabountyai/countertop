@@ -273,14 +273,18 @@ test('the editor is usable one-handed on a phone', async ({ page }) => {
   );
   expect(overflow).toBeLessThanOrEqual(0);
 
-  for (const control of await page.getByRole('button').all()) {
-    const box = await control.boundingBox();
-    expect(box?.height ?? 0).toBeGreaterThanOrEqual(48);
-  }
-  for (const field of await page.getByRole('textbox').all()) {
-    const box = await field.boundingBox();
-    expect(box?.height ?? 0).toBeGreaterThanOrEqual(48);
-  }
+  // Measured in ONE pass inside the page. `.all()` hands back index-based
+  // locators that re-resolve on each later call, so a re-render between the
+  // list and the measurement (hydration, a status line appearing) could shift
+  // an index onto a hidden element and read its height as 0 — the one
+  // mechanism found for this spec's intermittent failure (C-163).
+  const short = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('button, textarea, input:not([type]), input[type="text"], input[type="url"], input[type="search"], input[type="tel"], input[type="email"]')]
+      .filter((el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden')
+      .map((el) => ({ label: el.getAttribute('aria-label') ?? el.textContent?.trim() ?? el.tagName, height: el.getBoundingClientRect().height }))
+      .filter((el) => el.height < 48),
+  );
+  expect(short).toEqual([]);
 
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])

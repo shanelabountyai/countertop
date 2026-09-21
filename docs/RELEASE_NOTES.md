@@ -3365,3 +3365,10 @@ event, even when two happen at the same moment.
 
 Restaurants can add a photo link to any menu item. The photo shows beside the
 item on the menu and at the top of the item's page.
+
+## C-163 — Three unreliable tests made dependable
+
+Two automated checks could fail by chance: one when a minute ticked over
+mid-test, one when the page re-rendered while it was being measured. Both now
+give the same answer every time. A third failed once and never again; it was
+investigated and left unchanged.

@@ -17,23 +17,30 @@ test.beforeEach(() => {
 test('ten minutes from the cutoff, all three ordering screens say the same thing', async ({
   page,
 }) => {
-  await setLastOrderIn(10);
+  // `toPass`, because the fixture is set in WHOLE MINUTES off the server's
+  // clock. If that clock rolls over between setting it and the third page
+  // rendering, the server honestly says 9 — a race in the test, not the
+  // product. A retry re-sets the fixture; a rollover cannot happen twice in
+  // the few seconds one attempt takes.
+  await expect(async () => {
+    await setLastOrderIn(10);
 
-  const seen: string[] = [];
-  for (const route of ROUTES) {
-    await page.goto(route);
-    const warning = page.getByTestId('last-call');
-    await expect(warning).toBeVisible();
-    // The number, not just the sentence: a countdown stuck on the wrong minute
-    // renders a perfectly plausible warning.
-    await expect(warning).toHaveAttribute('data-minutes', '10');
-    seen.push((await warning.textContent())!.trim());
-  }
+    const seen: string[] = [];
+    for (const route of ROUTES) {
+      await page.goto(route);
+      const warning = page.getByTestId('last-call');
+      await expect(warning).toBeVisible();
+      // The number, not just the sentence: a countdown stuck on the wrong
+      // minute renders a perfectly plausible warning.
+      await expect(warning).toHaveAttribute('data-minutes', '10', { timeout: 1_000 });
+      seen.push((await warning.textContent())!.trim());
+    }
 
-  // Byte-identical across the three, which is what "one component" means when
-  // it is asserted rather than asserted about.
-  expect(new Set(seen).size).toBe(1);
-  expect(seen[0]).toContain('Last online orders in 10 min');
+    // Byte-identical across the three, which is what "one component" means
+    // when it is asserted rather than asserted about.
+    expect(new Set(seen).size).toBe(1);
+    expect(seen[0]).toContain('Last online orders in 10 min');
+  }).toPass({ timeout: 30_000 });
 });
 
 test('forty minutes from the cutoff, none of them does', async ({ page }) => {
@@ -58,18 +65,25 @@ test('the countdown ticks down without a reload', async ({ page }) => {
   await page.goto('/menu');
 
   const warning = page.getByTestId('last-call');
-  await expect(warning).toHaveAttribute('data-minutes', '10');
+  await expect(warning).toBeVisible();
+  // 10, or 9 if the server's minute rolled over since the fixture was set —
+  // the assertion is the three minutes the SCREEN counts, not that race.
+  const start = Number(await warning.getAttribute('data-minutes'));
+  expect([9, 10]).toContain(start);
   await page.clock.runFor(3 * 60_000);
-  await expect(warning).toHaveAttribute('data-minutes', '7');
-  await expect(warning).toContainText('Last online orders in 7 min');
+  await expect(warning).toHaveAttribute('data-minutes', String(start - 3));
+  await expect(warning).toContainText(`Last online orders in ${start - 3} min`);
 });
 
 test('the warning appears when the window opens on a screen already up', async ({ page }) => {
-  await setLastOrderIn(31);
   await page.clock.install();
-  await page.goto('/menu');
-
-  await expect(page.getByTestId('last-call')).toHaveCount(0);
+  // Re-set and reload if the server's minute rolled over between the fixture
+  // and the render (the first test's race) — that load already shows 30.
+  await expect(async () => {
+    await setLastOrderIn(31);
+    await page.goto('/menu');
+    await expect(page.getByTestId('last-call')).toHaveCount(0, { timeout: 1_000 });
+  }).toPass({ timeout: 30_000 });
   await page.clock.runFor(60_000);
   await expect(page.getByTestId('last-call')).toHaveAttribute('data-minutes', '30');
 });
