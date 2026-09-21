@@ -3313,3 +3313,38 @@ Money the restaurant booked and then waived at the counter now has its own
 line on the sales report. Before this, a comp was counted as revenue but was
 neither paid nor owed, so the report's money totals no longer added up to its
 revenue.
+
+## C-154 — The kitchen screen says when a customer has a reward to spend
+
+When a loyalty member's order is on the kitchen screen and they have a reward
+they can use on it, the card says "Member — reward available", so the cashier
+offers it instead of waiting to be asked.
+
+## C-155 — Find an order by the shelf its bag is on
+
+Staff could already search the kitchen screen by name or order number. They
+can now type the shelf, to answer "whose bag is on shelf 3?"
+
+## C-156 — A written plan for a second location
+
+The steps for supporting more than one restaurant location are now written
+into the database schema, in order, including the one step whose ordering
+matters: changing order numbers to count per location.
+
+## C-157 — Late tickets and no-shows, day by day
+
+For a report covering more than one day, a new table shows each day's late
+tickets and no-shows side by side, so an unusual Friday stands out.
+
+## C-158 — Changing the staff passcode no longer signs out every tablet
+
+A manager can now change the kitchen passcode while the tablets stay signed
+in. Each tablet moves to the new passcode automatically the next time it is
+used. Devices that do not come back are signed out once the old passcode is
+removed.
+
+## C-159 — Every report download is logged
+
+Each download of the sales spreadsheet now leaves a log entry recording who
+took it, which dates, and what columns it held. None of those columns name a
+customer.

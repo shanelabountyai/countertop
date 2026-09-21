@@ -281,12 +281,12 @@ A sweep of every PRD's P1 list against the backlog found nine requirements
 that were never given a C-number (the same way PRD 2 P0-7 and PRD 3 P1-3 fell
 out). The owner chose to build all nine, one commit each, cheapest first:
 
-- [ ] **C-154** — *(PRD 7 P1-3)* A member chip on the queue card.
-- [ ] **C-155** — *(PRD 2 P1-2)* The shelf on the walk-up lookup.
-- [ ] **C-156** — *(PRD 6 P1-3)* The multi-location widening plan, written down.
-- [ ] **C-157** — *(PRD 1 P1-3)* A no-show and ran-late trend line.
-- [ ] **C-158** — *(PRD 6 P1-4)* Passcode rotation that does not sign out every tablet.
-- [ ] **C-159** — *(PRD 6 P1-2)* Read-only export as a boundary.
+- [x] **C-154** — *(PRD 7 P1-3)* A member chip on the queue card.
+- [x] **C-155** — *(PRD 2 P1-2)* The shelf on the walk-up lookup.
+- [x] **C-156** — *(PRD 6 P1-3)* The multi-location widening plan, written down.
+- [x] **C-157** — *(PRD 1 P1-3)* A no-show and ran-late trend line.
+- [x] **C-158** — *(PRD 6 P1-4)* Passcode rotation that does not sign out every tablet.
+- [x] **C-159** — *(PRD 6 P1-2)* Read-only export as a boundary.
 - [ ] **C-160** — *(PRD 2 P1-1)* "Waiting at counter".
 - [ ] **C-161** — *(PRD 6 P1-1)* An ordered, replayable event feed.
 - [ ] **C-162** — *(PRD 5 P1-3)* Photos.

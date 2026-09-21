@@ -201,3 +201,33 @@ export function totalTampering(
   if (!review.placeable) return null;
   return checkClientTotal(review.totals.totalCents, clientTotalCents);
 }
+
+/**
+ * An export leaving the building (PRD 6 P1-2, C-159). A file handed to a
+ * spreadsheet is a boundary crossing like a log line, so it gets one: who
+ * took it (a staff id, never a name), which window, how many rows, and the
+ * COLUMN NAMES — so the day somebody adds a column holding a person, the log
+ * says so on every download rather than nobody noticing.
+ */
+export type ExportLogInput = {
+  at: Date;
+  file: string;
+  window: string;
+  rows: number;
+  columns: readonly string[];
+  staffId: string | null;
+};
+
+export function exportLogLine(input: ExportLogInput): PlacementLogLine {
+  return {
+    event: 'export',
+    at: input.at.toISOString(),
+    file: input.file,
+    window: input.window,
+    rows: input.rows,
+    columns: [...input.columns],
+    // `unattributed` rather than an absent field: a line that cannot say who
+    // is itself the fact worth finding.
+    staffId: input.staffId ?? 'unattributed',
+  };
+}

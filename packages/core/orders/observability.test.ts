@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { CartReview } from '../cart/cart';
-import { placementLogLine, totalTampering, type PlacementLogInput } from './observability';
+import {
+  exportLogLine,
+  placementLogLine,
+  totalTampering,
+  type PlacementLogInput,
+} from './observability';
 
 // C-084 / PRD 6 P0-1. Today, when an order goes missing at 7:10pm, the product
 // cannot tell "never placed" from "placed and eaten", because it writes no log
@@ -220,5 +225,41 @@ describe('totalTampering — evidence, not noise', () => {
     // showed $11.85. Calling that tampering is the noise this function exists
     // to keep out, and the bug was re-deriving `placeable` instead of asking.
     expect(totalTampering(review(0, false), 1185)).toBeNull();
+  });
+});
+
+describe('exportLogLine — a download is a boundary crossing (PRD 6 P1-2)', () => {
+  it('names who, which window, how many rows and every column', () => {
+    const at = new Date(Date.UTC(2026, 8, 21, 20));
+    expect(
+      exportLogLine({
+        at,
+        file: 'sales',
+        window: '2026-09-01_2026-09-21',
+        rows: 21,
+        columns: ['Business day', 'Orders'],
+        staffId: 'staff-1',
+      }),
+    ).toEqual({
+      event: 'export',
+      at: '2026-09-21T20:00:00.000Z',
+      file: 'sales',
+      window: '2026-09-01_2026-09-21',
+      rows: 21,
+      columns: ['Business day', 'Orders'],
+      staffId: 'staff-1',
+    });
+  });
+
+  it('says unattributed, rather than dropping the field, when nobody is on shift', () => {
+    const line = exportLogLine({
+      at: AT,
+      file: 'sales',
+      window: 'today',
+      rows: 0,
+      columns: [],
+      staffId: null,
+    });
+    expect(line.staffId).toBe('unattributed');
   });
 });

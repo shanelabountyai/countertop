@@ -15,8 +15,17 @@
 // One line per event, JSON, no interpolation: a log line split across two
 // physical lines is a log line the platform indexes as two events, and a
 // stack trace in the middle of a message is how that happens.
-import { placementLogLine, type PlacementLogInput } from '@countertop/core';
+import {
+  exportLogLine,
+  placementLogLine,
+  type ExportLogInput,
+  type PlacementLogInput,
+} from '@countertop/core';
 
 export function logPlacement(input: PlacementLogInput): void {
   console.log(JSON.stringify(placementLogLine(input)));
+}
+
+export function logExport(input: ExportLogInput): void {
+  console.log(JSON.stringify(exportLogLine(input)));
 }

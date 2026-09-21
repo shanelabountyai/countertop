@@ -10221,3 +10221,114 @@ finished rush shows Comps $10.00).
 **Gate:** run once over C-152 and C-153. The first attempt failed in the unit leg (the P0-6 static scan, above); the rerun was green. 1167 unit (+3), lint, typecheck, build, 246 e2e + 15 skipped = 261 (+1). No flaky retries.
 
 C-153 committed at dda578b
+
+---
+
+## C-154 — A member chip on the queue card (PRD 7 P1-3)
+
+**Built:** `queueMembers(orders)` in `packages/db/loyalty.ts` hashes each
+card's phone and reads every matching member's ledger and every existing
+`redeem` for the queue in two queries. The queue page asks `planRedemption`,
+the receipt's own question, and renders "Member — reward available" under the
+name only when it says yes.
+
+**Decided:**
+- **The chip means the button works.** Same function as the receipt, so a
+  prepaid order (nothing owed at the counter), an order that already carries a
+  reward, and a member short of a reward all show nothing.
+- **Bordered neutral, not filled.** The PRD says it must not compete with the
+  negation treatment. Red is aging, amber is money and notes, sky is new and
+  matched; this one uses a border only.
+- **Program off: no query at all**, so the queue stays loyalty-free (P0-6).
+
+**Tests:** e2e (`loyalty.spec.ts`): short of a reward shows nothing, a whole
+reward shows the chip, program off hides it, and spending it on the receipt
+removes it.
+
+## C-155 — The shelf on the walk-up lookup (PRD 2 P1-2)
+
+**Built:** `matchesLookup` matches `shelfLocation` too. Exact, not partial,
+with a leading "shelf" ignored on both sides, so "Shelf 3", "shelf3" and "3"
+find the bag labelled "shelf 3" and "shelf 3" does not ring shelf 13. The hint
+reads "Find an order by name, number or shelf".
+
+**Tests:** unit (`queue.test.ts`, six cases); e2e (`kitchen.spec.ts`: typed
+"Shelf 3" rings exactly one card).
+
+## C-156 — The multi-location widening plan, written down (PRD 6 P1-3)
+
+**Built:** a comment above `model RestaurantSettings` in `schema.prisma`,
+pointed to from the header's list of hand-written constraints. Five ordered
+steps (a `Location` table and backfill, drop the singleton CHECK, re-key
+StoreHours, widen `(businessDay, seq)`, decide shared vs copied menu), what
+does not change, and the work list for step 2: the 36 `id: 'singleton'` reads.
+
+**Found:** the PRD's own sentence ("the `(businessDay, seq)` collision on
+location B's first order") is only true if per-location numbering ships
+before the constraint widens. The plan says to do both in one change and
+says what each wrong order does.
+
+**Found, and cost a reset:** a local `prisma migrate diff` drift check with
+`--shadow-database-url` pointed at `countertop_test` dropped that database.
+Rebuilt with `db:reset:test` + `db:seed:test`. Recorded as a memory; CI's
+drift check stays the one that runs.
+
+## C-157 — Ran late and no-shows, by day (PRD 1 P1-3)
+
+**Built:** `ServiceTimes.byDay` (tickets and ran-late per business day, from
+`serviceTimes`) and `NoShowRate.byDay` (from `salesReport`'s own no-show
+branch). The report page joins them into a "By day" table with a bar beside
+each count. Shown only for a window with two or more days.
+
+**Decided:**
+- **A join, not a third classification.** Each count comes from the function
+  that already owns it, so the table cannot disagree with the tiles above it.
+- **A table with bars, not a chart library.** The numbers are the data and
+  screen readers read them; the bars are `aria-hidden` pictures of them.
+
+**Tests:** unit (`time-in-state.test.ts`: 30 tickets split 20/10 across two
+days; `report.test.ts`: the no-show lands on its day); e2e (`report.spec.ts`:
+two days give two rows, oldest first, and a one-day window shows no table).
+
+## C-158 — Rotating the passcode without signing every tablet out (PRD 6 P1-4)
+
+**Built:** `STAFF_PASSCODE_PREVIOUS`. The middleware asks
+`staffCookieGeneration`: a cookie for the current passcode passes, and one for
+the previous passcode passes AND is re-issued under the current one. The shift
+stamp is also accepted under the previous passcode. `isStaff` had no callers
+left and is gone. `.env.example` gives the three-step rotation.
+
+**Decided:**
+- **The sign-in form checks the current passcode only.** The old passcode
+  keeps existing devices in. It does not let anyone new in.
+- **The previous passcode means nothing without a current one**, so an unset
+  STAFF_PASSCODE still locks everything.
+- **Shift cookies are not re-issued**, only accepted. They last 16 hours; a
+  shift that outlives the overlap ends, which is a name tap.
+
+**Tests:** e2e (`auth.spec.ts`): the Playwright web server runs with a known
+previous passcode (`ROTATED_OUT_PASSCODE`); a tablet holding its digest loads
+`/kitchen` and leaves with the current passcode's digest.
+
+## C-159 — The export as a boundary crossing (PRD 6 P1-2)
+
+**Built:** `exportLogLine` in `packages/core/orders/observability.ts`, next to
+the placement line, and `logExport` in `lib/log.ts`. The CSV route writes one
+JSON line per download: who (staff id or `unattributed`), window, row count,
+and the column names.
+
+**Decided:**
+- **No opt-in name column**, because there is nothing to opt into. The only
+  export is per-day totals and holds no person. Building a per-order export to
+  have a name column to gate would be a feature nobody asked for. The column
+  names are in every log line, so the day a person-shaped column is added,
+  every download shows it.
+
+**Tests:** unit (`observability.test.ts`, +2).
+
+**Gate (C-154 to C-159, run once over all six):** the first attempt failed in
+the unit leg. `packages/db/report.test.ts` asserted `noShow` with `toEqual`,
+and C-157's `byDay` field broke it; I had only run the core suite after that
+change. Loosened to `toMatchObject` (its `byDay` is covered in core). Rerun
+green: 1171 unit (+4), lint, typecheck, build, 249 e2e + 15 skipped = 264
+(+3). No flaky retries.

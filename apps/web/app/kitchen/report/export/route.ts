@@ -13,6 +13,8 @@
 import { salesReport } from '@countertop/core';
 import { loadServiceDay } from '@countertop/db/gate';
 import { loadReportOrders } from '@countertop/db/report';
+import { logExport } from '@/lib/log';
+import { currentShiftId } from '@/lib/shift';
 import { resolveWindow } from '../window';
 
 // Never prerendered, for the same reason the page is not: a report baked at
@@ -76,6 +78,18 @@ export async function GET(request: Request): Promise<Response> {
       decimal(day.totalCents),
     ]),
   ];
+
+  // PRD 6 P1-2: the file is a boundary crossing, so it is logged like one.
+  // Aggregates only — no column here holds a person, and the log line lists
+  // the columns so the day one does is visible on every download.
+  logExport({
+    at: now,
+    file: 'sales',
+    window: view.slug,
+    rows: rows.length - 1,
+    columns: rows[0]!,
+    staffId: await currentShiftId(),
+  });
 
   return new Response(rows.map((row) => row.map(cell).join(',')).join('\r\n'), {
     headers: {
