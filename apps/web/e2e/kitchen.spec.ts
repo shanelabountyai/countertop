@@ -501,6 +501,13 @@ test.describe('the shelf', () => {
     await expect(ticket()).toHaveClass(/ring-4/);
     await expect(ticket().getByTestId('shelf-location')).toHaveText('shelf 3');
 
+    // The reverse lookup (handoff P1-2, C-155): the bag on shelf 3, whose?
+    // Typed as it is said at the counter, and only that card is rung.
+    await page.getByRole('searchbox').fill('Shelf 3');
+    await page.getByRole('button', { name: 'Find' }).click();
+    await expect(ticket()).toHaveClass(/ring-4/);
+    await expect(page.locator('li.ring-4')).toHaveCount(1);
+
     // The bag moves, and the correction needs no state change.
     await page.goto('/kitchen');
     await ticket().getByLabel('Shelf', { exact: true }).fill('warmer left');

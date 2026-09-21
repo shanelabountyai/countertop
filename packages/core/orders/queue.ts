@@ -256,7 +256,7 @@ export function groupQueue<T extends { status: OrderStatus; placedAt: Date }>(
  * number, which is meaningless to a menu. Same box, two predicates, on purpose.
  */
 export function matchesLookup(
-  order: { seq: number; customerName: string },
+  order: { seq: number; customerName: string; shelfLocation?: string | null },
   query: string,
 ): boolean {
   const trimmed = query.trim();
@@ -268,7 +268,13 @@ export function matchesLookup(
   // typing should not fall through to matching nothing.
   if (/^\d+$/.test(digits) && Number(digits) === order.seq) return true;
 
-  return order.customerName.toLowerCase().includes(trimmed.toLowerCase());
+  if (order.customerName.toLowerCase().includes(trimmed.toLowerCase())) return true;
+
+  // The reverse lookup (handoff P1-2): "whose is the bag on shelf 3?". An exact
+  // match, with a leading "shelf" ignored on both sides, because "3" is written
+  // on the bag either way and a partial match would ring "13" too.
+  const shelf = (text: string) => text.trim().toLowerCase().replace(/^shelf\s*/, '');
+  return order.shelfLocation != null && shelf(trimmed) !== '' && shelf(order.shelfLocation) === shelf(trimmed);
 }
 
 /** How long a forward advance stays undoable (P0-4). */

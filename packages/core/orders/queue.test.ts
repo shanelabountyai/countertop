@@ -300,6 +300,17 @@ describe('the walk-up lookup (P0-11)', () => {
     expect(matchesLookup(dana, 'Morgan')).toBe(false);
   });
 
+  it('finds an order by the shelf its bag is on (handoff P1-2)', () => {
+    const bagged = { ...dana, shelfLocation: 'Shelf 3' };
+    expect(matchesLookup(bagged, 'shelf 3')).toBe(true);
+    expect(matchesLookup(bagged, 'SHELF3')).toBe(true);
+    expect(matchesLookup({ ...dana, shelfLocation: '3' }, 'Shelf 3')).toBe(true);
+    // Exact, so the bag on 13 is not rung for 3, and no shelf matches nothing.
+    expect(matchesLookup({ ...dana, shelfLocation: 'Shelf 13' }, 'shelf 3')).toBe(false);
+    expect(matchesLookup(dana, 'shelf 3')).toBe(false);
+    expect(matchesLookup(bagged, 'shelf')).toBe(false);
+  });
+
   it('does not match a different order that merely starts with the digits', () => {
     expect(matchesLookup({ seq: 470, customerName: 'Sam' }, '47')).toBe(false);
   });
