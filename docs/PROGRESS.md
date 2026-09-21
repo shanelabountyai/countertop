@@ -10509,3 +10509,5 @@ The build log marks Countertop shipped. URLs are in RELEASE_NOTES → C-164.
   write-up link points at `docs/WRITEUP.md` on GitHub instead.
 - WRITEUP's *By the Numbers* is still dated C-132.
 - Checking the prod schema after a migration push is still a manual step.
+
+C-164 committed at f7ddbd6
