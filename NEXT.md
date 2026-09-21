@@ -8,14 +8,14 @@ Every PRD requirement is now either shipped or a named P2.
 
 ## Pick this up first
 
-🟢 **Production is 36 migrations behind.** `npm run db:status:prod` lists
-everything from `20260901224630_payment_event` onward as unapplied, so the
-live deployment's code and database have been out of step since early
-September. Not touched this session: migrating production is a deliberate,
-separate command (`npm run db:migrate:prod`), and it needs a decision about
-whether the live demo should run today's code. Decide that first.
+**Production is migrated and live (2026-09-21).** It had been serving 500s on
+`/` and `/menu`: auto-deployed code was running against a schema 36 migrations
+behind. `db:migrate:prod` applied all 36, `db:status:prod` reports up to date,
+and `smoke:prod` passes 8/8. The account is in `docs/WRITEUP.md` → "The live
+demo that was down for three weeks". **After any push that adds a migration,
+run `npm run db:status:prod` and migrate**, or the live site breaks again.
 
-After that, nothing is queued. The only remaining product work is the master
+Nothing is queued. The only remaining product work is the master
 PRD's P2 list (WebSocket transport, a real payment provider, combos/nested
 modifiers, reorder, tips, station routing, printer/KDS, real SMS, multi-location).
 Each is its own session and needs a scoping decision before it starts.

@@ -3735,3 +3735,26 @@ project looked. It turned up only when the PRDs' own unticked boxes were
 checked against the code one at a time. Every other unticked box had shipped.
 This one was the only real gap. The lesson: a backlog is an index of the
 requirements, and an index can drop an entry without any sign that it did.
+
+### The live demo that was down for three weeks and said nothing (2026-09-21)
+
+Migrating production is deliberately a separate command (`db:migrate:prod`),
+so a push never touches the live schema as a side effect. The other half of
+that decision had never been written down: Vercel still deploys every push to
+`main`. From `20260901224630_payment_event` onward, each push shipped code
+that expected a newer schema than production had. By C-163 the gap was 36
+migrations, and `/` and `/menu` returned 500 to anyone who opened the public
+URL. Nothing noticed. CI checks migrations against a throwaway database, the
+gate runs locally, and no check ever compares the deployed code with the
+deployed schema. It was found only because NEXT.md said "36 behind" and someone
+curled the site before deciding what to do about it.
+
+The fix was the deferred command itself. All 36 applied cleanly, because the
+migrations that touch existing rows had been written for a database that
+already held data: the append-only trigger is disabled by name and re-enabled,
+the outbox is deduped before its unique index goes on, and pre-C-067 refunds
+are left null instead of being given invented history. The lesson: "deploy
+deliberately" has to cover both halves. If code deploys automatically and
+the schema deploys by hand, then any push carrying a migration takes the site
+down until someone runs the hand step. After any push that adds a migration,
+run `npm run db:status:prod`.
