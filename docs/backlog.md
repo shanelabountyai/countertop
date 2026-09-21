@@ -271,6 +271,10 @@ one-project-at-a-time convention.
 
 - [x] **C-151** — *(four NEXT.md "Still open" notes)* The composer at `/menu/[itemId]` renders the restaurant footer; the status page hands the footer the contact it already read instead of reading it twice; `zonedTimeToInstant` is pinned against 2026's real Los Angeles DST dates; a checkout whose every slot is full says so instead of offering a list of disabled times.
 
+- [x] **C-152** — *(three NEXT.md "Still open" notes about the rush, plus C-123's)* The rush now shows a reward spent at the COUNTER (Ada, `redeemReward` from the staff receipt, on a pay-at-pickup order), a lapsed member's balance expiring in the pre-service sweep (Lena, 400 days), and a `refund_reversed` (Gia's churros refunded twice by mistake, the second reversed by name). An e2e now drives a scheduled order past its slot.
+
+- [x] **C-153** — *(PRD 3 P1-3, found unbuilt while C-152's rush invariant failed)* A comps line on the sales report. `PaymentSplit.compedCents` sums each sold order's net adjustments; the split's identity is now `collected + outstanding + refunded + comped − refundReversed = revenue`, asserted over the rush. Labelled "Comps", never anything loyalty-shaped (PRD 7 P0-6).
+
 Everything in the PRD's P2 list is what remains open on the master PRD. (P1-2,
 P1-3, P1-4 and P1-7 were on this line until they shipped as C-114, C-113,
 C-042 and C-041 — this list is the one that goes stale, so check it against

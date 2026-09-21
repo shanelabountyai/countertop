@@ -77,7 +77,7 @@ The system offers exactly nothing here. `cancelled` is unreachable from `ready` 
 
 - **P1-1: Auth at placement, capture at pickup** ✅ *(C-069)* *(SYS 1)* — the pickup-shaped answer: a no-show costs a void, not a refund. Hang capture on `ready → picked_up`. Still against the mock provider; the seam is what matters.
 - **P1-2: Per-line tax, snapshotted** *(SYS 10)* — the seeded menu already has bottled drinks and bagged chips, which in most US states are taxed differently from the burrito beside them, so the product is already computing legally wrong tax on a real menu. The remediation is the expensive shape: `MenuItem.taxCategory`, plus `taxCents`/`taxRatePpm` **snapshotted per `OrderLine`**, with the order-level fields kept as the sum. A wrong backfill silently restates a filed tax period, which is why this is P1 with an Open Question rather than P0.
-- **P1-3: A comps and adjustments line on the sales report** *(OPS 2)* — the reporting half; the tables land in `prd-reports-that-decide.md`, the events land here.
+- **P1-3: A comps and adjustments line on the sales report** ✅ *(C-153)* *(OPS 2)* — the reporting half; the tables land in `prd-reports-that-decide.md`, the events land here.
 
 ## Non-Goals
 

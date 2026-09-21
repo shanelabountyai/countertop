@@ -3296,3 +3296,20 @@ The restaurant's address, phone and hours now also appear on the item page,
 the one customer screen that lacked them. Scheduled pickup times are now tested
 on the two days a year the clocks change. When every pickup time left today is
 full, checkout now says so.
+
+## C-152 — The demo rush covers the last loyalty and refund cases
+
+The scripted 30-order lunch rush used for the demo now includes three more
+real situations. A regular spends a reward at the counter. A customer
+not seen in over a year loses their points in the overnight cleanup. A
+cashier sends the same refund twice and the duplicate is flagged by name.
+
+**Why it matters for a portfolio reader.** Adding them exposed a gap in the
+sales report (below). The demo was built to catch exactly this kind of gap.
+
+## C-153 — The sales report shows comps
+
+Money the restaurant booked and then waived at the counter now has its own
+line on the sales report. Before this, a comp was counted as revenue but was
+neither paid nor owed, so the report's money totals no longer added up to its
+revenue.

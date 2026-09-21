@@ -204,6 +204,11 @@ export type PaymentSplit = {
    *  shows as "refunded" is also back on the chase list. Zero on every
    *  window nothing was reversed in. */
   refundReversedCents: number;
+  /** Comps and counter rewards, net of their reversals (PRD 3 P1-3, C-153).
+   *  The fourth bucket: booked as revenue, never owed, never collected. With
+   *  it the split sums to revenue as
+   *  `collected + outstanding + refunded + comped − refundReversed`. */
+  compedCents: number;
   /** Chronological, like `days` — a chase list is worked oldest first. */
   outstanding: OutstandingOrder[];
   /** Unpaid pickups as a share of orders sold, so "six on a Friday" compares
@@ -310,6 +315,7 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
   let outstandingCents = 0;
   let refundedCents = 0;
   let refundReversedCents = 0;
+  let compedCents = 0;
 
   for (const order of orders) {
     // BEFORE the status roles, deliberately. A remake is `sold` by every rule
@@ -378,6 +384,7 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     const orderPayment = paymentTotals(order.events);
     refundedCents += orderPayment.refundedCents;
     refundReversedCents += orderPayment.refundReversedCents;
+    compedCents += orderPayment.adjustedCents;
 
     const day = days.get(order.businessDay) ?? {
       day: order.businessDay,
@@ -480,6 +487,7 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
       outstandingCents,
       refundedCents,
       refundReversedCents,
+      compedCents,
       outstanding,
       unpaidRate: sold === 0 ? null : outstanding.length / sold,
     },

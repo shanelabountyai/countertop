@@ -186,6 +186,7 @@ describe('salesReport — what each status counts toward', () => {
         outstandingCents: 0,
         refundedCents: 0,
         refundReversedCents: 0,
+        compedCents: 0,
         outstanding: [],
         unpaidRate: null,
       },
@@ -514,6 +515,30 @@ describe('salesReport — collected versus charged (defect D2, C-051)', () => {
     expect(report.payment.refundReversedCents).toBe(500);
     expect(report.payment.outstandingCents).toBe(500);
     expect(report.payment.outstanding.map((o) => o.owedCents)).toEqual([500]);
+  });
+
+  it('reports a comp as its own bucket, so the split still covers revenue (PRD 3 P1-3)', () => {
+    // $15.00 booked, $3.00 comped at the counter, nothing paid yet: $12.00 on
+    // the chase list, $3.00 comped, and the four terms add back to $15.00.
+    const report = salesReport(
+      [
+        {
+          ...order(AT, [line('Churros', 1, 1400)], 'picked_up', money(1500), 'unpaid'),
+          events: [{ kind: 'adjustment' as const, amountCents: 300 }],
+        },
+      ],
+      LA,
+    );
+
+    expect(report.payment.compedCents).toBe(300);
+    expect(report.payment.outstandingCents).toBe(1200);
+    expect(
+      report.payment.collectedCents +
+        report.payment.outstandingCents +
+        report.payment.refundedCents +
+        report.payment.compedCents -
+        report.payment.refundReversedCents,
+    ).toBe(1500);
   });
 
   it('splits every window exactly into collected, outstanding and refunded', () => {

@@ -10143,3 +10143,77 @@ spec runs.
 **Gate:** green, first attempt, run once over C-150 and C-151 together. 1164 unit (+3), lint, typecheck, build, 245 e2e + 15 skipped = 260 on `--list` (+2). No flaky retries.
 
 C-151 committed at deffb17
+
+---
+
+## C-152 — The rush shows the last three loyalty and refund paths
+
+NEXT.md listed three things the capstone rush never demonstrated: a reward
+redeemed at the counter, a balance that expires, and a `refund_reversed`.
+C-123 also left a scheduled order running past its slot with no e2e.
+
+**Built:**
+- **Ada redeems at the counter.** She carries 100 opening points (was 0),
+  pays at pickup, and a new `redeem` kitchen step calls `redeemReward` at
+  minute 14, just before she collects. This is the staff receipt's path, not
+  checkout's.
+- **Lena Marsh, lapsed.** A sixth regular, enrolled and last active 400 days
+  before the rush, with 60 points and no order today. `seedRushLoyalty` runs
+  `expireInactiveBalances(anchor)` before minute 0, and throws unless it
+  expired exactly the lapsed regulars' points.
+- **Gia's churros refunded twice.** Minute 22 as before, then a second $4.95
+  at 23 by a cashier who did not see the first, then at 24 a new
+  `reverseRefund` step takes the newest settled refund back by id.
+- **`schedule.spec.ts`** moves the booked slot five minutes into the past with
+  a new `passSlot` fixture and asserts "N min past pickup — running late".
+
+**Found:**
+- **The report's three buckets never covered a comp.** The rush's invariant
+  `collected + outstanding + refunded = revenue` was off by exactly
+  $4.95 − $10.00 once the rush had a counter reward and a reversed refund.
+  `payment.ts` already said comps book no revenue and that the comps line
+  was PRD 3 P1-3. That line had never been built. It is C-153.
+- **A counter redemption is not a `discountCents` producer.** It writes an
+  `adjustment` beside the order and leaves the snapshot alone, so the
+  ledger-vs-snapshot reconciliation now sums both.
+
+**Decided:**
+- **The expiry sweep runs before service, at the anchor**, like the real
+  nightly job, so `seedMidServiceRush` shows it too.
+- **The reversal is on a second refund, not the first.** Reversing Gia's only
+  refund would have emptied the report's refunded bucket and undone C-126's
+  demo. Refunded now reads $9.90 because both refunds really left. The
+  reversal is a flag on the second one, not money coming back (C-133).
+
+**Tests:** rush.test.ts, +2 (counter redemption, expiry) with four
+assertions re-tallied (Gia's refunds, the redeem count/sum, the member count,
+the split identity); +1 e2e step in `schedule.spec.ts`.
+
+**Gate:** run once over C-152 and C-153. The first attempt failed in the unit leg (the P0-6 static scan, above); the rerun was green. 1167 unit (+3), lint, typecheck, build, 246 e2e + 15 skipped = 261 (+1). No flaky retries.
+
+## C-153 — A comps line on the sales report (PRD 3 P1-3)
+
+**Built:** `PaymentSplit.compedCents`, the sum of each sold order's net
+`adjustedCents`, and a "Comps" tile on the report, shown only when it is
+non-zero, like the refund tiles beside it.
+
+**Decided:**
+- **Labelled "Comps", not "Comps and rewards".** `loyalty.spec.ts`' P0-6
+  test caught the first label: the punch card must be invisible on the sales
+  report, and a counter reward is a comp there like any other.
+- **The comment explaining that had to avoid the word too.** The P0-6
+  static test in `packages/db/report.test.ts` scans the report page's source
+  for `loyalt`, and a JSX comment naming the rule it obeyed failed it. The
+  gate's unit leg caught it; the comment now says "that program".
+- **One line, not a breakdown by reason.** The PRD asks for a line. The
+  per-reason split already lives on each receipt.
+
+**Tests:** unit (`report.test.ts`: a $3 comp on a $15 unpaid order is $12
+outstanding + $3 comped); the rush identity above; e2e (`report.spec.ts`: the
+finished rush shows Comps $10.00).
+
+**Left behind:**
+- **A remake's comp is still invisible** (C-066's note). The report skips
+  remake orders entirely, so the comp on a remade ticket is not in this line.
+
+**Gate:** run once over C-152 and C-153. The first attempt failed in the unit leg (the P0-6 static scan, above); the rerun was green. 1167 unit (+3), lint, typecheck, build, 246 e2e + 15 skipped = 261 (+1). No flaky retries.

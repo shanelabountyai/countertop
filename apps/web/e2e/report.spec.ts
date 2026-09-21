@@ -103,6 +103,14 @@ test('the attach table leads with the rows a decision can turn on', async ({ pag
   await expect(always.getByRole('row').filter({ hasText: '100.0%' }).first()).toBeVisible();
 });
 
+test('a comp is its own line, and the finished rush carries one', async ({ page }) => {
+  // PRD 3 P1-3. Ada's counter reward (C-152) is the rush's one comp: $10.00,
+  // shown as a comp and not as anything loyalty-shaped (PRD 7 P0-6).
+  seedFinishedRush();
+  await page.goto('/kitchen/report');
+  await expect(page.getByTestId('comped')).toHaveText('$10.00');
+});
+
 test('a no-show is rated against finished orders, and is not revenue', async ({ page }) => {
   await page.goto('/kitchen');
   await pickUp(page, 'Dana Reyes');

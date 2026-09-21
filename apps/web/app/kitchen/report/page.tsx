@@ -340,6 +340,18 @@ export default async function ReportPage({
                   note="Flagged as sent in error — back on the chase list"
                 />
               )}
+              {/* PRD 3 P1-3. Shown only when there is one, like the two above:
+                  money the restaurant booked and chose not to ask for. Named
+                  only as a comp, whatever waived it: PRD 7 P0-6 keeps that
+                  program off this page, and a static test reads this file. */}
+              {report.payment.compedCents > 0 && (
+                <Stat
+                  label="Comps"
+                  testId="comped"
+                  value={formatCents(report.payment.compedCents)}
+                  note="Booked, then waived at the counter"
+                />
+              )}
             </div>
             {report.payment.outstanding.length === 0 ? (
               <p className="mt-3 text-lg">Everything sold in this window was paid for.</p>
