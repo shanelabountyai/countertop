@@ -157,6 +157,22 @@ export default async function MenuPage() {
                      accessible name too, not beside it. */
                   const body = (
                     <>
+                      {/* PRD 5 P1-3. Decorative here (`alt=""`): the name
+                          beside it is the row's label, and a screen reader
+                          reading "Burrito, Burrito" helps nobody. A plain
+                          <img>, because next/image needs every host listed in
+                          config and the restaurant chooses where it hosts. */}
+                      {item.imageUrl !== undefined && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={item.imageUrl}
+                          alt=""
+                          width={64}
+                          height={64}
+                          loading="lazy"
+                          className="size-16 shrink-0 rounded-lg object-cover"
+                        />
+                      )}
                       <span className="min-w-0">
                         <span className="font-medium">
                           {item.name}

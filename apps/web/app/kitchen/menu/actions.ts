@@ -199,6 +199,38 @@ export async function saveItemDescription(formData: FormData): Promise<void> {
 }
 
 /**
+ * An item's photo (PRD 5 P1-3, C-162), as a link the restaurant hosts. Same
+ * straight-save shape as the description: blank removes it. Refused unless it
+ * parses as an https URL — the column's CHECK says the same, and this says it
+ * as a sentence rather than a 500.
+ */
+export async function saveItemImage(formData: FormData): Promise<void> {
+  const itemId = formData.get('itemId');
+  const raw = formData.get('imageUrl');
+  if (typeof itemId !== 'string' || typeof raw !== 'string') rejected();
+  const imageUrl = raw.trim();
+  if (imageUrl !== '') {
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(imageUrl);
+    } catch {
+      parsed = null;
+    }
+    if (parsed?.protocol !== 'https:' || imageUrl.length > 500) {
+      rejected('A photo has to be an https:// link of 500 characters or fewer.');
+    }
+  }
+
+  const item = await prisma.menuItem.findUnique({ where: { id: itemId } });
+  if (!item) rejected();
+  await prisma.menuItem.update({
+    where: { id: itemId },
+    data: { imageUrl: imageUrl === '' ? null : imageUrl },
+  });
+  done(imageUrl === '' ? `${item.name} has no photo` : `${item.name} has a photo`);
+}
+
+/**
  * A modifier's price delta. Negative IS legal here — "Small −$1.50" is a
  * discount, not a mistake — which is exactly why the confirm step showing
  * old → new matters more on this row than on an item's.

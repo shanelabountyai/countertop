@@ -287,9 +287,9 @@ out). The owner chose to build all nine, one commit each, cheapest first:
 - [x] **C-157** — *(PRD 1 P1-3)* A no-show and ran-late trend line.
 - [x] **C-158** — *(PRD 6 P1-4)* Passcode rotation that does not sign out every tablet.
 - [x] **C-159** — *(PRD 6 P1-2)* Read-only export as a boundary.
-- [ ] **C-160** — *(PRD 2 P1-1)* "Waiting at counter".
-- [ ] **C-161** — *(PRD 6 P1-1)* An ordered, replayable event feed.
-- [ ] **C-162** — *(PRD 5 P1-3)* Photos.
+- [x] **C-160** — *(PRD 2 P1-1)* "Waiting at counter".
+- [x] **C-161** — *(PRD 6 P1-1)* An ordered, replayable event feed.
+- [x] **C-162** — *(PRD 5 P1-3)* Photos.
 
 Everything in the PRD's P2 list is what remains open on the master PRD. (P1-2,
 P1-3, P1-4 and P1-7 were on this line until they shipped as C-114, C-113,

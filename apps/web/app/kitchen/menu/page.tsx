@@ -40,6 +40,7 @@ import {
   saveExtraSurcharge,
   saveGroup,
   saveItemDescription,
+  saveItemImage,
   saveItemPrepWeight,
   saveItemPrice,
   saveOptionPrice,
@@ -394,6 +395,7 @@ export default async function MenuEditorPage({
                   />
                   <WeightForm item={item} />
                   <DescriptionForm item={item} />
+                  <ImageForm item={item} />
                   <WindowsForm item={item} windows={windowsFor(item.id)} />
                 </li>
               ))}
@@ -663,6 +665,32 @@ function DescriptionForm({ item }: { item: MenuItem }) {
         className="min-h-12 rounded-lg border-2 border-neutral-900 px-5 text-lg font-bold"
       >
         Save description for {item.name}
+      </button>
+    </form>
+  );
+}
+
+/** A photo link (PRD 5 P1-3, C-162). `DescriptionForm`'s shape: blank removes
+ *  it. `type="url"` gets the phone keyboard with the slash and the dot. */
+function ImageForm({ item }: { item: MenuItem }) {
+  return (
+    <form action={saveItemImage} className="flex flex-wrap items-end gap-3">
+      <input type="hidden" name="itemId" value={item.id} />
+      <Field label={`Photo link for ${item.name}`} visible="Photo">
+        <input
+          name="imageUrl"
+          type="url"
+          maxLength={500}
+          defaultValue={item.imageUrl ?? ''}
+          placeholder="https://…"
+          className="min-h-12 w-full rounded-lg border-2 border-neutral-400 px-3 text-lg sm:w-96"
+        />
+      </Field>
+      <button
+        type="submit"
+        className="min-h-12 rounded-lg border-2 border-neutral-900 px-5 text-lg font-bold"
+      >
+        Save photo for {item.name}
       </button>
     </form>
   );

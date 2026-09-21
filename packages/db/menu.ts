@@ -58,6 +58,7 @@ export async function loadMenu(now: Date = new Date()): Promise<Menu> {
           // is why a description can be rewritten under a placed order without
           // the receipt moving (packages/db/snapshot.test.ts).
           ...(item.description === null ? {} : { description: item.description }),
+          ...(item.imageUrl === null ? {} : { imageUrl: item.imageUrl }),
           // The staged price if one has arrived, the live column otherwise
           // (P1-2). Resolved HERE, in the one mapping, so `priceLine` — the
           // price authority — needs no notion of a schedule and all three of

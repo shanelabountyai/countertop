@@ -199,6 +199,17 @@ export function Composer({
         {editing ? '← Cart' : '← Menu'}
       </Link>
 
+      {/* PRD 5 P1-3: the photo, named — here it is the subject of the page. */}
+      {item.imageUrl !== undefined && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={item.imageUrl}
+          alt={item.name}
+          width={640}
+          height={400}
+          className="mt-4 aspect-[8/5] w-full rounded-xl object-cover"
+        />
+      )}
       <h1 className="mt-4 text-3xl font-semibold">{item.name}</h1>
       {/* P0-4, the second and last live-menu surface this appears on. Above
           the price, because someone who opened this screen is deciding what

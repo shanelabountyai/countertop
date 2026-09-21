@@ -10339,3 +10339,85 @@ C-156 committed at 12f5992
 C-157 committed at f2c9f07
 C-158 committed at 3e084f6
 C-159 committed at e8d2487
+
+---
+
+## C-160 — "Waiting at counter" (PRD 2 P1-1)
+
+**Built:** a `customer_waiting` event kind (hand-written migration, one
+`ALTER TYPE ... ADD VALUE`), `markCustomerWaiting` (refused unless the order
+is Ready), a "Customer is here" button on Ready cards, a "Waiting at counter"
+badge on the card and the staff receipt, and `groupQueue`'s new `pinned`
+argument, which puts waiting cards at the top of Ready.
+
+**Decided:**
+- **Derived, never cleared.** `isWaitingAtCounter` is "Ready, with a
+  `customer_waiting` event at or after the moment it became ready". Pickup
+  ends it without a write, and so does a revert out of Ready, because a card
+  sent back to the grill is not a bag anyone is waiting on.
+- **Ready cards only**, as the PRD says ("the top of Ready"). A customer who
+  arrives while the food is still cooking is already covered by the aging
+  flags and a staff note.
+- **The button is smaller than the advance button**, which stays the largest
+  control on the card (P0-4's rule).
+
+**Tests:** unit (`queue.test.ts`: the predicate's three cases, pinning); the
+`pg_enum` vocabulary test; e2e (`kitchen.spec.ts`: the newer order jumps
+above the older one in Ready when tapped, and pickup removes the badge).
+
+## C-161 — An ordered, replayable event feed (PRD 6 P1-1)
+
+**Built:** `OrderEvent.seq BIGSERIAL` with a unique index (hand-written
+migration), `feedPage` in `packages/core/orders/feed.ts`, `loadFeed` in
+`packages/db/queue.ts`, and `GET /kitchen/events?after=N`, which returns
+`{ events, next }`.
+
+**Decided:**
+- **The feed stops at a gap until the gap is 5 seconds old.** A sequence
+  hands out numbers at insert, not commit, so 42 can commit before 41. A
+  reader that took 42 and then asked for "after 42" would lose 41 forever. A
+  gap older than 5 seconds is a rolled-back transaction and is stepped over.
+  The ceiling is a `ponytail:` on `feedPage`: a transaction holding its
+  number open longer than that is skipped, and the upgrade is recording
+  `pg_current_xact_id()` per row.
+- **Under /kitchen, not /api.** It is order activity, so it sits behind the
+  staff middleware. A bridge authenticates with the passcode cookie.
+- **No `detail`, no customer fields.** A staff note can name a customer. The
+  feed says what happened to which order id; the ticket is a separate read.
+- **`/api/updates` is untouched.** It answers "has anything changed" with a
+  tip. This answers "what, since N" with a position.
+
+**Tests:** unit (`feed.test.ts`: contiguous run, young gap holds, old gap
+steps over, first-row gap, idle echo); e2e (`kitchen.spec.ts`: ascending, no
+PII fields, caught-up echo, one tap is one event past the cursor, a bad cursor
+is 400; `auth.spec.ts`: signed out is a redirect).
+
+**Found:** the local drift check this time used a throwaway
+`countertop_shadow` database (C-156's lesson). No drift.
+
+## C-162 — Photos (PRD 5 P1-3)
+
+**Built:** `MenuItem.imageUrl VARCHAR(500)` with a `menu_item_image_https`
+CHECK, `imageUrl?` on the core `MenuItem`, a "Photo" field in the menu editor
+(`saveItemImage`), a 64px thumbnail on each `/menu` row, and a full-width
+photo on the item page.
+
+**Decided:**
+- **The asset story is a link.** The restaurant hosts its photos and pastes
+  the URL. No upload pipeline, storage bill or image processing. The PRD
+  flagged the asset story as the cost; this is the smallest honest version.
+- **https only, twice.** The action refuses with a sentence; the CHECK stops
+  any other writer. A plain-http image on an https page is blocked as mixed
+  content, and `javascript:`/`data:` values are not photos.
+- **`alt=""` on the menu row, `alt={name}` on the item page.** On the row the
+  name is right beside the thumbnail; on the item page the photo is the
+  subject.
+- **Plain `<img>`, not `next/image`.** `next/image` needs every host listed
+  in config, and the restaurant picks the host.
+- **Live menu only, never snapshotted**, the same as `description`.
+- **No seeded photos.** The sample menu has no images to link to.
+
+**Tests:** e2e (`menu-editing.spec.ts`: save a link, see it on the menu row
+and the item page (the host is intercepted); an http link is refused).
+
+**Gate (C-160 to C-162, run once):** green, first attempt. 1180 unit (+9), lint, typecheck, build, 254 e2e + 15 skipped = 269 (+5). Three migrations applied to `countertop_test` and `countertop_dev` with `db:migrate:all`; no drift against a scratch shadow database.

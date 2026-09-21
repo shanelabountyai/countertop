@@ -147,6 +147,9 @@ export type MenuItem = {
    * described yet is absent.
    */
   description?: string;
+  /** A photo's https link (PRD 5 P1-3, C-162). Live-menu only, for exactly the
+   *  reasons `description` is, and absent rather than undefined likewise. */
+  imageUrl?: string;
   basePriceCents: number;
   /** The item grain of 86'ing. Unavailable items render "sold out", not hidden. */
   available: boolean;

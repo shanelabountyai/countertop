@@ -3348,3 +3348,20 @@ removed.
 Each download of the sales spreadsheet now leaves a log entry recording who
 took it, which dates, and what columns it held. None of those columns name a
 customer.
+
+## C-160 — "Customer is here" moves their order to the top of the pickup list
+
+When a customer walks up for an order that is ready, staff tap "Customer is
+here". The order jumps to the top of the ready list and is marked "Waiting at
+counter" until it is handed over.
+
+## C-161 — An ordered event feed for printers and kitchen displays
+
+The system now publishes every order event in a strict order that another
+device, such as a ticket printer, can read and resume from. It never skips an
+event, even when two happen at the same moment.
+
+## C-162 — Menu photos
+
+Restaurants can add a photo link to any menu item. The photo shows beside the
+item on the menu and at the top of the item's page.

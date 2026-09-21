@@ -270,6 +270,8 @@ enum OrderEventKind {
   /// vocabulary test compares `ORDER_EVENT_KINDS` against `pg_enum` position
   /// for position, and `ALTER TYPE ... ADD VALUE` appends.
   refund_reversed
+  /// The customer is at the counter for a Ready order (PRD 2 P1-1, C-160).
+  customer_waiting
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +296,10 @@ model MenuItem {
   /// on `/menu` and in the composer and it reaches no placed order — the
   /// snapshot copies `itemName` and deliberately not this.
   description    String?             @db.VarChar(200)
+  /// A photo, as an https link the restaurant hosts (PRD 5 P1-3, C-162). Live
+  /// menu only, like `description`; `menu_item_image_https` CHECK in the
+  /// migration.
+  imageUrl       String?             @db.VarChar(500)
   basePriceCents Int
   /// The item grain of 86'ing (P0-6). Unavailable items render "sold out",
   /// they are not hidden.
@@ -746,6 +752,10 @@ model OrderLineOption {
 /// `revert` row; nothing is ever deleted or updated.
 model OrderEvent {
   id              String         @id @default(uuid())
+  /// The feed position (PRD 6 P1-1, C-161): assigned at INSERT by a sequence,
+  /// so it can commit out of order. `feedPage` (packages/core) is the reader
+  /// that copes. Never used for ordering anything a person reads — that is `at`.
+  seq             BigInt         @unique @default(autoincrement())
   orderId         String
   order           Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   at              DateTime       @db.Timestamptz(3)

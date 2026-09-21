@@ -124,6 +124,38 @@ test('a description past the column width is refused, not truncated', async ({ p
   await expect(page.getByTestId('menu-error')).toContainText('200 characters');
 });
 
+// C-162: photos (PRD 5 P1-3). A link the restaurant hosts, saved like a
+// description, shown on the menu row and, named, on the item's own page.
+test('a photo link saves, and shows on the menu and the item page', async ({ page }) => {
+  // The host is fake; answer it here so no spec reaches the internet.
+  await page.route('https://images.example.com/**', (route) =>
+    route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>',
+    }),
+  );
+  const url = 'https://images.example.com/burrito.jpg';
+  await page.goto('/kitchen/menu');
+  await page.getByRole('textbox', { name: 'Photo link for Burrito', exact: true }).fill(url);
+  await page.getByRole('button', { name: 'Save photo for Burrito', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Burrito has a photo');
+
+  await page.goto('/menu');
+  await expect(menuRow(page, 'Burrito', '$10.95').locator('img')).toHaveAttribute('src', url);
+
+  await page.goto('/menu/burrito');
+  await expect(page.getByRole('img', { name: 'Burrito' })).toHaveAttribute('src', url);
+});
+
+test('a photo link that is not https is refused with a sentence', async ({ page }) => {
+  await page.goto('/kitchen/menu');
+  await page
+    .getByRole('textbox', { name: 'Photo link for Burrito', exact: true })
+    .fill('http://images.example.com/burrito.jpg');
+  await page.getByRole('button', { name: 'Save photo for Burrito', exact: true }).click();
+  await expect(page.getByTestId('menu-error')).toContainText('https://');
+});
+
 test('a modifier delta may be repriced negative, and the composer follows', async ({ page }) => {
   await page.goto('/kitchen/menu');
   await page.getByRole('textbox', { name: 'Price for Guacamole', exact: true }).fill('-0.50');
