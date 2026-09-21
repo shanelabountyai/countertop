@@ -741,15 +741,19 @@ describe('a card held at checkout, taken or let go', () => {
     const gia = await orderFor('Gia Moretti');
     const events = await prisma.orderEvent.findMany({
       where: { orderId: gia.id },
-      select: { kind: true, amountCents: true },
+      select: { id: true, kind: true, amountCents: true, refundReversalOfId: true },
+      orderBy: { at: 'asc' },
     });
     const totals = paymentTotals(events);
 
     // $8.95 + $4.95 of food, $1.15 of tax — held at checkout, captured at
-    // pickup, and $4.95 of it back at minute 22.
+    // pickup, $4.95 of it back at minute 22, and the same $4.95 sent AGAIN by
+    // mistake at 23. Both really left, so both count as refunded (C-133); the
+    // second is flagged by its own reversal row, not netted away.
     expect(gia.totalCents).toBe(1505);
     expect(totals.capturedCents).toBe(1505);
-    expect(totals.refundedCents).toBe(495);
+    expect(totals.refundedCents).toBe(990);
+    expect(totals.refundReversedCents).toBe(495);
 
     // THE PARTIAL CASE, which is the only reason this order is refunded rather
     // than the whole ticket: `refunded` is true once everything captured has
@@ -757,9 +761,14 @@ describe('a card held at checkout, taken or let go', () => {
     expect(gia.paymentState).toBe('paid');
     expect(derivePaymentState(events)).toBe('paid');
 
-    // One attempt, one request, and nothing on the exceptions list for it.
-    expect(events.filter((event) => event.kind === 'refund')).toHaveLength(1);
+    // Two settled refunds, nothing on the exceptions list, and one reversal
+    // naming the SECOND refund by id — not the first, not "a refund" (C-152).
+    const refunds = events.filter((event) => event.kind === 'refund');
+    expect(refunds).toHaveLength(2);
     expect(events.filter((event) => event.kind === 'refund_failed')).toHaveLength(0);
+    const reversals = events.filter((event) => event.kind === 'refund_reversed');
+    expect(reversals).toHaveLength(1);
+    expect(reversals[0]!.refundReversalOfId).toBe(refunds[1]!.id);
   });
 
   it('leaves the refund the processor refused on the exceptions list, with its words', async () => {
@@ -870,17 +879,38 @@ describe('the punch card across the rush', () => {
     });
     const snapshotted = await prisma.order.aggregate({ _sum: { discountCents: true } });
 
-    expect(redeemed._count._all).toBe(2);
-    expect(redeemed._sum.amountCents).toBe(snapshotted._sum.discountCents);
-    expect(redeemed._sum.amountCents).toBe(2000);
+    // Three: Ivy's and Owen's at checkout, Ada's at the counter (C-152). The
+    // checkout two are snapshotted as `discountCents`; the counter one is an
+    // `adjustment` beside the order and never touches the snapshot, so the
+    // ledger reconciles against the two together.
+    const counter = await prisma.orderEvent.aggregate({
+      where: { kind: 'adjustment', reason: 'loyalty_reward' },
+      _sum: { amountCents: true },
+    });
+    expect(redeemed._count._all).toBe(3);
+    expect(redeemed._sum.amountCents).toBe(
+      (snapshotted._sum.discountCents ?? 0) + (counter._sum.amountCents ?? 0),
+    );
+    expect(redeemed._sum.amountCents).toBe(3000);
 
     // And every `redeem` points at an order that exists and carries exactly
     // its amount — not just the same total by luck of two sums matching.
     const rows = await prisma.loyaltyEvent.findMany({
       where: { kind: 'redeem' },
-      select: { amountCents: true, order: { select: { discountCents: true } } },
+      select: {
+        amountCents: true,
+        order: {
+          select: {
+            discountCents: true,
+            events: { where: { kind: 'adjustment' }, select: { amountCents: true } },
+          },
+        },
+      },
     });
-    for (const row of rows) expect(row.order?.discountCents).toBe(row.amountCents);
+    for (const row of rows) {
+      const counterAmount = row.order?.events.reduce((sum, event) => sum + (event.amountCents ?? 0), 0);
+      expect((row.order?.discountCents ?? 0) + (counterAmount ?? 0)).toBe(row.amountCents);
+    }
   });
 
   it('hands the reward back on the order that was cancelled, and keeps it on the one that sold', async () => {
@@ -937,11 +967,38 @@ describe('the punch card across the rush', () => {
     for (const row of balances) expect(row._sum.points ?? 0).toBeGreaterThanOrEqual(0);
   });
 
+  it('spends a reward at the COUNTER, from the staff receipt, on a pay-at-pickup order', async () => {
+    // C-152. `redeemReward` rather than checkout's staged redemption: the
+    // money side is an adjustment beside the order, so the snapshot totals
+    // are untouched and the $10 comes off what she owes.
+    const ada = await memberNamed('Ada Nkemelu');
+    expect(ada.kinds).toMatchObject({ redeem: 1 });
+    const order = await orderFor('Ada Nkemelu');
+    // The snapshot is untouched — no `discountCents` — and the $10 is an
+    // adjustment event instead.
+    expect(order.discountCents).toBe(0);
+    const events = await prisma.orderEvent.findMany({
+      where: { orderId: order.id, kind: 'adjustment' },
+      select: { amountCents: true },
+    });
+    expect(events).toEqual([{ amountCents: 1000 }]);
+  });
+
+  it('expires a lapsed member before service, and nobody else', async () => {
+    // C-152. 60 points carried in, last seen 400 days ago, past the 365-day
+    // window: the sweep writes one `expire` that zeroes her, and the five
+    // members active this month keep every point.
+    const lena = await memberNamed('Lena Marsh');
+    expect(lena.kinds).toEqual({ earn: 1, expire: 1 });
+    expect(lena.balance).toBe(0);
+    expect(await prisma.loyaltyEvent.count({ where: { kind: 'expire' } })).toBe(1);
+  });
+
   it('enrols five of the thirty, because the phone field is optional', async () => {
     // A demo where every customer fills in an optional field is not showing an
-    // optional field. Five members, and twenty-five orders with no phone on
-    // them at all.
-    expect(await prisma.loyaltyMember.count()).toBe(5);
+    // optional field. Five members order, and twenty-five orders carry no
+    // phone at all. The sixth member is Lena, lapsed, who never orders today.
+    expect(await prisma.loyaltyMember.count()).toBe(6);
     const withPhone = await prisma.order.count({ where: { customerPhone: { not: null } } });
     const withoutPhone = await prisma.order.count({ where: { customerPhone: null } });
     expect(withPhone).toBe(5);
@@ -1008,17 +1065,31 @@ describe("the report's payment split, over the whole rush", () => {
     // $14.88 was requested and the provider refused it, so it never leaves
     // `outstanding`/`collected` for this bucket — it lives on the refund
     // exceptions list instead (asserted separately, above).
-    expect(report.payment.refundedCents).toBe(495);
+    //
+    // C-152: Gia's churros were refunded TWICE, the second by mistake and
+    // then reversed by name. Both refunds really left through the provider,
+    // so the report's refunded bucket says $9.90 — a reversal is a flag on
+    // the second, not money coming back.
+    expect(report.payment.refundedCents).toBe(990);
 
     // The invariant `PaymentSplit`'s own doc comment makes, at rush scale
     // rather than a 1-3 order fixture: refunded money is its own bucket,
     // never netted out of collected or outstanding, and never removed from
     // booked revenue.
+    //
+    // C-152/C-153: the rush now has a comp (Ada's counter reward, $10) and a
+    // reversed refund (Gia's duplicate, $4.95, which is back on the chase
+    // list), so the identity needs both terms. Written with only three, it
+    // was off by exactly $4.95 − $10.00.
     const revenue = report.days.reduce((sum, day) => sum + day.totalCents, 0);
+    expect(report.payment.compedCents).toBe(1000);
+    expect(report.payment.refundReversedCents).toBe(495);
     expect(
       report.payment.collectedCents +
         report.payment.outstandingCents +
-        report.payment.refundedCents,
+        report.payment.refundedCents +
+        report.payment.compedCents -
+        report.payment.refundReversedCents,
     ).toBe(revenue);
   });
 });

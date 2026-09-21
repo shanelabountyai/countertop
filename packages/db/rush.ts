@@ -34,10 +34,10 @@ import {
 } from '@countertop/core';
 import { loadGateState } from './gate';
 import { prisma } from './index';
-import { enrolMember, hasLoyaltyPepper } from './loyalty';
+import { enrolMember, expireInactiveBalances, hasLoyaltyPepper, redeemReward } from './loyalty';
 import { loadClock, loadMenu } from './menu';
 import { derivedIdempotencyKey, placeOrder } from './placement';
-import { requestRefund } from './refund';
+import { requestRefund, reverseRefund } from './refund';
 import {
   confirmPhoneVerificationForCheckout,
   startPhoneVerification,
@@ -105,6 +105,9 @@ type RushRegular = {
    *  ordinary case, and the one that makes "40 people can walk in with $10
    *  off" a number rather than a guess. */
   openingPoints: number;
+  /** Last seen this many days before the rush, past the 365-day expiry
+   *  window. Enrolled and last active then, never orders today. */
+  lapsedDaysAgo?: number;
 };
 
 /**
@@ -135,8 +138,12 @@ const RUSH_REGULARS: RushRegular[] = [
   // The no-show. A member who never collects earns nothing — the contrast
   // that makes the earn mean something.
   { label: 'Cass Iverson', phone: '5550106654', openingPoints: 75 },
-  // A card with nothing on it yet.
-  { label: 'Ada Nkemelu', phone: '5550101102', openingPoints: 0 },
+  // A reward spent at the COUNTER, not at checkout (C-152): Ada pays at
+  // pickup, and the cashier spends it from the staff receipt before she pays.
+  { label: 'Ada Nkemelu', phone: '5550101102', openingPoints: 100 },
+  // Not seen in over a year. The nightly sweep before service expires her
+  // points, so the demo's loyalty screen has an `expire` row on it (C-152).
+  { label: 'Lena Marsh', phone: '5550109921', openingPoints: 60, lapsedDaysAgo: 400 },
 ];
 
 /** How long before the rush the regulars enrolled. Inside the 365-day expiry
@@ -411,7 +418,12 @@ type KitchenStep =
        *  and an entry on the exceptions list, which is the half of P0-4 that a
        *  demo of the happy path can never show. */
       declined?: string;
-    };
+    }
+  /** The newest settled refund on this order was a mistake, and a person at
+   *  the counter takes it back by name (C-133's `refund_reversed`). */
+  | { at: number; step: 'reverseRefund'; note: string }
+  /** A reward spent from the staff receipt (`redeemReward`), not at checkout. */
+  | { at: number; step: 'redeem' };
 
 /**
  * The default cadence: accepted a minute after it lands, on the grill two
@@ -497,7 +509,15 @@ type RushOrder = {
  * rather than only by a unit test.
  */
 export const RUSH_ORDERS: RushOrder[] = [
-  { label: 'Ada Nkemelu', minute: 0, composition: 0, phone: '5550101102' },
+  {
+    label: 'Ada Nkemelu',
+    minute: 0,
+    composition: 0,
+    phone: '5550101102',
+    // Her default cadence, with the counter redemption the minute before she
+    // collects (C-152).
+    kitchen: [...cadence(0).slice(0, 3), { at: 14, step: 'redeem' }, cadence(0)[3]!],
+  },
   { label: 'Ben Sorensen', minute: 0, composition: 1 },
   { label: 'Cleo Vance', minute: 1, composition: 8 },
 
@@ -563,7 +583,15 @@ export const RUSH_ORDERS: RushOrder[] = [
     label: 'Gia Moretti',
     minute: 4,
     composition: 6,
-    kitchen: [...cadence(4), { at: 22, step: 'refund', amountCents: 495, reason: 'quality' }],
+    // At 23 a second cashier, not seeing the first, sends the same $4.95
+    // again; at 24 it is caught and that one refund is reversed by name
+    // (C-152). Net refunded stays $4.95 — the report must not move.
+    kitchen: [
+      ...cadence(4),
+      { at: 22, step: 'refund', amountCents: 495, reason: 'quality' },
+      { at: 23, step: 'refund', amountCents: 495, reason: 'quality' },
+      { at: 24, step: 'reverseRefund', note: 'churros refunded twice' },
+    ],
   },
 
   // UGLY CASE 2 — the wrong card advanced, and undone. Rae's ticket is marked
@@ -761,9 +789,11 @@ async function seedRushLoyalty(anchor: Date): Promise<void> {
         'Set it in .env.local / .env.test, as .env.example describes.',
     );
   }
-  const enrolledAt = instantMinutesAfter(anchor, -ENROLLED_DAYS_AGO * 24 * 60);
-
   for (const regular of RUSH_REGULARS) {
+    const enrolledAt = instantMinutesAfter(
+      anchor,
+      -(regular.lapsedDaysAgo ?? ENROLLED_DAYS_AGO) * 24 * 60,
+    );
     const result = await enrolMember({
       phone: regular.phone,
       displayName: regular.label,
@@ -793,6 +823,18 @@ async function seedRushLoyalty(anchor: Date): Promise<void> {
       where: { id: result.memberId },
       data: { lastActivityAt: enrolledAt },
     });
+  }
+
+  // The nightly sweep, run before the doors open, through the real writer.
+  // It has to take exactly the lapsed regulars' points and nobody else's.
+  const swept = await expireInactiveBalances(anchor);
+  const lapsed = RUSH_REGULARS.filter((regular) => regular.lapsedDaysAgo !== undefined);
+  const expected = lapsed.reduce((sum, regular) => sum + regular.openingPoints, 0);
+  if (swept.members !== lapsed.length || swept.points !== expected) {
+    throw new Error(
+      `the pre-service expiry sweep took ${swept.points} points from ${swept.members} members; ` +
+        `expected ${expected} from ${lapsed.length}`,
+    );
   }
 }
 
@@ -977,6 +1019,14 @@ async function move(
 ): Promise<void> {
   const now = at(anchor, step.at);
   if (step.step === 'refund') return refund(orderId, step, now, label);
+  if (step.step === 'reverseRefund') return reverse(orderId, step, now, label);
+  if (step.step === 'redeem') {
+    const result = await redeemReward(orderId, now, cookFor(label));
+    if (!result.ok) {
+      throw new Error(`${label} could not redeem at minute ${step.at}: ${result.message}`);
+    }
+    return;
+  }
   const action =
     step.step === 'advance'
       ? ({ kind: 'advance', actor: 'staff' } as const)
@@ -1047,6 +1097,24 @@ async function refund(
       `${label}'s refund at minute ${step.at} was supposed to be refused by the provider, and was ` +
         (result.ok ? 'sent' : `refused as ${result.reason}`),
     );
+  }
+}
+
+/** Take back the newest settled refund on this order, through the real call. */
+async function reverse(
+  orderId: string,
+  step: Extract<KitchenStep, { step: 'reverseRefund' }>,
+  now: Date,
+  label: string,
+): Promise<void> {
+  const latest = await prisma.orderEvent.findFirstOrThrow({
+    where: { orderId, kind: 'refund' },
+    orderBy: { at: 'desc' },
+    select: { id: true },
+  });
+  const result = await reverseRefund(orderId, { refundId: latest.id, note: step.note }, now, cookFor(label));
+  if (!result.ok) {
+    throw new Error(`${label}'s refund reversal at minute ${step.at} failed: ${result.message}`);
   }
 }
 

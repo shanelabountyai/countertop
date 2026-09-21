@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { addBurritoToCart, card, reseed, setSchedulingEnabled } from './fixtures';
+import { addBurritoToCart, card, passSlot, reseed, setSchedulingEnabled } from './fixtures';
 
 // C-114: order-ahead scheduling (master PRD P1-2).
 //
@@ -59,6 +59,11 @@ test('books a slot, and it shows on the confirmation and the kitchen queue', asy
   // running late — which is the acceptance criterion, not the badge.
   await expect(card(page, 'Robin Cole')).toContainText(/Due in \d+ min/);
   await expect(card(page, 'Robin Cole').getByText(/running late/)).toHaveCount(0);
+  // And once the slot has gone by, the same card says so — counted from the
+  // promised minute, not from placement.
+  await passSlot('Robin Cole', 5);
+  await page.reload();
+  await expect(card(page, 'Robin Cole').getByText(/^\d+ min past pickup — running late$/)).toBeVisible();
 });
 
 test('switches order-ahead on from its own settings screen', async ({ page }) => {

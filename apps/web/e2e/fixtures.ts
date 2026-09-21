@@ -569,6 +569,22 @@ export async function ageShelf(minutes: number): Promise<void> {
   }
 }
 
+/**
+ * Move a scheduled order's promised minute `minutesAgo` into the past (C-123's
+ * "Left behind"). `ageOrder`'s reason: no spec waits for a slot to arrive.
+ */
+export async function passSlot(customerName: string, minutesAgo: number): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  try {
+    const requestedFor = new Date();
+    requestedFor.setTime(requestedFor.getTime() - minutesAgo * 60_000);
+    const order = await prisma.order.findFirstOrThrow({ where: { customerName }, select: { id: true } });
+    await prisma.order.update({ where: { id: order.id }, data: { requestedFor } });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 /** Blank out the three C-077 contact columns — the state every database was in
  *  before that migration, and the one the footer has to render without a hole
  *  in it. */
