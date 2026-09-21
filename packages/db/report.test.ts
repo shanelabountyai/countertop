@@ -117,7 +117,7 @@ describe('the sales report, against the database', () => {
     expect(report.topItems).toEqual([
       { itemName: 'Burrito', quantity: 2, revenueCents: 2690 },
     ]);
-    expect(report.noShow).toEqual({ sold: 2, noShow: 1, rate: 1 / 3 });
+    expect(report.noShow).toMatchObject({ sold: 2, noShow: 1, rate: 1 / 3 });
     expect(report.inFlight).toBe(1);
   });
 

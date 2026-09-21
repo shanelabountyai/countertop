@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { card, pickUp, reseed, seedFinishedRush } from './fixtures';
+import { card, pickUp, reseed, seedFinishedRush, setBusinessDay } from './fixtures';
 
 // C-016: the sales report (P1-1).
 //
@@ -380,6 +380,26 @@ test('a cancellation is reported under the reason the kitchen picked', async ({ 
 // P1-1 + P1-2 / C-058. Both halves in one test on purpose: the CSV's entire
 // job is to hold the days the screen is showing, so an export asserted against
 // a window nobody looked at proves the half that cannot break.
+test('a window of more than one day gets a row per day for lateness and no-shows', async ({ page }) => {
+  // PRD 1 P1-3. Dana and Priya picked up, Priya's order moved to an earlier
+  // day: two rows, oldest first, each counting its own ticket.
+  await page.goto('/kitchen');
+  await pickUp(page, 'Dana Reyes');
+  await pickUp(page, 'Priya Shah');
+  await setBusinessDay('Priya Shah', '2026-01-01');
+
+  await page.goto('/kitchen/report?from=2020-01-01&to=2099-12-31');
+  const rows = page.getByTestId('trend-row');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first().getByRole('cell').first()).toHaveText('2026-01-01');
+  await expect(rows.first().getByRole('cell').nth(1)).toHaveText('1');
+  await expect(rows.nth(1).getByRole('cell').nth(1)).toHaveText('1');
+
+  // One day is not a trend: the single-day window shows no table.
+  await page.goto('/kitchen/report');
+  await expect(page.getByTestId('trend-row')).toHaveCount(0);
+});
+
 test('a typed date range bounds the report, and the CSV holds the same days', async ({ page }) => {
   await page.goto('/kitchen');
   await pickUp(page, 'Dana Reyes'); // 2x Burrito — the only sale in the window

@@ -585,6 +585,17 @@ export async function passSlot(customerName: string, minutesAgo: number): Promis
   }
 }
 
+/** One order onto an earlier business day — `backdateQueue` for a single
+ *  customer, so a report window can hold two days (C-157). */
+export async function setBusinessDay(customerName: string, businessDay: string): Promise<void> {
+  const { prisma } = await import('@countertop/db');
+  try {
+    await prisma.order.updateMany({ where: { customerName }, data: { businessDay } });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 /** Blank out the three C-077 contact columns — the state every database was in
  *  before that migration, and the one the footer has to render without a hole
  *  in it. */

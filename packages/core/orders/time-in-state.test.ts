@@ -250,6 +250,18 @@ describe('serviceTimes (P0-5)', () => {
     expect(service.ranLate).toBe(6);
   });
 
+  it('splits the count by business day, oldest first (PRD 1 P1-3)', () => {
+    // The last ten tickets (seq 21..30, holding all six late ones) moved to the next
+    // day: "was Friday unusual" is the second row, and the rows add back up.
+    const split = serviceTimes(
+      TICKETS.map((t) => (t.seq > 20 ? { ...t, businessDay: '2026-07-15' } : t)),
+    );
+    expect(split.byDay).toEqual([
+      { day: TICKETS[0]!.businessDay, tickets: 20, ranLate: 0 },
+      { day: '2026-07-15', tickets: 10, ranLate: 6 },
+    ]);
+  });
+
   it('lists the slowest tickets by number, and every one of them is a long one', () => {
     expect(service.slowest).toHaveLength(5);
     // The six 31-minute tickets are seq 25..30; the list must be drawn from

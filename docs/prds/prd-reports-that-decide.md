@@ -71,7 +71,7 @@ And the accountant asks for March. There is no month, no date range, no export �
 
 - ✅ **C-058** — **P1-1: An arbitrary date range** *(SYS 9)* — two business-day inputs (`YYYY-MM-DD`, compared against the `businessDay` column as string equality, the same trick `historyWhere` uses at C-049 — no parsing, no timezone arithmetic in the path). "March" becomes answerable.
 - ✅ **C-058** — **P1-2: CSV export of the current view** *(SYS 9)* — the rows on screen, with the window in the filename. The bookkeeper's actual ask; a server action returning a text body, no dependency.
-- **P1-3: A no-show and ran-late trend line** *(OPS 9)* — the ran-late count from P0-5 plotted by day, so "was Friday unusual" stops being a memory question.
+- **P1-3: A no-show and ran-late trend line** ✅ *(C-157)* *(OPS 9)* — the ran-late count from P0-5 plotted by day, so "was Friday unusual" stops being a memory question.
 
 ## Non-Goals
 

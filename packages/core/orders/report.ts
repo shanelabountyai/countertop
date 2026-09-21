@@ -249,6 +249,9 @@ export type NoShowRate = {
    *  none finished: a rate over zero orders is not 0%, it is unknown, and a
    *  screen printing "0% no-shows" on an empty day is lying. */
   rate: number | null;
+  /** `noShow` by business day, oldest first, days with none left out (PRD 1
+   *  P1-3, C-157). */
+  byDay: { day: string; noShow: number }[];
 };
 
 export type SalesReport = {
@@ -309,6 +312,7 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
   const outstanding: OutstandingOrder[] = [];
   let sold = 0;
   let noShow = 0;
+  const noShowDays = new Map<string, number>();
   let inFlight = 0;
   let remakes = 0;
   let collectedCents = 0;
@@ -349,6 +353,7 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
     }
     if (role === 'no_show') {
       noShow += 1;
+      noShowDays.set(order.businessDay, (noShowDays.get(order.businessDay) ?? 0) + 1);
       continue;
     }
     sold += 1;
@@ -481,7 +486,14 @@ export function salesReport(orders: readonly ReportableOrder[], timezone: string
         a.itemName.localeCompare(b.itemName) ||
         a.optionName.localeCompare(b.optionName),
     ),
-    noShow: { sold, noShow, rate: sold + noShow === 0 ? null : noShow / (sold + noShow) },
+    noShow: {
+      sold,
+      noShow,
+      rate: sold + noShow === 0 ? null : noShow / (sold + noShow),
+      byDay: [...noShowDays]
+        .map(([day, count]) => ({ day, noShow: count }))
+        .sort((a, b) => a.day.localeCompare(b.day)),
+    },
     payment: {
       collectedCents,
       outstandingCents,

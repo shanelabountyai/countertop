@@ -184,6 +184,9 @@ export type ServiceTimes = {
   scheduled: number;
   /** Of those, the ones that reached `ready` after the minute they promised. */
   scheduledLate: number;
+  /** `tickets` and `ranLate` split by business day, oldest first (PRD 1 P1-3,
+   *  C-157) — so "was Friday unusual" is a row, not a memory. */
+  byDay: { day: string; tickets: number; ranLate: number }[];
 };
 
 /**
@@ -250,6 +253,14 @@ export function serviceTimes(
   const asap = finished.filter(({ ticket }) => ticket.requestedFor === null);
   const scheduled = finished.filter(({ ticket }) => ticket.requestedFor !== null);
 
+  const days = new Map<string, { day: string; tickets: number; ranLate: number }>();
+  for (const { ticket, ready } of asap) {
+    const row = days.get(ticket.businessDay) ?? { day: ticket.businessDay, tickets: 0, ranLate: 0 };
+    row.tickets += 1;
+    if (isPastDue(ticket, ready, thresholds)) row.ranLate += 1;
+    days.set(ticket.businessDay, row);
+  }
+
   const spans: SlowTicket[] = asap.map(({ ticket, ready }) => ({
     seq: ticket.seq,
     businessDay: ticket.businessDay,
@@ -275,5 +286,6 @@ export function serviceTimes(
     scheduled: scheduled.length,
     scheduledLate: scheduled.filter(({ ticket, ready }) => isPastDue(ticket, ready, thresholds))
       .length,
+    byDay: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),
   };
 }

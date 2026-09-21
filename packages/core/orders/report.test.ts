@@ -161,7 +161,11 @@ describe('salesReport — what each status counts toward', () => {
   it('reports a no-show rate over FINISHED orders, not over everything', () => {
     // 1 abandoned of 3 finished (2 picked up + 1 abandoned). The cancelled and
     // the two still in flight are in neither half of the fraction.
-    expect(salesReport(spread, LA).noShow).toEqual({ sold: 2, noShow: 1, rate: 1 / 3 });
+    const { byDay, ...rate } = salesReport(spread, LA).noShow;
+    expect(rate).toEqual({ sold: 2, noShow: 1, rate: 1 / 3 });
+    // And the one no-show lands on its own day's row (C-157), and only there.
+    expect(byDay).toHaveLength(1);
+    expect(byDay[0]?.noShow).toBe(1);
   });
 
   it('counts orders still on the pass rather than silently dropping them', () => {
@@ -170,7 +174,7 @@ describe('salesReport — what each status counts toward', () => {
 
   it('reports an unknown no-show rate, not 0%, when nothing finished', () => {
     const report = salesReport([spread[4] as ReportableOrder], LA);
-    expect(report.noShow).toEqual({ sold: 0, noShow: 0, rate: null });
+    expect(report.noShow).toEqual({ sold: 0, noShow: 0, rate: null, byDay: [] });
   });
 
   it('is empty, not broken, with no orders at all', () => {
@@ -180,7 +184,7 @@ describe('salesReport — what each status counts toward', () => {
       hours: [],
       topItems: [],
       attachRates: [],
-      noShow: { sold: 0, noShow: 0, rate: null },
+      noShow: { sold: 0, noShow: 0, rate: null, byDay: [] },
       payment: {
         collectedCents: 0,
         outstandingCents: 0,

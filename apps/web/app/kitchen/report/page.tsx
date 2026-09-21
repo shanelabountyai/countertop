@@ -87,6 +87,17 @@ export default async function ReportPage({
   // is the queue card's own, unstated here so the report and the red card
   // cannot drift (P0-5).
   const service = serviceTimes(timelines);
+  // PRD 1 P1-3: the two per-day counts joined on the day. Each is counted by
+  // the function that owns it — ran-late by `serviceTimes`, no-shows by
+  // `salesReport` — so this is a join, not a third classification.
+  const trendDays = new Map<string, { day: string; tickets: number; ranLate: number; noShow: number }>();
+  for (const row of service.byDay) trendDays.set(row.day, { ...row, noShow: 0 });
+  for (const row of report.noShow.byDay) {
+    const existing = trendDays.get(row.day) ?? { day: row.day, tickets: 0, ranLate: 0, noShow: 0 };
+    trendDays.set(row.day, { ...existing, noShow: row.noShow });
+  }
+  const trend = [...trendDays.values()].sort((a, b) => a.day.localeCompare(b.day));
+  const trendMax = Math.max(1, ...trend.map((row) => Math.max(row.ranLate, row.noShow)));
   // P1-4. Graded against the quote each order CARRIES, not against a quote
   // recomputed now — which is why this needs a snapshot column and not a
   // cleverer query (C-042).
@@ -626,6 +637,61 @@ export default async function ReportPage({
           </>
         )}
       </Section>
+
+      {/* PRD 1 P1-3: the two counts a manager asks "was that day unusual"
+          about, one row per day. Only for a window of two days or more — a
+          trend of one day is the tile above. The bar is a picture of the
+          number beside it and hidden from screen readers, which read the
+          number. */}
+      {trend.length > 1 && (
+        <Section title="By day">
+          <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Ran late and no-shows by day">
+            <table className="w-full min-w-md border-collapse text-lg">
+              <thead>
+                <tr>
+                  {['Day', 'Tickets', 'Ran late', 'No-shows'].map((header, index) => (
+                    <th
+                      key={header}
+                      scope="col"
+                      className={`border-b-2 border-neutral-400 p-2 ${index === 0 ? 'text-left' : 'text-right'}`}
+                    >
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {trend.map((row) => (
+                  <tr key={row.day} data-testid="trend-row">
+                    <td className="border-b border-neutral-200 p-2 text-left">{row.day}</td>
+                    <td className="border-b border-neutral-200 p-2 text-right tabular-nums">{row.tickets}</td>
+                    <td className="border-b border-neutral-200 p-2 text-right tabular-nums">
+                      <span className="inline-flex items-center justify-end gap-2">
+                        <span
+                          aria-hidden="true"
+                          className="inline-block h-3 rounded bg-red-600"
+                          style={{ width: `${(row.ranLate / trendMax) * 6}rem` }}
+                        />
+                        {row.ranLate}
+                      </span>
+                    </td>
+                    <td className="border-b border-neutral-200 p-2 text-right tabular-nums">
+                      <span className="inline-flex items-center justify-end gap-2">
+                        <span
+                          aria-hidden="true"
+                          className="inline-block h-3 rounded bg-neutral-600"
+                          style={{ width: `${(row.noShow / trendMax) * 6}rem` }}
+                        />
+                        {row.noShow}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+      )}
 
       {/* Outside the sales branch too, and for the same reason: the question
           "were we honest?" is at its most useful during the service that is
