@@ -1,19 +1,17 @@
 # Next
 
-**C-147 shipped this session**: a refused capture is money owed, on both
-pages. The customer's status page now splits its released-hold sentence on
-`canCollectPayment` like the staff receipt — a `capture_failed` release reads
-"your card was not charged. $X due at the counter". New `failCaptureFor`
-fixture + one e2e covering both pages and the collect control. Gate green,
-first attempt: 1161 unit, 241 e2e + 15 skipped = 256. Committed at d70687b.
+**C-148 shipped this session**: the status page's late flip is now announced.
+A visually-hidden copy of "Running a bit behind" sits inside the existing
+`role="status"` panel, and the visible estimate line is `aria-hidden` while
+late. Not a second live region: the range ticks every minute and would be
+spoken every minute. Gate green, first attempt: 1161 unit, 241 e2e + 15
+skipped = 256. Committed at 9acc317.
 
 ## Pick this up first
 
-No item was queued by C-147, and `docs/backlog.md` has nothing unchecked — the
-pick comes from "Still open" below or the PRD's P2 list. Cheapest candidate:
-**the status page's estimate line sits outside the `role="status"` region**
-(C-078) — a screen reader is not told when the estimate changes. Small,
-customer-facing, a11y.
+Nothing queued. Pick from "Still open" below. Cheap candidates: **the
+last-call warning does not tick** (C-079), or **`/menu/[itemId]` can forget the
+footer**.
 
 ## Read this before the next push
 
@@ -22,7 +20,9 @@ customer-facing, a11y.
 - **Before any e2e sweep, both kill lines** (C-128's incident):
   ```sh
   pkill -9 -f "$PWD.*playwright"
-  pkill -9 -f 'node \(vitest'      # parens MUST be escaped
+  # NOT `pkill -f 'node \(vitest'` — vitest renames its workers, so that
+  # pattern matches EVERY project's unit runs (C-148 killed two). Only kill a
+  # stale vitest after `ps` shows its parent is this repo's.
   lsof -ti :3400 | xargs -r kill -9
   ```
   **And check for OTHER projects' sweeps too**: `ps aux | grep -iE
@@ -92,8 +92,6 @@ customer-facing, a11y.
 - **`done=off` survives a page reload.**
 - **A sixth customer route can forget the footer** — `/menu/[itemId]`.
 - **The status page reads the contact columns twice.**
-- **The status page's estimate line is outside the `role="status"` region**
-  (C-078).
 - **The last-call warning does not tick** (C-079).
 - **Twenty-two of twenty-five items have no description** (C-080).
 - **`e2e/refund.spec.ts:211` and `e2e/last-call.spec.ts:17`** — the other
