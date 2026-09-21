@@ -10332,3 +10332,10 @@ and C-157's `byDay` field broke it; I had only run the core suite after that
 change. Loosened to `toMatchObject` (its `byDay` is covered in core). Rerun
 green: 1171 unit (+4), lint, typecheck, build, 249 e2e + 15 skipped = 264
 (+3). No flaky retries.
+
+C-154 committed at 263a4a6
+C-155 committed at 6ef02cb
+C-156 committed at 12f5992
+C-157 committed at f2c9f07
+C-158 committed at 3e084f6
+C-159 committed at e8d2487
