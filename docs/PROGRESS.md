@@ -10460,3 +10460,5 @@ assertion failure to read. With no mechanism, there is nothing to fix.
 **Tests:** the specs themselves; the gate below.
 
 **Gate:** green, first attempt. 1180 unit, lint, typecheck, build, 254 e2e + 15 skipped = 269. No flaky retries.
+
+C-163 committed at 8bc6839
