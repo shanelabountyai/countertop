@@ -35,6 +35,7 @@
 //   1. The `order_event_append_only` BEFORE UPDATE OR DELETE trigger on
 //      OrderEvent. Undo writes a logged revert event; it never deletes.
 //   2. The `restaurant_settings_singleton` CHECK — one settings row, ever.
+//      How it widens is written down above `model RestaurantSettings`.
 //
 // NEVER `prisma db push`. Never edit an applied migration.
 // (`prisma migrate dev --create-only`, then edit.)
@@ -1055,8 +1056,39 @@ model StaffMember {
 // Config
 // ---------------------------------------------------------------------------
 
+// THE MULTI-LOCATION WIDENING PLAN (PRD 6 P1-3, C-156). Not built. Written
+// here, beside the constraint that says "one restaurant", so the migration is
+// a plan rather than a discovery. In this order, each step shippable alone:
+//
+//   1. A `Location` table, and `locationId` NOT NULL on RestaurantSettings,
+//      StoreHours, Order, StagedPrice and MenuChangeEvent, backfilled to one
+//      row. Nothing reads it yet. (Hand-written migration: add nullable,
+//      backfill, then SET NOT NULL.)
+//   2. Drop `restaurant_settings_singleton`; make `locationId` UNIQUE on
+//      RestaurantSettings. Then every `where: { id: 'singleton' }` read (36
+//      call sites today, `grep -rn "id: 'singleton'"`) becomes a read by the
+//      request's location. That grep is the work list.
+//   3. Re-key StoreHours from `dayOfWeek` to `(locationId, dayOfWeek)`.
+//   4. Widen `@@unique([businessDay, seq])` on Order to
+//      `(locationId, businessDay, seq)` IN THE SAME CHANGE that makes
+//      placement's next-seq read per-location. Per-location numbering against
+//      the old global constraint makes B's #001 collide with A's #001 on every
+//      attempt, and placement's retry loop gives up at MAX_SEQ_ATTEMPTS
+//      (placement.ts). The other way round, B just shares A's sequence.
+//   5. Decide shared vs copied menu. Shared: Category/MenuItem/ModifierGroup
+//      stay global and availability (`available`, 86s) moves to a
+//      `(locationId, itemId|optionId)` table, because an 86 is always one
+//      kitchen's. Copied: every menu table gains `locationId`. Recommendation
+//      when it is decided: shared, since prices and names are the brand's and
+//      sold-out is the kitchen's.
+//
+// UNCHANGED BY IT: StaffMember (PINs are people, and people move between
+// locations), LoyaltyMember (one punch card for the brand; its digest stays
+// globally unique), `Order.statusToken` and `idempotencyKey` (random, already
+// global). The report and queue gain a location filter, never a join.
+
 /// Exactly one row, enforced by a CHECK in the migration. C-013 adds prep
-/// times; the rest is here.
+/// times; the rest is here. See the widening plan above before adding a second.
 model RestaurantSettings {
   id          String  @id @default("singleton")
   // --- Where to find us (PRD 5 P0-1, C-077) ---
