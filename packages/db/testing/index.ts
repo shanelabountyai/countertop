@@ -20,7 +20,7 @@ export async function resetDatabase(): Promise<void> {
       "LoyaltyEvent", "LoyaltyMember", "PhoneVerification",
       "OrderEvent", "OrderLineOption", "OrderLine", "Order",
       "StagedPrice", "MenuItemWindow", "ItemModifierGroup", "ModifierOption", "ModifierGroup", "MenuItem",
-      "Category", "RestaurantSettings", "StoreHours", "StaffMember"
+      "Category", "RestaurantSettings", "StoreHours", "StaffMember", "RateLimit"
     RESTART IDENTITY CASCADE
   `);
 }

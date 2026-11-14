@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['packages/**/*.test.ts'],
+    include: ['packages/**/*.test.ts', 'apps/web/lib/**/*.test.ts'],
     // CLAUDE.md: the unit suite must produce identical results under any
     // process TZ. CI runs it twice (TZ=UTC and TZ=Pacific/Kiritimati) — the
     // report-bucketing and order-number-reset tests are exactly what a

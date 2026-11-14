@@ -16,6 +16,7 @@
 // The write lives in packages/db, like every other loyalty write, so this file
 // is a form parser and a redirect and nothing else.
 import { setLoyaltyEnabled } from '@countertop/db/loyalty';
+import { requireStaff } from '@/lib/require-staff';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
@@ -43,5 +44,12 @@ async function setEnabled(enabled: boolean): Promise<never> {
   );
 }
 
-export const turnLoyaltyOn = async (): Promise<void> => setEnabled(true);
-export const turnLoyaltyOff = async (): Promise<void> => setEnabled(false);
+export async function turnLoyaltyOn(): Promise<void> {
+  await requireStaff();
+  await setEnabled(true);
+}
+
+export async function turnLoyaltyOff(): Promise<void> {
+  await requireStaff();
+  await setEnabled(false);
+}

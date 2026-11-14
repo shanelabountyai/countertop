@@ -10,6 +10,7 @@
 // reprice or a deleted group is invisible to every order already in the queue
 // — the regression test in packages/db/snapshot.test.ts is what keeps that
 // true rather than merely intended.
+import { requireStaff } from '@/lib/require-staff';
 import { formatDayLabel, formatMinuteOfDay, parsePriceInput, parseTimeOfDay, WEEKDAY_NAMES } from '@countertop/core';
 import { Prisma, prisma } from '@countertop/db';
 import { collectSupersededPrices, effectivePrices, writePrice } from '@countertop/db/menu';
@@ -106,6 +107,7 @@ export async function saveItemPrice(
   seenFromCents?: unknown,
   effectiveDayInput?: unknown,
 ): Promise<void> {
+  await requireStaff();
   if (typeof itemId !== 'string' || typeof priceText !== 'string') rejected();
   const cents = parsePriceInput(priceText);
   if (cents === null || cents < 0) rejected();
@@ -144,6 +146,7 @@ export async function saveItemPrice(
  * a fajita plate free work.
  */
 export async function saveItemPrepWeight(formData: FormData): Promise<void> {
+  await requireStaff();
   const itemId = formData.get('itemId');
   const raw = formData.get('prepWeight');
   const weight = typeof raw === 'string' && /^\d{1,2}$/.test(raw) ? Number(raw) : null;
@@ -177,6 +180,7 @@ export async function saveItemPrepWeight(formData: FormData): Promise<void> {
  * Postgres and come back as a 500.
  */
 export async function saveItemDescription(formData: FormData): Promise<void> {
+  await requireStaff();
   const itemId = formData.get('itemId');
   const raw = formData.get('description');
   if (typeof itemId !== 'string' || typeof raw !== 'string') rejected();
@@ -205,6 +209,7 @@ export async function saveItemDescription(formData: FormData): Promise<void> {
  * as a sentence rather than a 500.
  */
 export async function saveItemImage(formData: FormData): Promise<void> {
+  await requireStaff();
   const itemId = formData.get('itemId');
   const raw = formData.get('imageUrl');
   if (typeof itemId !== 'string' || typeof raw !== 'string') rejected();
@@ -241,6 +246,7 @@ export async function saveOptionPrice(
   seenFromCents?: unknown,
   effectiveDayInput?: unknown,
 ): Promise<void> {
+  await requireStaff();
   if (typeof optionId !== 'string' || typeof priceText !== 'string') rejected();
   const cents = parsePriceInput(priceText);
   if (cents === null) rejected();
@@ -274,6 +280,7 @@ export async function saveOptionPrice(
  * change with no confirm panel in front of it.
  */
 export async function cancelStagedPrice(stagedId: unknown): Promise<void> {
+  await requireStaff();
   if (typeof stagedId !== 'string') rejected();
   const { today } = await effectivePrices();
   const { count } = await prisma.stagedPrice.deleteMany({
@@ -293,6 +300,7 @@ export async function cancelStagedPrice(stagedId: unknown): Promise<void> {
  * customer could be charged for getting wrong.
  */
 export async function collectSupersededStagedPrices(): Promise<void> {
+  await requireStaff();
   const count = await collectSupersededPrices();
   done(count === 0 ? 'nothing to collect' : `${count} superseded queued change${count === 1 ? '' : 's'} removed`);
 }
@@ -310,6 +318,7 @@ export async function saveExtraSurcharge(
   priceText: unknown,
   seenFromCents?: unknown,
 ): Promise<void> {
+  await requireStaff();
   if (typeof optionId !== 'string' || typeof priceText !== 'string') rejected();
   const raw = priceText.trim();
   const cents = raw === '' ? null : parsePriceInput(raw);
@@ -357,6 +366,7 @@ export async function saveGroup(
   maxText: unknown,
   seen?: unknown,
 ): Promise<void> {
+  await requireStaff();
   if (typeof groupId !== 'string') rejected();
   const bounds = parseBounds(minText, maxText);
   const trimmed = typeof name === 'string' ? name.trim() : '';
@@ -404,6 +414,7 @@ export async function saveGroup(
  * already gone. The group's options cascade.
  */
 export async function deleteGroup(groupId: unknown): Promise<void> {
+  await requireStaff();
   if (typeof groupId !== 'string') rejected();
 
   const group = await prisma.modifierGroup.findUnique({ where: { id: groupId } });
@@ -429,6 +440,7 @@ export async function deleteGroup(groupId: unknown): Promise<void> {
  * minute of the day" — a value `<input type="time">` cannot express at all.
  */
 export async function addItemWindow(formData: FormData): Promise<void> {
+  await requireStaff();
   const itemId = formData.get('itemId');
   const dayText = formData.get('dayOfWeek');
   const startText = formData.get('start');
@@ -488,6 +500,7 @@ export async function addItemWindow(formData: FormData): Promise<void> {
  * adding one above.
  */
 export async function deleteItemWindow(windowId: unknown): Promise<void> {
+  await requireStaff();
   if (typeof windowId !== 'string') rejected();
   const window = await prisma.menuItemWindow.findUnique({
     where: { id: windowId },

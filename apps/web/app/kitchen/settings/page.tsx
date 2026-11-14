@@ -9,6 +9,7 @@
 // Timezone and tax rate are shown and NOT editable. Changing either re-buckets
 // every report and moves the business day the order numbers reset on; that is
 // a migration-shaped decision, not a form field.
+import { requireStaffPage } from '@/lib/require-staff';
 import Link from 'next/link';
 import { formatMinuteOfDay, restaurantClock, WEEKDAY_NAMES } from '@countertop/core';
 import { loadGateState } from '@countertop/db/gate';
@@ -42,6 +43,7 @@ export default async function SettingsPage({
   // hydration, and re-reads the CURRENT hours to diff against on every render.
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
+  await requireStaffPage('/kitchen/settings');
   const params = await searchParams;
   const { saved, error } = params;
   // Read once, here (CLAUDE.md time rules).

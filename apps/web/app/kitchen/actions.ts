@@ -7,6 +7,7 @@
 // fails closed when `STAFF_PASSCODE` is unset. That is the only thing standing
 // between these writes and the internet, so nothing below may assume a caller
 // came from a screen this app rendered.
+import { requireStaff } from '@/lib/require-staff';
 import {
   ADJUSTMENT_KINDS,
   CANCEL_REASONS,
@@ -121,6 +122,7 @@ export async function advanceOrder(
    */
   shelfLocation?: unknown,
 ): Promise<KitchenResult> {
+  await requireStaff();
   const target = readTarget(to);
   if (target === 'invalid') {
     return { ok: false, message: 'That order could not be read. Reload the queue.' };
@@ -149,6 +151,7 @@ export async function saveShelfLocation(
   orderId: unknown,
   shelfLocation: unknown,
 ): Promise<KitchenResult> {
+  await requireStaff();
   if (typeof orderId !== 'string' || orderId === '' || typeof shelfLocation !== 'string') {
     return { ok: false, message: 'That order could not be read. Reload the queue.' };
   }
@@ -163,6 +166,7 @@ export async function saveShelfLocation(
  * write it ever needs.
  */
 export async function markCustomerWaitingForm(formData: FormData): Promise<void> {
+  await requireStaff();
   const orderId = formData.get('orderId');
   if (typeof orderId !== 'string' || orderId === '') return;
   await markCustomerWaiting(orderId, new Date(), await currentShiftId());
@@ -189,6 +193,7 @@ export async function markCustomerWaitingForm(formData: FormData): Promise<void>
  * type.
  */
 export async function addOrderNote(orderId: unknown, note: unknown): Promise<KitchenResult> {
+  await requireStaff();
   if (typeof orderId !== 'string' || orderId === '' || typeof note !== 'string') {
     return { ok: false, message: 'That order could not be read. Reload the queue.' };
   }
@@ -216,6 +221,7 @@ export async function addOrderNote(orderId: unknown, note: unknown): Promise<Kit
  *  knows about an order the queue has finished with (PRD 2 P0-6). Same action
  *  underneath, so there is one rule about what a note may be. */
 export async function addOrderNoteForm(formData: FormData): Promise<void> {
+  await requireStaff();
   const orderId = formData.get('orderId');
   if (typeof orderId !== 'string' || orderId === '') {
     return redirect('/kitchen/orders');
@@ -238,6 +244,7 @@ export async function revertOrder(
   to?: unknown,
   note?: string,
 ): Promise<KitchenResult> {
+  await requireStaff();
   const target = readTarget(to);
   if (target === 'invalid') {
     return { ok: false, message: 'That order could not be read. Reload the queue.' };
@@ -272,6 +279,7 @@ export async function revertOrder(
  * the only place a typed value arrives.
  */
 export async function revertOrderForm(formData: FormData): Promise<void> {
+  await requireStaff();
   const orderId = formData.get('orderId');
   if (typeof orderId !== 'string' || orderId === '') {
     return redirect('/kitchen/orders');
@@ -308,6 +316,7 @@ export async function cancelOrder(
   reason: string,
   note?: string,
 ): Promise<KitchenResult> {
+  await requireStaff();
   if (!CANCEL_REASONS.includes(reason as CancelReason)) {
     return { ok: false, message: 'Pick a reason for the cancellation.' };
   }
@@ -322,6 +331,7 @@ export async function cancelOrder(
 /** The no-show close-out. `abandoned`, never `cancelled` — the no-show rate is
  *  a number the owner acts on (P0-4, P1-1). */
 export async function abandonOrder(orderId: string): Promise<KitchenResult> {
+  await requireStaff();
   return run(orderId, { kind: 'abandon', actor: 'staff' });
 }
 
@@ -339,6 +349,7 @@ export async function abandonOrder(orderId: string): Promise<KitchenResult> {
  * reads the clock once, checks the argument, and revalidates.
  */
 export async function markOrderPaid(orderId: unknown): Promise<KitchenResult> {
+  await requireStaff();
   if (typeof orderId !== 'string' || orderId === '') {
     return { ok: false, message: 'That order could not be read. Reload the queue.' };
   }
@@ -365,6 +376,7 @@ export async function markOrderPaid(orderId: unknown): Promise<KitchenResult> {
  * someone else got there first, and still there if it did not apply.
  */
 export async function collectPayment(formData: FormData): Promise<void> {
+  await requireStaff();
   await markOrderPaid(formData.get('orderId'));
 }
 
@@ -415,6 +427,7 @@ const ECHOABLE_REFUSALS: readonly AdjustmentRefusalReason[] = [
  * here and none is a channel for anything a caller supplied.
  */
 export async function redeemRewardForm(formData: FormData): Promise<void> {
+  await requireStaff();
   const orderId = formData.get('orderId');
   if (typeof orderId !== 'string' || orderId === '') {
     return redirect('/kitchen/orders');
@@ -455,6 +468,7 @@ export async function redeemRewardForm(formData: FormData): Promise<void> {
  * anything this caller supplied.
  */
 export async function retryRefundForm(formData: FormData): Promise<void> {
+  await requireStaff();
   const orderId = formData.get('orderId');
   if (typeof orderId !== 'string' || orderId === '') {
     return redirect('/kitchen/orders');
@@ -494,6 +508,7 @@ export async function retryRefundForm(formData: FormData): Promise<void> {
  * on the row, exactly as `retryRefundForm`'s does.
  */
 export async function retryHoldForm(formData: FormData): Promise<void> {
+  await requireStaff();
   const orderId = formData.get('orderId');
   if (typeof orderId !== 'string' || orderId === '') {
     return redirect('/kitchen/orders');
@@ -532,6 +547,7 @@ export async function retryHoldForm(formData: FormData): Promise<void> {
  * legal 13.75 that nobody is told about until the till is counted.
  */
 export async function refundOrderForm(formData: FormData): Promise<void> {
+  await requireStaff();
   const orderId = formData.get('orderId');
   if (typeof orderId !== 'string' || orderId === '') {
     return redirect('/kitchen/orders');
@@ -601,6 +617,7 @@ export async function refundOrderForm(formData: FormData): Promise<void> {
  * `adjustOrderForm`'s has to for `unknown_adjustment_kind`.
  */
 export async function reverseRefundForm(formData: FormData): Promise<void> {
+  await requireStaff();
   const orderId = formData.get('orderId');
   if (typeof orderId !== 'string' || orderId === '') {
     return redirect('/kitchen/orders');
@@ -674,6 +691,7 @@ const ECHOABLE_REFUND_REFUSALS: readonly (RefundRefusalReason | SettleRefundReas
  * the name that just went away.
  */
 export async function forgetCustomerForm(formData: FormData): Promise<void> {
+  await requireStaff();
   const orderId = formData.get('orderId');
   if (typeof orderId !== 'string' || orderId === '') {
     return redirect('/kitchen/orders');
@@ -703,6 +721,7 @@ export async function forgetCustomerForm(formData: FormData): Promise<void> {
  * is the price authority), and the parse below only turns text into cents.
  */
 export async function adjustOrderForm(formData: FormData): Promise<void> {
+  await requireStaff();
   const orderId = formData.get('orderId');
   if (typeof orderId !== 'string' || orderId === '') {
     return redirect('/kitchen/orders');
@@ -804,6 +823,7 @@ export async function adjustOrderForm(formData: FormData): Promise<void> {
  * call out is the new one.
  */
 export async function remakeOrderForm(formData: FormData): Promise<void> {
+  await requireStaff();
   const orderId = formData.get('orderId');
   if (typeof orderId !== 'string' || orderId === '') {
     return redirect('/kitchen/orders');
@@ -849,6 +869,7 @@ export async function remakeOrderForm(formData: FormData): Promise<void> {
  * passcode is still the only thing keeping this screen off the internet.
  */
 export async function startShift(pin: unknown): Promise<KitchenResult> {
+  await requireStaff();
   if (typeof pin !== 'string' || !isStaffPin(pin)) {
     return { ok: false, message: 'A PIN is four digits.' };
   }
@@ -874,6 +895,7 @@ export async function startShift(pin: unknown): Promise<KitchenResult> {
 /** End it. Deliberately not a sign-out: the passcode session is untouched, so
  *  the queue stays on the wall and the next person starts their own shift. */
 export async function endShift(): Promise<KitchenResult> {
+  await requireStaff();
   (await cookies()).delete(ON_SHIFT_COOKIE);
   revalidatePath('/kitchen', 'layout');
   return { ok: true };
@@ -888,6 +910,7 @@ export async function endShift(): Promise<KitchenResult> {
  * queue draining below the auto-threshold.
  */
 export async function setOrderingPaused(paused: unknown, message?: unknown): Promise<KitchenResult> {
+  await requireStaff();
   if (typeof paused !== 'boolean') {
     return { ok: false, message: 'That switch could not be read. Reload the queue.' };
   }
@@ -919,12 +942,14 @@ export async function setOrderingPaused(paused: unknown, message?: unknown): Pro
  * order. A placed order is untouched by construction: it is a snapshot.
  */
 export async function setItemAvailable(itemId: unknown, available: unknown): Promise<void> {
+  await requireStaff();
   if (typeof itemId !== 'string' || typeof available !== 'boolean') return;
   await setAvailability([itemId], [], available);
   revalidateMenuSurfaces();
 }
 
 export async function setOptionAvailable(optionId: unknown, available: unknown): Promise<void> {
+  await requireStaff();
   if (typeof optionId !== 'string' || typeof available !== 'boolean') return;
   await setAvailability([], [optionId], available);
   revalidateMenuSurfaces();
@@ -943,6 +968,7 @@ export async function setOptionAvailable(optionId: unknown, available: unknown):
  * there is no second propagation path to keep in step with the first.
  */
 export async function setBulkAvailable(formData: FormData): Promise<void> {
+  await requireStaff();
   const available = formData.get('available') === 'true';
   const ids = (key: string) =>
     formData.getAll(key).filter((value): value is string => typeof value === 'string' && value !== '');

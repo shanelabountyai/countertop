@@ -20,6 +20,7 @@
 // came from — the panel re-reads the CURRENT price from the database on every
 // render, so a confirm screen left open through someone else's edit shows the
 // real old value rather than a stale one captured at click time.
+import { requireStaffPage } from '@/lib/require-staff';
 import Link from 'next/link';
 import {
   formatDayLabel,
@@ -71,6 +72,7 @@ export default async function MenuEditorPage({
 }: {
   searchParams: Promise<Params>;
 }) {
+  await requireStaffPage('/kitchen/menu');
   const params = await searchParams;
   // The menu here already carries any staged change that has LANDED — the
   // editor edits the effective price, the same number the customer is being

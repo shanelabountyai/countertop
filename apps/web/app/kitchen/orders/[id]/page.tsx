@@ -14,6 +14,7 @@
 // `findOrderByIdForStaff` never joins a menu table, so a receipt from a menu
 // that has since been repriced, renamed or 86'd reads exactly as it did the
 // day it was placed.
+import { requireStaffPage } from '@/lib/require-staff';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
@@ -87,6 +88,7 @@ export default async function OrderHistoryDetailPage({
     forget?: string;
   }>;
 }) {
+  await requireStaffPage('/kitchen/orders');
   const { id } = await params;
   const {
     adjustError,

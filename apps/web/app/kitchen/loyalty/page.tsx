@@ -15,6 +15,7 @@
 //
 // The window selector governs the ACTIVITY only. What is outstanding is
 // outstanding today; "$390 of liability in the last 7 days" is not a number.
+import { requireStaffPage } from '@/lib/require-staff';
 import Link from 'next/link';
 import { instantDaysBefore } from '@countertop/core';
 import { loadLoyaltyProgram } from '@countertop/db/loyalty';
@@ -39,6 +40,7 @@ export default async function LoyaltyPage({
 }: {
   searchParams: Promise<{ days?: string; saved?: string }>;
 }) {
+  await requireStaffPage('/kitchen/loyalty');
   // Read once, here, and passed down (CLAUDE.md time rules).
   const now = new Date();
   const params = await searchParams;

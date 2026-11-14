@@ -11,6 +11,7 @@
 //
 // Plain `<form action={...}>` posts, so the screen works before it hydrates —
 // same reasoning as the cart's Remove button.
+import { requireStaff } from '@/lib/require-staff';
 import { formatMinuteOfDay, restaurantClock, WEEKDAY_NAMES } from '@countertop/core';
 import { prisma } from '@countertop/db';
 import { revalidatePath } from 'next/cache';
@@ -83,6 +84,7 @@ function parseBounded(value: unknown, low: number, high: number): number | null 
  * refused, as its CHECK does.
  */
 export async function saveHours(formData: FormData): Promise<void> {
+  await requireStaff();
   const rows: { dayOfWeek: number; openMinute: number; closeMinute: number }[] = [];
 
   for (const [dayOfWeek, name] of WEEKDAY_NAMES.entries()) {
@@ -124,6 +126,7 @@ export async function saveHours(formData: FormData): Promise<void> {
  * migration is the honest way to say so.
  */
 export async function saveService(formData: FormData): Promise<void> {
+  await requireStaff();
   // CHECK "maxOpenWeight" > 0 (checkout_gate, renamed in prep_weight). The
   // upper bound is this screen's own: a threshold above 500 is a threshold
   // that never fires, and a manager who wants that should use the pause
@@ -167,6 +170,7 @@ export async function saveService(formData: FormData): Promise<void> {
  * it was — the checkout screen simply stops offering the picker.
  */
 export async function saveScheduling(formData: FormData): Promise<void> {
+  await requireStaff();
   const scheduledOrdersEnabled = formData.get('scheduledOrdersEnabled') === 'on';
 
   // CHECK restaurant_settings_slot_interval_in_range.
@@ -207,6 +211,7 @@ export async function saveScheduling(formData: FormData): Promise<void> {
  * and "today" is the only date this control can mean.
  */
 export async function setClosedToday(closed: boolean): Promise<void> {
+  await requireStaff();
   const settings = await prisma.restaurantSettings.findUniqueOrThrow({
     where: { id: 'singleton' },
   });
@@ -219,8 +224,15 @@ export async function setClosedToday(closed: boolean): Promise<void> {
   done(closed ? `Closed for ${today}.` : 'Reopened — today follows the usual hours.');
 }
 
-export const closeTodayForm = async (): Promise<void> => setClosedToday(true);
-export const reopenTodayForm = async (): Promise<void> => setClosedToday(false);
+export async function closeTodayForm(): Promise<void> {
+  await requireStaff();
+  await setClosedToday(true);
+}
+
+export async function reopenTodayForm(): Promise<void> {
+  await requireStaff();
+  await setClosedToday(false);
+}
 
 /**
  * Where to find us (PRD 5 P0-1, C-077).
@@ -235,6 +247,7 @@ export const reopenTodayForm = async (): Promise<void> => setClosedToday(false);
  * not the cell". The bound that matters is length, and it is the VarChar.
  */
 export async function saveContact(formData: FormData): Promise<void> {
+  await requireStaff();
   const text = (field: string, limit: number, label: string): string | null => {
     const value = formData.get(field);
     const trimmed = typeof value === 'string' ? value.trim() : '';

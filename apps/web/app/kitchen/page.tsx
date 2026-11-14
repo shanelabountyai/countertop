@@ -5,6 +5,7 @@
 // hides behind a hover or a tap-through. Every card renders from the ORDER'S
 // OWN SNAPSHOT — no menu table is touched here, which is what makes a menu
 // edit provably invisible to an order already on the grill.
+import { requireStaffPage } from '@/lib/require-staff';
 import Link from 'next/link';
 import {
   DEFAULT_AGING,
@@ -71,6 +72,7 @@ export default async function KitchenPage({
 }: {
   searchParams: Promise<{ q?: string }>;
 }) {
+  await requireStaffPage('/kitchen');
   // Read once, here, and passed down. Every elapsed minute on this screen is
   // measured against the SERVER's instant — the browser's clock is never an
   // input (CLAUDE.md time rules).
