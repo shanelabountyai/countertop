@@ -10,6 +10,7 @@
 // It is under /kitchen, so `middleware.ts` guards it with the same one check
 // every other staff surface gets (C-037). That is the whole reason it lives
 // here rather than under /api.
+import { staffRouteRefusal } from '@/lib/require-staff';
 import { salesReport } from '@countertop/core';
 import { loadServiceDay } from '@countertop/db/gate';
 import { loadReportOrders } from '@countertop/db/report';
@@ -38,6 +39,8 @@ const cell = (value: string): string =>
   /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 
 export async function GET(request: Request): Promise<Response> {
+  const refused = await staffRouteRefusal();
+  if (refused) return refused;
   // Read once, here, and pass it down (CLAUDE.md time rules).
   const now = new Date();
   const { timezone, day: today } = await loadServiceDay(now);

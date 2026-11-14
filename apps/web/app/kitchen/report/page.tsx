@@ -8,6 +8,7 @@
 // was placed under, carried on the order itself — so last month's sales are
 // reported under last month's menu, and an item deleted this morning still
 // appears in the history it earned.
+import { requireStaffPage } from '@/lib/require-staff';
 import Link from 'next/link';
 import {
   estimateAccuracy,
@@ -62,6 +63,7 @@ export default async function ReportPage({
 }: {
   searchParams: Promise<ReportParams>;
 }) {
+  await requireStaffPage('/kitchen/report');
   // Read once, here. Everything below is a parameter (CLAUDE.md time rules).
   const now = new Date();
   const params = await searchParams;

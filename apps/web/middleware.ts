@@ -6,11 +6,13 @@
 // matching the route matches the writes too, and adding a sixteenth action
 // cannot forget to be protected.
 //
-// ponytail: route-layer, so an action imported into a page OUTSIDE /kitchen
-// would bypass it. Nothing does today (`grep "from './actions'"` is the
-// check, and auth.spec.ts asserts the POST is refused). If a kitchen action
-// ever needs to be called from a customer surface, the upgrade is a
-// requireStaff() at the top of that action — not a second matcher.
+// Not the ONLY guard any more (SEC-04, scorecard K3): a route-layer matcher
+// is only as good as the routing layer, and a server action is addressed by
+// its id rather than by the path it was rendered on. Every kitchen page,
+// route handler and 'use server' export now also calls `lib/require-staff.ts`
+// itself, and `lib/require-staff.test.ts` fails the suite if one does not.
+// This file stays the first line: it is what sends a browser to the login
+// page and re-issues a cookie mid-rotation.
 import { NextResponse, type NextRequest } from 'next/server';
 import {
   STAFF_COOKIE,

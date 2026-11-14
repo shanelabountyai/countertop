@@ -7,11 +7,14 @@
 //
 // Under /kitchen, so the middleware's staff check guards it (C-037). A bridge
 // authenticates the way a tablet does, with the passcode cookie.
+import { staffRouteRefusal } from '@/lib/require-staff';
 import { loadFeed } from '@countertop/db/queue';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request): Promise<Response> {
+  const refused = await staffRouteRefusal();
+  if (refused) return refused;
   const raw = new URL(request.url).searchParams.get('after') ?? '0';
   // A cursor is a non-negative integer or it is a bad request — never guessed.
   if (!/^\d{1,15}$/.test(raw)) {

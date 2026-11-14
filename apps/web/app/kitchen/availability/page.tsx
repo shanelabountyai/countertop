@@ -45,6 +45,7 @@
 // GET that works unhydrated, a second tablet can be opened on the same
 // selection, and a filter changing underneath a selection cannot silently drop
 // half of it — every link is rebuilt from the URL, not from the DOM.
+import { requireStaffPage } from '@/lib/require-staff';
 import Link from 'next/link';
 import {
   itemsUsingGroup,
@@ -166,6 +167,7 @@ export default async function AvailabilityPage({
     done?: string;
   }>;
 }) {
+  await requireStaffPage('/kitchen/availability');
   const [menu, activity, { timezone }] = await Promise.all([
     loadMenu(),
     loadMenuActivity(),

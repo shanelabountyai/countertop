@@ -4,6 +4,7 @@
 // A GET form, like the queue's own lookup: the walk-up "what did I actually
 // order last week" moment works before hydration, and the result is a URL a
 // second screen can be opened on.
+import { requireStaffPage } from '@/lib/require-staff';
 import Link from 'next/link';
 import { formatOrderNumber, orderBalance } from '@countertop/core';
 import { loadStuckHolds } from '@countertop/db/authorization';
@@ -24,6 +25,7 @@ export default async function OrderHistoryPage({
 }: {
   searchParams: Promise<{ q?: string; day?: string }>;
 }) {
+  await requireStaffPage('/kitchen/orders');
   const { q, day: dayParam } = await searchParams;
   const query = q ?? '';
   const day = dayParam ?? '';
