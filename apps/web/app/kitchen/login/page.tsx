@@ -63,6 +63,11 @@ export default async function LoginPage({
           That passcode is not right.
         </p>
       ) : null}
+      {error === 'slow' ? (
+        <p role="alert" className="mt-4 text-sm text-red-700">
+          Too many sign-in attempts. Wait a few minutes and try again.
+        </p>
+      ) : null}
       {error === 'unset' ? (
         <p role="alert" className="mt-4 text-sm text-red-700">
           No passcode is configured on this server.

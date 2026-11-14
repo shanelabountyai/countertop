@@ -31,6 +31,7 @@
 import { expireInactiveBalances } from './loyalty';
 import { sweepRetention } from './retention';
 import { sweepExpiredVerifications } from './verification';
+import { sweepRateLimits } from './rate-limit';
 import { prisma } from './index';
 
 const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
@@ -61,6 +62,9 @@ async function main(): Promise<void> {
       ? 'No expired verification codes to delete.'
       : `Deleted ${plural(swept, 'expired verification code')}.`,
   );
+
+  const limits = await sweepRateLimits(now);
+  if (limits > 0) console.log(`Deleted ${plural(limits, 'stale rate-limit window')}.`);
 
   console.log('Order numbers, money, lines and events are untouched — no report moved.');
 }

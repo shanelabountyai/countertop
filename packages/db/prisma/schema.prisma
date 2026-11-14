@@ -1298,3 +1298,17 @@ model StoreHours {
   /// runs past midnight into the next day (C-141); never equal to it.
   closeMinute Int
 }
+
+/// Fixed-window request counters for the public, unauthenticated writes
+/// (scorecard K5, SEC-02): the kitchen passcode, the checkout verification
+/// code, placement and status-link reads. In Postgres rather than in memory
+/// so a limit holds across every serverless instance and survives a cold
+/// start. One atomic upsert per hit (`packages/db/rate-limit.ts`); the
+/// retention sweep deletes windows that ended over a day ago.
+model RateLimit {
+  key         String
+  windowStart DateTime @db.Timestamptz(3)
+  count       Int      @default(1)
+
+  @@id([key, windowStart])
+}

@@ -42,6 +42,7 @@ import { formatCents } from '@/lib/money';
 import { PAYMENT_LABEL } from '@/lib/status-labels';
 import { CallLink, RestaurantFooter } from '@/lib/restaurant-footer';
 import { loadRestaurantContact } from '@countertop/db/gate';
+import { allow } from '@/lib/rate-limit';
 
 export const metadata = {
   title: 'Your order — Firebird Kitchen',
@@ -136,6 +137,17 @@ const CANCEL_EXPLANATION: Record<CancelReason, string> = {
 
 export default async function StatusPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  // K5 / SEC-02: anonymous token reads are limited per address, in Postgres.
+  // Generous for a customer watching one order; tight for a token guesser.
+  if (!(await allow('statusReadPerIp'))) {
+    return (
+      <main className="mx-auto max-w-xl p-6">
+        <p role="alert" className="text-lg">
+          Too many requests from this connection. Wait a few minutes and reload.
+        </p>
+      </main>
+    );
+  }
   // One clock read, at the edge, and it is the SERVER's: every minute on this
   // page is measured against it (CLAUDE.md time rules).
   const now = new Date();

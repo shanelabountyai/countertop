@@ -36,6 +36,7 @@
     "./loyalty": "./loyalty.ts",
     "./retention": "./retention.ts",
     "./notifications": "./notifications.ts",
-    "./verification": "./verification.ts"
+    "./verification": "./verification.ts",
+    "./rate-limit": "./rate-limit.ts"
   }
 }

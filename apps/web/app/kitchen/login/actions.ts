@@ -12,6 +12,7 @@ import {
   STAFF_COOKIE,
   STAFF_COOKIE_MAX_AGE,
 } from '@/lib/staff-auth';
+import { allow } from '@/lib/rate-limit';
 
 export async function signIn(formData: FormData): Promise<void> {
   const passcode = staffPasscode();
@@ -20,6 +21,12 @@ export async function signIn(formData: FormData): Promise<void> {
   // Not a wrong passcode — a deployment with no passcode set at all. Saying so
   // is the difference between a five-minute fix and an afternoon.
   if (passcode === '') redirect('/kitchen/login?error=unset');
+
+  // K5 / SEC-02: one shared passcode is a small space; a guesser gets ten
+  // tries a quarter hour per address, counted in Postgres, right or wrong.
+  if (!(await allow('staffSignInPerIp'))) {
+    redirect(`/kitchen/login?error=slow&next=${encodeURIComponent(next)}`);
+  }
 
   // Both sides hashed, so the comparison is over two fixed-length digests and
   // `sameToken`'s constant time is actually constant.

@@ -20,6 +20,8 @@ import {
   confirmPhoneVerificationForCheckout,
   startPhoneVerification,
 } from '@countertop/db/verification';
+import { createHash } from 'node:crypto';
+import { allow } from '@/lib/rate-limit';
 import { clearCart, readCart } from '@/lib/cart-session';
 import { rememberOrder } from '@/lib/recent-orders';
 import { logPlacement } from '@/lib/log';
@@ -78,6 +80,7 @@ export type OrderConfirmation = {
 export type CheckoutError =
   | PlacementError
   | { kind: 'malformed_request'; message: string }
+  | { kind: 'rate_limited'; message: string }
   | { kind: 'idempotency_key_invalid'; message: string }
   | { kind: 'placement_failed'; message: string };
 
@@ -101,6 +104,15 @@ const BAD_KEY: CheckoutResult = {
 export type CheckoutResult =
   | { ok: true; confirmation: OrderConfirmation }
   | { ok: false; errors: CheckoutError[]; review: CartReview | null };
+
+/** K5 / SEC-02. The one sentence every public limit here shows. */
+const TOO_MANY = 'Too many attempts from this connection. Wait a few minutes and try again.';
+
+const RATE_LIMITED: CheckoutResult = {
+  ok: false,
+  errors: [{ kind: 'rate_limited', message: TOO_MANY }],
+  review: null,
+};
 
 const MALFORMED: CheckoutResult = {
   ok: false,
@@ -192,6 +204,16 @@ export async function requestCheckoutVerification(raw: unknown): Promise<Verific
   if (!isRecord(raw) || typeof raw.phone !== 'string') {
     return { ok: false, message: 'That request could not be read. Try again.' };
   }
+  // K5 / SEC-02: per caller, and per phone (keyed on a hash, never the number).
+  const phoneKey = createHash('sha256')
+    .update(`countertop-ratelimit:${raw.phone.replace(/\D/g, '')}`)
+    .digest('hex');
+  if (
+    !(await allow('verifyStartPerIp')) ||
+    !(await allow('verifyStartPerPhone', `phone:${phoneKey}`))
+  ) {
+    return { ok: false, message: TOO_MANY };
+  }
   const result = await startPhoneVerification(raw.phone, new Date());
   return result.ok
     ? { ok: true, expiresAt: result.expiresAt, echoedCode: result.echoedCode }
@@ -216,6 +238,7 @@ export async function confirmCheckoutVerification(raw: unknown): Promise<Verific
   ) {
     return { ok: false, message: 'That request could not be read. Try again.' };
   }
+  if (!(await allow('verifyConfirmPerIp'))) return { ok: false, message: TOO_MANY };
   const result = await confirmPhoneVerificationForCheckout(
     raw.phone,
     raw.code,
@@ -236,6 +259,7 @@ export async function confirmCheckoutVerification(raw: unknown): Promise<Verific
  */
 export async function placeCartOrder(raw: unknown): Promise<CheckoutResult> {
   if (!isRecord(raw)) return MALFORMED;
+  if (!(await allow('placementPerIp'))) return RATE_LIMITED;
 
   const { idempotencyKey, clientTotalCents, payNow } = raw;
   if (typeof idempotencyKey !== 'string') return MALFORMED;
