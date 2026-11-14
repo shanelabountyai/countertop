@@ -12,6 +12,16 @@ export const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
 ];
 
+// Scorecard K6: the order status page is a capability link, secret only
+// because its token is unguessable. The token must never leave in a Referer
+// header, never be filed by a crawler, and never sit in a shared cache.
+// Listed AFTER the global block, so its Referrer-Policy wins.
+export const statusLinkHeaders = [
+  { key: "Referrer-Policy", value: "no-referrer" },
+  { key: "X-Robots-Tag", value: "noindex, nofollow" },
+  { key: "Cache-Control", value: "private, no-store, max-age=0" },
+];
+
 const nextConfig: NextConfig = {
   // The workspace packages ship TypeScript SOURCE, not a build output — that
   // is what keeps packages/core directly runnable by vitest and readable by
@@ -36,6 +46,7 @@ const nextConfig: NextConfig = {
 
   headers: async () => [
     { source: "/:path*", headers: securityHeaders },
+    { source: "/status/:path*", headers: statusLinkHeaders },
   ],
 };
 
